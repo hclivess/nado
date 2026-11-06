@@ -4,7 +4,8 @@ trading is necessary": the world server's economy (scripts/land_server.py, rules
 over HTTP against the REAL planet — the server asks scripts/land_terrain.mjs, i.e. static/land-world.js, what each cell
 holds, so a yield is what the ground really is.
 
-  * by hand: grass gives earth and fiber, leaves give sticks and fiber; a log and rock cannot be broken by hand;
+  * by hand: grass gives earth and fiber, leaves give sticks and fiber, a loose stone a stone, a fallen stick two sticks;
+    a log and rock cannot be broken by hand;
   * tools: cordage from fiber, a stone axe and pickaxe from sticks, stone and cordage; with the axe a log gives wood,
     with the pickaxe rock gives cobblestone; a tool you already made makes breaking quicker;
   * time: breaking spends seconds of work (hardness over tool speed) — a caller cannot strip the planet faster than a hand;
@@ -53,11 +54,19 @@ for (let du = 32; du < 600 && !out; du++) for (let dv = 0; dv < 16 && !out; dv++
   if (t && t.kind === "broadleaf") out = { face: q.face, u, v, top: c.top, height: t.height };
 }
 const g = { u: out.u + 3, v: out.v };
+// the litter nearest the tree: a loose stone and a fallen stick lying on the meadow (land-world litterAt)
+const lit = {};
+for (let du = 0; du < 200 && !(lit.pebble && lit.twigs); du++) for (let dv = 0; dv < 16; dv++) {
+  const u = out.u + du, v = q.v0 + dv, c = W.column(q.face, u, v), b = W.terrainBlock(q.face, u, v, c.top + 1);
+  if (b === W.B.pebble && !lit.pebble) lit.pebble = [q.face, u, v, c.top + 1];
+  if (b === W.B.twigs && !lit.twigs) lit.twigs = [q.face, u, v, c.top + 1];
+}
 const gc = W.column(out.face, g.u, g.v);
 console.log(JSON.stringify({ tree: out, grass: [out.face, g.u, g.v, gc.top], grassBlock: W.terrainBlock(out.face, g.u, g.v, gc.top),
   rock: [out.face, g.u, g.v, gc.top - 5], rockBlock: W.terrainBlock(out.face, g.u, g.v, gc.top - 5),
   leaves: [out.face, out.u + 1, out.v, out.top + out.height], leavesBlock: W.terrainBlock(out.face, out.u + 1, out.v, out.top + out.height),
-  log: [out.face, out.u, out.v, out.top + 2], logBlock: W.terrainBlock(out.face, out.u, out.v, out.top + 2) }));
+  log: [out.face, out.u, out.v, out.top + 2], logBlock: W.terrainBlock(out.face, out.u, out.v, out.top + 2),
+  pebble: lit.pebble, twigs: lit.twigs }));
 """ % (json.dumps(os.path.join(ROOT, "static", "land-world.js")), PA)
 CELLS = json.loads(subprocess.run(["node", "--input-type=module", "-e", js], capture_output=True, text=True, timeout=120).stdout)
 
@@ -109,6 +118,12 @@ async def main():
           and inv(A["address"])["items"].get("fiber") == 1, r)
     r = await setc([CELLS["leaves"] + [0]], ha)
     check("by hand, leaves give sticks and fiber", r["applied"] == 1 and inv(A["address"])["items"].get("sticks") == 1, r)
+    # the litter: the first stone and sticks lie in plain sight ("where the fuck do i take stone and sticks?", 2026-11-06)
+    n0 = dict(inv(A["address"])["items"])
+    r = await setc([CELLS["pebble"] + [0]], ha)
+    check("by hand, a loose stone on the ground gives a stone", r["applied"] == 1 and inv(A["address"])["items"].get("stone", 0) == n0.get("stone", 0) + 1, r)
+    r = await setc([CELLS["twigs"] + [0]], ha)
+    check("by hand, a fallen stick gives two sticks", r["applied"] == 1 and inv(A["address"])["items"].get("sticks", 0) == n0.get("sticks", 0) + 2, r)
     r = await setc([CELLS["log"] + [0]], ha)
     check("a log cannot be broken by hand", r["applied"] == 0 and "axe" in r["refused"][0][1], r)
     r = await setc([CELLS["rock"] + [0]], ha)

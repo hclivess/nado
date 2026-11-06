@@ -50,6 +50,16 @@
   .hs.none{opacity:.4}.hs.empty{width:auto;padding:0 12px;font-size:12px;color:var(--dim);cursor:default}
   #breakBar{position:fixed;left:50%;top:calc(50% + 18px);width:60px;height:5px;margin-left:-30px;background:rgba(0,0,0,.5);border-radius:3px;z-index:3;overflow:hidden}
   #breakBar i{display:block;height:100%;width:0;background:#fff}
+  /* the games' slider (mines, dice, blackjack carry the same three rules) for the wallet's buy-in and cash-out sliders,
+     which drew as the OS default on this page ("the OS default slider is terrible", operator 2026-11-06) */
+  input[type=range]{-webkit-appearance:none;appearance:none;width:100%;height:10px;padding:0;border:0;margin:12px 0;background:linear-gradient(90deg,var(--accent) 0,var(--accent2) 100%);border-radius:999px;cursor:pointer}
+  input[type=range]::-webkit-slider-thumb{-webkit-appearance:none;width:26px;height:26px;border-radius:50%;background:#fff;border:3px solid var(--accent);box-shadow:0 2px 8px rgba(0,0,0,.4);cursor:grab}
+  input[type=range]::-moz-range-thumb{width:26px;height:26px;border-radius:50%;background:#fff;border:3px solid var(--accent);cursor:grab}
+  /* what a gather gave, beside the crosshair (it used to show only in the bag: "it gives, but it is only visible in the bag!!!") */
+  #pickup{position:fixed;left:calc(50% + 22px);top:calc(50% - 10px);z-index:3;pointer-events:none;display:flex;flex-direction:column;gap:2px;font:600 13px system-ui,sans-serif;color:#fff;text-shadow:0 1px 3px #000}
+  #pickup div{transition:opacity .6s,transform .6s}
+  #pickup div.go{opacity:0;transform:translateY(-10px)}
+  [dir=rtl] #pickup{left:auto;right:calc(50% + 22px)}
   #palGrid h3{font-size:13px;margin:14px 0 6px;color:var(--dim);text-transform:uppercase;letter-spacing:.06em}
   .chips{display:flex;flex-wrap:wrap;gap:6px}
   .chip{font:inherit;font-size:12px;color:var(--txt);background:#0b0f14;border:1px solid var(--border);border-radius:999px;padding:4px 10px}
@@ -92,6 +102,7 @@
 <div id="hudInfo"><div id="hudPos"></div><div id="hudPlot"></div></div>
 <div id="cross"></div>
 <div id="breakBar" class="hidden"><i></i></div>
+<div id="pickup" aria-live="polite"></div>
 <div id="hotwrap"><div id="hotName"></div><div id="pieceInfo"></div><div id="hotbar"></div></div>
 <div id="hudGpu"></div>
 <div id="help"><div class="card">

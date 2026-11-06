@@ -178,6 +178,9 @@ export const BLOCKS = [
   { key: "birchlog", solid: true, tex: [10, 34, 10] },
   { key: "needles", solid: true, see: true, tex: [35, 35, 35] },
   { key: "fronds", solid: true, see: true, tex: [36, 36, 36] },
+  // litter on the ground (appended): picked up by hand, walked through, drawn as a stone or a fallen stick (land-mesher.js)
+  { key: "pebble", solid: false, see: true, tex: [4, 4, 4] },
+  { key: "twigs", solid: false, see: true, tex: [10, 10, 10] },
 ];
 export const B = Object.fromEntries(BLOCKS.map((b, i) => [b.key, i]));
 export const ATLAS_TILES = 37;              // tiles 0..36 (0 unused)
@@ -269,6 +272,25 @@ export function treeCell(t, du, dv, dh) {
   return 0;
 }
 
+// ---- litter: loose stones and fallen sticks ("where the fuck do i take stone and sticks?", operator 2026-11-06) ---------
+// The first stone and the first sticks lie on the ground, in plain sight, and come up by hand in a moment — the way into
+// the whole web of tools. Before this, stone was a hidden bonus in every 4th clod of turf and sticks came only from
+// leaves, which nobody could find without reading the source. A litter cell is the air cell just above the ground; it is
+// a function of place like everything else, and like every gathered cell in the commons it lies there again later.
+export const LITTER = new Set([B.pebble, B.twigs]);
+/** The litter on column (face, u, v): B.pebble, B.twigs or 0. */
+export function litterAt(face, u, v, col) {
+  if (col.top <= SEA) return 0;
+  const hh = hash32(face + 17, v, u);
+  switch (col.biome) {
+    case "grass": return hh % 17 === 4 ? B.pebble : hh % 19 === 9 ? B.twigs : 0;
+    case "rock": return hh % 6 === 1 ? B.pebble : 0;
+    case "beach": return hh % 23 === 5 ? B.pebble : hh % 41 === 7 ? B.twigs : 0;
+    case "snow": return hh % 29 === 2 ? B.pebble : 0;
+  }
+  return 0;
+}
+
 /** The untouched block at (face, u, v, h) — u, v integers on the face. */
 export function terrainBlock(face, u, v, h, colCache) {
   if (h <= 0) return B.bedrock;
@@ -296,6 +318,7 @@ export function terrainBlock(face, u, v, h, colCache) {
     if (TREE_WOOD.has(b)) return b;
     if (b && !found) found = b;
   }
+  if (!found && h === col.top + 1) return litterAt(face, u, v, col) || B.air;
   return found;
 }
 

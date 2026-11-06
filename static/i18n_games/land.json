@@ -55,7 +55,7 @@
   "land.offline": "The world server is out of reach — you can explore, but not gather or build.",
   "land.bagSignIn": "Sign in to gather, make things and trade.",
   "land.have": "You have",
-  "land.nothingYet": "Nothing yet — break grass, earth or leaves by hand to start.",
+  "land.nothingYet": "Nothing yet — pick up the stones and sticks lying on the ground, and pull grass and leaves by hand.",
   "land.make": "Make",
   "land.with": "with {w}",
   "land.haveIt": "You have it",
@@ -115,7 +115,8 @@
   "land.kSnap": "snap",
   "land.pieces": "{n} {n|one:piece|other:pieces}",
   "land.signInBuild2": "Sign in to gather and build.",
-  "land.wildOpen": "Unowned: anyone may gather and build here. Own a plot to protect what you build."
+  "land.wildOpen": "Unowned: anyone may gather and build here. Own a plot to protect what you build.",
+  "land.bagHint": "Click a block to put it on your hotbar. Tools work as soon as you have them."
  },
  "cs": {
   "land.notYours": "Pozemek {p} patří někomu jinému. Kupte si pozemek, nebo požádejte jeho vlastníka o pozvání.",
@@ -173,7 +174,7 @@
   "land.offline": "Herní server je mimo dosah — můžete prozkoumávat, ale ne sbírat ani stavět.",
   "land.bagSignIn": "Přihlaste se, abyste mohli sbírat, vyrábět a obchodovat.",
   "land.have": "Máte",
-  "land.nothingYet": "Zatím nic — začněte tím, že rukama rozbijete trávu, hlínu nebo listí.",
+  "land.nothingYet": "Zatím nic — seber kameny a klacky ležící na zemi a rukama trhej trávu a listí.",
   "land.make": "Vyrobit",
   "land.with": "s {w}",
   "land.haveIt": "Už to máte",
@@ -233,7 +234,8 @@
   "land.kSnap": "krok",
   "land.pieces": "{n} {n|one:díl|few:díly|many:dílu|other:dílů}",
   "land.signInBuild2": "Přihlaste se a sbírejte a stavějte.",
-  "land.wildOpen": "Bez vlastníka: sbírat a stavět tu smí kdokoli. Svou stavbu ochráníte vlastnictvím pozemku."
+  "land.wildOpen": "Bez vlastníka: sbírat a stavět tu smí kdokoli. Svou stavbu ochráníte vlastnictvím pozemku.",
+  "land.bagHint": "Klepnutím na blok ho dáš na lištu. Nástroje fungují, jakmile je máš."
  },
  "es": {
   "land.notYours": "La parcela {p} pertenece a otra persona. Compra una parcela o pide a su dueño que te invite.",
@@ -291,7 +293,7 @@
   "land.offline": "El servidor del mundo no está disponible: puedes explorar, pero no recolectar ni construir.",
   "land.bagSignIn": "Inicia sesión para recolectar, fabricar cosas y comerciar.",
   "land.have": "Tienes",
-  "land.nothingYet": "Nada todavía: rompe hierba, tierra u hojas con las manos para empezar.",
+  "land.nothingYet": "Todavía nada: recoge las piedras y los palos del suelo y arranca hierba y hojas con las manos.",
   "land.make": "Fabricar",
   "land.with": "con {w}",
   "land.haveIt": "Ya lo tienes",
@@ -351,7 +353,8 @@
   "land.kSnap": "ajuste",
   "land.pieces": "{n} {n|one:pieza|other:piezas}",
   "land.signInBuild2": "Inicia sesión para recolectar y construir.",
-  "land.wildOpen": "Sin dueño: aquí cualquiera puede recolectar y construir. Ten una parcela para proteger lo que construyas."
+  "land.wildOpen": "Sin dueño: aquí cualquiera puede recolectar y construir. Ten una parcela para proteger lo que construyas.",
+  "land.bagHint": "Haz clic en un bloque para ponerlo en tu barra. Las herramientas funcionan en cuanto las tienes."
  },
  "pt": {
   "land.notYours": "O lote {p} pertence a outra pessoa. Compre um lote ou peça ao dono que convide você.",
@@ -409,7 +412,7 @@
   "land.offline": "O servidor do mundo está fora de alcance — você pode explorar, mas não coletar nem construir.",
   "land.bagSignIn": "Entre para coletar, fabricar coisas e negociar.",
   "land.have": "Você tem",
-  "land.nothingYet": "Nada ainda — quebre grama, terra ou folhas com as mãos para começar.",
+  "land.nothingYet": "Ainda nada — apanhe as pedras e os paus caídos no chão e arranque erva e folhas com as mãos.",
   "land.make": "Fabricar",
   "land.with": "com {w}",
   "land.haveIt": "Você já tem",
@@ -469,7 +472,8 @@
   "land.kSnap": "grelha",
   "land.pieces": "{n} {n|one:peça|other:peças}",
   "land.signInBuild2": "Entra para recolher e construir.",
-  "land.wildOpen": "Sem dono: qualquer pessoa pode recolher e construir aqui. Tem um lote para proteger o que constróis."
+  "land.wildOpen": "Sem dono: qualquer pessoa pode recolher e construir aqui. Tem um lote para proteger o que constróis.",
+  "land.bagHint": "Clique num bloco para o pôr na sua barra. As ferramentas funcionam assim que as tiver."
  },
  "fr": {
   "land.notYours": "La parcelle {p} appartient à quelqu'un d'autre. Achetez une parcelle ou demandez à son propriétaire de vous inviter.",
@@ -527,7 +531,7 @@
   "land.offline": "Le serveur du monde est injoignable — vous pouvez explorer, mais pas récolter ni construire.",
   "land.bagSignIn": "Connectez-vous pour récolter, fabriquer et échanger.",
   "land.have": "Vous avez",
-  "land.nothingYet": "Rien pour l'instant — cassez de l'herbe, de la terre ou des feuilles à la main pour commencer.",
+  "land.nothingYet": "Rien pour l'instant — ramassez les pierres et les bâtons qui jonchent le sol, et arrachez herbe et feuilles à la main.",
   "land.make": "Fabriquer",
   "land.with": "avec {w}",
   "land.haveIt": "Vous l'avez",
@@ -587,7 +591,8 @@
   "land.kSnap": "pas",
   "land.pieces": "{n} {n|one:pièce|other:pièces}",
   "land.signInBuild2": "Connectez-vous pour récolter et construire.",
-  "land.wildOpen": "Sans propriétaire : chacun peut récolter et construire ici. Possédez une parcelle pour protéger vos constructions."
+  "land.wildOpen": "Sans propriétaire : chacun peut récolter et construire ici. Possédez une parcelle pour protéger vos constructions.",
+  "land.bagHint": "Cliquez sur un bloc pour le mettre dans votre barre. Les outils servent dès que vous les avez."
  },
  "de": {
   "land.notYours": "Grundstück {p} gehört jemand anderem. Kauf dir ein Grundstück oder bitte den Besitzer um eine Einladung.",
@@ -645,7 +650,7 @@
   "land.offline": "Der Weltserver ist nicht erreichbar — du kannst erkunden, aber nicht sammeln oder bauen.",
   "land.bagSignIn": "Melde dich an, um zu sammeln, Dinge herzustellen und zu handeln.",
   "land.have": "Du hast",
-  "land.nothingYet": "Noch nichts — brich zum Start mit der Hand Gras, Erde oder Laub ab.",
+  "land.nothingYet": "Noch nichts — sammle die Steine und Stöcke auf, die am Boden liegen, und rupfe Gras und Blätter mit der Hand.",
   "land.make": "Herstellen",
   "land.with": "mit {w}",
   "land.haveIt": "Hast du schon",
@@ -705,7 +710,8 @@
   "land.kSnap": "Raster",
   "land.pieces": "{n} {n|one:Teil|other:Teile}",
   "land.signInBuild2": "Melde dich an, um zu sammeln und zu bauen.",
-  "land.wildOpen": "Herrenlos: Hier darf jeder sammeln und bauen. Besitze ein Grundstück, um deine Bauten zu schützen."
+  "land.wildOpen": "Herrenlos: Hier darf jeder sammeln und bauen. Besitze ein Grundstück, um deine Bauten zu schützen.",
+  "land.bagHint": "Klicke auf einen Block, um ihn in deine Leiste zu legen. Werkzeuge wirken, sobald du sie hast."
  },
  "it": {
   "land.notYours": "Il lotto {p} appartiene a qualcun altro. Compra un lotto o chiedi al proprietario di invitarti.",
@@ -763,7 +769,7 @@
   "land.offline": "Il server del mondo non è raggiungibile — puoi esplorare, ma non raccogliere né costruire.",
   "land.bagSignIn": "Accedi per raccogliere, creare oggetti e commerciare.",
   "land.have": "Hai",
-  "land.nothingYet": "Ancora niente — rompi erba, terra o foglie a mani nude per iniziare.",
+  "land.nothingYet": "Ancora niente: raccogli i sassi e i bastoni sparsi a terra e strappa erba e foglie a mano.",
   "land.make": "Crea",
   "land.with": "con {w}",
   "land.haveIt": "Ce l'hai già",
@@ -823,7 +829,8 @@
   "land.kSnap": "passo",
   "land.pieces": "{n} {n|one:pezzo|other:pezzi}",
   "land.signInBuild2": "Accedi per raccogliere e costruire.",
-  "land.wildOpen": "Senza proprietario: chiunque può raccogliere e costruire qui. Possiedi un lotto per proteggere ciò che costruisci."
+  "land.wildOpen": "Senza proprietario: chiunque può raccogliere e costruire qui. Possiedi un lotto per proteggere ciò che costruisci.",
+  "land.bagHint": "Fai clic su un blocco per metterlo nella barra. Gli attrezzi funzionano appena li hai."
  },
  "ru": {
   "land.notYours": "Участок {p} принадлежит другому игроку. Купите участок или попросите владельца пригласить вас.",
@@ -881,7 +888,7 @@
   "land.offline": "Сервер мира недоступен — можно исследовать, но нельзя собирать и строить.",
   "land.bagSignIn": "Войдите, чтобы собирать, мастерить и торговать.",
   "land.have": "У вас есть",
-  "land.nothingYet": "Пока ничего — для начала сломайте руками траву, землю или листву.",
+  "land.nothingYet": "Пока ничего — подбирайте камни и палки, лежащие на земле, и рвите траву и листья руками.",
   "land.make": "Изготовить",
   "land.with": "из: {w}",
   "land.haveIt": "Уже есть",
@@ -941,7 +948,8 @@
   "land.kSnap": "шаг",
   "land.pieces": "{n} {n|one:деталь|few:детали|many:деталей|other:детали}",
   "land.signInBuild2": "Войдите, чтобы собирать и строить.",
-  "land.wildOpen": "Ничья земля: здесь любой может собирать и строить. Владейте участком, чтобы защитить свои постройки."
+  "land.wildOpen": "Ничья земля: здесь любой может собирать и строить. Владейте участком, чтобы защитить свои постройки.",
+  "land.bagHint": "Нажмите на блок, чтобы положить его на панель. Инструменты работают, как только они у вас есть."
  },
  "zh": {
   "land.notYours": "地块 {p} 属于别人。购买一块地，或请它的所有者邀请你。",
@@ -999,7 +1007,7 @@
   "land.offline": "世界服务器无法连接——你可以探索，但无法采集或建造。",
   "land.bagSignIn": "登录后即可采集、制作和交易。",
   "land.have": "你拥有",
-  "land.nothingYet": "还什么都没有——先徒手打碎草、泥土或树叶开始吧。",
+  "land.nothingYet": "还什么都没有——捡起地上的石头和树枝，再徒手拔草、摘叶。",
   "land.make": "制作",
   "land.with": "需要 {w}",
   "land.haveIt": "已拥有",
@@ -1059,7 +1067,8 @@
   "land.kSnap": "对齐",
   "land.pieces": "{n} 个构件",
   "land.signInBuild2": "登录后即可采集和建造。",
-  "land.wildOpen": "无主之地：任何人都可在此采集和建造。拥有地块才能保护你的建筑。"
+  "land.wildOpen": "无主之地：任何人都可在此采集和建造。拥有地块才能保护你的建筑。",
+  "land.bagHint": "点击方块即可放到快捷栏。工具一到手就能用。"
  },
  "ja": {
   "land.notYours": "区画 {p} は他の人のものです。区画を購入するか、所有者に招待してもらいましょう。",
@@ -1117,7 +1126,7 @@
   "land.offline": "ワールドサーバーに接続できません。探索はできますが、採集や建築はできません。",
   "land.bagSignIn": "採集・クラフト・取引をするにはサインインしてください。",
   "land.have": "所持品",
-  "land.nothingYet": "まだ何もありません。まずは素手で草や土、葉を壊してみましょう。",
+  "land.nothingYet": "まだ何もありません。地面に落ちている石と枝を拾い、草や葉を素手で集めましょう。",
   "land.make": "作る",
   "land.with": "{w} を使用",
   "land.haveIt": "所持済み",
@@ -1177,7 +1186,8 @@
   "land.kSnap": "スナップ",
   "land.pieces": "部材 {n} 個",
   "land.signInBuild2": "サインインして採集と建築を。",
-  "land.wildOpen": "所有者なし：誰でもここで採集・建築できます。建てた物を守るには区画を所有しましょう。"
+  "land.wildOpen": "所有者なし：誰でもここで採集・建築できます。建てた物を守るには区画を所有しましょう。",
+  "land.bagHint": "ブロックをクリックするとホットバーに入ります。道具は手に入れた時点で使えます。"
  },
  "ko": {
   "land.notYours": "구역 {p}은(는) 다른 사람의 땅입니다. 구역을 사거나 소유자에게 초대를 요청하세요.",
@@ -1235,7 +1245,7 @@
   "land.offline": "월드 서버에 연결할 수 없습니다 — 탐험은 할 수 있지만 채집이나 건설은 할 수 없습니다.",
   "land.bagSignIn": "로그인하고 채집, 제작, 거래를 해 보세요.",
   "land.have": "보유",
-  "land.nothingYet": "아직 아무것도 없습니다 — 맨손으로 풀, 흙, 나뭇잎을 부숴 시작하세요.",
+  "land.nothingYet": "아직 아무것도 없습니다. 땅에 떨어진 돌과 나뭇가지를 줍고, 풀과 잎은 맨손으로 뜯으세요.",
   "land.make": "제작",
   "land.with": "재료: {w}",
   "land.haveIt": "보유 중",
@@ -1295,7 +1305,8 @@
   "land.kSnap": "맞춤",
   "land.pieces": "조각 {n}개",
   "land.signInBuild2": "로그인하고 채집과 건설을 하세요.",
-  "land.wildOpen": "주인 없음: 누구나 여기서 채집하고 건설할 수 있습니다. 지은 것을 지키려면 구획을 소유하세요."
+  "land.wildOpen": "주인 없음: 누구나 여기서 채집하고 건설할 수 있습니다. 지은 것을 지키려면 구획을 소유하세요.",
+  "land.bagHint": "블록을 클릭하면 단축바에 올라갑니다. 도구는 갖는 즉시 쓰입니다."
  },
  "ar": {
   "land.notYours": "القطعة {p} ملك لشخص آخر. اشترِ قطعة، أو اطلب من مالكها أن يدعوك.",
@@ -1353,7 +1364,7 @@
   "land.offline": "خادم العالم غير متاح — يمكنك الاستكشاف، لكن لا يمكنك الجمع أو البناء.",
   "land.bagSignIn": "سجّل الدخول لتجمع وتصنع الأشياء وتتاجر.",
   "land.have": "لديك",
-  "land.nothingYet": "لا شيء بعد — اكسر العشب أو التراب أو الأوراق بيديك لتبدأ.",
+  "land.nothingYet": "لا شيء بعد — التقط الحجارة والعيدان الملقاة على الأرض، واقطف العشب والأوراق بيديك.",
   "land.make": "اصنع",
   "land.with": "بـ {w}",
   "land.haveIt": "لديك هذا",
@@ -1413,7 +1424,8 @@
   "land.kSnap": "محاذاة",
   "land.pieces": "{n} {n|zero:قطعة|one:قطعة|two:قطعتان|few:قطع|many:قطعة|other:قطعة}",
   "land.signInBuild2": "سجّل الدخول لتجمع وتبني.",
-  "land.wildOpen": "بلا مالك: يمكن لأي شخص الجمع والبناء هنا. امتلك قطعة أرض لتحمي ما تبنيه."
+  "land.wildOpen": "بلا مالك: يمكن لأي شخص الجمع والبناء هنا. امتلك قطعة أرض لتحمي ما تبنيه.",
+  "land.bagHint": "انقر على كتلة لتضعها في شريطك. تعمل الأدوات بمجرد أن تمتلكها."
  },
  "hi": {
   "land.notYours": "प्लॉट {p} किसी और का है। कोई प्लॉट खरीदें, या उसके मालिक से आपको आमंत्रित करने को कहें।",
@@ -1471,7 +1483,7 @@
   "land.offline": "वर्ल्ड सर्वर से संपर्क नहीं हो पा रहा — आप घूम सकते हैं, पर इकट्ठा या निर्माण नहीं कर सकते।",
   "land.bagSignIn": "इकट्ठा करने, चीज़ें बनाने और व्यापार के लिए साइन इन करें।",
   "land.have": "आपके पास",
-  "land.nothingYet": "अभी कुछ नहीं — शुरू करने के लिए हाथ से घास, मिट्टी या पत्तियाँ तोड़ें।",
+  "land.nothingYet": "अभी कुछ नहीं — ज़मीन पर पड़े पत्थर और टहनियाँ उठाएँ, और घास व पत्तियाँ हाथ से तोड़ें।",
   "land.make": "बनाएँ",
   "land.with": "{w} से",
   "land.haveIt": "आपके पास है",
@@ -1531,7 +1543,8 @@
   "land.kSnap": "स्नैप",
   "land.pieces": "{n} {n|one:टुकड़ा|other:टुकड़े}",
   "land.signInBuild2": "इकट्ठा करने और बनाने के लिए साइन इन करें।",
-  "land.wildOpen": "बिना मालिक: यहाँ कोई भी इकट्ठा कर सकता है और बना सकता है। अपनी बनाई चीज़ें बचाने के लिए प्लॉट के मालिक बनें।"
+  "land.wildOpen": "बिना मालिक: यहाँ कोई भी इकट्ठा कर सकता है और बना सकता है। अपनी बनाई चीज़ें बचाने के लिए प्लॉट के मालिक बनें।",
+  "land.bagHint": "किसी ब्लॉक पर क्लिक करें, वह आपकी हॉटबार में आ जाएगा। औज़ार मिलते ही काम करने लगते हैं।"
  },
  "tr": {
   "land.notYours": "{p} arsası başkasına ait. Bir arsa satın al ya da sahibinden seni davet etmesini iste.",
@@ -1589,7 +1602,7 @@
   "land.offline": "Dünya sunucusuna ulaşılamıyor — keşfedebilirsin ama toplayamaz ve inşa edemezsin.",
   "land.bagSignIn": "Toplamak, bir şeyler yapmak ve takas etmek için giriş yap.",
   "land.have": "Sende olanlar",
-  "land.nothingYet": "Henüz bir şey yok — başlamak için çimeni, toprağı ya da yaprakları elinle kır.",
+  "land.nothingYet": "Henüz bir şey yok — yerdeki taşları ve dalları topla, otu ve yaprakları elle kopar.",
   "land.make": "Yap",
   "land.with": "gereken: {w}",
   "land.haveIt": "Zaten sende var",
@@ -1649,7 +1662,8 @@
   "land.kSnap": "adım",
   "land.pieces": "{n} parça",
   "land.signInBuild2": "Toplamak ve inşa etmek için giriş yap.",
-  "land.wildOpen": "Sahipsiz: Burada herkes toplayıp inşa edebilir. Yaptıklarını korumak için bir arsaya sahip ol."
+  "land.wildOpen": "Sahipsiz: Burada herkes toplayıp inşa edebilir. Yaptıklarını korumak için bir arsaya sahip ol.",
+  "land.bagHint": "Bir bloğu hızlı çubuğa koymak için tıkla. Aletler eline geçer geçmez işe yarar."
  },
  "id": {
   "land.notYours": "Petak {p} milik orang lain. Beli sebuah petak, atau minta pemiliknya mengundangmu.",
@@ -1707,7 +1721,7 @@
   "land.offline": "Server dunia tidak terjangkau — kamu bisa menjelajah, tetapi tidak bisa mengumpulkan atau membangun.",
   "land.bagSignIn": "Masuk untuk mengumpulkan, membuat barang, dan berdagang.",
   "land.have": "Kamu punya",
-  "land.nothingYet": "Belum ada apa-apa — hancurkan rumput, tanah, atau daun dengan tangan untuk mulai.",
+  "land.nothingYet": "Belum ada apa-apa — pungut batu dan ranting yang tergeletak di tanah, lalu cabut rumput dan daun dengan tangan.",
   "land.make": "Buat",
   "land.with": "dengan {w}",
   "land.haveIt": "Sudah punya",
@@ -1767,7 +1781,8 @@
   "land.kSnap": "jepret",
   "land.pieces": "{n} potongan",
   "land.signInBuild2": "Masuk untuk mengumpulkan dan membangun.",
-  "land.wildOpen": "Tanpa pemilik: siapa pun boleh mengumpulkan dan membangun di sini. Miliki petak untuk melindungi bangunanmu."
+  "land.wildOpen": "Tanpa pemilik: siapa pun boleh mengumpulkan dan membangun di sini. Miliki petak untuk melindungi bangunanmu.",
+  "land.bagHint": "Klik sebuah blok untuk menaruhnya di bilah cepat. Alat langsung berfungsi begitu kamu memilikinya."
  },
  "vi": {
   "land.notYours": "Mảnh đất {p} thuộc về người khác. Hãy mua một mảnh, hoặc nhờ chủ của nó mời bạn.",
@@ -1825,7 +1840,7 @@
   "land.offline": "Không kết nối được máy chủ thế giới — bạn có thể khám phá, nhưng không thể thu thập hay xây dựng.",
   "land.bagSignIn": "Đăng nhập để thu thập, chế tạo và giao dịch.",
   "land.have": "Bạn có",
-  "land.nothingYet": "Chưa có gì — hãy đập cỏ, đất hoặc lá bằng tay để bắt đầu.",
+  "land.nothingYet": "Chưa có gì — nhặt đá và cành cây nằm trên mặt đất, và nhổ cỏ, hái lá bằng tay.",
   "land.make": "Chế tạo",
   "land.with": "cần {w}",
   "land.haveIt": "Bạn đã có",
@@ -1885,7 +1900,8 @@
   "land.kSnap": "bước",
   "land.pieces": "{n} khối",
   "land.signInBuild2": "Đăng nhập để thu thập và xây dựng.",
-  "land.wildOpen": "Vô chủ: ai cũng có thể thu thập và xây dựng ở đây. Hãy sở hữu một lô đất để bảo vệ công trình của bạn."
+  "land.wildOpen": "Vô chủ: ai cũng có thể thu thập và xây dựng ở đây. Hãy sở hữu một lô đất để bảo vệ công trình của bạn.",
+  "land.bagHint": "Nhấp vào một khối để đặt nó lên thanh công cụ. Công cụ dùng được ngay khi bạn có."
  },
  "pl": {
   "land.notYours": "Działka {p} należy do kogoś innego. Kup działkę albo poproś jej właściciela o zaproszenie.",
@@ -1943,7 +1959,7 @@
   "land.offline": "Serwer świata jest nieosiągalny — możesz zwiedzać, ale nie zbierać ani budować.",
   "land.bagSignIn": "Zaloguj się, aby zbierać, wytwarzać i handlować.",
   "land.have": "Masz",
-  "land.nothingYet": "Na razie nic — na początek rozbij gołymi rękami trawę, ziemię lub liście.",
+  "land.nothingYet": "Na razie nic — zbierz kamienie i patyki leżące na ziemi, a trawę i liście zrywaj rękami.",
   "land.make": "Wytwórz",
   "land.with": "z: {w}",
   "land.haveIt": "Już to masz",
@@ -2003,6 +2019,7 @@
   "land.kSnap": "siatka",
   "land.pieces": "{n} {n|one:element|few:elementy|many:elementów|other:elementu}",
   "land.signInBuild2": "Zaloguj się, aby zbierać i budować.",
-  "land.wildOpen": "Bez właściciela: każdy może tu zbierać i budować. Miej działkę, aby chronić to, co zbudujesz."
+  "land.wildOpen": "Bez właściciela: każdy może tu zbierać i budować. Miej działkę, aby chronić to, co zbudujesz.",
+  "land.bagHint": "Kliknij blok, aby położyć go na pasku. Narzędzia działają, gdy tylko je masz."
  }
 }

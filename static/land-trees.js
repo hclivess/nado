@@ -206,3 +206,13 @@ export function leafCellModel(tile) {
   cellModels.set(tile, m);
   return m;
 }
+
+/** A fallen stick on the ground (land-world LITTER): a crooked length of branch with a fork, lying flat. */
+export function twigModel(seed) {
+  const R = rng(seed), bark = part(), leaves = part(), ln = 0.55 + R() * 0.3;
+  const pts = [0, 1, 2, 3].map((k) => [(k / 3 - 0.5) * ln, (R() - 0.5) * 0.08, 0.025 + (k === 1 || k === 2 ? 0.01 : 0)]);
+  tube(bark, pts, [0.03, 0.026, 0.02, 0.014], 5, () => 0, 0, [1, 1, 1]);
+  const f = pts[2], a = (R() < 0.5 ? 1 : -1) * (0.5 + R() * 0.4);
+  tube(bark, [f, add(f, [Math.cos(a) * 0.2, Math.sin(a) * 0.2, 0.005]), add(f, [Math.cos(a) * 0.32, Math.sin(a) * 0.34, 0.01])], [0.016, 0.012, 0.008], 4, () => 0, 0, [1, 1, 1]);
+  return { bark, leaves };
+}

@@ -58,6 +58,7 @@ const builds = new Set();             // plots the world server says the signed-
 // server's (it arrives as "inv" messages) — the page never decides what anyone owns.
 let RULES = null;
 const inv = { items: {}, tools: [], stations: [] };
+let invSeen = false;                  // the first "inv" after connecting is what the player HAS, not what they just got
 let offers = [];
 let hot = [], slot = 0;               // the hotbar: placeable item ids
 let job = null;                       // the break in progress: { cell, need (s), done (s), mouse }
@@ -423,6 +424,7 @@ function done(m) {
     if (m.trees) c.meshes.push(new THREE.Mesh(geom(m.trees), matTrees));
     if (m.bark) c.meshes.push(new THREE.Mesh(geom(m.bark), matBark));
     if (m.foliage) c.meshes.push(new THREE.Mesh(geom(m.foliage), matLeaves));
+    if (m.stones) c.meshes.push(new THREE.Mesh(geom(m.stones), matGround));
     if (m.pieces) c.meshes.push(new THREE.Mesh(geom(m.pieces), matPieces));
     if (m.glassy) { const me = new THREE.Mesh(geom(m.glassy), matGlassy); me.renderOrder = 1; c.meshes.push(me); }
     if (m.grass) c.meshes.push(...grassMeshes(m.grass));
@@ -589,6 +591,7 @@ function connect() {
     if (m.t === "hello") {
       const was = net.me;
       net.online = true; net.tries = 0; net.me = m.you || null; net.lastWatch = "";
+      invSeen = false;                                       // a (re)connect re-sends the whole bag: not a pickup
       // the server is the record now: drop the plots this browser cached, the server sends each watched one back
       for (const [plot, pe] of plotEdit) { const q = Wd.plotCoords(plot); for (const lk of pe.keys()) { const [x, z, y] = lk.split(":").map(Number); edits.delete(key(q.face, q.u0 + x, q.v0 + z, y)); } }
       plotEdit.clear();
@@ -618,6 +621,8 @@ function connect() {
     } else if (m.t === "revert") {
       for (const [f, u, v, h] of m.cells || []) dropCell(f, u, v, h);
     } else if (m.t === "inv") {
+      if (invSeen) pickup(inv.items, m.items || {}, inv.tools, m.tools || [], inv.stations, m.stations || []);
+      invSeen = true;
       inv.items = m.items || {}; inv.tools = m.tools || []; inv.stations = m.stations || [];
       fillHot(); hotbar(); if (bagOpen()) renderBag();
     } else if (m.t === "offers") {
@@ -711,6 +716,22 @@ function hud() {
 const nameOf = (id) => RULES.items[id] ? T("i." + id, RULES.items[id].name) : RULES.tools[id] ? T("t." + id, RULES.tools[id].name)
   : RULES.stations[id] ? T("s." + id, RULES.stations[id].name) : id;
 const placeable = (id) => RULES && RULES.items[id] && RULES.items[id].places;
+/** Show what changed in the inventory beside the crosshair, a line per item ("Stone +1", a new tool by name), fading out.
+ *  Gathering's yield used to land in the bag unannounced — fiber, stone and sticks place nothing, so they are not on the
+ *  hotbar, and the operator dug grass for minutes believing it gave nothing (2026-11-06). */
+function pickup(was, now, wasTools, tools, wasSt, st) {
+  const lines = [];
+  for (const id of Object.keys(now)) { const d = (now[id] || 0) - (was[id] || 0); if (d > 0) lines.push(`${nameOf(id)} +${d}`); }
+  for (const t of tools.concat(st)) if (!wasTools.includes(t) && !wasSt.includes(t)) lines.push(nameOf(t));
+  const box = $("pickup");
+  for (const text of lines.slice(0, 4)) {
+    const el = document.createElement("div");
+    el.textContent = text;
+    box.appendChild(el);
+    setTimeout(() => el.classList.add("go"), 1400);
+    setTimeout(() => el.remove(), 2100);
+  }
+}
 /** Keep the hotbar on what the player can place: what they chose first, then anything placeable they hold. */
 function fillHot() {
   if (!RULES) return;
@@ -760,8 +781,9 @@ function renderBag() {
   const opts = Object.keys(RULES.items).map((id) => `<option value="${id}">${esc(nameOf(id))}</option>`).join("");
   $("palGrid").innerHTML = `
     <h3>${esc(T("have", "You have"))}</h3>
-    <div class="chips">${items.length ? items.map(([id, n]) => `<button class="chip${placeable(id) ? " pl" : ""}" data-pick="${id}">${n} × ${esc(nameOf(id))}</button>`).join("") : `<span class="dim">${esc(T("nothingYet", "Nothing yet — break grass, earth or leaves by hand to start."))}</span>`}
+    <div class="chips">${items.length ? items.map(([id, n]) => `<button class="chip${placeable(id) ? " pl" : ""}" data-pick="${id}">${n} × ${esc(nameOf(id))}</button>`).join("") : `<span class="dim">${esc(T("nothingYet", "Nothing yet — pick up the stones and sticks lying on the ground, and pull grass and leaves by hand."))}</span>`}
       ${inv.tools.map((t) => `<span class="chip tool">${esc(nameOf(t))}</span>`).join("")}${inv.stations.map((t) => `<span class="chip tool">${esc(nameOf(t))}</span>`).join("")}</div>
+    <div class="dim">${esc(T("bagHint", "Click a block to put it on your hotbar. Tools work as soon as you have them."))}</div>
     <h3>${esc(T("pieceSize", "Piece size"))}</h3>
     <div class="tradeform">${PRESETS.map((x, i) => `<button class="chip pl" data-preset="${i}">${x.join("×")}</button>`).join("")}</div>
     <div class="tradeform"><span>W</span><input id="pzW" type="number" min="1" max="1600" value="${piece.w}"><span>D</span><input id="pzD" type="number" min="1" max="1600" value="${piece.d}">

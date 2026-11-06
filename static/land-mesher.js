@@ -19,14 +19,14 @@
 // Cells are generated with a one-cell border (wrapped across face seams by land-world.wrap). A surface edge is drawn by
 // the chunk that holds its LOWER cell, so every edge of the world belongs to exactly one chunk (no gaps, no doubles).
 // Positions are metres RELATIVE TO THE CHUNK'S ANCHOR; the page places each mesh at anchor - camera in doubles.
-import { CHUNK, H, R0, W, B, BLOCKS, ATLAS_TILES, NATURAL, CM, TREE_WOOD, TREE_LEAVES, isTree, opaque, dirOf, frameOf, wrap, column, terrainBlock, fieldOf, treeAt, treeCell } from "./land-world.js";
-import { treeModel, leafCellModel } from "./land-trees.js";
+import { CHUNK, H, R0, W, B, BLOCKS, ATLAS_TILES, NATURAL, CM, TREE_WOOD, TREE_LEAVES, isTree, opaque, dirOf, frameOf, wrap, column, terrainBlock, fieldOf, treeAt, treeCell, LITTER } from "./land-world.js";
+import { treeModel, leafCellModel, twigModel } from "./land-trees.js";
 
 const N = CHUNK + 2;                                     // cells with the border: real index r in -1..16 is r + 1
 const TILE_COLS = 8;                                      // the atlas is TILE_COLS tiles across (static/land.js paints it)
 const TILE_ROWS = Math.ceil(ATLAS_TILES / TILE_COLS);
 const EU = 0.5 / (16 * TILE_COLS), EV = 0.5 / (16 * TILE_ROWS);   // half a texel of the 16 px tiles
-const crisp = (b) => b !== B.air && !NATURAL.has(b) && !isTree(b) && !BLOCKS[b].liquid;
+const crisp = (b) => b !== B.air && !NATURAL.has(b) && !isTree(b) && !BLOCKS[b].liquid && !LITTER.has(b);
 
 // crisp-cube faces: neighbour offset, the quad's corners as (u, v, h) offsets, a light factor, the atlas tile (0 top, 1 side, 2 bottom)
 const DIRS = [
@@ -250,7 +250,7 @@ export function meshChunk(face, cu, cv, ch, edits, boxes, lod) {
   // plot, so every tree lies within its own chunk column; each chunk it spans masks its own cells (still the tree's), and
   // the chunk holding its root's ground layer draws the model — once.
   const modelled = new Uint8Array(N * N * N);
-  const bark = mk(), foliage = mk();
+  const bark = mk(), foliage = mk(), stones = mk();
   // roots up to 3 columns outside the chunk too: their crowns reach the one-cell border the cells are read over, and an
   // unmasked border cell was drawn a second time beside every neighbour's model (the first model render)
   for (let j = -3; j < CHUNK + 3; j++) for (let i = -3; i < CHUNK + 3; i++) {
@@ -275,6 +275,16 @@ export function meshChunk(face, cu, cv, ch, edits, boxes, lod) {
       return e !== undefined && e !== b;
     };
     placeTree(t, face, gu, gv, col.height, lod, place, bark, foliage, gone);
+  }
+  // litter: a loose stone is a small rough rock in its own part, drawn with the ground's material (its weights all rock);
+  // a fallen stick is a short forked branch in the bark mesh. Both lie on the drawn surface.
+  for (let k = 0; k < CHUNK; k++) for (let j = 0; j < CHUNK; j++) for (let i = 0; i < CHUNK; i++) {
+    const b = blk[((k + 1) * N + (j + 1)) * N + (i + 1)];
+    if (!LITTER.has(b)) continue;
+    const gu = u0 + i, gv = v0 + j, gh = h0 + k, col = colCache(face, gu, gv);
+    const ou = 0.25 + 0.5 * hash3(gu, gv, 3), ov = 0.25 + 0.5 * hash3(gv, gu, 5), rot = hash3(gu, gh, gv) * 6.283;
+    if (b === B.twigs) placeModel(twigModel(1 + Math.floor(hash3(gu, gv, 9) * 5)), face, gu + ou, gv + ov, col.height - 0.01, rot, 1, 0, place, bark, foliage, null);
+    else pebble(stones, face, gu + ou, gv + ov, col.height, 0.11 + 0.1 * hash3(gv, gh, gu), hash3(gu, gv, 11), rot, place);
   }
   // leaves a player PLACED (or a tree's leaf cell put back into another spot): a small cluster of leaf cards in the cell,
   // in its species' tile — never a surface (the blob)
@@ -353,9 +363,41 @@ export function meshChunk(face, cu, cv, ch, edits, boxes, lod) {
   const grass = lod ? null : scatterGrass(smooth);
   const pieces = mk(), glassy = mk();
   if (boxes && boxes.length) meshBoxes(boxes, u0, v0, h0, place, pieces, glassy, lod);
-  if (!smooth.idx.length && !trees.idx.length && !solid.n && !clear.n && !pieces.n && !glassy.n && !bark.n && !foliage.n) return { empty: true };
+  if (!smooth.idx.length && !trees.idx.length && !solid.n && !clear.n && !pieces.n && !glassy.n && !bark.n && !foliage.n && !stones.n) return { empty: true };
   return { anchor, smooth: pack(smooth), trees: pack(trees), solid: pack(solid), clear: pack(clear), pieces: pack(pieces), glassy: pack(glassy),
-           bark: pack(bark), foliage: pack(foliage), grass };
+           bark: pack(bark), foliage: pack(foliage), stones: pack(stones), grass };
+}
+
+// ---- a loose stone: a once-subdivided icosahedron, flattened, its corners pushed in and out by the place's hash --------
+let unitSphere = null;
+function sphere() {
+  if (unitSphere) return unitSphere;
+  const t = (1 + Math.sqrt(5)) / 2, V = [[-1, t, 0], [1, t, 0], [-1, -t, 0], [1, -t, 0], [0, -1, t], [0, 1, t], [0, -1, -t], [0, 1, -t], [t, 0, -1], [t, 0, 1], [-t, 0, -1], [-t, 0, 1]].map((p) => { const l = Math.hypot(...p); return p.map((x) => x / l); });
+  let F = [[0, 11, 5], [0, 5, 1], [0, 1, 7], [0, 7, 10], [0, 10, 11], [1, 5, 9], [5, 11, 4], [11, 10, 2], [10, 7, 6], [7, 1, 8], [3, 9, 4], [3, 4, 2], [3, 2, 6], [3, 6, 8], [3, 8, 9], [4, 9, 5], [2, 4, 11], [6, 2, 10], [8, 6, 7], [9, 8, 1]];
+  const mid = new Map(), m = (a, b) => { const k = a < b ? a * 64 + b : b * 64 + a; if (!mid.has(k)) { const p = V[a].map((x, i) => x + V[b][i]), l = Math.hypot(...p); mid.set(k, V.push(p.map((x) => x / l)) - 1); } return mid.get(k); };
+  F = F.flatMap(([a, b, c]) => { const ab = m(a, b), bc = m(b, c), ca = m(c, a); return [[a, ab, ca], [b, bc, ab], [c, ca, bc], [ab, bc, ca]]; });
+  return (unitSphere = { V, F });
+}
+/** A rock of radius r sitting a third sunk at grid (cu, cv) on ground `base`, into the ground buffer `out`. */
+function pebble(out, face, cu, cv, base, r, seed, rot, place) {
+  const { V, F } = sphere(), fr = frameOf(face, cu, cv), first = out.n, cr = Math.cos(rot), sr = Math.sin(rot);
+  const g = V.map(([x, y, z], i) => {
+    const k = r * (0.8 + 0.4 * hash3(i, Math.floor(seed * 1e6), 7));
+    const lx = x * k * 1.15, ly = y * k * 0.9, lz = z * k * 0.6;
+    return [cu + lx * cr - ly * sr, cv + lx * sr + ly * cr, base - r * 0.2 + lz];
+  });
+  for (let i = 0; i < V.length; i++) {
+    const [x, y, z] = V[i], nx = x * cr - y * sr, ny = x * sr + y * cr, p = place(g[i][0], g[i][1], g[i][2]);
+    out.pos.push(p[0], p[1], p[2]);
+    out.nor.push(nx * fr.east[0] + ny * fr.north[0] + z * fr.up[0], nx * fr.east[1] + ny * fr.north[1] + z * fr.up[1], nx * fr.east[2] + ny * fr.north[2] + z * fr.up[2]);
+    const j = 0.75 + 0.25 * hash3(i, 3, Math.floor(seed * 1e6));
+    out.col.push(j, j, j);
+    out.uvw.push(((g[i][0] % 4096) + 4096) % 4096, ((g[i][1] % 4096) + 4096) % 4096, g[i][2]);
+    out.gn.push(nx, ny, z);
+    out.w1.push(0, 0, 1, 0); out.w2.push(0, 0);                      // all rock
+    out.n++;
+  }
+  for (const [a, b, c] of F) out.idx.push(first + a, first + b, first + c);
 }
 
 // ---- tree models: one per (kind, height, variant, detail), turned and placed per tree --------------------------------
@@ -451,7 +493,7 @@ if (typeof self !== "undefined" && typeof window === "undefined" && typeof self.
     catch (err) { res = { error: String(err && err.message || err) }; }
     const tr = [];
     if (res.grass) tr.push(res.grass.inst.buffer, res.grass.kind.buffer);
-    for (const part of [res.smooth, res.trees, res.solid, res.clear, res.pieces, res.glassy, res.bark, res.foliage]) if (part) for (const a of [part.pos, part.nor, part.col, part.idx, part.uv, part.tile, part.uvw, part.gn, part.w1, part.w2, part.wind]) if (a) tr.push(a.buffer);
+    for (const part of [res.smooth, res.trees, res.solid, res.clear, res.pieces, res.glassy, res.bark, res.foliage, res.stones]) if (part) for (const a of [part.pos, part.nor, part.col, part.idx, part.uv, part.tile, part.uvw, part.gn, part.w1, part.w2, part.wind]) if (a) tr.push(a.buffer);
     self.postMessage(Object.assign({ id: m.id }, res), tr);
   };
 }

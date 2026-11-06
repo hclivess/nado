@@ -21,6 +21,8 @@ const Wd = await import(join(ROOT, "static", "land-world.js"));
 const M = await import(join(ROOT, "static", "land-mesher.js"));
 const T = await import(join(ROOT, "static", "land-trees.js"));
 let fails = 0;
+// one wind phase per tree: count the phases of vertices that sway (a fallen stick on the ground does not)
+const swaying = (p) => { const s = new Set(); for (let i = 0; i < p.wind.length; i += 4) if (p.wind[i] || p.wind[i + 1] || p.wind[i + 2]) s.add(p.wind[i + 3]); return s.size; };
 const ok = (c, m) => { console.log((c ? "ok   " : "FAIL ") + m); if (!c) fails++; };
 
 const q = Wd.plotCoords(Wd.firstWave()[44]), cu0 = q.u0 / 16, cv0 = q.v0 / 16;
@@ -38,7 +40,7 @@ for (let dx = 0; dx < 3; dx++) for (let dy = 0; dy < 3; dy++) {
     const r = M.meshChunk(q.face, cu, cv, ch, null, null, 0);
     if (r.empty) continue;
     if (r.trees) cellParts++;
-    if (r.bark) modelled += new Set(Array.from(r.bark.wind).filter((_, k) => k % 4 === 3)).size;   // one phase per tree
+    if (r.bark) modelled += swaying(r.bark);   // one phase per tree
   }
 }
 ok(roots > 10, `the block grows a forest (${roots} trees)`);
@@ -61,7 +63,7 @@ for (const kind of ["broadleaf", "birch", "conifer", "palm", "bush"]) for (const
 
 // 4: take trees apart — the model stays, less the taken parts, and no cell surface appears
 const { cu, cv, u, v, col, t } = chunkOf, ch = Math.floor(col.top / 16), logH = col.top + 2;
-const phases = (r) => r.bark ? new Set(Array.from(r.bark.wind).filter((_, k) => k % 4 === 3)).size : 0;
+const phases = (r) => r.bark ? swaying(r.bark) : 0;
 const tris = (p) => (p ? p.idx.length / 3 : 0);
 const cutLog = new Map([[q.face + ":" + u + ":" + v + ":" + logH, Wd.B.air]]);
 const base = M.meshChunk(q.face, cu, cv, ch, null, null, 0), baseCut = M.meshChunk(q.face, cu, cv, ch, cutLog, null, 0);
