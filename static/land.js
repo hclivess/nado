@@ -14,6 +14,7 @@
 // origin and every mesh is placed at its anchor minus the camera's position, computed in doubles, so float32 never
 // carries a coordinate larger than the view distance however far the planet's centre is (R0 ~83 km).
 import * as THREE from "/static/vendor/three/three.webgpu.js";
+import * as TSL from "/static/vendor/three/three.tsl.js";
 import * as Wd from "./land-world.js";
 import * as Cosmos from "./land-cosmos.js";
 import { NadoDapp, wireWallet, renderWallet, alertBar, notify, uiConfirm, uiPrompt, isAddress, esc, base, disp, $ } from "./nadodapp.js";
@@ -44,7 +45,14 @@ let offers = [];
 let hot = [], slot = 0;               // the hotbar: placeable item ids
 let job = null;                       // the break in progress: { cell, need (s), done (s), mouse }
 let mouseHeld = false;
-let renderer, scene, camera, sun, hemi, atlasTex, matSolid, matClear, matGround, farMesh = null, farAt = null;
+// BUILT PIECES (land-world BOXES: [x, z, y, w, d, h, m] in cm inside their plot) — "what about 1 cm and people can
+// increase the block size to whatever?" (operator, 2026-11-06). The size a player places is theirs to set (PRESETS, or
+// any W x D x H in the bag) and lands on a SNAP grid they choose; the ground stays whole cells.
+const PRESETS = [[100, 100, 100], [100, 100, 10], [100, 10, 100], [10, 10, 100], [200, 20, 5], [25, 25, 25], [5, 5, 5], [1, 1, 1]];
+const SNAPS = [1, 5, 10, 25, 50, 100];
+let piece = { w: 100, d: 100, h: 100, snap: 10 };
+const plotBoxes = new Map();          // plot -> { list, idx: Map(1 m bucket -> [box]) }
+let renderer, scene, camera, sun, hemi, atlasTex, matSolid, matClear, matGround, matPieces, matGlassy, ghost, farMesh = null, farAt = null;
 let highlight, lastT = 0, locked = false, keys = new Set(), touch = null, viewDist = 6;
 const LS = "nado_land_v1";
 
@@ -128,7 +136,38 @@ function fieldAt(f, u, v, h) {
   }
   return s;
 }
+// ---- pieces, as the player touches them: a 1 m bucket index per plot, so a test looks at the few pieces near it -----
+const bkey = (i, j, k) => (i * 64 + j) * 4096 + k;
+function indexBoxes(list) {
+  const idx = new Map();
+  for (const b of list) for (let i = Math.floor(b[0] / Wd.CM); i <= Math.floor((b[0] + b[3] - 1) / Wd.CM); i++)
+    for (let j = Math.floor(b[1] / Wd.CM); j <= Math.floor((b[1] + b[4] - 1) / Wd.CM); j++)
+      for (let k = Math.floor(b[2] / Wd.CM); k <= Math.floor((b[2] + b[5] - 1) / Wd.CM); k++) {
+        const key = bkey(i, j, k); let l = idx.get(key); if (!l) idx.set(key, l = []); l.push(b);
+      }
+  return idx;
+}
+/** The plot a grid point is in and the point in that plot's centimetres. */
+function plotCm(f, u, v, h) {
+  const plot = Wd.plotOf(f, Math.floor(u), Math.floor(v)), q = Wd.plotCoords(plot);
+  return { plot, x: (u - q.u0) * Wd.CM, z: (v - q.v0) * Wd.CM, y: h * Wd.CM };
+}
+/** The piece containing grid point (u, v, h), or null. */
+function boxAt(f, u, v, h) {
+  const c = plotCm(f, u, v, h), rec = plotBoxes.get(c.plot);
+  if (!rec) return null;
+  for (const b of rec.idx.get(bkey(Math.floor(c.x / Wd.CM), Math.floor(c.z / Wd.CM), Math.floor(c.y / Wd.CM))) || [])
+    if (c.x >= b[0] && c.x < b[0] + b[3] && c.z >= b[1] && c.z < b[1] + b[4] && c.y >= b[2] && c.y < b[2] + b[5]) return { plot: c.plot, b };
+  return null;
+}
+function setPlotBoxes(plot, list) {
+  const old = plotBoxes.get(plot);
+  plotBoxes.set(plot, { list, idx: indexBoxes(list) });
+  const ys = [...list, ...(old ? old.list : [])];
+  if (ys.length) remeshPlotRange(plot, Math.min(...ys.map((b) => b[2])), Math.max(...ys.map((b) => b[2] + b[5])));
+}
 function solidAt(f, u, v, h) {
+  if (boxAt(f, u, v, h)) return true;
   const b = blockAt(f, Math.floor(u), Math.floor(v), Math.floor(h));
   if (crispB(b)) return BLOCKS[b].solid;
   return fieldAt(f, u, v, h) > 0;
@@ -206,8 +245,11 @@ function aim() {
   const { fr, fw } = look();
   const d = [fr.east, fr.north, fr.up].map((ax) => fw[0] * ax[0] + fw[1] * ax[1] + fw[2] * ax[2]);   // in grid axes
   const o = [P.u, P.v, P.h + EYE], cellOf = (p) => p.map(Math.floor), same = (a, b) => a[0] === b[0] && a[1] === b[1] && a[2] === b[2];
-  for (let t = 0; t <= REACH; t += 0.05) {
+  for (let t = 0; t <= REACH; t += 0.02) {
     const p = [o[0] + d[0] * t, o[1] + d[1] * t, o[2] + d[2] * t], c = cellOf(p);
+    const bx = boxAt(P.face, p[0], p[1], p[2]);
+    if (bx) return { box: bx, point: p, before: [p[0] - d[0] * 0.02, p[1] - d[1] * 0.02, p[2] - d[2] * 0.02], dir: d };
+    if (Math.round(t / 0.02) % 3) continue;               // pieces need a 2 cm step; cells and the ground do not
     const b = blockAt(P.face, c[0], c[1], c[2]);
     let hit = null;
     if (crispB(b) || b === B.log || b === B.leaves) hit = c;
@@ -235,7 +277,7 @@ function aim() {
       if (!same(pc, hit) && free(pc)) { prev = pc; break; }
     }
     for (let up = 1; !prev && up <= 3; up++) { const q = [hit[0], hit[1], hit[2] + up]; if (free(q)) prev = q; }
-    return { hit, prev };
+    return { hit, prev, point: p, dir: d };
   }
   return null;
 }
@@ -247,7 +289,9 @@ function groundAt(f, u, v) {
 }
 
 // ---- edits ------------------------------------------------------------------------------------------------------
-const mayBuild = (plot) => mine.has(plot) || builds.has(plot);
+// "you can build anywhere unless it is owned" (operator, 2026-11-06): unowned land is open to everyone signed in; an
+// owned plot to its holder and the builders they invited. The world server applies the same rule (land_server.py).
+const mayBuild = (plot) => !titles.has(plot) || mine.has(plot) || builds.has(plot);
 /** Record one cell exactly as the world server holds it (an edit back to the terrain's own block stays listed there,
  *  so it stays listed here — the commitment is computed over the server's list). */
 function putCell(face, u, v, h, b) {
@@ -271,7 +315,7 @@ function setBlock(f, u, v, h, b) {
   if (!net.online) return notify(T("offline", "The world server is out of reach — you can explore, but not gather or build."));
   const w = Wd.wrap(f, u, v), plot = Wd.plotOf(w.face, w.u, w.v);
   if (!net.me) return explainNoBuild(plot);
-  if ((b !== B.air || titles.has(plot)) && !mayBuild(plot)) return explainNoBuild(plot);
+  if (!mayBuild(plot)) return explainNoBuild(plot);
   if (h <= 0 || h >= H) return false;
   putCell(w.face, w.u, w.v, h, b);
   net.send({ t: "set", cells: [[w.face, w.u, w.v, h, b]], req: ++net.req });
@@ -279,19 +323,25 @@ function setBlock(f, u, v, h, b) {
   return true;
 }
 function explainNoBuild(plot) {
-  const t = titles.get(plot);
-  if (!net.me) notify(T("needSignIn", "Sign in to build — only a plot's owner and the builders they invite can change it."));
-  else if (!t) notify(T("wildBuild", "This is wilderness: gather here, but build only on a plot you own or were invited to."));
+  if (!net.me) notify(T("signInBuild2", "Sign in to gather and build."));
   else notify(T("notYours", "Plot {p} belongs to someone else. Buy a plot, or ask its owner to invite you.", { p: plotLabel(plot) }));
   return false;
 }
 function save() {
-  try { localStorage.setItem(LS, JSON.stringify({ p: [P.face, P.u, P.v, P.h, P.yaw, P.pitch], hot })); } catch (e) {}
+  try { localStorage.setItem(LS, JSON.stringify({ p: [P.face, P.u, P.v, P.h, P.yaw, P.pitch], hot, piece })); } catch (e) {}
+}
+/** The chosen piece size and snap, under the hotbar. */
+function pieceInfo() {
+  const id = hot[slot], el = $("pieceInfo");
+  if (!el) return;
+  el.textContent = id && RULES && !NATURAL_ITEMS.has(id) ? T("pieceInfo", "Piece {w} × {d} × {h} cm · snap {s} cm", { w: piece.w, d: piece.d, h: piece.h, s: piece.snap }) : "";
+  save();
 }
 function load() {
   let d = null;
   try { d = JSON.parse(localStorage.getItem(LS) || "null"); } catch (e) {}
   if (d && Array.isArray(d.hot)) hot = d.hot.filter((x) => typeof x === "string").slice(0, 9);
+  if (d && d.piece && [d.piece.w, d.piece.d, d.piece.h].every((x) => Number.isInteger(x) && x >= 1 && x <= Wd.PLOT_CM) && SNAPS.includes(d.piece.snap)) piece = d.piece;
   if (d && Array.isArray(d.p)) { [P.face, P.u, P.v, P.h, P.yaw] = d.p; if (typeof d.p[5] === "number") P.pitch = d.p[5]; return; }
   const sp = Wd.plotCoords(Wd.plotId(Wd.SPAWN_FACE, Wd.SPAWN_PLOT_ROW + 5, Wd.SPAWN_PLOT_COL + 5));
   P.face = sp.face; P.u = sp.u0 + 0.5; P.v = sp.v0 - 6.5;            // amid the first wave of plots
@@ -332,7 +382,9 @@ function request(k) {
   if (!c || c.busy) { if (c) c.dirty = true; return; }
   c.busy = true; c.dirty = false;
   const [face, cu, cv, ch] = k.split(":").map(Number);
-  queue.push({ id: ++reqId, k, face, cu, cv, ch, edits: editsFor(face, cu, cv) });
+  const pb = plotBoxes.get(Wd.plotId(face, cv, cu));        // a chunk column IS a plot (CHUNK == PLOT)
+  c.lod = Math.max(Math.abs(cu - Math.floor(P.u / CHUNK)), Math.abs(cv - Math.floor(P.v / CHUNK))) > 3 ? 1 : 0;
+  queue.push({ id: ++reqId, k, face, cu, cv, ch, edits: editsFor(face, cu, cv), boxes: pb ? pb.list : null, lod: c.lod });
   pump();
 }
 function pump() {
@@ -354,6 +406,7 @@ function geom(part) {
   g.setAttribute("normal", new THREE.BufferAttribute(part.nor, 3));
   if (part.uv) g.setAttribute("uv", new THREE.BufferAttribute(part.uv, 2));
   g.setAttribute("color", new THREE.BufferAttribute(part.col, 3));
+  if (part.tile) g.setAttribute("tile", new THREE.BufferAttribute(part.tile, 1));
   g.setIndex(new THREE.BufferAttribute(part.idx, 1));
   g.computeBoundingSphere();
   return g;
@@ -369,11 +422,22 @@ function done(m) {
     c.anchor = m.anchor;
     if (m.smooth) c.meshes.push(new THREE.Mesh(geom(m.smooth), matGround));
     if (m.trees) c.meshes.push(new THREE.Mesh(geom(m.trees), matGround));
+    if (m.pieces) c.meshes.push(new THREE.Mesh(geom(m.pieces), matPieces));
+    if (m.glassy) { const me = new THREE.Mesh(geom(m.glassy), matGlassy); me.renderOrder = 1; c.meshes.push(me); }
     if (m.solid) c.meshes.push(new THREE.Mesh(geom(m.solid), matSolid));
     if (m.clear) { const me = new THREE.Mesh(geom(m.clear), matClear); me.renderOrder = 1; c.meshes.push(me); }
     for (const me of c.meshes) { me.castShadow = me.material !== matClear; me.receiveShadow = true; scene.add(me); }
   }
   if (c.dirty) request(k);
+}
+/** Re-mesh the chunks of a plot that a range of piece heights (cm) touches, creating any the view had not loaded. */
+function remeshPlotRange(plot, yLo, yHi) {
+  const q = Wd.plotCoords(plot);
+  for (let ch = Math.max(0, Math.floor(yLo / (CHUNK * Wd.CM))); ch <= Math.min(H / CHUNK - 1, Math.floor((yHi - 1) / (CHUNK * Wd.CM))); ch++) {
+    const k = q.face + ":" + q.pcol + ":" + q.prow + ":" + ch;
+    if (!chunks.has(k)) chunks.set(k, { meshes: [], anchor: null, busy: false, dirty: false });
+    request(k);
+  }
 }
 function remeshAround(face, u, v, h) {
   const cu = Math.floor(u / CHUNK), cv = Math.floor(v / CHUNK), ch = Math.floor(h / CHUNK);
@@ -399,7 +463,14 @@ function updateChunks() {
     const top = colAt(face, cu * CHUNK + 8, cv * CHUNK + 8).top;
     let lo = Math.max(0, Math.floor((Math.min(top, Wd.SEA) - 10) / CHUNK)), hi = Math.min(H / CHUNK - 1, Math.floor((top + 14) / CHUNK));
     if (Math.abs(dx) <= 2 && Math.abs(dy) <= 2) { lo = Math.min(lo, Math.max(0, Math.floor(P.h / CHUNK) - 1)); hi = Math.max(hi, Math.min(H / CHUNK - 1, Math.floor(P.h / CHUNK) + 1)); }
-    for (let ch = lo; ch <= hi; ch++) want.add(face + ":" + cu + ":" + cv + ":" + ch);
+    const pb = plotBoxes.get(Wd.plotId(face, cv, cu));
+    if (pb && pb.list.length) for (const b of pb.list) { lo = Math.min(lo, Math.floor(b[2] / (CHUNK * Wd.CM))); hi = Math.max(hi, Math.min(H / CHUNK - 1, Math.floor((b[2] + b[5] - 1) / (CHUNK * Wd.CM)))); }
+    const far = Math.max(Math.abs(dx), Math.abs(dy)) > 3 ? 1 : 0;
+    for (let ch = lo; ch <= hi; ch++) {
+      const k = face + ":" + cu + ":" + cv + ":" + ch, c = chunks.get(k);
+      want.add(k);
+      if (c && pb && c.lod !== undefined && c.lod !== far) request(k);      // came near: draw its small pieces too
+    }
   }
   for (const k of want) if (!chunks.has(k)) { chunks.set(k, { meshes: [], anchor: null, busy: false, dirty: false }); request(k); }
   for (const [k, c] of chunks) if (!want.has(k) && !c.busy) {
@@ -524,6 +595,15 @@ function connect() {
       hud();
     } else if (m.t === "plot") {
       applyPlot(m.plot, m.edits || []);
+      if ((m.boxes || []).length || plotBoxes.has(m.plot)) setPlotBoxes(m.plot, m.boxes || []);
+    } else if (m.t === "boxes") {
+      const cur = plotBoxes.get(m.plot), rm = new Set((m.remove || []).map((b) => b.join(",")));
+      // idempotent: the placer's own piece is already shown (optimistically) when the server's echo arrives
+      const kept = (cur ? cur.list : []).filter((b) => !rm.has(b.join(","))), have = new Set(kept.map((b) => b.join(",")));
+      const list = kept.concat((m.add || []).filter((b) => !have.has(b.join(","))));
+      setPlotBoxes(m.plot, list);                       // re-meshes the old and new pieces' heights alike
+    } else if (m.t === "boxes_ok") {
+      if (m.refused && m.refused.length) { notify(String(m.refused[0][1])); if (m.plot !== undefined) resync(m.plot); }
     } else if (m.t === "edit") {
       for (const [f, u, v, h, b] of m.cells || []) putCell(f, u, v, h, b);
     } else if (m.t === "revert") {
@@ -565,7 +645,7 @@ function applyPlot(plot, list) {
   if (old) for (let ch = 0; ch < H / CHUNK; ch++) { const k = q.face + ":" + q.u0 / CHUNK + ":" + q.v0 / CHUNK + ":" + ch; if (chunks.has(k)) request(k); }
 }
 async function resync(plot) {
-  try { const r = await (await fetch("/land/api/plot?plot=" + plot, { cache: "no-store", credentials: "same-origin" })).json(); applyPlot(plot, r.edits || []); } catch (e) {}
+  try { const r = await (await fetch("/land/api/plot?plot=" + plot, { cache: "no-store", credentials: "same-origin" })).json(); applyPlot(plot, r.edits || []); setPlotBoxes(plot, r.boxes || []); } catch (e) {}
 }
 function avatar(seed) {
   let h = 0; for (const ch of String(seed)) h = (h * 31 + ch.charCodeAt(0)) >>> 0;
@@ -600,14 +680,15 @@ function hud() {
   const w = Wd.wrap(P.face, Math.floor(P.u), Math.floor(P.v)), plot = Wd.plotOf(w.face, w.u, w.v), t = titles.get(plot);
   const changed = (plotEdit.get(plot) || new Map()).size;
   $("hudPos").textContent = T("where", "Plot {p} · height {h} m", { p: plotLabel(plot), h: Math.round(P.h - Wd.SEA) })
-    + (changed ? " · " + T("changed", "{n} {n|one:changed block|other:changed blocks}", { n: changed }) : "");
+    + (changed ? " · " + T("changed", "{n} {n|one:changed block|other:changed blocks}", { n: changed }) : "")
+    + ((plotBoxes.get(plot) || { list: [] }).list.length ? " · " + T("pieces", "{n} {n|one:piece|other:pieces}", { n: plotBoxes.get(plot).list.length }) : "");
   const st = $("hudPlot");
   // the owner is looked up once the plot's title is KNOWN (titles load after the first frames), once per refresh
   if (t && !mine.has(plot) && !t.asked) { t.asked = true; holderOf(plot).then(hud); }
   let html;
   if (t && net.online && net.me && !t.checked) { t.checked = true; builderCheck(plot); }
   const signIn = net.online && !net.me ? ` <a class="btn" href="/land/api/login">${esc(T("signInBuild", "Sign in to build"))}</a>` : "";
-  if (!t) html = `<span class="pill">${esc(T("wild", "Wilderness"))}</span> <span class="dim">${esc(T("wildHint", "No title yet — this land opens in a later wave."))}</span>${signIn}`;
+  if (!t) html = `<span class="pill">${esc(T("wild", "Wilderness"))}</span> <span class="dim">${esc(T("wildOpen", "Unowned: anyone may gather and build here. Own a plot to protect what you build."))}</span>${signIn}`;
   else if (builds.has(plot) && !mine.has(plot)) html = `<span class="pill ok">${esc(T("invited", "You may build here"))}</span> <span class="dim">${esc(t.holder ? T("owned", "Owned by {o}", { o: disp(t.holder) }) : "")}</span>`;
   else if (mine.has(plot)) html = `<span class="pill ok">${esc(T("yours", "Your plot"))}</span> <button id="btnAnchor" class="ghost">${esc(T("anchorBtn", "Anchor build"))}</button> <button id="btnInvite" class="ghost">${esc(T("inviteBtn", "Invite a builder"))}</button>`;
   else html = `<span class="pill">${esc(t.holder ? T("owned", "Owned by {o}", { o: disp(t.holder) }) : T("titled", "Titled"))}</span> <a class="btn" target="_blank" rel="noopener" href="${NFT_URL}#token/${esc(t.aid)}">${esc(T("market", "View on the market"))}</a>${signIn}`;
@@ -647,6 +728,7 @@ function hotbar() {
     el.onclick = (e) => { e.stopPropagation(); slot = i; hotbar(); };
   });
   $("hotName").textContent = nameOf(hot[slot]);
+  pieceInfo();
 }
 
 // ---- the bag: what you have, what you can make, and trade ---------------------------------------------------------
@@ -671,6 +753,11 @@ function renderBag() {
     <h3>${esc(T("have", "You have"))}</h3>
     <div class="chips">${items.length ? items.map(([id, n]) => `<button class="chip${placeable(id) ? " pl" : ""}" data-pick="${id}">${n} × ${esc(nameOf(id))}</button>`).join("") : `<span class="dim">${esc(T("nothingYet", "Nothing yet — break grass, earth or leaves by hand to start."))}</span>`}
       ${inv.tools.map((t) => `<span class="chip tool">${esc(nameOf(t))}</span>`).join("")}${inv.stations.map((t) => `<span class="chip tool">${esc(nameOf(t))}</span>`).join("")}</div>
+    <h3>${esc(T("pieceSize", "Piece size"))}</h3>
+    <div class="tradeform">${PRESETS.map((x, i) => `<button class="chip pl" data-preset="${i}">${x.join("×")}</button>`).join("")}</div>
+    <div class="tradeform"><span>W</span><input id="pzW" type="number" min="1" max="1600" value="${piece.w}"><span>D</span><input id="pzD" type="number" min="1" max="1600" value="${piece.d}">
+      <span>H</span><input id="pzH" type="number" min="1" max="25600" value="${piece.h}"><span>cm · ${esc(T("snap", "snap"))}</span>
+      <select id="pzS">${SNAPS.map((x) => `<option value="${x}"${x === piece.snap ? " selected" : ""}>${x} cm</option>`).join("")}</select></div>
     <h3>${esc(T("make", "Make"))}</h3>
     <div class="recipes">${RULES.recipes.map((r) => {
       const out = r.makes.map(([id, n]) => (RULES.items[id] ? n + " " : "") + nameOf(id)).join(", ");
@@ -696,6 +783,13 @@ function renderBag() {
   g.querySelectorAll("[data-pick]").forEach((b) => { b.onclick = () => { const id = b.dataset.pick; if (!placeable(id)) return; if (!hot.includes(id)) { if (hot.length < 9) hot.push(id); else hot[slot] = id; } slot = hot.indexOf(id); save(); hotbar(); }; });
   g.querySelectorAll("[data-accept]").forEach((b) => { b.onclick = () => req({ t: "accept", id: b.dataset.accept }); });
   g.querySelectorAll("[data-cancel]").forEach((b) => { b.onclick = () => req({ t: "cancel_offer", id: b.dataset.cancel }); });
+  g.querySelectorAll("[data-preset]").forEach((b) => { b.onclick = () => { [piece.w, piece.d, piece.h] = PRESETS[Number(b.dataset.preset)]; pieceInfo(); renderBag(); }; });
+  const size = () => {
+    const v = (id, max) => Math.max(1, Math.min(max, Math.round(Number($(id).value) || 1)));
+    piece = { w: v("pzW", Wd.PLOT_CM), d: v("pzD", Wd.PLOT_CM), h: v("pzH", Wd.H_CM), snap: Number($("pzS").value) };
+    pieceInfo();
+  };
+  for (const id of ["pzW", "pzD", "pzH", "pzS"]) $(id).onchange = size;
   $("ofPost").onclick = () => req({ t: "offer", give: { [$("ofG").value]: Number($("ofGN").value) }, want: { [$("ofW").value]: Number($("ofWN").value) } });
   $("gvGo").onclick = () => {
     const to = $("gvTo").value.trim();
@@ -708,6 +802,29 @@ function renderBag() {
 // Breaking takes as long as the material's hardness over the tool's speed (land-recipes.json "breaking"); the server
 // keeps the same clock, so a quicker page gains nothing. A mouse breaks while held; a tap on a touch screen keeps
 // breaking the aimed cell until it gives or the aim moves.
+/** Where a piece of the chosen size goes for this aim: flush against the face of the piece it hits, or standing on the
+ *  ground where it hits; centred on the hit point on the other two axes, on the snap grid, inside the plot. */
+function placement(a) {
+  if (!a) return null;
+  const { w, d, h, snap } = piece, sz = [w, d, h];
+  const pt = a.point, c = plotCm(P.face, pt[0], pt[1], pt[2]);
+  const at = [c.x, c.z, c.y], out = [0, 0, 0];
+  let ax = 2, sign = 1;
+  if (a.box) {
+    const b = a.box.b, bc = plotCm(P.face, a.before[0], a.before[1], a.before[2]), was = [bc.x, bc.z, bc.y];
+    for (const i of [2, 0, 1]) if (was[i] < b[i] || was[i] >= b[i] + b[i + 3]) { ax = i; sign = was[i] < b[i] ? -1 : 1; break; }
+    out[ax] = sign > 0 ? b[ax] + b[ax + 3] : b[ax] - sz[ax];
+  } else out[2] = Math.floor(at[2]);                       // on the ground: its bottom where the ground was hit
+  for (const i of [0, 1, 2]) if (i !== ax) out[i] = Math.round((at[i] - sz[i] / 2) / snap) * snap;
+  out[0] = Math.max(0, Math.min(Wd.PLOT_CM - w, out[0])); out[1] = Math.max(0, Math.min(Wd.PLOT_CM - d, out[1]));
+  const box = [out[0], out[1], out[2], w, d, h, 0];
+  // never inside the player
+  const me = plotCm(P.face, P.u, P.v, P.h);
+  const body = [me.x - HALF * Wd.CM, me.z - HALF * Wd.CM, me.y, 2 * HALF * Wd.CM, 2 * HALF * Wd.CM, TALL * Wd.CM];
+  const rec = plotBoxes.get(c.plot);
+  const clash = (me.plot === c.plot && Wd.boxesOverlap(box, body)) || (rec && rec.list.some((o) => Wd.boxesOverlap(box, o)));
+  return { plot: c.plot, box, ok: !clash && box[2] >= 0 && box[2] + h <= Wd.H_CM };
+}
 function startBreak(c, mouse) {
   if (!RULES) return;
   const b = blockAt(P.face, c[0], c[1], c[2]), rule = RULES.breaking[b];
@@ -716,27 +833,51 @@ function startBreak(c, mouse) {
   const speed = rule.class && inv.tools.includes(rule.class) ? RULES.tools[rule.class].speed : 1;
   job = { cell: c, need: rule.hard / speed, done: 0, mouse };
 }
+function startTakeDown(bx, mouse) {
+  const rule = RULES.breaking[bx.b[6]] || { hard: 1 };
+  if (rule.needs && !inv.tools.includes(rule.needs)) return notify(T("needsTool", "That needs a {t}.", { t: nameOf(rule.needs) }));
+  const speed = rule.class && inv.tools.includes(rule.class) ? RULES.tools[rule.class].speed : 1;
+  job = { box: bx, need: Math.max(0.05, (rule.hard * Wd.boxVolume(bx.b)) / 1e6 / speed), done: 0, mouse };
+}
 function breakTick(dt) {
   const bar = $("breakBar");
   if (!job) { bar.classList.add("hidden"); return; }
   const a = aim();
-  if ((job.mouse && !mouseHeld) || !a || a.hit.join() !== job.cell.join()) { job = null; bar.classList.add("hidden"); return; }
+  const same = job.box ? a && a.box && a.box.b === job.box.b : a && a.hit && a.hit.join() === job.cell.join();
+  if ((job.mouse && !mouseHeld) || !same) { job = null; bar.classList.add("hidden"); return; }
   job.done += dt;
   bar.classList.remove("hidden");
   bar.firstElementChild.style.width = Math.min(100, (100 * job.done) / job.need) + "%";
-  if (job.done >= job.need) { const [u, v, h] = job.cell; job = null; bar.classList.add("hidden"); setBlock(P.face, u, v, h, B.air); }
+  if (job.done >= job.need) {
+    const j = job; job = null; bar.classList.add("hidden");
+    if (j.box) net.send({ t: "boxes", plot: j.box.plot, remove: [j.box.b], req: ++net.req });
+    else setBlock(P.face, j.cell[0], j.cell[1], j.cell[2], B.air);
+  }
 }
+const NATURAL_ITEMS = new Set(["dirt", "sand", "gravel", "snow"]);   // these fill the ground's cells; the rest are pieces
+const haveCm3 = (id) => (inv.items[id] || 0) * 1e6 + ((inv.vol || {})[id] || 0);
 function act(place, mouse) {
   const a = aim();
   if (!a) return;
   if (place) {
-    if (!a.prev) return;
-    const [u, v, h] = a.prev;
     const id = hot[slot];
-    if (!net.online || !net.me) return setBlock(P.face, u, v, h, B.air);   // says why first: offline, or not signed in
-    if (!id || !(inv.items[id] > 0)) return notify(T("noItem", "You have none of that — gather or make some first."));
-    setBlock(P.face, u, v, h, RULES.items[id].places);
+    if (!net.online || !net.me) return setBlock(P.face, Math.floor(a.point[0]), Math.floor(a.point[1]), Math.floor(a.point[2]), B.air);   // says why first
+    if (!id || !(haveCm3(id) > 0)) return notify(T("noItem", "You have none of that — gather or make some first."));
+    if (NATURAL_ITEMS.has(id)) {
+      if (!a.prev) return;
+      return setBlock(P.face, a.prev[0], a.prev[1], a.prev[2], RULES.items[id].places);
+    }
+    const pl = placement(a);
+    if (!pl) return;
+    if (!mayBuild(pl.plot)) return explainNoBuild(pl.plot);
+    if (!pl.ok) return notify(T("noRoom", "No room for that piece there."));
+    const box = pl.box.slice(); box[6] = RULES.items[id].places;
+    if (haveCm3(id) < Wd.boxVolume(box)) return notify(T("notEnough", "Not enough {i} for a piece that size.", { i: nameOf(id) }));
+    const cur = plotBoxes.get(pl.plot);
+    setPlotBoxes(pl.plot, (cur ? cur.list : []).concat([box]));                 // shown at once; put back if refused
+    net.send({ t: "boxes", plot: pl.plot, add: [box], req: ++net.req });
   } else {
+    if (a.box) return startTakeDown(a.box, mouse);
     const [u, v, h] = a.hit;
     if (blockAt(P.face, u, v, h) === B.bedrock) return;
     startBreak(a.hit, mouse);
@@ -757,6 +898,9 @@ function wireInput(canvas) {
     if (e.target && /INPUT|TEXTAREA/.test(e.target.tagName)) return;
     keys.add(e.code);
     if (/^Digit[1-9]$/.test(e.code) && Number(e.code.slice(5)) <= hot.length) { slot = Number(e.code.slice(5)) - 1; hotbar(); }
+    if (e.code === "KeyR") { const i = PRESETS.findIndex((x) => x[0] === piece.w && x[1] === piece.d && x[2] === piece.h); [piece.w, piece.d, piece.h] = PRESETS[(i + 1) % PRESETS.length]; pieceInfo(); }
+    if (e.code === "KeyT") { [piece.w, piece.d] = [piece.d, piece.w]; pieceInfo(); }
+    if (e.code === "BracketLeft" || e.code === "BracketRight") { const i = SNAPS.indexOf(piece.snap); piece.snap = SNAPS[Math.max(0, Math.min(SNAPS.length - 1, (i < 0 ? 2 : i) + (e.code === "BracketRight" ? 1 : -1)))]; pieceInfo(); }
     if (e.code === "KeyF") { P.fly = !P.fly; P.vh = 0; notify(P.fly ? T("flyOn", "Flying — Space up, C down, Shift fast") : T("flyOff", "Walking"), 1600); }
     if (e.code === "KeyE") palette($("palette").classList.contains("hidden"));
     if (e.code === "Escape") palette(false);
@@ -856,7 +1000,8 @@ function sky(fr) {
   moon.position.copy(sd).multiplyScalar(-150);
   moon.intensity = 0.35 * (1 - day);
   hemi.position.copy(up);                                   // three's hemisphere light assumes +Y; here "up" is radial
-  hemi.intensity = 0.45 + 0.85 * day;
+  hemi.intensity = 0.6 + 1.6 * day;                         // the sky lights what the sun does not reach: a wall in its own
+                                                            // shade is dim, never black (the first house render was)
   hemi.color.copy(SKY.nightH).lerp(SKY.horizon, day);
   const zen = SKY.nightZ.clone().lerp(SKY.zenith, day).lerp(SKY.duskZ, dusk * 0.5);
   const hor = SKY.nightH.clone().lerp(SKY.horizon, day).lerp(SKY.dusk, dusk * 0.6);
@@ -914,13 +1059,27 @@ function frame(now) {
   sky(fr);
   // the aimed block's outline
   const a = aim();
-  if (a) {
-    const [u, v, h] = a.hit, c = Wd.posOf(P.face, u + 0.5, v + 0.5, h + 0.5);
-    highlight.visible = true;
-    highlight.position.set(c[0] - cam[0], c[1] - cam[1], c[2] - cam[2]);
-    highlight.up.set(fr.up[0], fr.up[1], fr.up[2]);
-    highlight.lookAt(highlight.position.x + fr.north[0], highlight.position.y + fr.north[1], highlight.position.z + fr.north[2]);
-  } else highlight.visible = false;
+  // a cell's outline, or the piece's own box; and where the chosen piece would go (green: it fits, red: it does not)
+  const frameBox = (obj, plot, b) => {
+    const q = Wd.plotCoords(plot), cx = q.u0 + (b[0] + b[3] / 2) / Wd.CM, cz = q.v0 + (b[1] + b[4] / 2) / Wd.CM, cy = (b[2] + b[5] / 2) / Wd.CM;
+    const c = Wd.posOf(P.face, cx, cz, cy);
+    obj.position.set(c[0] - cam[0], c[1] - cam[1], c[2] - cam[2]);
+    obj.up.set(fr.up[0], fr.up[1], fr.up[2]);
+    obj.lookAt(obj.position.x + fr.north[0], obj.position.y + fr.north[1], obj.position.z + fr.north[2]);
+    obj.scale.set(b[3] / Wd.CM + 0.01, b[5] / Wd.CM + 0.01, b[4] / Wd.CM + 0.01);
+    obj.visible = true;
+  };
+  highlight.visible = ghost.visible = false;
+  if (a && a.box) frameBox(highlight, a.box.plot, a.box.b);
+  else if (a && a.hit) {
+    const hp = Wd.plotOf(P.face, a.hit[0], a.hit[1]), q = Wd.plotCoords(hp);
+    frameBox(highlight, hp, [(a.hit[0] - q.u0) * Wd.CM, (a.hit[1] - q.v0) * Wd.CM, a.hit[2] * Wd.CM, Wd.CM, Wd.CM, Wd.CM]);
+  }
+  const id = hot[slot];
+  if (a && id && !NATURAL_ITEMS.has(id) && net.me) {
+    const pl = placement(a);
+    if (pl) { frameBox(ghost, pl.plot, pl.box); ghost.material.color.setHex(pl.ok && mayBuild(pl.plot) ? 0x33dd77 : 0xdd4433); }
+  }
   renderer.render(scene, camera);
 }
 let tick = 0;
@@ -941,7 +1100,7 @@ async function start() {
   renderer.setPixelRatio(Math.min(2, devicePixelRatio || 1));
   renderer.setSize(innerWidth, innerHeight);
   renderer.toneMapping = THREE.ACESFilmicToneMapping;
-  renderer.toneMappingExposure = 1.05;
+  renderer.toneMappingExposure = 0.95;
   renderer.shadowMap.enabled = true;
   renderer.shadowMap.type = THREE.PCFShadowMap;            // r187's WebGPU renderer has no PCFSoftShadowMap
   await renderer.init();
@@ -957,7 +1116,7 @@ async function start() {
   scene.add(sun, sun.target);                               // the target stays at the origin: the player
   moon = new THREE.DirectionalLight(0x8fa8d8, 0.3); scene.add(moon, moon.target);
   hemi = new THREE.HemisphereLight(0xcfe8ff, 0x5a4a38, 0.9); scene.add(hemi);
-  scene.add(new THREE.AmbientLight(0x8090b0, 0.3));       // a night is dark, never black
+  scene.add(new THREE.AmbientLight(0x8090b0, 0.45));      // a night is dark, never black
   buildSky();
   const atlas = paintAtlas();
   atlasTex = new THREE.CanvasTexture(atlas);
@@ -966,6 +1125,23 @@ async function start() {
   matSolid = new THREE.MeshStandardMaterial({ map: atlasTex, vertexColors: true, alphaTest: 0.5, roughness: 0.85, metalness: 0 });
   matClear = new THREE.MeshStandardMaterial({ map: atlasTex, vertexColors: true, transparent: true, depthWrite: false, roughness: 0.15, metalness: 0 });
   matGround = new THREE.MeshStandardMaterial({ vertexColors: true, roughness: 0.95, metalness: 0 });
+  // pieces: the material's atlas tile, repeated once per METRE of the piece (uv is in metres; fract() keeps it inside
+  // the tile, half a texel in from its edge), so any size shows its material at true scale
+  // the tile number is ROUNDED: interpolated across a triangle, 16 arrives as 15.9999 and its row rounds down to the
+  // neighbouring tile (glass-blue specks all over the first roof render)
+  const tileA = TSL.attribute("tile", "float").add(0.5).floor(), f = TSL.fract(TSL.uv());
+  const tw = 1 / TCOLS, th = 1 / TROWS, eu = 0.5 / (TILE * TCOLS), ev = 0.5 / (TILE * TROWS);
+  const atlasUV = TSL.vec2(tileA.mod(TCOLS).mul(tw).add(eu).add(f.x.mul(tw - 2 * eu)),
+    TSL.float(1).sub(tileA.div(TCOLS).floor().add(1).mul(th)).add(ev).add(f.y.mul(th - 2 * ev)));
+  const sample = TSL.texture(atlasTex, atlasUV), shade = TSL.attribute("color", "vec3");
+  matPieces = new THREE.MeshStandardNodeMaterial({ roughness: 0.85, metalness: 0 });
+  matPieces.colorNode = sample.rgb.mul(shade);
+  matGlassy = new THREE.MeshStandardNodeMaterial({ roughness: 0.1, metalness: 0, transparent: true, depthWrite: false });
+  matGlassy.colorNode = sample.rgb.mul(shade);
+  matGlassy.opacityNode = sample.a;
+  ghost = new THREE.LineSegments(new THREE.EdgesGeometry(new THREE.BoxGeometry(1, 1, 1)), new THREE.LineBasicMaterial({ color: 0x33dd77 }));
+  ghost.visible = false;
+  scene.add(ghost);
   highlight = new THREE.LineSegments(new THREE.EdgesGeometry(new THREE.BoxGeometry(1.02, 1.02, 1.02)), new THREE.LineBasicMaterial({ color: 0x111111 }));
   scene.add(highlight);
   addEventListener("resize", () => { renderer.setSize(innerWidth, innerHeight); camera.aspect = innerWidth / innerHeight; camera.updateProjectionMatrix(); });

@@ -17,7 +17,7 @@
 // Cells are generated with a one-cell border (wrapped across face seams by land-world.wrap). A surface edge is drawn by
 // the chunk that holds its LOWER cell, so every edge of the world belongs to exactly one chunk (no gaps, no doubles).
 // Positions are metres RELATIVE TO THE CHUNK'S ANCHOR; the page places each mesh at anchor - camera in doubles.
-import { CHUNK, H, R0, B, BLOCKS, ATLAS_TILES, NATURAL, opaque, dirOf, frameOf, wrap, column, terrainBlock, fieldOf } from "./land-world.js";
+import { CHUNK, H, R0, B, BLOCKS, ATLAS_TILES, NATURAL, CM, opaque, dirOf, frameOf, wrap, column, terrainBlock, fieldOf } from "./land-world.js";
 
 const N = CHUNK + 2;                                     // cells with the border: real index r in -1..16 is r + 1
 const TILE_COLS = 8;                                      // the atlas is TILE_COLS tiles across (static/land.js paints it)
@@ -73,10 +73,80 @@ function cells(face, cu, cv, ch, edits) {
   return { blk, fld };
 }
 
-/** Mesh one chunk: { anchor, smooth (the ground), trees, solid, clear } (each {pos, nor, col, idx[, uv]} or null), or { empty }. */
-export function meshChunk(face, cu, cv, ch, edits) {
+// ---- built pieces: boxes at 1 cm (land-world.js BOXES) ------------------------------------------------------------
+// Every piece is up to six textured quads, its texture tiling per METRE (uv in metres + the material's atlas tile as an
+// attribute; static/land.js's node material takes fract(uv) inside the tile), so a 2 cm peg shows 2 cm of grain, not a
+// squeezed tile. Performance (the operator asked, 2026-11-06): one merged mesh per chunk; a face wholly covered by a
+// touching opaque piece is not drawn (a wall of flush planks is its outer skin, not every plank's six faces); a chunk the
+// page marks far (lod 1) skips pieces whose largest side is under LOD_SKIP_CM — detail costs nothing at a distance.
+const LOD_SKIP_CM = 20;
+// axis and sign of each face. No baked shade: pieces are lit by the real sun and sky (a fixed per-face darkening on top of
+// that, as the cube cells once had, turned a wall in its own shadow black — the first house render, 2026-11-06)
+const BOX_FACES = [{ ax: 2, s: 1 }, { ax: 2, s: -1 }, { ax: 0, s: 1 }, { ax: 0, s: -1 }, { ax: 1, s: 1 }, { ax: 1, s: -1 }];
+function meshBoxes(boxes, u0, v0, h0, place, solid, clear, lod) {
+  const lo = h0 * CM, hi = (h0 + CHUNK) * CM;
+  const mine = boxes.filter((b) => b[2] < hi && b[2] + b[5] > lo && !(lod && Math.max(b[3], b[4], b[5]) < LOD_SKIP_CM));
+  if (!mine.length) return;
+  // neighbours by 1 m bucket, for the covered-face test
+  const idx = new Map(), bk = (i, j, k) => (i * 64 + j) * 4096 + k;
+  for (const b of boxes) for (let i = Math.floor(b[0] / CM); i <= Math.floor((b[0] + b[3] - 1) / CM); i++)
+    for (let j = Math.floor(b[1] / CM); j <= Math.floor((b[1] + b[4] - 1) / CM); j++)
+      for (let k = Math.floor(b[2] / CM); k <= Math.floor((b[2] + b[5] - 1) / CM); k++) {
+        const key = bk(i, j, k); let l = idx.get(key); if (!l) idx.set(key, l = []); l.push(b);
+      }
+  const covered = (b, ax, s) => {
+    // the face's plane and rectangle (in the other two axes); a touching opaque piece whose opposite face spans it hides it
+    const plane = s > 0 ? b[ax] + b[ax + 3] : b[ax], o = [0, 1, 2].filter((a) => a !== ax);
+    const cell = [0, 0, 0];
+    cell[ax] = Math.floor((s > 0 ? plane : plane - 1) / CM);
+    cell[o[0]] = Math.floor(b[o[0]] / CM); cell[o[1]] = Math.floor(b[o[1]] / CM);
+    for (const n of idx.get(bk(cell[0], cell[1], cell[2])) || []) {
+      if (n === b || !opaque(n[6]) || BLOCKS[n[6]].see) continue;
+      if ((s > 0 ? n[ax] : n[ax] + n[ax + 3]) !== plane) continue;
+      if (n[o[0]] <= b[o[0]] && n[o[0]] + n[o[0] + 3] >= b[o[0]] + b[o[0] + 3] && n[o[1]] <= b[o[1]] && n[o[1]] + n[o[1] + 3] >= b[o[1]] + b[o[1] + 3]) return true;
+    }
+    return false;
+  };
+  for (const b of mine) {
+    const info = BLOCKS[b[6]], buf = !opaque(b[6]) ? clear : solid;
+    const y0 = Math.max(b[2], lo), y1 = Math.min(b[2] + b[5], hi);          // this chunk's slice of the piece
+    const mn = [b[0], b[1], y0], mx = [b[0] + b[3], b[1] + b[4], y1];
+    for (const F of BOX_FACES) {
+      if (F.ax === 2 && F.s > 0 && b[2] + b[5] > hi) continue;              // its top is in the chunk above
+      if (F.ax === 2 && F.s < 0 && b[2] < lo) continue;                     // its bottom is in the chunk below
+      if (covered(b, F.ax, F.s)) continue;
+      const o = [0, 1, 2].filter((a) => a !== F.ax), base = buf.n;
+      const tile = info.tex[F.ax === 2 ? (F.s > 0 ? 0 : 2) : 1];
+      // corners counter-clockwise seen from outside: (o0, o1) around the face, flipped for the negative side
+      const ring = F.s > 0 ? [[0, 0], [1, 0], [1, 1], [0, 1]] : [[0, 0], [0, 1], [1, 1], [1, 0]];
+      const ordered = (F.ax === 1) ? ring.map(([a, c]) => [c, a]) : ring;   // keep the winding right-handed for the v axis
+      for (const [a, c] of ordered) {
+        const q = [0, 0, 0];
+        q[F.ax] = F.s > 0 ? mx[F.ax] : mn[F.ax];
+        q[o[0]] = a ? mx[o[0]] : mn[o[0]]; q[o[1]] = c ? mx[o[1]] : mn[o[1]];
+        const p = place(u0 + q[0] / CM, v0 + q[1] / CM, q[2] / CM);
+        buf.pos.push(p[0], p[1], p[2]);
+        buf.uv.push(q[o[0]] / CM, q[o[1]] / CM);                           // metres: the texture tiles once per metre
+        buf.tile.push(tile);
+        const sh = info.glow ? 1.6 : 1;
+        buf.col.push(sh, sh, sh);
+      }
+      const P = buf.pos, k = base * 3;
+      const e1 = [P[k + 3] - P[k], P[k + 4] - P[k + 1], P[k + 5] - P[k + 2]], e2 = [P[k + 9] - P[k], P[k + 10] - P[k + 1], P[k + 11] - P[k + 2]];
+      let nx = e1[1] * e2[2] - e1[2] * e2[1], ny = e1[2] * e2[0] - e1[0] * e2[2], nz = e1[0] * e2[1] - e1[1] * e2[0];
+      const nl = Math.hypot(nx, ny, nz) || 1;
+      for (let c = 0; c < 4; c++) buf.nor.push(nx / nl, ny / nl, nz / nl);
+      buf.idx.push(base, base + 1, base + 2, base, base + 2, base + 3);
+      buf.n += 4;
+    }
+  }
+}
+
+/** Mesh one chunk: { anchor, smooth (the ground), trees, solid, clear, pieces } (each {pos, nor, col, idx[, uv, tile]} or
+ *  null), or { empty }. `boxes`: the plot's built pieces (land-world BOXES); `lod`: 1 for a far chunk. */
+export function meshChunk(face, cu, cv, ch, edits, boxes, lod) {
   const h0 = ch * CHUNK;
-  if (!edits || edits.size === 0) {                       // wholly above the ground, the trees and the sea: air
+  if ((!edits || edits.size === 0) && !(boxes && boxes.length)) {   // wholly above the ground, the trees and the sea: air
     let hi = 0;
     for (const [du, dv] of [[0, 0], [CHUNK, 0], [0, CHUNK], [CHUNK, CHUNK], [CHUNK / 2, CHUNK / 2]]) {
       const w = wrap(face, cu * CHUNK + du, cv * CHUNK + dv);
@@ -226,16 +296,19 @@ export function meshChunk(face, cu, cv, ch, edits) {
       buf.n += 4;
     }
   }
-  if (!smooth.idx.length && !trees.idx.length && !solid.n && !clear.n) return { empty: true };
-  return { anchor, smooth: pack(smooth), trees: pack(trees), solid: pack(solid), clear: pack(clear) };
+  const pieces = mk(), glassy = mk();
+  if (boxes && boxes.length) meshBoxes(boxes, u0, v0, h0, place, pieces, glassy, lod);
+  if (!smooth.idx.length && !trees.idx.length && !solid.n && !clear.n && !pieces.n && !glassy.n) return { empty: true };
+  return { anchor, smooth: pack(smooth), trees: pack(trees), solid: pack(solid), clear: pack(clear), pieces: pack(pieces), glassy: pack(glassy) };
 }
 
-function mk() { return { pos: [], nor: [], uv: [], col: [], idx: [], n: 0 }; }
+function mk() { return { pos: [], nor: [], uv: [], col: [], tile: [], idx: [], n: 0 }; }
 function pack(b) {
   if (!b.n || !b.idx.length) return null;
   const out = { pos: new Float32Array(b.pos), nor: new Float32Array(b.nor), col: new Float32Array(b.col),
                 idx: b.n > 65535 ? new Uint32Array(b.idx) : new Uint16Array(b.idx) };
   if (b.uv.length) out.uv = new Float32Array(b.uv);
+  if (b.tile.length) out.tile = new Float32Array(b.tile);
   return out;
 }
 
@@ -244,10 +317,10 @@ if (typeof self !== "undefined" && typeof window === "undefined" && typeof self.
   self.onmessage = (e) => {
     const m = e.data;
     let res;
-    try { res = meshChunk(m.face, m.cu, m.cv, m.ch, m.edits && m.edits.length ? new Map(m.edits) : null); }
+    try { res = meshChunk(m.face, m.cu, m.cv, m.ch, m.edits && m.edits.length ? new Map(m.edits) : null, m.boxes, m.lod); }
     catch (err) { res = { error: String(err && err.message || err) }; }
     const tr = [];
-    for (const part of [res.smooth, res.trees, res.solid, res.clear]) if (part) for (const a of [part.pos, part.nor, part.col, part.idx, part.uv]) if (a) tr.push(a.buffer);
+    for (const part of [res.smooth, res.trees, res.solid, res.clear, res.pieces, res.glassy]) if (part) for (const a of [part.pos, part.nor, part.col, part.idx, part.uv, part.tile]) if (a) tr.push(a.buffer);
     self.postMessage(Object.assign({ id: m.id }, res), tr);
   };
 }

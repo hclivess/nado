@@ -259,8 +259,16 @@ export function fieldOf(col, h, edit) {
 }
 
 // ---- plot data and its commitment ---------------------------------------------------------------------------------
-// A plot's data is its edit list: [x, z, y, block] with x (u - u0) and z (v - v0) in 0..15, y the layer in 0..H-1, and
-// block an id (0 = air: the terrain block there was removed). Canonical form: sorted by (y, z, x), one entry per cell.
+// A plot's data is two lists:
+//   EDITS — the ground, in whole cells: [x, z, y, block] with x (u - u0) and z (v - v0) in 0..15, y the layer in
+//           0..H-1, block an id (0 = the terrain there was removed). Sorted by (y, z, x), one entry per cell.
+//   BOXES — what is built, at 1 cm ("what about 1 cm and people can increase the block size to whatever?", operator
+//           2026-11-06): [x, z, y, w, d, h, m] in CENTIMETRES inside the plot (x, z in 0..1599, y in 0..H*100-1), a size
+//           of at least 1 cm on each axis that stays inside the plot, and m the block id of its material. Pieces never
+//           overlap (the world server refuses an overlapping one), so a plot's boxes are a set; canonical order is by
+//           the tuple. A box is a few numbers whatever its size: a nail and a 16 m slab cost the same to store.
+export const CM = 100;                        // centimetres per block (the ground's cell)
+export const PLOT_CM = PLOT * CM, H_CM = H * CM;
 export function canonicalEdits(edits) {
   const m = new Map();
   for (const [x, z, y, b] of edits) {
@@ -269,23 +277,42 @@ export function canonicalEdits(edits) {
   }
   return [...m.keys()].sort((a, b) => a - b).map((k) => [k % PLOT, Math.floor(k / PLOT) % PLOT, Math.floor(k / (PLOT * PLOT)), m.get(k)]);
 }
+/** Is [x, z, y, w, d, h, m] a box inside the plot? (whole centimetres, positive size, a known material) */
+export function boxOk(b) {
+  if (!Array.isArray(b) || b.length !== 7 || !b.every(Number.isInteger)) return false;
+  const [x, z, y, w, d, h, m] = b;
+  return x >= 0 && z >= 0 && y >= 0 && w >= 1 && d >= 1 && h >= 1 && x + w <= PLOT_CM && z + d <= PLOT_CM && y + h <= H_CM
+    && m > 0 && m < BLOCKS.length && !BLOCKS[m].liquid;
+}
+export const boxesOverlap = (a, b) => a[0] < b[0] + b[3] && b[0] < a[0] + a[3] && a[1] < b[1] + b[4] && b[1] < a[1] + a[4] && a[2] < b[2] + b[5] && b[2] < a[2] + a[5];
+export const boxVolume = (b) => b[3] * b[4] * b[5];          // cm³; one gathered block is 1,000,000
+export function canonicalBoxes(boxes) {
+  const out = [...new Map(boxes.map((b) => { if (!boxOk(b)) throw new Error("bad box"); return [b.join(","), b.slice()]; })).values()];
+  return out.sort((a, b) => { for (let i = 0; i < 7; i++) if (a[i] !== b[i]) return a[i] - b[i]; return 0; });
+}
 const enc = new TextEncoder();
-/** The bytes a commitment hashes: tag, plot id (u32 BE), the 32-byte salt, then each edit as x u8, z u8, y u16 BE,
- *  block u8. scripts/land_server.py builds the same bytes (tests/test_a_plot_commitment_is_the_same_in_the_page_and_the_server). */
-export function commitmentBytes(plot, salt, edits) {
-  const tag = enc.encode("nado-land-plot-v1"), ce = canonicalEdits(edits);
+/** The bytes a commitment hashes: tag, plot id (u32 BE), the 32-byte salt, the edit count (u32 BE) and each edit as
+ *  x u8, z u8, y u16 BE, block u8, then the box count (u32 BE) and each box as x, z, y, w, d, h (u16 BE each) and its
+ *  material u8. scripts/land_server.py builds the same bytes (commitment_bytes; the server test checks the two agree). */
+export function commitmentBytes(plot, salt, edits, boxes = []) {
+  const tag = enc.encode("nado-land-plot-v2"), ce = canonicalEdits(edits), cb = canonicalBoxes(boxes);
   if (!(salt instanceof Uint8Array) || salt.length !== 32) throw new Error("salt must be 32 bytes");
-  const out = new Uint8Array(tag.length + 4 + 32 + ce.length * 5);
+  const out = new Uint8Array(tag.length + 4 + 32 + 4 + ce.length * 5 + 4 + cb.length * 13);
   out.set(tag, 0);
   let o = tag.length;
-  out[o++] = plot >>> 24; out[o++] = (plot >>> 16) & 255; out[o++] = (plot >>> 8) & 255; out[o++] = plot & 255;
+  const u32 = (n) => { out[o++] = n >>> 24; out[o++] = (n >>> 16) & 255; out[o++] = (n >>> 8) & 255; out[o++] = n & 255; };
+  const u16 = (n) => { out[o++] = n >>> 8; out[o++] = n & 255; };
+  u32(plot);
   out.set(salt, o); o += 32;
-  for (const [x, z, y, b] of ce) { out[o++] = x; out[o++] = z; out[o++] = y >>> 8; out[o++] = y & 255; out[o++] = b; }
+  u32(ce.length);
+  for (const [x, z, y, b] of ce) { out[o++] = x; out[o++] = z; u16(y); out[o++] = b; }
+  u32(cb.length);
+  for (const [x, z, y, w, d, h, m] of cb) { u16(x); u16(z); u16(y); u16(w); u16(d); u16(h); out[o++] = m; }
   return out;
 }
 /** The commitment anchored on chain (land.py anchor arg 1): SHA-256 of commitmentBytes as a 256-bit integer string. */
-export async function plotCommitment(plot, salt, edits) {
-  const d = new Uint8Array(await crypto.subtle.digest("SHA-256", commitmentBytes(plot, salt, edits)));
+export async function plotCommitment(plot, salt, edits, boxes = []) {
+  const d = new Uint8Array(await crypto.subtle.digest("SHA-256", commitmentBytes(plot, salt, edits, boxes)));
   let n = 0n;
   for (const x of d) n = (n << 8n) | BigInt(x);
   return n === 0n ? "1" : n.toString();                         // the contract refuses 0; SHA-256 is never 0 in practice

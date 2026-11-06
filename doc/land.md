@@ -86,6 +86,33 @@ plaster, charred planks → clay → kiln → fired brick, roof tiles, glass (ne
   can follow; settlements (shared stations and stock) after per-player progress.
 - Whether any progress is anchored on chain is an open question for the operator.
 
+## Built pieces: 1 cm, any size
+
+"what about 1 cm and people can increase the block size to whatever?" and "what about performance" (operator,
+2026-11-06). The ground stays whole 1 m cells (dug and filled, drawn smooth); what people BUILD is pieces:
+`[x, z, y, w, d, h, material]` in centimetres inside the plot — from a 1 cm³ peg to a 16 m slab, never overlapping.
+
+- **Cost by volume.** One gathered block of a material is 1 m³. A piece spends its volume (whole blocks are opened as
+  needed, the remainder kept as `vol`); taking it down refunds the volume and takes work time in proportion to its size.
+  Earth, sand, gravel and snow fill ground cells instead.
+- **Placing.** The player sets the size (presets with R, any W × D × H in the bag), T turns it, [ ] picks the snap (1, 5,
+  10, 25, 50, 100 cm); a ghost shows where it goes — green if it fits, red if not. It lands flush on the face it is aimed
+  at, or on the ground, centred on the aim and on the snap grid, inside the plot, never in the player.
+- **Drawing.** Pieces are textured at true scale: uv in metres and the material's atlas tile per vertex, read through a
+  three.js node material (fract inside the tile, the tile number rounded — interpolated it read the neighbouring tile).
+- **Performance, measured 2026-11-06:**
+
+  | case | cost |
+  |---|---|
+  | server overlap check, 1,024 new pieces into a plot of 20,000 | 1 ms with the 1 m bucket index (≈2.8 s by scanning) |
+  | mesh a chunk of 20,000 scattered 5 cm pieces (in the worker) | ≈550–650 ms, 240,000 triangles (12 per piece at most) |
+  | the same chunk far away (lod 1: pieces under 20 cm skipped) | ≈20 ms, 0 triangles |
+  | a 10 × 3 m wall of 300 flush planks | ≈26 ms, 1,424 triangles (faces pressed together are dropped) |
+
+  A plot holds at most 20,000 pieces and a call carries at most 1,024; pieces travel once per plot, then as deltas.
+- tests/test_built_pieces_are_any_size_from_a_centimetre_paid_by_volume.py (server rules, costs, live, commitment) and
+  tests/test_pieces_draw_as_their_skin_and_tile_their_texture_per_metre.mjs (culling, per-metre texture, chunk cuts, LOD).
+
 ## Gathering, tools, crafting, trade
 
 "you must gather resources to make tools to make tools to collect more resources", "materials trading is necessary",
@@ -98,9 +125,12 @@ plaster, charred planks → clay → kiln → fired brick, roof tiles, glass (ne
   untouched cell holds, so a yield is what the ground really is; it keeps each player's inventory, tools and stations
   (~/land/planet0/players/<address>.json), and charges breaking in seconds of work (a bucket of 10 s refilling at 1 s/s),
   so neither a fast page nor an agent strips the planet quicker than a hand would.
-- **The commons:** anyone signed in gathers in the wilderness (untitled land), nobody builds there, and a gathered
-  wilderness cell grows back after `wilderness_regrow_s` (15 min). On a titled plot only its holder and invited builders
-  gather or build. Placing spends one item and only where you may build; breaking a placed block gives it back.
+- **Build anywhere unless it is owned** ("can we change the rules to - you can build anywhere unless it is owned?",
+  operator 2026-11-06). Unowned land is open to everyone signed in: they gather there, build there (cells and pieces),
+  and may take down what others built there — it is unprotected; owning the plot is what protects a build. A gathered
+  wilderness cell grows back after `wilderness_regrow_s` (15 min); what is BUILT there stays. On a titled plot only its
+  holder and invited builders gather or build. Placing spends one item; breaking a placed block gives it back. A plot
+  titled later keeps what stands on it, for its new owner to keep or take down.
 - **Trade:** a gift moves items; an offer escrows what it gives until someone takes it (both sides move at once) or its
   maker withdraws it (the escrow comes back). Bridging materials to on-chain tokens is a later decision for the operator.
 - tests/test_land_players_gather_make_tools_craft_and_trade.py (the server, against the real terrain) and
@@ -137,10 +167,12 @@ numbers and K_B are a live storage layout: add fields, never renumber or reuse o
 
 ## A plot's commitment
 
-A plot's data is its edit list over the generated terrain: `[x, z, y, block]` per changed cell (x, z in 0..15 within the
-plot, y the layer, block 0 = removed). The commitment is SHA-256 of
+A plot's data is its edit list over the generated terrain — `[x, z, y, block]` per changed cell (x, z in 0..15 within
+the plot, y the layer, block 0 = removed) — and its built pieces (above). The commitment is SHA-256 of
 
-    "nado-land-plot-v1" ‖ plot (u32 BE) ‖ salt (32 bytes) ‖ for each edit sorted by (y, z, x): x u8, z u8, y u16 BE, block u8
+    "nado-land-plot-v2" ‖ plot (u32 BE) ‖ salt (32 bytes)
+      ‖ edit count (u32 BE) ‖ for each edit sorted by (y, z, x): x u8, z u8, y u16 BE, block u8
+      ‖ piece count (u32 BE) ‖ for each piece sorted: x, z, y, w, d, h (u16 BE each), material u8
 
 as one 256-bit integer — the `anchor` argument. The salt is random per plot and kept with its edits, so the chain alone
 reveals nothing about a build; anyone handed the edits and the salt can check them against the chain.
@@ -166,6 +198,8 @@ down, fly, break, place and the palette.
 - tests/test_the_land_planet_is_one_continuous_world_and_a_plot_is_what_its_title_names.mjs — the planet
 - tests/test_a_player_gathers_by_hand_makes_tools_and_builds_only_where_they_may.mjs — the page, walked as a player
 - tests/test_land_players_gather_make_tools_craft_and_trade.py — the economy on the world server
+- tests/test_built_pieces_are_any_size_from_a_centimetre_paid_by_volume.py — pieces on the world server
+- tests/test_pieces_draw_as_their_skin_and_tile_their_texture_per_metre.mjs — drawing pieces
 - tests/test_the_vendored_three_js_is_the_published_r187.py — the renderer's bytes
 - tests/test_the_land_server_lets_only_holders_and_their_builders_change_a_plot.py — the world server
 - tests/test_an_ai_agent_builds_a_structure_with_its_own_key_once_invited.py — the agent client
@@ -203,8 +237,8 @@ person's click and an agent's call, and the grant dies when the plot is sold. Pl
 nado-land.service and documented with a reference client:
 
 - read: the plots in a region (titles, holders, anchors), a plot's edits, the generated terrain of a column range;
-- write: break cells (gathering them) and place blocks from the agent's own inventory, one cell or a whole structure per
-  call, under exactly the rules a person plays by; craft, give, offer, accept and withdraw offers;
+- write: break cells (gathering them) and place blocks from the agent's own inventory, add and take down pieces at 1 cm
+  (`pieces`), under exactly the rules a person plays by; craft, give, offer, accept and withdraw offers;
 - live: the same websocket the page uses (players' positions and everyone's edits);
 - limits: per-caller rate and size limits on writes, so an agent builds at the pace the world can carry.
 

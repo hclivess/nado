@@ -97,6 +97,11 @@ async def main():
     fr, fc = (PA // L.FACE_N) % L.FACE_N, PA % L.FACE_N
     check("…at the planet columns the in-plot cells name", world.plots[PA]["edits"].get((4, 4, 130)) == 11 and S.plot_of(0, fc * 16 + 4, fr * 16 + 4) == PA)
 
+    world.player(addr)["items"]["planks"] = 1
+    rc, out, err = await run("--keys", AGENT, "pieces", "--plot", str(PA), "--add", json.dumps([[400, 400, 13300, 150, 4, 90, 9], [0, 0, 13300, 1, 1, 1, 9]]))
+    r = json.loads(out or "{}")
+    check("an agent places pieces at 1 cm — a 150 x 4 x 90 cm board and a 1 cm peg — paid by their volume",
+          rc == 0 and r.get("added") == 2 and r["inventory"]["vol"].get("planks") == 1_000_000 - 150 * 4 * 90 - 1, (rc, out, err))
     json.dump([[16, 0, 130, 11]], open(HOUSE, "w"))
     rc, out, err = await run("--keys", AGENT, "build", "--plot", str(PA), "--file", HOUSE)
     check("a cell outside the plot is refused by the client before anything is sent", rc != 0 and "outside the plot" in err, (rc, err))

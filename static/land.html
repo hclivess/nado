@@ -41,6 +41,7 @@
   #cross:before{left:8px;top:0;width:2px;height:18px}#cross:after{top:8px;left:0;height:2px;width:18px}
   #hotwrap{position:fixed;left:50%;bottom:14px;transform:translateX(-50%);z-index:4;text-align:center}
   #hotName{font-size:12px;font-weight:700;text-shadow:0 1px 2px #000;margin-bottom:4px;min-height:16px}
+  #pieceInfo{font-size:11px;color:#dfe7ee;text-shadow:0 1px 2px #000;margin-bottom:4px;min-height:14px}
   #hotbar{display:flex;gap:4px;padding:4px;background:rgba(11,15,20,.6);border:1px solid var(--border);border-radius:10px}
   .hs{position:relative;width:44px;height:44px;border:2px solid transparent;border-radius:7px;display:grid;place-items:center;cursor:pointer}
   .hs.on{border-color:#fff}.hs canvas{width:32px;height:32px;image-rendering:pixelated}
@@ -91,13 +92,14 @@
 <div id="hudInfo"><div id="hudPos"></div><div id="hudPlot"></div></div>
 <div id="cross"></div>
 <div id="breakBar" class="hidden"><i></i></div>
-<div id="hotwrap"><div id="hotName"></div><div id="hotbar"></div></div>
+<div id="hotwrap"><div id="hotName"></div><div id="pieceInfo"></div><div id="hotbar"></div></div>
 <div id="hudGpu"></div>
 <div id="help"><div class="card">
   <h2 data-i18n="land.helpTitle">Welcome to the planet</h2>
   <div data-i18n="land.helpBody2">Gather from the wilderness with your hands, make tools, and with them gather what your hands could not. Every plot is a title you can own: build on yours, and trade what you gather.</div>
   <div class="keys">
     <div><kbd>W A S D</kbd> <span data-i18n="land.kMove">walk</span> · <kbd>Space</kbd> <span data-i18n="land.kJump">jump</span> · <kbd>Shift</kbd> <span data-i18n="land.kRun">run</span> · <kbd>F</kbd> <span data-i18n="land.kFly">fly</span></div>
+    <div><kbd>R</kbd> <span data-i18n="land.kSize">piece size</span> · <kbd>T</kbd> <span data-i18n="land.kTurn">turn it</span> · <kbd>[ ]</kbd> <span data-i18n="land.kSnap">snap</span></div>
     <div><kbd data-i18n="land.kLeft">left click</kbd> <span data-i18n="land.kGather">hold to gather</span> · <kbd data-i18n="land.kRight">right click</kbd> <span data-i18n="land.kPlace">place</span> · <kbd>1–9</kbd> <span data-i18n="land.kPick">pick a block</span> · <kbd>E</kbd> <span data-i18n="land.kBag">bag: make and trade</span></div>
   </div>
   <div class="go" data-i18n="land.clickToPlay">Click the world to play</div>

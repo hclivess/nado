@@ -5,7 +5,9 @@
  *   1. on their own plot, Break by hand takes the ground they look at — the bag gains earth (and the hotbar offers it);
  *   2. Place puts that earth back from the hotbar and the count drops;
  *   3. in the bag, fiber twists into cordage and sticks + stone + cordage make a stone axe — the bag shows the tool;
- *   4. in the wilderness they gather too, but placing there is refused with the reason;
+ *   3b. with planks, a chosen piece size (a 100 x 10 x 100 cm wall panel from the bag's presets) is placed on their plot:
+ *       the server holds exactly that piece and charged exactly its volume (0.1 of a block); taking it down refunds it;
+ *   4. on unowned land they gather and build too ("you can build anywhere unless it is owned");
  *   5. on someone else's plot nothing they tap changes anything, and the page says why.
  * Every check reads what the player sees (HUD, hotbar, bag) or what the server holds (its inventory over the API).
  *
@@ -127,17 +129,38 @@ try {
   ok(await until(S, "!!document.querySelector('[data-make=\"axe\"]:not([disabled])')"), "…and then the stone axe");
   await evl(S, "document.querySelector('[data-make=\"axe\"]').click(), true");
   ok(await until(S, "[...document.querySelectorAll('.chip.tool')].some((c) => /Stone axe/.test(c.textContent))"), "the bag shows the stone axe it made");
+  // 3b. a piece of a chosen size
+  await getJ("/fixture/seed?who=owner&items=" + encodeURIComponent(JSON.stringify({ planks: 2 })));
+  ok(await until(S, "!!document.querySelector('[data-preset=\"2\"]')"), "the bag offers piece sizes");
+  await evl(S, "document.querySelector('[data-preset=\"2\"]').click(), true");
   await evl(S, "document.getElementById('palClose').click(), true");
+  ok(await until(S, "[...document.querySelectorAll('#hotbar .hs')].some((h) => h.title === 'Planks')"), "planks are on the hotbar");
+  await evl(S, "[...document.querySelectorAll('#hotbar .hs')].find((h) => h.title === 'Planks').click(), true");
+  ok(await until(S, "/Piece 100 × 10 × 100 cm/.test(document.getElementById('pieceInfo').textContent)"), "the chosen size shows under the hotbar: " + await evl(S, "document.getElementById('pieceInfo').textContent"));
+  await tap(S, "tPlace");
+  const plotNow = async () => (await (await fetch(base + "/land/api/plot?plot=" + PA, { headers: { Authorization: "Bearer " + token } })).json());
+  let pj = null;
+  for (let i = 0; i < 40; i++) { pj = await plotNow(); if ((pj.boxes || []).length) break; await sleep(250); }
+  const box = (pj.boxes || [])[0];
+  ok(box && box[3] === 100 && box[4] === 10 && box[5] === 100 && box[6] === Wd.B.planks, "Place puts exactly that piece on the plot: " + JSON.stringify(pj.boxes));
+  const invP = await (await fetch(base + "/land/api/inventory", { headers: { Authorization: "Bearer " + token } })).json();
+  ok(invP.items.planks === 1 && invP.vol.planks === 900000, "…charging exactly its volume, a tenth of a block: " + JSON.stringify(invP));
+  await tap(S, "tBreak");
+  for (let i = 0; i < 40; i++) { pj = await plotNow(); if (!(pj.boxes || []).length) break; await sleep(250); }
+  const invQ = await (await fetch(base + "/land/api/inventory", { headers: { Authorization: "Bearer " + token } })).json();
+  ok(!(pj.boxes || []).length && invQ.items.planks === 2 && !(invQ.vol || {}).planks, "taking it down removes it and refunds its volume: " + JSON.stringify(invQ));
 
   // 4. the wilderness
   await standAt(spot(WILD));
   ok(await until(S, "/Wilderness/.test(document.getElementById('hudPlot').textContent)"), "in the wilderness");
   await tap(S, "tBreak");
-  ok(await until(S, "/Earth/.test(document.getElementById('hotName').textContent) && document.querySelector('#hotbar .hs b').textContent === '1'", 8000),
+  // the earth slot, whichever slot is selected (planks were chosen for the piece above)
+  ok(await until(S, "[...document.querySelectorAll('#hotbar .hs')].some((h) => h.title === 'Earth' && h.querySelector('b').textContent === '1')", 8000),
      "they gather there too");
+  await evl(S, "[...document.querySelectorAll('#hotbar .hs')].find((h) => h.title === 'Earth').click(), true");
   await tap(S, "tPlace");
-  await sleep(800);
-  ok(await bodyHas(S, "/This is wilderness: gather here, but build only/") && (await serverInv()).dirt === 1, "but placing there is refused, with the reason, and nothing is spent");
+  ok(await until(S, "[...document.querySelectorAll('#hotbar .hs')].some((h) => h.title === 'Earth' && h.querySelector('b').textContent === '0')", 8000)
+     && (await serverInv()).dirt === undefined, "and build there: unowned land is open to everyone signed in");
 
   // 5. someone else's plot
   await standAt(spot(PB));
@@ -146,7 +169,7 @@ try {
   await sleep(1500);
   await tap(S, "tPlace");
   await sleep(800);
-  ok((await serverInv()).dirt === 1 && await bodyHas(S, "/belongs to someone else|not your plot/"), "nothing they tap changes anything there, and the page says why");
+  ok((await serverInv()).dirt === undefined && await bodyHas(S, "/belongs to someone else|not your plot/"), "nothing they tap changes anything there, and the page says why");
   ok(errors.length === 0, "no page errors" + (errors.length ? ": " + errors.join(" | ") : ""));
   void owner;
 } catch (e) {

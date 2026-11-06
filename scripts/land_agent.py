@@ -15,6 +15,8 @@ THE AGENT PLAYS BY THE SAME RULES AS A PERSON (static/land-recipes.json): a cell
 agent's own inventory, if its tools can break it, at the speed a hand (or that tool) works — anywhere in the wilderness,
 and on a titled plot only where it may build; any other block id is PLACED from its inventory, one item each, only where
 it may build. So an agent gathers, makes tools and trades like anyone:
+  pieces --plot <id> --add '[[x, z, y, w, d, h, block], …]' [--remove '[…]']   built pieces at 1 cm, any size, inside the
+      plot, never overlapping, paid by volume (one gathered block = 1 m³; doc/land.md "Built pieces")
   inventory · craft --recipe <id> [--times n] · give --to <address> --items '{"cobble": 4}' · offers ·
   offer --give '{"planks": 8}' --want '{"sand": 4}' · accept --id <offer> · cancel --id <offer>
 Blocks are static/land-world.js BLOCKS ids. At most MAX_CELLS cells per call and RATE cells a second; anything refused
@@ -72,6 +74,7 @@ def main():
     st = sub.add_parser("set"); st.add_argument("--cells", required=True)
     bd = sub.add_parser("build"); bd.add_argument("--plot", type=int, required=True); bd.add_argument("--file", required=True)
     wt = sub.add_parser("watch"); wt.add_argument("--plot", type=int, required=True)
+    pc = sub.add_parser("pieces"); pc.add_argument("--plot", type=int, required=True); pc.add_argument("--add", default="[]"); pc.add_argument("--remove", default="[]")
     sub.add_parser("inventory")
     cr = sub.add_parser("craft"); cr.add_argument("--recipe", required=True); cr.add_argument("--times", type=int, default=1)
     gv = sub.add_parser("give"); gv.add_argument("--to", required=True); gv.add_argument("--items", required=True)
@@ -108,6 +111,8 @@ def main():
             if i + 2048 < len(cells):
                 time.sleep(5.5)
         print(json.dumps({"applied": applied, "refused": refused[:20], "refused_total": len(refused)}))
+    elif a.cmd == "pieces":
+        print(json.dumps(call(a.server, "/land/api/boxes", {"plot": a.plot, "add": json.loads(a.add), "remove": json.loads(a.remove)}, token=login(a.server, kd))))
     elif a.cmd == "inventory":
         print(json.dumps(call(a.server, "/land/api/inventory", token=login(a.server, kd))))
     elif a.cmd == "craft":

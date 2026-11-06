@@ -6,8 +6,8 @@
  *   2. an agent the plot's owner invited signs in with ITS OWN key and builds a 3 x 3 wall through the API — the
  *      visitor's HUD counts the 9 changed blocks without reloading (the server pushed them);
  *   3. the owner, signed in (their session cookie), sees the plot as theirs and the agent's 9 blocks on arrival;
- *   4. the owner places a plank from their inventory — the visitor sees it arrive (10 changed blocks), and the two
- *      players see each other;
+ *   4. the owner places a plank piece from their inventory — the visitor sees it arrive (9 changed blocks · 1 piece),
+ *      and the two players see each other;
  *   5. the visitor taps Place — nothing changes anywhere, and the page says why.
  * Every check reads what a player sees (the HUD) or what crossed the wire (the page's own websocket frames).
  *
@@ -128,9 +128,9 @@ try {
 
   // 4. the owner builds; the visitor sees it; they see each other
   await evl(B, "document.getElementById('tPlace').click(), true");
-  ok(await until(A, "/ · 10 changed blocks$/.test(document.getElementById('hudPos').textContent)", 10000),
+  ok(await until(A, "/ · 9 changed blocks · 1 piece$/.test(document.getElementById('hudPos').textContent)", 10000),
      "the owner's block reaches the visitor live: " + await hudText(A));
-  ok(await until(B, "/ · 10 changed blocks$/.test(document.getElementById('hudPos').textContent)", 5000), "…and the owner's own HUD agrees");
+  ok(await until(B, "/ · 9 changed blocks · 1 piece$/.test(document.getElementById('hudPos').textContent)", 5000), "…and the owner's own HUD agrees");
   await sleep(1500);
   const playersA = (frames.get(A) || []).filter((f) => f.includes('"t": "players"') || f.includes('"t":"players"')).map((f) => JSON.parse(f));
   ok(playersA.some((m) => m.list.length === 1), "the visitor's socket is told the owner is standing nearby");
@@ -138,9 +138,9 @@ try {
   // 5. the visitor tries
   await evl(A, "document.getElementById('tPlace').click(), true");
   await sleep(1500);
-  ok(/ · 10 changed blocks \|/.test(await hudText(A)) && / · 10 changed blocks \|/.test(await hudText(B)), "a visitor's tap changes nothing, for anyone");
+  ok(/ · 9 changed blocks · 1 piece \|/.test(await hudText(A)) && / · 9 changed blocks · 1 piece \|/.test(await hudText(B)), "a visitor's tap changes nothing, for anyone");
   ok(!/[{}]/.test(await hudText(A) + await hudText(B)), "the HUD shows words, never a raw {placeholder} token");
-  ok(await evl(A, "/Sign in to build — only a plot/.test(document.body.textContent)"), "and the page tells them to sign in");
+  ok(await evl(A, "/Sign in to gather and build/.test(document.body.textContent)"), "and the page tells them to sign in");
   ok(errors.length === 0, "no page errors" + (errors.length ? ": " + errors.join(" | ") : ""));
 } catch (e) {
   ok(false, "harness: " + (e && e.message || e) + "\n" + fxOut.slice(-1500));

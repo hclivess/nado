@@ -10,7 +10,8 @@ holds, so a yield is what the ground really is.
   * time: breaking spends seconds of work (hardness over tool speed) — a caller cannot strip the planet faster than a hand;
   * stations: planks need a workbench (which needs an axe), bricks need a kiln (which needs a campfire); a recipe is refused
     until its station and its materials are there;
-  * the commons: anyone signed in gathers in the wilderness, nobody builds there, and a gathered wilderness cell grows back;
+  * the commons: anyone signed in gathers AND builds on unowned land ("you can build anywhere unless it is owned"); a
+    gathered wilderness cell grows back, a built one stays;
   * placing spends one item and only on a plot the caller may build on;
   * trade: a gift moves items; an offer escrows what it gives, is taken atomically (both sides move or neither), and a
     withdrawn offer returns its escrow; nobody can offer what they lack or take their own offer;
@@ -153,8 +154,13 @@ async def main():
 
     # ---- the commons, and building --------------------------------------------------------------------------------
     rest()
-    r = await setc([CELLS["leaves"][:3] + [CELLS["leaves"][3] + 1, 9]], ha)
-    check("nobody builds in the wilderness", r["applied"] == 0 and "not your plot" in r["refused"][0][1], r)
+    wild_cell = CELLS["leaves"][:3] + [CELLS["leaves"][3] + 4]          # open air above the crown
+    r = await setc([wild_cell + [10]], ha)                               # cobblestone (the planks are traded below)
+    # "you can build anywhere unless it is owned" (operator, 2026-11-06)
+    check("anyone signed in builds on unowned land", r["applied"] == 1, r)
+    pw0 = S.plot_of(*wild_cell[:3])
+    k0 = (wild_cell[1] % 16, wild_cell[2] % 16, wild_cell[3])
+    check("…and what is built there stays (it is not set to regrow)", world.plots[pw0]["edits"].get(k0) == 10 and k0 not in world.plots[pw0].get("exp", {}))
     r = await setc([CELLS["grass"][:3] + [CELLS["grass"][3] + 3, 0]], hb)
     rest()
     r = await setc([[CELLS["tree"]["face"], CELLS["tree"]["u"] - 1, CELLS["tree"]["v"], CELLS["tree"]["top"] + 4, 0]], hb)

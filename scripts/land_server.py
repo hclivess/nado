@@ -64,18 +64,89 @@ def canonical_edits(edits):
     return [(k % PLOT, (k // PLOT) % PLOT, k // (PLOT * PLOT), m[k]) for k in sorted(m)]
 
 
-def commitment_bytes(plot, salt, edits):
+CM, PLOT_CM, H_CM = 100, PLOT * 100, H * 100      # static/land-world.js CM, PLOT_CM, H_CM
+BLOCK_CM3 = CM ** 3                                # one gathered block of material: 1,000,000 cm³
+MAX_BOXES = 20000                                  # pieces on one plot
+MAX_BOX_OPS = 1024                                 # pieces added or removed per call
+
+
+def box_ok(b):
+    """land-world.js boxOk: [x, z, y, w, d, h, m] in whole centimetres inside the plot, positive size, a solid material."""
+    if not isinstance(b, (list, tuple)) or len(b) != 7 or not all(isinstance(v, int) and not isinstance(v, bool) for v in b):
+        return False
+    x, z, y, w, d, h, m = b
+    return (x >= 0 and z >= 0 and y >= 0 and w >= 1 and d >= 1 and h >= 1 and x + w <= PLOT_CM and z + d <= PLOT_CM
+            and y + h <= H_CM and 0 < m < N_BLOCKS and m != 5)
+
+
+def boxes_overlap(a, b):
+    return a[0] < b[0] + b[3] and b[0] < a[0] + a[3] and a[1] < b[1] + b[4] and b[1] < a[1] + a[4] and a[2] < b[2] + b[5] and b[2] < a[2] + a[5]
+
+
+def commitment_bytes(plot, salt, edits, boxes=()):
+    """land-world.js commitmentBytes, byte for byte (v2: the ground's cell edits, then the built boxes)."""
     if len(salt) != 32:
         raise ValueError("salt must be 32 bytes")
-    out = bytearray(b"nado-land-plot-v1") + plot.to_bytes(4, "big") + salt
-    for x, z, y, b in canonical_edits(edits):
+    ce, cb = canonical_edits(edits), sorted({tuple(b) for b in boxes})
+    if not all(box_ok(list(b)) for b in cb):
+        raise ValueError("bad box")
+    out = bytearray(b"nado-land-plot-v2") + plot.to_bytes(4, "big") + salt + len(ce).to_bytes(4, "big")
+    for x, z, y, b in ce:
         out += bytes([x, z, y >> 8, y & 255, b])
+    out += len(cb).to_bytes(4, "big")
+    for x, z, y, w, d, h, m in cb:
+        out += b"".join(v.to_bytes(2, "big") for v in (x, z, y, w, d, h)) + bytes([m])
     return bytes(out)
 
 
-def commitment(plot, salt, edits):
-    n = int.from_bytes(hashlib.sha256(commitment_bytes(plot, salt, edits)).digest(), "big")
+def commitment(plot, salt, edits, boxes=()):
+    n = int.from_bytes(hashlib.sha256(commitment_bytes(plot, salt, edits, boxes)).digest(), "big")
     return str(n or 1)
+
+
+def box_vol(b):
+    return b[3] * b[4] * b[5]
+
+
+def buckets_of(b):
+    """The 1 m buckets a piece touches: the spatial index that keeps an overlap check local instead of a scan of every
+    piece on the plot (20,000 x 1,024 per call would be 20 million comparisons)."""
+    return [(i, j, k) for i in range(b[0] // CM, (b[0] + b[3] - 1) // CM + 1)
+            for j in range(b[1] // CM, (b[1] + b[4] - 1) // CM + 1)
+            for k in range(b[2] // CM, (b[2] + b[5] - 1) // CM + 1)]
+
+
+class BoxIndex:
+    """Pieces of one plot bucketed by the 1 m cells they touch. A piece spanning many metres sits in every bucket it
+    touches, so a lookup near any part of it finds it."""
+    def __init__(self, boxes):
+        self.cells = {}
+        for b in boxes:
+            self.add(b)
+
+    def add(self, b):
+        t = tuple(b)
+        for c in buckets_of(b):
+            self.cells.setdefault(c, set()).add(t)
+
+    def remove(self, b):
+        t = tuple(b)
+        for c in buckets_of(b):
+            s = self.cells.get(c)
+            if s:
+                s.discard(t)
+                if not s:
+                    del self.cells[c]
+
+    def overlaps(self, b):
+        seen = set()
+        for c in buckets_of(b):
+            for o in self.cells.get(c, ()):
+                if o not in seen:
+                    seen.add(o)
+                    if boxes_overlap(b, o):
+                        return True
+        return False
 
 
 def plot_of(face, u, v):
@@ -116,7 +187,8 @@ class World:
                     d = json.load(open(os.path.join(self.dir, f)))
                     self.plots[int(f[:-5])] = {"edits": {tuple(map(int, k.split(":"))): b for k, b in d["edits"].items()},
                                                "salt": bytes.fromhex(d["salt"]), "ver": int(d.get("ver", 0)),
-                                               "exp": {tuple(map(int, k.split(":"))): t for k, t in d.get("exp", {}).items()}}
+                                               "exp": {tuple(map(int, k.split(":"))): t for k, t in d.get("exp", {}).items()},
+                                               "boxes": [list(b) for b in d.get("boxes", [])]}
                 except Exception:
                     pass
 
@@ -124,14 +196,14 @@ class World:
     def plot(self, p):
         rec = self.plots.get(p)
         if rec is None:
-            rec = self.plots[p] = {"edits": {}, "salt": secrets.token_bytes(32), "ver": 0}
+            rec = self.plots[p] = {"edits": {}, "salt": secrets.token_bytes(32), "ver": 0, "boxes": []}
         return rec
 
     def flush(self):
         for p in list(self.dirty):
             rec = self.plots[p]
             body = {"edits": {f"{x}:{z}:{y}": b for (x, z, y), b in rec["edits"].items()}, "salt": rec["salt"].hex(), "ver": rec["ver"],
-                    "exp": {f"{x}:{z}:{y}": t for (x, z, y), t in (rec.get("exp") or {}).items()}}
+                    "exp": {f"{x}:{z}:{y}": t for (x, z, y), t in (rec.get("exp") or {}).items()}, "boxes": rec.get("boxes", [])}
             self._write(f"{p}.json", body)
             self.dirty.discard(p)
         for a in list(self.pdirty):
@@ -248,14 +320,14 @@ class World:
                 pl = json.load(open(path))
             except Exception:
                 pl = {"items": {}, "tools": [], "stations": []}
-            pl.setdefault("items", {}); pl.setdefault("tools", []); pl.setdefault("stations", [])
+            pl.setdefault("items", {}); pl.setdefault("tools", []); pl.setdefault("stations", []); pl.setdefault("vol", {})
             self.players[addr] = pl
         return pl
 
     def inv_json(self, addr):
         pl = self.player(addr)
         return {"items": {k: n for k, n in sorted(pl["items"].items()) if n > 0}, "tools": sorted(pl["tools"]),
-                "stations": sorted(pl["stations"])}
+                "stations": sorted(pl["stations"]), "vol": {k: v for k, v in sorted(pl["vol"].items()) if v > 0}}
 
     def _has(self, pl, need):
         return need in pl["tools"] or need in pl["stations"]
@@ -325,7 +397,8 @@ class World:
                 if not titled:                                     # the commons regrows: the cell comes back later
                     rec.setdefault("exp", {})[k] = time.time() + RULES["wilderness_regrow_s"]
             else:                                                   # ---- place: spend one item
-                if not may:
+                # "you can build anywhere unless it is owned" (operator, 2026-11-06): unowned land is open to everyone
+                if titled and not may:
                     refused.append([c, "not your plot — only its owner and the builders they invite build here"]); continue
                 if cur not in (0, 5):
                     refused.append([c, "something is already there"]); continue
@@ -355,6 +428,71 @@ class World:
                 exp.pop(k); rec["edits"].pop(k, None); rec["ver"] += 1; self.dirty.add(p)
                 out.setdefault(p, []).append([face, col * PLOT + k[0], row * PLOT + k[1], k[2]])
         return out
+
+    # -- built pieces: boxes at 1 cm, paid for by volume
+    def _spend(self, pl, item, cm3):
+        """Take `cm3` of `item` from the opened stock, opening whole blocks of it as needed; False if there is not enough."""
+        have = pl["vol"].get(item, 0) + pl["items"].get(item, 0) * BLOCK_CM3
+        if have < cm3:
+            return False
+        need = max(0, cm3 - pl["vol"].get(item, 0))
+        opened = -(-need // BLOCK_CM3)
+        pl["items"][item] = pl["items"].get(item, 0) - opened
+        pl["vol"][item] = pl["vol"].get(item, 0) + opened * BLOCK_CM3 - cm3
+        return True
+
+    def _refund(self, pl, item, cm3):
+        v = pl["vol"].get(item, 0) + cm3
+        pl["items"][item] = pl["items"].get(item, 0) + v // BLOCK_CM3
+        pl["vol"][item] = v % BLOCK_CM3
+
+    async def boxes(self, who, p, add, remove):
+        """Add and remove built pieces on plot `p`; returns (added, removed, refused). Removing goes first, so a piece
+        can be replaced in one call. Only where the caller may build; added pieces stay inside the plot, overlap nothing
+        and are paid for by volume (one block of material is 1 m³); a removed piece is refunded by its volume and takes
+        work time in proportion to its size."""
+        add, remove = add or [], remove or []
+        if not isinstance(p, int) or not isinstance(add, list) or not isinstance(remove, list) or len(add) + len(remove) > MAX_BOX_OPS:
+            return [], [], [[None, f"at most {MAX_BOX_OPS} pieces per call"]]
+        # anyone builds on unowned land; an owned plot only by its holder and the builders they invited
+        if (await self.holder(p)) is not None and not await self.may_build(p, who):
+            return [], [], [[None, "not your plot — only its owner and the builders they invite build here"]]
+        places = {it["places"]: name for name, it in RULES["items"].items() if "places" in it}
+        pl, rec = self.player(who), self.plot(p)
+        rec.setdefault("boxes", [])
+        if "index" not in rec:
+            rec["index"] = BoxIndex(rec["boxes"])
+        idx = rec["index"]
+        added, removed, refused = [], [], []
+        for b in remove:
+            b = list(b) if isinstance(b, (list, tuple)) else b
+            if b not in rec["boxes"]:
+                refused.append([b, "no such piece here"]); continue
+            rule = RULES["breaking"].get(str(b[6])) or {"hard": 1.0}
+            speed = RULES["tools"][rule["class"]]["speed"] if rule.get("class") in pl["tools"] else 1
+            if not self.work(who, max(0.05, rule["hard"] * box_vol(b) / BLOCK_CM3 / speed)):
+                refused.append([b, "too fast — taking a piece down takes time"]); continue
+            rec["boxes"].remove(b)
+            idx.remove(b)
+            self._refund(pl, places[b[6]], box_vol(b))
+            removed.append(b)
+        for b in add:
+            b = list(b) if isinstance(b, (list, tuple)) else b
+            if not box_ok(b) or b[6] not in places:
+                refused.append([b, "a piece is [x, z, y, w, d, h, material] in whole cm inside the plot, of a material you can place"]); continue
+            if len(rec["boxes"]) >= MAX_BOXES:
+                refused.append([b, f"a plot holds at most {MAX_BOXES} pieces"]); continue
+            if idx.overlaps(b):
+                refused.append([b, "it would overlap another piece"]); continue
+            if not self._spend(pl, places[b[6]], box_vol(b)):
+                refused.append([b, f"not enough {RULES['items'][places[b[6]]]['name'].lower()} (it takes {box_vol(b) / BLOCK_CM3:.3f} of a block)"]); continue
+            rec["boxes"].append(b)
+            idx.add(b)
+            added.append(b)
+        if added or removed:
+            rec["ver"] += 1
+            self.dirty.add(p); self.pdirty.add(who)
+        return added, removed, refused
 
     # -- crafting
     def craft(self, who, rid, times=1):
@@ -510,6 +648,17 @@ class Hub:
                     except Exception:
                         pass
 
+    async def boxes(self, p, added, removed, by):
+        """Pieces added or taken down on plot `p`: every socket watching it, the builder's included."""
+        if not (added or removed):
+            return
+        for ws, st in list(self.socks.items()):
+            if p in st["watch"]:
+                try:
+                    await ws.send_json({"t": "boxes", "plot": p, "add": added, "remove": removed, "by": by})
+                except Exception:
+                    pass
+
     async def reverts(self, back):
         """Wilderness cells that regrew: every watcher drops its override and shows the untouched planet again."""
         for ws, st in list(self.socks.items()):
@@ -594,10 +743,11 @@ def make_app(world, hub, site_origin, wallet_url, secure_cookies=True):
 
     def plot_json(p, addr, may):
         rec = world.plots.get(p) or {"edits": {}, "ver": 0}
-        out = {"plot": p, "ver": rec["ver"], "edits": [[x, z, y, b] for (x, z, y), b in sorted(rec["edits"].items())]}
+        out = {"plot": p, "ver": rec["ver"], "edits": [[x, z, y, b] for (x, z, y), b in sorted(rec["edits"].items())],
+               "boxes": sorted(rec.get("boxes", []))}
         if may and p in world.plots:
             out["salt"] = rec["salt"].hex()
-            out["commitment"] = commitment(p, rec["salt"], out["edits"])
+            out["commitment"] = commitment(p, rec["salt"], out["edits"], out["boxes"])
         return out
 
     async def challenge(request):
@@ -663,7 +813,7 @@ def make_app(world, hub, site_origin, wallet_url, secure_cookies=True):
         out = {}
         for p, rec in world.plots.items():
             f, r, c = plot_coords(p)
-            if f == face and u0 <= c * PLOT + PLOT and c * PLOT <= u1 and v0 <= r * PLOT + PLOT and r * PLOT <= v1 and rec["edits"]:
+            if f == face and u0 <= c * PLOT + PLOT and c * PLOT <= u1 and v0 <= r * PLOT + PLOT and r * PLOT <= v1 and (rec["edits"] or rec.get("boxes")):
                 out[p] = plot_json(p, None, False)
         return web.json_response({"plots": out})
 
@@ -677,6 +827,17 @@ def make_app(world, hub, site_origin, wallet_url, secure_cookies=True):
         if changed:
             await hub.inv(world, addr)
         return web.json_response({"applied": sum(len(c) for c in applied.values()), "refused": refused, "inventory": world.inv_json(addr)})
+
+    async def boxes(request):
+        addr = world.who(request)
+        if not addr:
+            raise web.HTTPUnauthorized(text="sign in first (agents: /land/api/agent_login)")
+        d = await request.json()
+        added, removed, refused = await world.boxes(addr, d.get("plot"), d.get("add"), d.get("remove"))
+        await hub.boxes(d.get("plot"), added, removed, addr)
+        if added or removed:
+            await hub.inv(world, addr)
+        return web.json_response({"added": len(added), "removed": len(removed), "refused": refused, "inventory": world.inv_json(addr)})
 
     def need_addr(request):
         addr = world.who(request)
@@ -765,6 +926,15 @@ def make_app(world, hub, site_origin, wallet_url, secure_cookies=True):
                     await hub.edits(applied, addr)
                     if changed:
                         await hub.inv(world, addr)
+                elif t == "boxes":
+                    if not addr:
+                        await ws.send_json({"t": "boxes_ok", "req": m.get("req"), "added": 0, "removed": 0, "refused": [[None, "sign in to build"]]})
+                        continue
+                    added, removed, refused = await world.boxes(addr, m.get("plot"), m.get("add"), m.get("remove"))
+                    await ws.send_json({"t": "boxes_ok", "req": m.get("req"), "plot": m.get("plot"), "added": len(added), "removed": len(removed), "refused": refused})
+                    await hub.boxes(m.get("plot"), added, removed, addr)
+                    if added or removed:
+                        await hub.inv(world, addr)
                 elif t in ("craft", "give", "offer", "accept", "cancel_offer"):
                     if not addr:
                         await ws.send_json({"t": "done", "req": m.get("req"), "error": "sign in first"})
@@ -798,6 +968,7 @@ def make_app(world, hub, site_origin, wallet_url, secure_cookies=True):
         web.get("/land/api/plot", plot),
         web.get("/land/api/region", region),
         web.post("/land/api/set", set_cells),
+        web.post("/land/api/boxes", boxes),
         web.get("/land/api/inventory", inventory),
         web.post("/land/api/craft", craft),
         web.post("/land/api/give", give),
