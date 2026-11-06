@@ -28,6 +28,7 @@ import { bloom } from "three/addons/tsl/display/BloomNode.js";
 import { fxaa } from "three/addons/tsl/display/FXAANode.js";
 import * as Wd from "./land-world.js";
 import * as Cosmos from "./land-cosmos.js";
+import { walk } from "./land-walk.js";
 import { NadoDapp, wireWallet, renderWallet, alertBar, notify, uiConfirm, uiPrompt, isAddress, esc, base, disp, $ } from "./nadodapp.js";
 
 const CID = "0000000000000000000000000000000c";      // set by execnode/games/redeploy.py wire() at deploy
@@ -198,7 +199,7 @@ function look() {
   return { fr, fw };
 }
 /** World position (metres, doubles) of the eye. */
-function eyePos() { return Wd.posOf(P.face, P.u, P.v, P.h + EYE); }
+function eyePos() { return Wd.posOf(P.face, P.u, P.v, (P.eyeH === undefined ? P.h : P.eyeH) + EYE); }   // land-walk.js smooths eyeH
 
 // ---- movement (grid space: u ~ east, v ~ north, h ~ up, ~1 m per unit) ------------------------------------------------
 function collides(u, v, h) {
@@ -213,36 +214,10 @@ function step(dt) {
   const sp = P.fly ? (fast ? FLY_FAST : FLY) : (fast ? RUN : WALK);
   const sy = Math.sin(P.yaw), cy = Math.cos(P.yaw);
   const wu = (sy * fwd + cy * side) * sp, wv = (cy * fwd - sy * side) * sp;
-  if (P.fly) {
-    P.vu = wu; P.vv = wv;
-    P.vh = ((keys.has("Space") || (touch && touch.up) ? 1 : 0) - (keys.has("KeyC") || keys.has("ControlLeft") || (touch && touch.down) ? 1 : 0)) * sp;
-  } else {
-    const k = P.ground ? 1 : 0.25;                      // a little air control
-    P.vu += (wu - P.vu) * Math.min(1, dt * 12 * k); P.vv += (wv - P.vv) * Math.min(1, dt * 12 * k);
-    P.vh -= GRAV * dt;
-    if ((keys.has("Space") || (touch && touch.up)) && P.ground) { P.vh = JUMP; P.ground = false; }
-  }
-  // per axis, so a wall stops one direction and the player slides along it; a slope or a low step is climbed (up to
-  // STEP) rather than stopping the walk — on smooth ground almost every move is a little uphill or downhill
-  const move = (nu, nv) => {
-    if (!collides(nu, nv, P.h)) return true;
-    if (!P.fly && !P.ground) return false;
-    for (let lift = 0.05; lift <= STEP; lift += 0.05) if (!collides(nu, nv, P.h + lift)) { P.h += lift; return true; }
-    return false;
-  };
-  const nu = P.u + P.vu * dt; if (move(nu, P.v)) P.u = nu; else P.vu = 0;
-  const nv = P.v + P.vv * dt; if (move(P.u, nv)) P.v = nv; else P.vv = 0;
-  const nh = P.h + P.vh * dt;
-  if (!collides(P.u, P.v, nh)) { P.h = nh; P.ground = false; }
-  else {
-    if (P.vh < 0) {                                   // landed: settle exactly onto the surface (it is not on a layer)
-      P.ground = true;
-      let lo = nh, hi = P.h;
-      for (let n = 0; n < 12; n++) { const mid = (lo + hi) / 2; if (collides(P.u, P.v, mid)) lo = mid; else hi = mid; }
-      P.h = hi;
-    }
-    P.vh = 0;
-  }
+  if (P.fly) P.vh = ((keys.has("Space") || (touch && touch.up) ? 1 : 0) - (keys.has("KeyC") || keys.has("ControlLeft") || (touch && touch.down) ? 1 : 0)) * sp;
+  // the body's motion, climbing and descending slopes exactly (land-walk.js: the 5 cm notches it replaced made every
+  // other uphill frame "airborne" and stopped the walk — the jitter-jumping of 2026-11-06)
+  walk(P, [wu, wv], keys.has("Space") || !!(touch && touch.up), dt, collides, { GRAV, JUMP, STEP });
   if (P.h < 1) { P.h = groundAt(P.face, P.u, P.v); P.vh = 0; }
   if (P.h > H + 400) P.h = H + 400;
   // leaving the face: continue on the neighbouring face, keeping the world direction the player faces

@@ -192,3 +192,17 @@ export function treeModel(kind, height, seed, lod = 0) {
   }
   return { bark, leaves };
 }
+
+/** A placed leaf cell: a small cluster of cards in one cell (centred on it, inside it), in leaf tile `tile`. */
+const cellModels = new Map();
+export function leafCellModel(tile) {
+  if (cellModels.has(tile)) return cellModels.get(tile);
+  const R = rng(1000 + tile), bark = part(), leaves = part();
+  for (let k = 0; k < 6; k++) {
+    const c = [(R() - 0.5) * 0.4, (R() - 0.5) * 0.4, (R() - 0.5) * 0.4];
+    cluster(leaves, R, c, 0.75 + R() * 0.2, tile, [0, 0, -0.3], 0.08, tintOf(R, [1, 1, 1], 0.2));
+  }
+  const m = { bark, leaves };
+  cellModels.set(tile, m);
+  return m;
+}

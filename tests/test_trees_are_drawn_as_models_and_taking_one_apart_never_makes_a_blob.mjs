@@ -1,15 +1,17 @@
 /*
- * test_untouched_trees_are_drawn_as_models_and_cut_ones_as_their_cells.mjs — static/land-trees.js + land-mesher.js
+ * test_trees_are_drawn_as_models_and_taking_one_apart_never_makes_a_blob.mjs — static/land-trees.js + land-mesher.js
  * ("overall not impressive", operator 2026-11-06). The cells stay the tree's data; the picture follows them:
  *   1. an untouched forest chunk draws its trees as models (bark + alpha leaf cards) and none of their cells — no cell
  *      canopy or log segment is left anywhere in a 3 x 3 block of plots (crowns reaching a chunk's border included);
  *   2. one model per tree: the chunk holding a root's ground layer draws it, once (bark parts counted against roots);
  *   3. every species builds, every model stays inside its tree's footprint (REACH from the axis), and every leaf card's
  *      texture coordinates stay inside its species' atlas tile;
- *   4. cutting one log of a tree takes that tree's model away and draws that tree from its cells instead;
+ *   4. taking a tree apart never makes a blob ("taking apart bushes creates blobs", operator 2026-11-06): cutting a log
+ *      keeps the model and leaves out that length of trunk, chopping a bush's leaf cell leaves out those leaves, and
+ *      neither draws any cell surface; a leaf block placed in the open is a cluster of leaf cards, not a surface;
  *   5. the same chunk meshes to the same bytes twice (every screen grows the same forest), and wind weights are present.
  *
- * Run: node tests/test_untouched_trees_are_drawn_as_models_and_cut_ones_as_their_cells.mjs
+ * Run: node tests/test_trees_are_drawn_as_models_and_taking_one_apart_never_makes_a_blob.mjs
  */
 import { join, dirname } from "node:path";
 import { fileURLToPath } from "node:url";
@@ -57,15 +59,31 @@ for (const kind of ["broadleaf", "birch", "conifer", "palm", "bush"]) for (const
   ok(uvBad === 0, `${kind} (lod ${lod}) leaf cards sample only their atlas tile ${tile}`);
 }
 
-// 4: cut one log of a tree: its model goes, its cells come back
+// 4: take trees apart — the model stays, less the taken parts, and no cell surface appears
 const { cu, cv, u, v, col, t } = chunkOf, ch = Math.floor(col.top / 16), logH = col.top + 2;
-const before = M.meshChunk(q.face, cu, cv, Math.floor(logH / 16), null, null, 0);
-const edits = new Map([[q.face + ":" + u + ":" + v + ":" + logH, Wd.B.air]]);
-const after = M.meshChunk(q.face, cu, cv, Math.floor(logH / 16), edits, null, 0);
 const phases = (r) => r.bark ? new Set(Array.from(r.bark.wind).filter((_, k) => k % 4 === 3)).size : 0;
-const base = M.meshChunk(q.face, cu, cv, ch, null, null, 0), baseCut = M.meshChunk(q.face, cu, cv, ch, edits, null, 0);
-ok(phases(baseCut) === phases(base) - 1, `cutting a ${t.kind}'s log removes its model (${phases(base)} -> ${phases(baseCut)} models in its chunk)`);
-ok(!before.trees && (after.trees || baseCut.trees), "and the cut tree is drawn from its cells instead");
+const tris = (p) => (p ? p.idx.length / 3 : 0);
+const cutLog = new Map([[q.face + ":" + u + ":" + v + ":" + logH, Wd.B.air]]);
+const base = M.meshChunk(q.face, cu, cv, ch, null, null, 0), baseCut = M.meshChunk(q.face, cu, cv, ch, cutLog, null, 0);
+ok(phases(baseCut) === phases(base) && tris(baseCut.bark) < tris(base.bark),
+   `cutting a ${t.kind}'s log keeps its model and leaves out that length of trunk (${tris(base.bark)} -> ${tris(baseCut.bark)} bark triangles)`);
+ok(!baseCut.trees, "and draws no cell surface for the cut tree");
+// a bush: chop every one of its leaf cells but one
+let bush = null;
+for (let i = 2; i < 14 && !bush; i++) for (let j = 2; j < 14 && !bush; j++) for (let dx = 0; dx < 3 && !bush; dx++) for (let dy = 0; dy < 3 && !bush; dy++) {
+  const bu = (cu0 + dx) * 16 + i, bv = (cv0 + dy) * 16 + j, c = Wd.column(q.face, bu, bv), tb = Wd.treeAt(q.face, bu, bv, c);
+  if (tb && tb.kind === "bush") bush = { bu, bv, c, cu: cu0 + dx, cv: cv0 + dy };
+}
+ok(!!bush, "the block grows a bush");
+const bch = Math.floor((bush.c.top + 1) / 16), chop = new Map();
+for (const [du, dv] of [[1, 0], [-1, 0], [0, 1], [0, -1], [0, 0]]) chop.set(q.face + ":" + (bush.bu + du) + ":" + (bush.bv + dv) + ":" + (bush.c.top + 1), Wd.B.air);
+const b0 = M.meshChunk(q.face, bush.cu, bush.cv, bch, null, null, 0), b1 = M.meshChunk(q.face, bush.cu, bush.cv, bch, chop, null, 0);
+ok(tris(b1.foliage) < tris(b0.foliage) && tris(b1.foliage) > 0, `chopping a bush's lower leaves leaves out those cards (${tris(b0.foliage)} -> ${tris(b1.foliage)} leaf triangles)`);
+ok(!b1.trees, "and draws no blob where they were");
+// a leaf block placed in the open air above the meadow
+const placed = new Map([[q.face + ":" + (bush.bu + 4) + ":" + (bush.bv + 4) + ":" + (bush.c.top + 9), Wd.B.leaves]]);
+const pch = Math.floor((bush.c.top + 9) / 16), p0 = M.meshChunk(q.face, bush.cu, bush.cv, pch, null, null, 0), p1 = M.meshChunk(q.face, bush.cu, bush.cv, pch, placed, null, 0);
+ok(tris(p1.foliage) - tris(p0.foliage) === 12 && !p1.trees, `a placed leaf block is six leaf cards (${tris(p1.foliage) - tris(p0.foliage)} triangles), no surface`);
 
 // 5: deterministic, wind-weighted
 const a1 = M.meshChunk(q.face, cu, cv, ch, null, null, 0), a2 = M.meshChunk(q.face, cu, cv, ch, null, null, 0);

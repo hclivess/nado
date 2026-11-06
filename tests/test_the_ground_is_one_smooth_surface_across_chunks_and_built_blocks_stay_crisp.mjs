@@ -66,7 +66,7 @@ ok(onLayer / verts < 0.05, `vertices follow the exact ground, not whole layers (
 
 // 3. trees: round trunks and canopy surfaces, no crisp cubes
 let treeParts = 0;
-// (untouched trees are models — bark + foliage, tests/test_untouched_trees_are_drawn_as_models_and_cut_ones_as_their_cells.mjs)
+// (untouched trees are models — bark + foliage, tests/test_trees_are_drawn_as_models_and_taking_one_apart_never_makes_a_blob.mjs)
 for (let dx = 0; dx < 3; dx++) for (let dy = 0; dy < 3; dy++) for (const c of chs) { const r = M.meshChunk(q.face, cu0 + dx, cv0 + dy, c, null); if (!r.empty && (r.trees || r.foliage)) treeParts++; }
 ok(!solidAny && treeParts > 0, `no crisp cube anywhere in untouched land; the trees are their own part (${treeParts} chunks hold some)`);
 

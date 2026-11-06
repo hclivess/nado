@@ -7,9 +7,9 @@
 //            vertex per cell-corner cube the surface crosses, placed at the mean of the crossings on its edges, with the
 //            field's gradient as its normal; coloured by material and slope (grass on the flat, earth and rock on the
 //            steep, snow that slides off cliffs).
-//   bark, foliage — every UNTOUCHED tree as a model (land-trees.js): trunk, limbs and alpha leaf cards, weighted for the
-//            wind. A tree someone has cut into is drawn from its cells instead (`trees`: a canopy surface over its leaf
-//            cells, a round segment per log), so the picture never shows wood that is gone.
+//   bark, foliage — every tree as a model (land-trees.js): trunk, limbs and alpha leaf cards, weighted for the wind,
+//            less every part whose cell was taken, so the picture never shows wood or leaves that are gone. A leaf cell
+//            outside a tree (placed) is a small cluster of cards; a log cell outside one is a round segment (`trees`).
 //   solid  — built materials (planks, brick, tiles, wool…) as crisp textured cubes, culled against crisp neighbours and
 //            against ground that buries them.
 //   clear  — glass, ice and the sea's surface.
@@ -20,7 +20,7 @@
 // the chunk that holds its LOWER cell, so every edge of the world belongs to exactly one chunk (no gaps, no doubles).
 // Positions are metres RELATIVE TO THE CHUNK'S ANCHOR; the page places each mesh at anchor - camera in doubles.
 import { CHUNK, H, R0, W, B, BLOCKS, ATLAS_TILES, NATURAL, CM, TREE_WOOD, TREE_LEAVES, isTree, opaque, dirOf, frameOf, wrap, column, terrainBlock, fieldOf, treeAt, treeCell } from "./land-world.js";
-import { treeModel } from "./land-trees.js";
+import { treeModel, leafCellModel } from "./land-trees.js";
 
 const N = CHUNK + 2;                                     // cells with the border: real index r in -1..16 is r + 1
 const TILE_COLS = 8;                                      // the atlas is TILE_COLS tiles across (static/land.js paints it)
@@ -40,13 +40,8 @@ const DIRS = [
 
 // the ground's colours, written as sRGB (what an artist picks) and turned linear below — vertex colours are LINEAR to the
 // renderer, and sRGB values read as linear came out washed pale (the first smooth render, 2026-11-06)
-const C = {
-  leaves: [0.20, 0.42, 0.14], leaves2: [0.28, 0.50, 0.16], bark: [0.36, 0.25, 0.15],
-  needles: [0.12, 0.30, 0.14], needles2: [0.16, 0.36, 0.17], fronds: [0.40, 0.62, 0.22], fronds2: [0.50, 0.68, 0.26],
-  birch: [0.88, 0.86, 0.80],
-};
+const C = { bark: [0.36, 0.25, 0.15], birch: [0.88, 0.86, 0.80] };
 for (const k in C) C[k] = C[k].map((x) => Math.pow(x, 2.2));
-const mix = (a, b, t) => [a[0] + (b[0] - a[0]) * t, a[1] + (b[1] - a[1]) * t, a[2] + (b[2] - a[2]) * t];
 function hash3(a, b, c) { let h = Math.imul(a, 374761393) ^ Math.imul(b, 668265263) ^ Math.imul(c, 2147483647); h = Math.imul(h ^ (h >>> 13), 1274126177); return ((h ^ (h >>> 16)) >>> 0) / 4294967296; }
 // THE GROUND'S MATERIALS ("Realistic (PBR)", operator 2026-11-06): each ground vertex carries blend weights for six real
 // textures (static/vendor/textures: grass, earth, rock, sand, snow, gravel) from its material and its slope — grass on
@@ -248,14 +243,16 @@ export function meshChunk(face, cu, cv, ch, edits, boxes, lod) {
     const w = groundWeights(mat, nh);
     o.w1.push(w[0], w[1], w[2], w[3]); o.w2.push(w[4], w[5]);
   });
-  // ---- the forest: untouched trees as models, their cells masked out of the cell drawing below ---------------------
-  // A tree is untouched when no edit lands on any of its cells. Roots keep 2 columns from a plot edge and a chunk column
-  // IS a plot, so every tree lies within its own chunk column; each chunk it spans masks its own cells, and the chunk
-  // holding its root's ground layer draws the model — once.
+  // ---- the forest: every tree is its model, less the parts whose cells were taken --------------------------------------
+  // ("taking apart bushes creates blobs", operator 2026-11-06: a cut tree used to fall back to a smooth surface over its
+  // leaf cells — a blob. Now the model stays and only what stood in a taken cell is left out: chop a leaf cell and those
+  // leaves go, cut a log and that length of trunk goes.) Roots keep 2 columns from a plot edge and a chunk column IS a
+  // plot, so every tree lies within its own chunk column; each chunk it spans masks its own cells (still the tree's), and
+  // the chunk holding its root's ground layer draws the model — once.
   const modelled = new Uint8Array(N * N * N);
   const bark = mk(), foliage = mk();
-  // roots up to 3 columns outside the chunk too: their crowns reach the one-cell border the surfaces are built over, and an
-  // unmasked border cell left a sliver of cell canopy beside every neighbour's model (the first model render)
+  // roots up to 3 columns outside the chunk too: their crowns reach the one-cell border the cells are read over, and an
+  // unmasked border cell was drawn a second time beside every neighbour's model (the first model render)
   for (let j = -3; j < CHUNK + 3; j++) for (let i = -3; i < CHUNK + 3; i++) {
     const gu = u0 + i, gv = v0 + j;
     if (gu < 0 || gv < 0 || gu >= W || gv >= W) continue;              // across a face seam: drawn from its cells there
@@ -263,40 +260,31 @@ export function meshChunk(face, cu, cv, ch, edits, boxes, lod) {
     if (!t) continue;
     const span = t.height + 2;
     if (col.top + span < h0 - 1 || col.top > h0 + CHUNK) continue;
-    let cut = false;
-    if (edits && edits.size) {
-      for (let du = -2; du <= 2 && !cut; du++) for (let dv = -2; dv <= 2 && !cut; dv++) for (let dh = 1; dh <= span; dh++)
-        if (treeCell(t, du, dv, dh) && edits.has(face + ":" + (gu + du) + ":" + (gv + dv) + ":" + (col.top + dh))) { cut = true; break; }
-    }
-    if (cut) continue;
     for (let du = -2; du <= 2; du++) for (let dv = -2; dv <= 2; dv++) for (let dh = 1; dh <= span; dh++) {
-      const pi = i + du + 1, pj = j + dv + 1, pk = col.top + dh - h0 + 1;
-      if (pi < 0 || pj < 0 || pk < 0 || pi >= N || pj >= N || pk >= N || !treeCell(t, du, dv, dh)) continue;
+      const pi = i + du + 1, pj = j + dv + 1, pk = col.top + dh - h0 + 1, b = treeCell(t, du, dv, dh);
+      if (pi < 0 || pj < 0 || pk < 0 || pi >= N || pj >= N || pk >= N || !b) continue;
       const x = (pk * N + pj) * N + pi;
-      if (isTree(blk[x])) modelled[x] = 1;
+      if (blk[x] === b) modelled[x] = 1;                                   // still the tree's own cell
     }
     if (i < 0 || j < 0 || i >= CHUNK || j >= CHUNK || col.top < h0 || col.top >= h0 + CHUNK) continue;
-    placeTree(t, face, gu, gv, col.height, lod, place, bark, foliage);
+    // a part of the model is left out when the cell it stands in was one of this tree's and an edit has taken it
+    const gone = (cu, cv, ch) => {
+      const b = treeCell(t, cu - gu, cv - gv, ch - col.top);
+      if (!b || !edits) return false;
+      const e = edits.get(face + ":" + cu + ":" + cv + ":" + ch);
+      return e !== undefined && e !== b;
+    };
+    placeTree(t, face, gu, gv, col.height, lod, place, bark, foliage, gone);
   }
-
-  // canopies: a surface over the leaf cells (crisp tree tops would be the blockiest thing on the planet)
-  let leaves = false;
-  const leafF = new Float32Array(N * N * N);
-  // a log cell INSIDE the crown (a leaf beside it) counts as canopy here: a leaf surface with a trunk-shaped shaft through
-  // it showed as black caps on every tree top. The trunk below the crown stays bare.
-  const leafAt = (x) => x >= 0 && x < blk.length && TREE_LEAVES.has(blk[x]);
-  for (let x = 0; x < blk.length; x++) {
-    const crown = TREE_WOOD.has(blk[x]) && (leafAt(x + 1) || leafAt(x - 1) || leafAt(x + N) || leafAt(x - N));
-    leafF[x] = !modelled[x] && (TREE_LEAVES.has(blk[x]) || crown) ? 1 : -1;
-    if (TREE_LEAVES.has(blk[x]) && !modelled[x]) leaves = true;
+  // leaves a player PLACED (or a tree's leaf cell put back into another spot): a small cluster of leaf cards in the cell,
+  // in its species' tile — never a surface (the blob)
+  for (let k = 0; k < CHUNK; k++) for (let j = 0; j < CHUNK; j++) for (let i = 0; i < CHUNK; i++) {
+    const x = ((k + 1) * N + (j + 1)) * N + (i + 1), b = blk[x];
+    if (!TREE_LEAVES.has(b) || modelled[x]) continue;
+    const tile = b === B.needles ? 2 : b === B.fronds ? 3 : 0, gu = u0 + i, gv = v0 + j, gh = h0 + k;
+    placeModel(leafCellModel(tile), face, gu + 0.5, gv + 0.5, gh + 0.5, hash3(gu, gh, gv) * 6.283, 1, hash3(gv, gu, gh) * 6.283,
+               place, bark, foliage, null);
   }
-  // each crown in its species' colour: broadleaf green, conifer needles darker, palm fronds lighter
-  const crownColour = (m, up, u, v, h) => {
-    const k = m === B.needles ? "needles" : m === B.fronds ? "fronds" : "leaves";
-    const c = mix(C[k], C[k + "2"], hash3(u, h, v)), j = 0.85 + 0.25 * hash3(u, v, h);
-    return [c[0] * j, c[1] * j, c[2] * j];
-  };
-  if (leaves) nets(leafF, crownColour, trees, (b) => TREE_LEAVES.has(b));
 
   // ---- trunks: every log cell is a round segment (octagonal, tapering as it rises) -----------------------------------
   for (let k = 0; k < CHUNK; k++) for (let j = 0; j < CHUNK; j++) for (let i = 0; i < CHUNK; i++) {
@@ -373,22 +361,31 @@ export function meshChunk(face, cu, cv, ch, edits, boxes, lod) {
 // ---- tree models: one per (kind, height, variant, detail), turned and placed per tree --------------------------------
 const VARIANTS = 6;
 const models = new Map();
-/** Copy tree `t`'s model into `bark` / `foliage`, its root at grid (gu + .5, gv + .5) on the ground at `ground`. The model
- *  is laid out in GRID units (x along u, y along v, z up), so it bends with the planet exactly as the cells it replaces. */
-function placeTree(t, face, gu, gv, ground, lod, place, bark, foliage) {
+/** Copy tree `t`'s model into `bark` / `foliage`, its root at grid (gu + .5, gv + .5) on the ground at `ground`, leaving
+ *  out every part that stood in a cell `gone(u, v, h)` says was taken. */
+function placeTree(t, face, gu, gv, ground, lod, place, bark, foliage, gone) {
   const far = lod >= 2 ? 2 : 0, variant = Math.floor(hash3(gu, gv, face * 7 + 1) * VARIANTS);
   const key = t.kind + ":" + t.height + ":" + variant + ":" + far;
   let m = models.get(key);
   if (!m) { m = treeModel(t.kind, t.height, (variant + 1) * 7919 + t.height * 131 + t.kind.length, far); models.set(key, m); }
-  const rot = hash3(gv, face, gu) * Math.PI * 2, cr = Math.cos(rot), sr = Math.sin(rot);
-  const sc = 0.9 + 0.1 * hash3(gu + 3, gv, face), phase = hash3(gu, gv + 5, face) * 6.283;
-  const fr = frameOf(face, gu + 0.5, gv + 0.5), cu = gu + 0.5, cv = gv + 0.5;
+  placeModel(m, face, gu + 0.5, gv + 0.5, ground, hash3(gv, face, gu) * Math.PI * 2, 0.9 + 0.1 * hash3(gu + 3, gv, face),
+             hash3(gu, gv + 5, face) * 6.283, place, bark, foliage, gone);
+}
+/** Place model `m` (local x along u, y along v, z up) at grid (cu, cv, base), turned by `rot` and scaled by `sc`, in GRID
+ *  units — so it bends with the planet exactly as the cells it stands for. Every model is built of quads (6 indices: a
+ *  tube's facet, a leaf card, a frond's segment); a quad whose centre lies in a cell `gone` names is left out. */
+function placeModel(m, face, cu, cv, base, rot, sc, phase, place, bark, foliage, gone) {
+  const cr = Math.cos(rot), sr = Math.sin(rot), fr = frameOf(face, cu, cv);
   for (const [src, out] of [[m.bark, bark], [m.leaves, foliage]]) {
-    const base = out.n;
+    if (!src.n) continue;
+    const g = new Float64Array(src.n * 3), at = new Int32Array(src.n).fill(-1);
     for (let i = 0; i < src.n; i++) {
-      const x = src.pos[i * 3], y = src.pos[i * 3 + 1], z = src.pos[i * 3 + 2];
-      const rx = (x * cr - y * sr) * sc, ry = (x * sr + y * cr) * sc;
-      const p = place(cu + rx, cv + ry, ground + z * sc);
+      const x = src.pos[i * 3], y = src.pos[i * 3 + 1];
+      g[i * 3] = cu + (x * cr - y * sr) * sc; g[i * 3 + 1] = cv + (x * sr + y * cr) * sc; g[i * 3 + 2] = base + src.pos[i * 3 + 2] * sc;
+    }
+    const put = (i) => {
+      if (at[i] >= 0) return at[i];
+      const p = place(g[i * 3], g[i * 3 + 1], g[i * 3 + 2]);
       out.pos.push(p[0], p[1], p[2]);
       const nx = src.nor[i * 3], ny = src.nor[i * 3 + 1], nz = src.nor[i * 3 + 2], ex = nx * cr - ny * sr, ey = nx * sr + ny * cr;
       out.nor.push(ex * fr.east[0] + ey * fr.north[0] + nz * fr.up[0], ex * fr.east[1] + ey * fr.north[1] + nz * fr.up[1], ex * fr.east[2] + ey * fr.north[2] + nz * fr.up[2]);
@@ -398,9 +395,18 @@ function placeTree(t, face, gu, gv, ground, lod, place, bark, foliage) {
       // the wind blows along the local east; its strength is the vertex's weight, its rhythm the tree's own phase
       const w = src.wind[i * 4];
       out.wind.push(fr.east[0] * w, fr.east[1] * w, fr.east[2] * w, phase);
-      out.n++;
+      return (at[i] = out.n++);
+    };
+    const I = src.idx;
+    for (let q = 0; q < I.length; q += 6) {
+      if (gone) {
+        const vs = new Set(I.slice(q, q + 6));
+        let x = 0, y = 0, z = 0;
+        for (const v of vs) { x += g[v * 3]; y += g[v * 3 + 1]; z += g[v * 3 + 2]; }
+        if (gone(Math.floor(x / vs.size), Math.floor(y / vs.size), Math.floor(z / vs.size))) continue;
+      }
+      for (let k = 0; k < 6; k++) out.idx.push(put(I[q + k]));
     }
-    for (const ix of src.idx) out.idx.push(base + ix);
   }
 }
 
