@@ -31,7 +31,7 @@ const ISSUER = landJs.match(/^const ISSUER = "([0-9a-z]+)";/m)[1];
 const ME = "3cc4c44a94a900f79716dc6d3822a81603b1ce7862ce03572f";            // any valid address: the page only DISPLAYS as it
 const OTHER = "6c29de76c487be78f3af402f892fe80c0eb7d9a9d92093f1ac";
 const wave = Wd.firstWave(), MINE = wave[44], THEIRS = wave[46];
-const seedOf = (p) => ((0x4c414e44n << 32n) | BigInt(p)).toString();
+const seedOf = (p) => Wd.titleSeed(p).toString();
 const title = (p) => ({ id: String(900000 + p), issuer: ISSUER, seed: seedOf(p), dec: 0, supply: "1", name: "Plot", sym: "LAND", holders: 1 });
 
 // a standing spot in a plot: its centre column, on the ground, with air above (no tree trunk there)

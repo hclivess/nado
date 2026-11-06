@@ -1,0 +1,121 @@
+{
+ "en": {
+  "landlogin.badOrigin": "Ignored a sign-in request for an unrecognised site.",
+  "landlogin.title": "Sign in to NADO Land",
+  "landlogin.body": "Prove you own this wallet to build on {f} as {a}. This cannot move funds.",
+  "landlogin.signin": "Sign in",
+  "landlogin.failed": "Land sign-in failed:"
+ },
+ "cs": {
+  "landlogin.badOrigin": "Žádost o přihlášení z neznámého webu byla ignorována.",
+  "landlogin.title": "Přihlásit se do NADO Land",
+  "landlogin.body": "Prokažte, že vlastníte tuto peněženku, a stavějte na {f} jako {a}. Tímto nelze přesunout prostředky.",
+  "landlogin.signin": "Přihlásit se",
+  "landlogin.failed": "Přihlášení do Land selhalo:"
+ },
+ "es": {
+  "landlogin.badOrigin": "Se ignoró una solicitud de inicio de sesión de un sitio no reconocido.",
+  "landlogin.title": "Iniciar sesión en NADO Land",
+  "landlogin.body": "Demuestra que esta cartera es tuya para construir en {f} como {a}. Esto no puede mover fondos.",
+  "landlogin.signin": "Iniciar sesión",
+  "landlogin.failed": "No se pudo iniciar sesión en Land:"
+ },
+ "pt": {
+  "landlogin.badOrigin": "Pedido de início de sessão de um site não reconhecido ignorado.",
+  "landlogin.title": "Entrar no NADO Land",
+  "landlogin.body": "Prove que esta carteira é sua para construir em {f} como {a}. Isto não pode movimentar fundos.",
+  "landlogin.signin": "Entrar",
+  "landlogin.failed": "Falha ao entrar no Land:"
+ },
+ "fr": {
+  "landlogin.badOrigin": "Demande de connexion ignorée : site non reconnu.",
+  "landlogin.title": "Se connecter à NADO Land",
+  "landlogin.body": "Prouvez que ce portefeuille est le vôtre pour construire sur {f} en tant que {a}. Cela ne peut pas déplacer de fonds.",
+  "landlogin.signin": "Se connecter",
+  "landlogin.failed": "Échec de la connexion à Land :"
+ },
+ "de": {
+  "landlogin.badOrigin": "Anmeldeanfrage einer unbekannten Website ignoriert.",
+  "landlogin.title": "Bei NADO Land anmelden",
+  "landlogin.body": "Beweise, dass dir diese Wallet gehört, um auf {f} als {a} zu bauen. Damit lassen sich keine Mittel bewegen.",
+  "landlogin.signin": "Anmelden",
+  "landlogin.failed": "Anmeldung bei Land fehlgeschlagen:"
+ },
+ "it": {
+  "landlogin.badOrigin": "Ignorata una richiesta di accesso da un sito non riconosciuto.",
+  "landlogin.title": "Accedi a NADO Land",
+  "landlogin.body": "Dimostra che questo portafoglio è tuo per costruire su {f} come {a}. Non può spostare fondi.",
+  "landlogin.signin": "Accedi",
+  "landlogin.failed": "Accesso a Land non riuscito:"
+ },
+ "ru": {
+  "landlogin.badOrigin": "Запрос на вход с неизвестного сайта проигнорирован.",
+  "landlogin.title": "Вход в NADO Land",
+  "landlogin.body": "Подтвердите, что этот кошелёк ваш, чтобы строить на {f} как {a}. Это не может перемещать средства.",
+  "landlogin.signin": "Войти",
+  "landlogin.failed": "Не удалось войти в Land:"
+ },
+ "zh": {
+  "landlogin.badOrigin": "已忽略来自未知网站的登录请求。",
+  "landlogin.title": "登录 NADO Land",
+  "landlogin.body": "证明此钱包归你所有，即可以 {a} 的身份在 {f} 上建造。此操作无法转移资金。",
+  "landlogin.signin": "登录",
+  "landlogin.failed": "Land 登录失败："
+ },
+ "ja": {
+  "landlogin.badOrigin": "不明なサイトからのサインイン要求を無視しました。",
+  "landlogin.title": "NADO Land にサインイン",
+  "landlogin.body": "このウォレットの所有を証明して、{a} として {f} で建築しましょう。資金は移動できません。",
+  "landlogin.signin": "サインイン",
+  "landlogin.failed": "Land へのサインインに失敗しました："
+ },
+ "ko": {
+  "landlogin.badOrigin": "알 수 없는 사이트의 로그인 요청을 무시했습니다.",
+  "landlogin.title": "NADO Land에 로그인",
+  "landlogin.body": "이 지갑의 소유를 증명하고 {a}(으)로 {f}에서 건설하세요. 자금은 이동할 수 없습니다.",
+  "landlogin.signin": "로그인",
+  "landlogin.failed": "Land 로그인 실패:"
+ },
+ "ar": {
+  "landlogin.badOrigin": "تم تجاهل طلب تسجيل دخول من موقع غير معروف.",
+  "landlogin.title": "تسجيل الدخول إلى NADO Land",
+  "landlogin.body": "أثبت أنك تملك هذه المحفظة لتبني على {f} باسم {a}. لا يمكن لهذا نقل الأموال.",
+  "landlogin.signin": "تسجيل الدخول",
+  "landlogin.failed": "فشل تسجيل الدخول إلى Land:"
+ },
+ "hi": {
+  "landlogin.badOrigin": "किसी अज्ञात साइट के साइन-इन अनुरोध को अनदेखा किया गया।",
+  "landlogin.title": "NADO Land में साइन इन करें",
+  "landlogin.body": "{f} पर {a} के रूप में निर्माण करने के लिए साबित करें कि यह वॉलेट आपका है। इससे धनराशि नहीं हिल सकती।",
+  "landlogin.signin": "साइन इन करें",
+  "landlogin.failed": "Land में साइन इन विफल:"
+ },
+ "tr": {
+  "landlogin.badOrigin": "Tanınmayan bir siteden gelen oturum açma isteği yok sayıldı.",
+  "landlogin.title": "NADO Land'e giriş yap",
+  "landlogin.body": "{f} üzerinde {a} olarak inşa etmek için bu cüzdanın sana ait olduğunu kanıtla. Bu işlem fon taşıyamaz.",
+  "landlogin.signin": "Giriş yap",
+  "landlogin.failed": "Land girişi başarısız:"
+ },
+ "id": {
+  "landlogin.badOrigin": "Permintaan masuk dari situs tak dikenal diabaikan.",
+  "landlogin.title": "Masuk ke NADO Land",
+  "landlogin.body": "Buktikan dompet ini milikmu untuk membangun di {f} sebagai {a}. Ini tidak dapat memindahkan dana.",
+  "landlogin.signin": "Masuk",
+  "landlogin.failed": "Gagal masuk ke Land:"
+ },
+ "vi": {
+  "landlogin.badOrigin": "Đã bỏ qua yêu cầu đăng nhập từ một trang không xác định.",
+  "landlogin.title": "Đăng nhập NADO Land",
+  "landlogin.body": "Chứng minh ví này là của bạn để xây dựng trên {f} với tư cách {a}. Thao tác này không thể chuyển tiền.",
+  "landlogin.signin": "Đăng nhập",
+  "landlogin.failed": "Đăng nhập Land thất bại:"
+ },
+ "pl": {
+  "landlogin.badOrigin": "Zignorowano prośbę o logowanie z nieznanej witryny.",
+  "landlogin.title": "Zaloguj się do NADO Land",
+  "landlogin.body": "Udowodnij, że ten portfel należy do ciebie, aby budować na {f} jako {a}. To nie może przenieść środków.",
+  "landlogin.signin": "Zaloguj się",
+  "landlogin.failed": "Logowanie do Land nie powiodło się:"
+ }
+}

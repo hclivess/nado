@@ -79,6 +79,10 @@ check("a plural token without `other` is refused", *refused([src("noother.json",
 badcat = full({"h.x": "{n} blocks"})
 badcat["pl"]["h.x"] = "{n} {n|single:blok|other:bloków}"
 check("a plural token with an unknown category is refused", *refused([src("badcat.json", badcat)], "plural token"))
+nested = full({"j.x": "{n} blocks"})
+nested["pl"]["j.x"] = "{n|one:1 blok|other:{n} bloków}"           # the runtime never parses this: shown raw on the page
+check("a placeholder inside a plural token is refused (the page would show the token raw)",
+      *refused([src("nested.json", nested)], "plural token"))
 lost = full({"i.x": "Reveal {n} {tiles}"})
 lost["pl"]["i.x"] = "Odkryj {n|one:pole|few:pola|many:pól|other:pola}"
 check("a token that drops the code's word placeholder is still refused", *refused([src("lost.json", lost)], "i.x [pl] placeholders"))

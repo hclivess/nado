@@ -21,6 +21,17 @@ export const R0 = W / (Math.PI / 2);        // ~83,443 m: a column ~1 m wide at 
 export const CHUNK = 16;                    // a chunk is 16^3 blocks; a plot is one column of 16 chunks
 export const PLOT_MAX = 6 * FACE_N * FACE_N;
 export const WORLD_SEED = 0x4c616e64;      // "Land" — fixed for the life of the planet (titles are minted against it)
+export const PLANET = 0;                    // this module is planet 0; every title names its planet (land.py plot_seed)
+
+// A title's asset seed: "LAND" << 48 | planet << 32 | plot (execnode/games/land.py plot_seed). BigInt: it is 80 bits.
+const LAND_TAG = 0x4c414e44n;
+export const titleSeed = (plot, planet = PLANET) => (LAND_TAG << 48n) | (BigInt(planet) << 32n) | BigInt(plot);
+/** { planet, plot } of a title seed, or null for any other asset's seed. */
+export function titleOf(seed) {
+  const s = BigInt(seed);
+  if ((s >> 48n) !== LAND_TAG) return null;
+  return { planet: Number((s >> 32n) & 0xffffn), plot: Number(s & 0xffffffffn) };
+}
 
 // The landing site: the first wave is this 10 x 10 block of plots — temperate grassland ~5 m above a sea in sight on
 // two sides, near face 0's centre (squarest blocks), chosen by scanning the equator band for 100 dry grass plots of

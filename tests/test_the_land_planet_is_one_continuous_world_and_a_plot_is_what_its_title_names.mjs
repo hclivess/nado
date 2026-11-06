@@ -32,6 +32,12 @@ ok(pc.face === 3 && pc.prow === 100 && pc.pcol === 200, "plotCoords inverts plot
 ok(Wd.plotOf(3, pc.u0, pc.v0) === pid && Wd.plotOf(3, pc.u0 + 15, pc.v0 + 15) === pid && Wd.plotOf(3, pc.u0 + 16, pc.v0) !== pid,
    "a plot is exactly its 16 x 16 columns");
 const wave = Wd.firstWave();
+const seedPy = (py.match(/^SEED_TAG = 0x([0-9A-Fa-f]+) << (\d+)/m) || []);
+ok(Wd.titleSeed(pid) === (BigInt("0x" + seedPy[1]) << BigInt(seedPy[2])) + BigInt(pid) && Number(seedPy[2]) === 48,
+   "a title's seed is land.py's: \"LAND\" << 48 | planet << 32 | plot (planet 0 here)");
+const t7 = Wd.titleOf(Wd.titleSeed(7, 3));
+ok(t7 && t7.planet === 3 && t7.plot === 7 && Wd.titleOf(12345) === null && Wd.titleSeed(7, 3) !== Wd.titleSeed(7, 0),
+   "titleOf reads the planet and plot back, and another asset's seed is not a title");
 ok(wave.length === 100 && new Set(wave).size === 100 && wave.every((p) => Wd.plotCoords(p).face === Wd.SPAWN_FACE), "the first wave is 100 distinct plots on the landing face");
 
 // 2. geometry

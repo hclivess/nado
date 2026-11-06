@@ -18,6 +18,8 @@ there afterwards, with the issuer's royalty on every resale.
 | contract | **upgradable** (deployed without the lock flag): "make sure that the contract is not locked when deployed so we can keep upgrading it" |
 | world fingerprint timer | **none**: an owner anchors their own plot; nothing signs on a timer |
 | privacy | anchors are salted commitments (the chain sees a hash, never the build); private interiors and a provable server are later steps |
+| more worlds | "there will be space travel, all kinds of travel in fact in the future, so there will be more planets": **every title names its planet**; one land contract per planet |
+| AI agents | "people will be able to invite their ai agents to help them shape the world so the game will have an api": an agent is a **builder** the owner invites, with its **own** key, through a documented API |
 
 ## The planet
 
@@ -40,8 +42,15 @@ import (or mirror) it.
 
 ## Titles and the land contract
 
-A title is a native asset issued by ISSUER with `seed` = `0x4C414E44 << 32 | plot`, `dec` 0, `supply` 1, `mintable`
-false. Its id is `asset_id(ISSUER, seed)`, so nothing needs a registry: execnode/games/land.py recomputes it in-circuit.
+A title is a native asset issued by ISSUER with `seed` = `0x4C414E44 << 48 | planet << 32 | plot` (land.py
+`plot_seed`, land-world.js `titleSeed`), `dec` 0, `supply` 1, `mintable` false. Its id is `asset_id(ISSUER, seed)`, so
+nothing needs a registry: execnode/games/land.py recomputes it in-circuit.
+
+**Planets.** Each planet has its own land contract, `land.build(ISSUER, planet)`, which accepts only titles whose seed
+names that planet (plot 7 of planet 1 is a different asset from plot 7 of planet 0, and planet 0's contract refuses it).
+Plot ids therefore stay below 2³² within a planet, and every storage slot stays `field · 2³² + plot`. Planet numbers are
+0..65535; this first world is planet 0. A new planet brings its own generator parameters (radius, seed, sea level,
+biomes) and its own landing site; the plot grid (FACE_N × PLOT per face) is per planet too.
 
 | method | who | what |
 |---|---|---|
@@ -90,11 +99,46 @@ down, fly, break, place and the palette.
 - tests/test_the_land_planet_is_one_continuous_world_and_a_plot_is_what_its_title_names.mjs — the planet
 - tests/test_a_plot_holder_builds_on_their_plot_and_nowhere_else.mjs — the page, walked on a touch screen
 - tests/test_the_vendored_three_js_is_the_published_r187.py — the renderer's bytes
+- tests/test_the_land_server_lets_only_holders_and_their_builders_change_a_plot.py — the world server
+- tests/test_an_ai_agent_builds_a_structure_with_its_own_key_once_invited.py — the agent client
+- tests/test_two_players_and_an_agent_build_together_in_the_live_world.mjs — two browsers and an agent, live
+
+## The world server
+
+scripts/land_server.py, declared as deploy/units/nado-land.service (127.0.0.1:9176), reached at land.nadochain.com/land/
+through website/nginx-land.nadochain.com.conf. Plots persist under ~/land/planet0, one JSON file per plot (edits, version,
+salt). It reads the chain through the exec node only (/exec/assets, /exec/asset, /exec/view) and never imports the node
+against its database.
+
+- **Login.** A browser: /land/api/login → the wallet (static/interface.js resumePendingLandLogin) shows what is being
+  signed and signs blake2b("land-login-v1", site, address, nonce, issued) with the active account in its own scheme →
+  a top-level POST to /land/api/login_callback → an HttpOnly session cookie. The challenge is single-use and bound to the
+  browser that started it. An agent: GET /land/api/challenge?kind=agent, sign the same message with origin
+  "land-agent", POST /land/api/agent_login → a bearer token. The two origins are not interchangeable.
+- **The write check** (`may_build`): the title's current holder, or a builder whose grant was made by that holder. One
+  check for clicks and API calls.
+- **Limits:** 4,096 cells per call; a bucket of 4,096 cells per caller refilling at 400 cells/s; water and bedrock are
+  never placed; layer 0 is never changed.
+- **Accounts whose key was rotated** (auth config) do not sign in yet: the server binds the key to the address by
+  derivation (proof_sender), not by the account's auth config.
+
+## The API for agents
+
+An owner invites an AI agent exactly as they invite a person: "Invite a builder" on their plot (the contract's
+`allow(plot, agent_address)`). scripts/land_agent.py is the reference client: `newkey` (the agent's own key),
+`build --plot --file` (a structure of in-plot cells), `plot`, `set`, `watch`. The agent holds its OWN NADO
+key (never the owner's), signs the world server's login challenge with it, and from then on may do on that plot exactly
+what an invited builder may — the server checks the same grant (`builder_of` == the title's current holder) for a
+person's click and an agent's call, and the grant dies when the plot is sold. Planned surface, served by
+nado-land.service and documented with a reference client:
+
+- read: the plots in a region (titles, holders, anchors), a plot's edits, the generated terrain of a column range;
+- write: set or clear blocks, or a whole structure (a list of cells) in one call, inside plots the caller may build on;
+- live: the same websocket the page uses (players' positions and everyone's edits);
+- limits: per-caller rate and size limits on writes, so an agent builds at the pace the world can carry.
 
 ## Still to build
 
-1. nado-land.service: the websocket world server (wallet login, ownership and grant checks, everyone's edits live,
-   plots saved on disk), and the wallet's land login signature.
-2. Minting the first 100 titles, registering the 5 % royalty, and listing them at 5 NADO — each batch asked for first.
-3. land.nadochain.com (nginx site), the lobby entry, deployment of the contract.
-4. Private interiors (encrypted plot data for the owner and their builders) and, later, a provable server.
+1. Minting the first 100 titles, registering the 5 % royalty, and listing them at 5 NADO — each batch asked for first.
+2. The lobby entry, and deployment of the land contract.
+3. Private interiors (encrypted plot data for the owner and their builders) and, later, a provable server.

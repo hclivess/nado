@@ -1,0 +1,21 @@
+# Land world server (scripts/land_server.py). A TEMPLATE — see nado-bet-oracle.service. The live planet behind
+# land.nadochain.com/land/ (website/nginx-land.nadochain.com.conf): wallet and agent logins, every block anyone changed,
+# who is where. Its own process on purpose, NOT inside the node: a game outage never touches the chain. Plots persist
+# under @HOME@/land/planet0 (one JSON file per plot). Pinned by tests/test_the_land_server_lets_only_holders_and_their_builders_change_a_plot.py.
+[Unit]
+Description=NADO Land world server (the live planet: logins, plots, players)
+After=network-online.target nado.service nado-exec.service
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=@USER@
+Group=@GROUP@
+WorkingDirectory=@REPO@
+Environment=HOME=@HOME@
+ExecStart=@REPO@/nado_venv/bin/python @REPO@/scripts/land_server.py --data @HOME@/land/planet0 --port 9176
+Restart=always
+RestartSec=10
+
+[Install]
+WantedBy=multi-user.target

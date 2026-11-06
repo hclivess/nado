@@ -61,9 +61,18 @@ def placeholders(text):
     return sorted(names)
 
 
+PLURAL_START = re.compile(r"\{[A-Za-z_]\w*(?:@[A-Za-z_]\w*)?\|")
+
+
 def plural_errors(text):
-    """A plural token must list `cat:form` pairs of known categories, including `other` (the fallback)."""
+    """A plural token must list `cat:form` pairs of known categories, including `other` (the fallback), and hold NO
+    placeholder inside it: the runtime's token pattern excludes braces, so "{n|other:{n} blocks}" is never a token at all
+    and the page shows it raw (land.changed, 2026-11-06) — the count goes OUTSIDE: "{n} {n|one:block|other:blocks}"."""
     out = []
+    starts = {m.start() for m in PLURAL.finditer(text)}
+    for m in PLURAL_START.finditer(text):
+        if m.start() not in starts:
+            out.append(text[m.start():m.start() + 40] + "… (a placeholder inside a plural token: put {n} outside it)")
     for a, b, forms in PLURAL.findall(text):
         cats = [f.split(":", 1)[0] for f in forms.split("|")]
         if not all(":" in f for f in forms.split("|")) or not set(cats) <= PLURAL_CATS or "other" not in cats:

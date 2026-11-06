@@ -2,10 +2,10 @@
 what the chain knows about each one — the commitment its owner last anchored, and who the owner lets build on it.
 
 A PLOT IS A NATIVE ASSET. The operator wallet (ISSUER) issues plot p with an ordinary `asset_create` blob — `seed`
-plot_seed(p), `dec` 0, `supply` 1, `mintable` false, `uri` its metadata — so a title lives in every wallet's Assets tab,
+plot_seed(p, planet), `dec` 0, `supply` 1, `mintable` false, `uri` its metadata — so a title lives in every wallet's Assets tab,
 moves with `asset_transfer`, sells on the NFT marketplace (execnode/games/nft.py: fixed-price waves first, then anyone's
 listings, offers and auctions, the issuer's royalty on every sale) and carries across a reroll with the asset ledger.
-This contract never owns a title. Its id is derivable — asset_id(ISSUER, plot_seed(p)) = hash(ISSUER_DIGEST, seed) —
+This contract never owns a title. Its id is derivable — asset_id(ISSUER, plot_seed(p, planet)) = hash(ISSUER_DIGEST, seed) —
 so neither the contract nor the page needs a registry: the contract recomputes it in-circuit on every call.
 
 OWNERSHIP IS PROVEN BY SHOWING THE TITLE. A contract cannot read another account's balance (zkvm2 ABAL reads only its
@@ -46,15 +46,18 @@ ISSUER = "3cc4c44a94a900f79716dc6d3822a81603b1ce7862ce03572f"   # the operator w
 FACE_N = 8192                     # plots along a cube face's edge
 PLOT = 16                         # blocks along a plot's edge (a face is FACE_N * PLOT = 131072 blocks across)
 PLOT_MAX = 6 * FACE_N * FACE_N    # 402,653,184 plots on the planet
-SEED_TAG = 0x4C414E44 << 32       # "LAND": a title's asset seed is SEED_TAG | plot, apart from any other ISSUER asset
+SEED_TAG = 0x4C414E44 << 48       # "LAND": a title's asset seed is SEED_TAG | planet << 32 | plot (plot_seed)
+PLANETS = 1 << 16                 # planet numbers 0..65535; planet 0 is the first world
 CNT_ANCHORED = 1
 A_COMMIT, A_VER, A_H, A_BY, A_LIST = 10, 11, 12, 13, 14
 K_B = 0x4C414E42                  # "LANB": the builder-grant hash-key tag; a hash never lands on a field*2^32+id slot
 
 
-def plot_seed(plot):
-    """The asset seed of plot `plot`'s title (asset_create `seed`)."""
-    return SEED_TAG | plot
+def plot_seed(plot, planet=0):
+    """The asset seed of the title of plot `plot` on planet `planet` (asset_create `seed`). THE PLANET IS IN EVERY TITLE
+    (operator 2026-11-06: "there will be space travel … so there will be more planets"): plot 7 of planet 0 and plot 7
+    of planet 3 are different assets, and each planet's land contract accepts only its own planet's titles."""
+    return SEED_TAG | (planet << 32) | plot
 
 
 def plot_id(face, row, col):
@@ -70,23 +73,26 @@ def _word(m, n):
     return v
 
 
-def _title(m, issuer_digest):
+def _title(m, issuer_digest, planet):
     """Require the caller to SHOW plot arg(0)'s title (its one unit sent in as the call's asset value), then hand it
     straight back. The asset id is recomputed here from the plot number, so no other asset can stand in for it."""
     m.require(m.arg(0) < PLOT_MAX)
-    m.require(m.in_asset() == zkpy.hash(_word(m, issuer_digest), m.arg(0) + SEED_TAG))
+    m.require(m.in_asset() == zkpy.hash(_word(m, issuer_digest), m.arg(0) + _word(m, plot_seed(0, planet))))
     m.require(m.value() == 1)
     m.apay(m.in_asset(), m.caller(), m.const(1))
 
 
-def build(issuer=ISSUER):
+def build(issuer=ISSUER, planet=0):
+    """The land contract of planet `planet`: one deployed instance per planet, each accepting only titles whose seed
+    names it (so a plot id stays below 2^32 within its planet and every storage slot below stays field * 2^32 + plot)."""
+    assert 0 <= planet < PLANETS
     issuer_digest = zkvm_addr_digest(issuer)
     c = zkpy.Contract()
 
     # anchor(plot, commitment) [ASSET VALUE = the plot's title, 1 unit, returned] — its holder records the commitment
     # to the plot's current build.
     with c.method("anchor") as m:
-        _title(m, issuer_digest)
+        _title(m, issuer_digest, planet)
         m.require(m.arg(1) != 0)
         m.jnz(m.slot(A_VER, m.arg(0)).get() != 0, "seen")
         m.slot(A_LIST, m.slot(0, m.const(CNT_ANCHORED)).get()).set(m.arg(0))
@@ -100,14 +106,14 @@ def build(issuer=ISSUER):
 
     # allow(plot, builder) [title shown] — the holder lets `builder` build on the plot while they hold it.
     with c.method("allow") as m:
-        _title(m, issuer_digest)
+        _title(m, issuer_digest, planet)
         m.require(m.arg(1) != m.caller())
         m.at(zkpy.hash(K_B, m.arg(0), m.arg(1))).set(m.caller())
         m.ret(m.const(1))
 
     # revoke(plot, builder) [title shown] — the holder withdraws a grant (theirs or a previous owner's).
     with c.method("revoke") as m:
-        _title(m, issuer_digest)
+        _title(m, issuer_digest, planet)
         m.at(zkpy.hash(K_B, m.arg(0), m.arg(1))).set(m.const(0))     # writing 0 deletes the cell
         m.ret(m.const(0))
 

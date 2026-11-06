@@ -15,11 +15,10 @@
 // carries a coordinate larger than the view distance however far the planet's centre is (R0 ~83 km).
 import * as THREE from "/static/vendor/three/three.webgpu.js";
 import * as Wd from "./land-world.js";
-import { NadoDapp, wireWallet, renderWallet, alertBar, notify, uiConfirm, esc, base, disp, $ } from "./nadodapp.js";
+import { NadoDapp, wireWallet, renderWallet, alertBar, notify, uiConfirm, uiPrompt, isAddress, esc, base, disp, $ } from "./nadodapp.js";
 
 const CID = "0000000000000000000000000000000c";      // set by execnode/games/redeploy.py wire() at deploy
 const ISSUER = "3cc4c44a94a900f79716dc6d3822a81603b1ce7862ce03572f";   // land.py ISSUER — every title's issuer
-const SEED_TAG = 0x4c414e44n << 32n;                  // land.py SEED_TAG: a title's seed is SEED_TAG | plot
 const NFT_URL = "https://nft.nadochain.com/";
 const dapp = new NadoDapp({ cid: CID, app: "Land" });
 const T = (k, en, v) => window.t("land." + k, en, v);
@@ -34,7 +33,8 @@ const edits = new Map();              // "face:u:v:h" -> block id: every known e
 const plotEdit = new Map();           // plot -> Map(local key "x:z:y" -> block)
 const salts = new Map();              // plot -> Uint8Array(32), the commitment salt (kept with the plot's edits)
 const titles = new Map();             // plot -> { aid, holder } for every issued title
-const mine = new Set();               // plots the signed-in wallet may build on
+const mine = new Set();               // plots whose title the signed-in address holds
+const builds = new Set();             // plots the world server says the signed-in address was invited to build on
 let hot = [B.grass, B.dirt, B.stone, B.planks, B.cobble, B.brick, B.glass, B.tiles, B.lamp], slot = 0;
 let renderer, scene, camera, sun, hemi, atlasTex, matSolid, matClear, farMesh = null, farAt = null;
 let highlight, lastT = 0, locked = false, keys = new Set(), touch = null, viewDist = 6;
@@ -185,22 +185,35 @@ function saltOf(plot) {
   if (!s) { s = crypto.getRandomValues(new Uint8Array(32)); salts.set(plot, s); }
   return s;
 }
+const mayBuild = (plot) => mine.has(plot) || builds.has(plot);
+/** Record one cell. `mirror`: the world server's list, kept exactly as it sent it (an edit back to the terrain's own
+ *  block stays listed there, so it stays listed here — the commitment is computed over the server's list). */
+function putCell(face, u, v, h, b, mirror) {
+  const plot = Wd.plotOf(face, u, v), k = key(face, u, v, h);
+  const pc = Wd.plotCoords(plot), lk = (u - pc.u0) + ":" + (v - pc.v0) + ":" + h;
+  let pe = plotEdit.get(plot); if (!pe) { pe = new Map(); plotEdit.set(plot, pe); }
+  if (!mirror && b === Wd.terrainBlock(face, u, v, h, colAt)) { edits.delete(k); pe.delete(lk); } else { edits.set(k, b); pe.set(lk, b); }
+  remeshAround(face, u, v, h);
+}
 function setBlock(f, u, v, h, b) {
   const w = Wd.wrap(f, u, v), plot = Wd.plotOf(w.face, w.u, w.v);
-  if (!mine.has(plot)) return explainNoBuild(plot);
+  if (!mayBuild(plot)) return explainNoBuild(plot);
   if (h <= 0 || h >= H) return false;
-  const terrain = Wd.terrainBlock(w.face, w.u, w.v, h, colAt), k = key(w.face, w.u, w.v, h);
-  const pc = Wd.plotCoords(plot), lk = (w.u - pc.u0) + ":" + (w.v - pc.v0) + ":" + h;
-  let pe = plotEdit.get(plot); if (!pe) { pe = new Map(); plotEdit.set(plot, pe); }
-  if (b === terrain) { edits.delete(k); pe.delete(lk); } else { edits.set(k, b); pe.set(lk, b); }
-  saltOf(plot);
-  save();
-  remeshAround(w.face, w.u, w.v, h);
+  if (net.online) {                                 // the world server decides; the cell shows at once and is put back if refused
+    putCell(w.face, w.u, w.v, h, b, true);
+    net.send({ t: "set", cells: [[w.face, w.u, w.v, h, b]], req: ++net.req });
+    net.pending.set(net.req, plot);
+  } else {
+    putCell(w.face, w.u, w.v, h, b, false);
+    saltOf(plot);
+    save();
+  }
   return true;
 }
 function explainNoBuild(plot) {
   const t = titles.get(plot);
-  if (!dapp.me) notify(T("needSignIn", "Sign in to build — only a plot's owner and the builders they invite can change it."));
+  if (net.online && !net.me) notify(T("needSignIn", "Sign in to build — only a plot's owner and the builders they invite can change it."));
+  else if (!net.online && !dapp.me) notify(T("needSignIn", "Sign in to build — only a plot's owner and the builders they invite can change it."));
   else if (!t) notify(T("notForSale", "This land has no title yet — it is wilderness. Plots open for sale in waves."));
   else notify(T("notYours", "Plot {p} belongs to someone else. Buy a plot, or ask its owner to invite you.", { p: t ? plotLabel(plot) : "" }));
   return false;
@@ -224,7 +237,7 @@ function load() {
   if (d && Array.isArray(d.hot) && d.hot.length === 9) hot = d.hot.map((b) => (BLOCKS[b] && BLOCKS[b].build ? b : B.stone));
   if (d && Array.isArray(d.p)) { [P.face, P.u, P.v, P.h, P.yaw] = d.p; if (typeof d.p[5] === "number") P.pitch = d.p[5]; return; }
   const sp = Wd.plotCoords(Wd.plotId(Wd.SPAWN_FACE, Wd.SPAWN_PLOT_ROW + 5, Wd.SPAWN_PLOT_COL + 5));
-  P.face = sp.face; P.u = sp.u0 + 0.5; P.v = sp.v0 - 6.5;            // on the path just south of the first wave
+  P.face = sp.face; P.u = sp.u0 + 0.5; P.v = sp.v0 - 6.5;            // amid the first wave of plots
   P.h = Wd.column(P.face, Math.floor(P.u), Math.floor(P.v)).top + 1;
 }
 
@@ -370,19 +383,20 @@ async function refreshTitles() {
   try {
     const r = await getJSON("/exec/assets?issuer=" + ISSUER);
     for (const a of r.assets || []) {
-      const s = BigInt(a.seed);
-      if ((s >> 32n) !== (SEED_TAG >> 32n)) continue;
-      const plot = Number(s & 0xffffffffn);
+      const tt = Wd.titleOf(a.seed);
+      if (!tt || tt.planet !== Wd.PLANET) continue;      // another planet's title, or another asset of the issuer
+      const plot = tt.plot;
       if (!titles.has(plot)) titles.set(plot, { aid: a.id, holder: null, asked: false });
       else titles.get(plot).asked = false;              // a title can change hands: ask again on the next look
     }
     mine.clear();
-    if (dapp.me) {
-      const h = await getJSON("/exec/assets?holder=" + encodeURIComponent(dapp.me));
+    const me = net.me || dapp.me;
+    if (me) {
+      const h = await getJSON("/exec/assets?holder=" + encodeURIComponent(me));
       for (const a of h.assets || []) {
         if (a.issuer !== ISSUER) continue;
-        const s = BigInt(a.seed);
-        if ((s >> 32n) === (SEED_TAG >> 32n)) { const plot = Number(s & 0xffffffffn); mine.add(plot); const t = titles.get(plot); if (t) t.holder = dapp.me; }
+        const tt = Wd.titleOf(a.seed);
+        if (tt && tt.planet === Wd.PLANET) { mine.add(tt.plot); const t = titles.get(tt.plot); if (t) t.holder = me; }
       }
     }
   } catch (e) {}
@@ -403,8 +417,14 @@ async function holderOf(plot) {
 async function anchor(plot) {
   const t = titles.get(plot);
   if (!t || !mine.has(plot)) return explainNoBuild(plot);
-  const list = plotEditsList(plot);
-  const commit = await Wd.plotCommitment(plot, saltOf(plot), list);
+  let list = plotEditsList(plot), commit;
+  if (net.online) {
+    // the world server holds the plot's list and salt; recompute its commitment here before the wallet signs it
+    const r = await (await fetch("/land/api/plot?plot=" + plot, { cache: "no-store", credentials: "same-origin" })).json();
+    list = r.edits || [];
+    commit = r.salt ? await Wd.plotCommitment(plot, Uint8Array.from(r.salt.match(/../g).map((x) => parseInt(x, 16))), list) : null;
+    if (!commit || commit !== r.commitment) return alertBar(T("anchorMismatch", "The world server's copy of this plot does not match its fingerprint — not anchoring. Reload and try again."));
+  } else commit = await Wd.plotCommitment(plot, saltOf(plot), list);
   if (!await uiConfirm({ title: T("anchorTitle", "Anchor plot {p} on chain?", { p: plotLabel(plot) }),
     body: T("anchorBody", "The chain records a fingerprint of this plot's build — not the build itself. Your title is shown to the land contract and comes straight back."),
     rows: [{ k: T("edits", "Changed blocks"), v: String(list.length) }, { k: T("fingerprint", "Fingerprint"), v: commit.slice(0, 18) + "…" }],
@@ -412,19 +432,122 @@ async function anchor(plot) {
   dapp.call("anchor", [plot, BigInt(commit)], 1n, T("anchoring", "Anchoring plot {p}…", { p: plotLabel(plot) }), { phase: "anchor", plot }, { asset: t.aid });
 }
 
+// ---- inviting a builder: a friend, or an AI agent with its own key (scripts/land_agent.py newkey prints its address) ----
+async function invite(plot) {
+  const t = titles.get(plot);
+  if (!t || !mine.has(plot)) return explainNoBuild(plot);
+  const addr = await uiPrompt({ title: T("inviteTitle", "Invite a builder to plot {p}", { p: plotLabel(plot) }),
+    body: T("inviteBody", "Paste the address of a friend or of your AI agent. They can build here while you hold this plot; selling it ends the invitation."),
+    placeholder: T("inviteAddr", "NADO address"), confirmText: T("inviteGo", "Invite") });
+  const a = String(addr || "").trim();
+  if (!a) return;
+  if (!isAddress(a) || a === dapp.me) return alertBar(T("inviteBad", "That is not someone else's NADO address."));
+  dapp.call("allow", [plot, a], 1n, T("inviting", "Inviting a builder to plot {p}…", { p: plotLabel(plot) }), { phase: "allow", plot }, { asset: t.aid });
+}
+
+// ---- the live world (scripts/land_server.py, behind /land/ on land.nadochain.com) --------------------------------------
+// Without it (the page served elsewhere, or the server down) the page still runs: edits stay in this browser.
+const net = { ws: null, online: false, me: null, req: 0, pending: new Map(), lastWatch: "", tries: 0, send(m) { try { if (this.ws && this.ws.readyState === 1) this.ws.send(JSON.stringify(m)); } catch (e) {} } };
+const others = new Map();             // player id -> { mesh, p: [face, u, v, h, yaw], who }
+function connect() {
+  let ws;
+  try { ws = new WebSocket((location.protocol === "https:" ? "wss://" : "ws://") + location.host + "/land/ws"); } catch (e) { return; }
+  net.ws = ws;
+  ws.onmessage = (ev) => {
+    let m; try { m = JSON.parse(ev.data); } catch (e) { return; }
+    if (m.t === "hello") {
+      const was = net.me;
+      net.online = true; net.tries = 0; net.me = m.you || null; net.lastWatch = "";
+      // the server is the record now: drop the plots this browser cached, the server sends each watched one back
+      for (const [plot, pe] of plotEdit) { const q = Wd.plotCoords(plot); for (const lk of pe.keys()) { const [x, z, y] = lk.split(":").map(Number); edits.delete(key(q.face, q.u0 + x, q.v0 + z, y)); } }
+      plotEdit.clear();
+      if (net.me !== was) refreshTitles();
+      hud();
+    } else if (m.t === "plot") {
+      applyPlot(m.plot, m.edits || []);
+    } else if (m.t === "edit") {
+      for (const [f, u, v, h, b] of m.cells || []) putCell(f, u, v, h, b, true);
+    } else if (m.t === "set_ok") {
+      const plot = net.pending.get(m.req); net.pending.delete(m.req);
+      if (m.refused && m.refused.length) {
+        notify(String(m.refused[0][1] || T("refused", "The world server refused that change.")));
+        if (plot !== undefined) resync(plot);          // put back what the server actually holds
+      }
+    } else if (m.t === "players") {
+      const seen = new Set();
+      for (const o of m.list || []) { seen.add(o.id); let r = others.get(o.id); if (!r) { r = { mesh: avatar(o.who || o.id), who: o.who }; scene.add(r.mesh); others.set(o.id, r); } r.p = o.p; }
+      for (const [id, r] of others) if (!seen.has(id)) { scene.remove(r.mesh); others.delete(id); }
+    }
+  };
+  ws.onclose = () => {
+    const was = net.online;
+    net.online = false; net.ws = null;
+    for (const r of others.values()) scene.remove(r.mesh);
+    others.clear();
+    if (was) hud();
+    setTimeout(connect, Math.min(30000, 1000 * 2 ** Math.min(5, net.tries++)));   // back off; a page without a server stays local
+  };
+}
+/** Replace a plot's cells with the server's list (a pushed "plot", or a resync after a refused change). */
+function applyPlot(plot, list) {
+  const q = Wd.plotCoords(plot), old = plotEdit.get(plot);
+  if (old) for (const lk of old.keys()) { const [x, z, y] = lk.split(":").map(Number); edits.delete(key(q.face, q.u0 + x, q.v0 + z, y)); }
+  plotEdit.delete(plot);
+  for (const [x, z, y, b] of list) putCell(q.face, q.u0 + x, q.v0 + z, y, b, true);
+  if (old) for (let ch = 0; ch < H / CHUNK; ch++) { const k = q.face + ":" + q.u0 / CHUNK + ":" + q.v0 / CHUNK + ":" + ch; if (chunks.has(k)) request(k); }
+}
+async function resync(plot) {
+  try { const r = await (await fetch("/land/api/plot?plot=" + plot, { cache: "no-store", credentials: "same-origin" })).json(); applyPlot(plot, r.edits || []); } catch (e) {}
+}
+function avatar(seed) {
+  let h = 0; for (const ch of String(seed)) h = (h * 31 + ch.charCodeAt(0)) >>> 0;
+  const g = new THREE.Group(), col = new THREE.Color().setHSL((h % 360) / 360, 0.55, 0.5);
+  const body = new THREE.Mesh(new THREE.BoxGeometry(0.6, 1.2, 0.35), new THREE.MeshLambertMaterial({ color: col }));
+  body.position.y = 0.6;
+  const head = new THREE.Mesh(new THREE.BoxGeometry(0.5, 0.5, 0.5), new THREE.MeshLambertMaterial({ color: 0xe9c9a8 }));
+  head.position.y = 1.45;
+  g.add(body, head);
+  return g;
+}
+function netTick() {
+  if (!net.online) return;
+  // watch the plots in view (a chunk column is a plot), and say where we stand
+  const pcu = Math.floor(P.u / CHUNK), pcv = Math.floor(P.v / CHUNK), ids = [];
+  for (let dx = -viewDist; dx <= viewDist; dx++) for (let dy = -viewDist; dy <= viewDist; dy++) {
+    const cu = pcu + dx, cv = pcv + dy;
+    if (cu >= 0 && cv >= 0 && cu < Wd.FACE_N && cv < Wd.FACE_N) ids.push(Wd.plotId(P.face, cv, cu));
+  }
+  const sig = ids.join(",");
+  if (sig !== net.lastWatch) { net.lastWatch = sig; net.send({ t: "watch", plots: ids }); }
+  net.send({ t: "pos", p: [P.face, P.u, P.v, P.h, P.yaw] });
+}
+async function builderCheck(plot) {
+  if (!net.online || !net.me || mine.has(plot) || builds.has(plot) || !titles.has(plot)) return;
+  try { const r = await (await fetch("/land/api/plot?plot=" + plot, { cache: "no-store", credentials: "same-origin" })).json(); if (r.may_build) { builds.add(plot); hud(); } } catch (e) {}
+}
+
 // ---- HUD -------------------------------------------------------------------------------------------------------
 const plotLabel = (plot) => { const q = Wd.plotCoords(plot); return `${q.face}·${q.prow}·${q.pcol}`; };
 function hud() {
   const w = Wd.wrap(P.face, Math.floor(P.u), Math.floor(P.v)), plot = Wd.plotOf(w.face, w.u, w.v), t = titles.get(plot);
-  $("hudPos").textContent = T("where", "Plot {p} · height {h} m", { p: plotLabel(plot), h: Math.round(P.h - Wd.SEA) });
+  const changed = (plotEdit.get(plot) || new Map()).size;
+  $("hudPos").textContent = T("where", "Plot {p} · height {h} m", { p: plotLabel(plot), h: Math.round(P.h - Wd.SEA) })
+    + (changed ? " · " + T("changed", "{n} {n|one:changed block|other:changed blocks}", { n: changed }) : "");
   const st = $("hudPlot");
   // the owner is looked up once the plot's title is KNOWN (titles load after the first frames), once per refresh
   if (t && !mine.has(plot) && !t.asked) { t.asked = true; holderOf(plot).then(hud); }
   let html;
-  if (!t) html = `<span class="pill">${esc(T("wild", "Wilderness"))}</span> <span class="dim">${esc(T("wildHint", "No title yet — this land opens in a later wave."))}</span>`;
-  else if (mine.has(plot)) html = `<span class="pill ok">${esc(T("yours", "Your plot"))}</span> <button id="btnAnchor" class="ghost">${esc(T("anchorBtn", "Anchor build"))}</button>`;
-  else html = `<span class="pill">${esc(t.holder ? T("owned", "Owned by {o}", { o: disp(t.holder) }) : T("titled", "Titled"))}</span> <a class="btn" target="_blank" rel="noopener" href="${NFT_URL}#token/${esc(t.aid)}">${esc(T("market", "View on the market"))}</a>`;
-  if (st.dataset.html !== html) { st.innerHTML = html; st.dataset.html = html; const b = $("btnAnchor"); if (b) b.onclick = () => anchor(plot); }
+  if (t && net.online && net.me && !t.checked) { t.checked = true; builderCheck(plot); }
+  const signIn = net.online && !net.me ? ` <a class="btn" href="/land/api/login">${esc(T("signInBuild", "Sign in to build"))}</a>` : "";
+  if (!t) html = `<span class="pill">${esc(T("wild", "Wilderness"))}</span> <span class="dim">${esc(T("wildHint", "No title yet — this land opens in a later wave."))}</span>${signIn}`;
+  else if (builds.has(plot) && !mine.has(plot)) html = `<span class="pill ok">${esc(T("invited", "You may build here"))}</span> <span class="dim">${esc(t.holder ? T("owned", "Owned by {o}", { o: disp(t.holder) }) : "")}</span>`;
+  else if (mine.has(plot)) html = `<span class="pill ok">${esc(T("yours", "Your plot"))}</span> <button id="btnAnchor" class="ghost">${esc(T("anchorBtn", "Anchor build"))}</button> <button id="btnInvite" class="ghost">${esc(T("inviteBtn", "Invite a builder"))}</button>`;
+  else html = `<span class="pill">${esc(t.holder ? T("owned", "Owned by {o}", { o: disp(t.holder) }) : T("titled", "Titled"))}</span> <a class="btn" target="_blank" rel="noopener" href="${NFT_URL}#token/${esc(t.aid)}">${esc(T("market", "View on the market"))}</a>${signIn}`;
+  if (st.dataset.html !== html) {
+    st.innerHTML = html; st.dataset.html = html;
+    const b = $("btnAnchor"); if (b) b.onclick = () => anchor(plot);
+    const iv = $("btnInvite"); if (iv) iv.onclick = () => invite(plot);
+  }
 }
 function hotbar() {
   const bar = $("hotbar");
@@ -532,6 +655,14 @@ function frame(now) {
   hemi.position.set(fr.up[0], fr.up[1], fr.up[2]);     // "up" is radial on a planet: three's hemisphere light assumes +Y
   for (const c of chunks.values()) if (c.anchor) for (const me of c.meshes) me.position.set(c.anchor[0] - cam[0], c.anchor[1] - cam[1], c.anchor[2] - cam[2]);
   if (farMesh) { const a = farMesh.userData.anchor; farMesh.position.set(a[0] - cam[0], a[1] - cam[1], a[2] - cam[2]); }
+  for (const r of others.values()) {
+    if (!r.p) continue;
+    const [f, u, v, h, yaw] = r.p, q = Wd.posOf(f, u, v, h), ofr = Wd.frameOf(f, u, v);
+    r.mesh.position.set(q[0] - cam[0], q[1] - cam[1], q[2] - cam[2]);
+    r.mesh.up.set(ofr.up[0], ofr.up[1], ofr.up[2]);
+    const fx = Math.sin(yaw) * ofr.east[0] + Math.cos(yaw) * ofr.north[0], fy = Math.sin(yaw) * ofr.east[1] + Math.cos(yaw) * ofr.north[1], fz = Math.sin(yaw) * ofr.east[2] + Math.cos(yaw) * ofr.north[2];
+    r.mesh.lookAt(r.mesh.position.x + fx, r.mesh.position.y + fy, r.mesh.position.z + fz);
+  }
   // the sun turns about the planet's axis; the sky follows its height above the player's horizon
   const ang = (Date.now() / 1000 / DAY_S) * 2 * Math.PI;
   const sd = new THREE.Vector3(Math.cos(ang), 0.35, Math.sin(ang)).normalize();
@@ -555,6 +686,7 @@ function frame(now) {
 let tick = 0;
 function slow() {
   updateChunks();
+  netTick();
   if (!farAt || farAt.face !== P.face || Math.abs(farAt.u - P.u) > 400 || Math.abs(farAt.v - P.v) > 400) buildFar();
   hud();
   if (++tick % 20 === 0) save();
@@ -591,6 +723,7 @@ async function start() {
   updateChunks(); buildFar();
   setInterval(slow, 250);
   renderer.setAnimationLoop(frame);
+  connect();
   $("loading").classList.add("hidden");
   try { await dapp.init(); } catch (e) { alertBar(T("cryptoFail", "The wallet bundle failed to load — reload to sign in.")); return; }
   wireWallet(dapp, () => { renderWallet(dapp); refreshTitles(); });
@@ -599,7 +732,7 @@ async function start() {
   setInterval(refreshTitles, 30000);
 }
 dapp.onReturn((pend, ok, err, err2) => {
-  dapp.showReturn(pend, ok, err, { anchor: T("anchorSent", "Anchoring — confirming…") });
+  dapp.showReturn(pend, ok, err, { anchor: T("anchorSent", "Anchoring — confirming…"), allow: T("inviteSent", "Invitation sent — confirming…") });
   refreshTitles();
 });
 start().catch((e) => {

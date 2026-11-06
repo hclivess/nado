@@ -77,3 +77,6 @@ copy is deliberately never refreshed from the checkout.
 - `scripts/install-timers.sh`: deleted — the reconciler replaces it.
 - OTC market maker: `otc_mm.py watch` run from a session worktree (it stopped with the session, while real orders
   were filled and waiting for it) → `scripts/otc_mm.py` + `deploy/units/nado-otc-mm.service` (2026-11-04).
+- Land world server: new, declared from the start → `scripts/land_server.py` + `deploy/units/nado-land.service`
+  (2026-11-06), behind `website/nginx-land.nadochain.com.conf` at land.nadochain.com/land/. Its own process, not a loop
+  in the node, because it holds every player's connection and a game outage must never touch the chain.

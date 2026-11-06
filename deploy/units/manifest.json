@@ -20,6 +20,8 @@
     {"unit": "nado-nft-upload.service",   "role": "operator", "source": "repo",
      "files": ["nado-nft-upload.service"]},
     {"unit": "nado-otc-mm.service",       "role": "operator", "source": "repo",
-     "files": ["nado-otc-mm.service"]}
+     "files": ["nado-otc-mm.service"]},
+    {"unit": "nado-land.service",         "role": "operator", "source": "repo",
+     "files": ["nado-land.service"]}
   ]
 }

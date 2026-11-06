@@ -128,6 +128,7 @@ const DOMAIN_SHIELD_NSK_WIDE = "shield-nsk-v2";   // RETIRED with the wide pool 
 // Stwo note of the same wallet. Set while the Stwo pool is dormant and empty, so no note was ever made under the old form.
 const DOMAIN_SHIELD_NSK_STWO = "shield-nsk-stwo-v1";
 const DOMAIN_FORUM_LOGIN = "forum-login-v1";      // forum login challenge (matches forum/server.py)
+const DOMAIN_LAND_LOGIN = "land-login-v1";        // Land world login challenge (matches scripts/land_server.py DOMAIN)
 // MIN_TX_FEE is imported above.
 // Blocks to delay a flexibly-landing tx's earliest inclusion (min_block = tip + this) so it gossips to
 // every producer before any may include it -> identical mempools -> byte-identical blocks -> the node
@@ -5220,6 +5221,51 @@ function setConn(ok, tip) {
  * -------------------------------------------------------------------------------------------- */
 let pendingWallet = null;
 
+// ---- LAND LOGIN: land.nadochain.com bounces the player here to sign its one-time challenge, the forum SSO's pattern
+// (resumePendingForumLogin below): shown before signing, signed by the ACTIVE account in ITS OWN scheme (the world server
+// verifies every offered scheme, scripts/land_server.py login), domain-tagged so the signature is good for nothing but a
+// Land login, and sent ONLY to an allowlisted origin as a top-level form POST. It cannot move funds; the server binds the
+// challenge to the browser that started it (its login cookie) and accepts it once.
+const LAND_ORIGIN_ALLOW = ["https://land.nadochain.com"];
+let pendingLandLogin = (() => {
+  try {
+    const p = new URLSearchParams(location.search);
+    if (p.get("land_login") !== "1") return null;
+    return { nonce: p.get("nonce") || "", site: p.get("site") || "", issued: parseInt(p.get("issued") || "0", 10) };
+  } catch (e) { return null; }
+})();
+async function resumePendingLandLogin() {
+  const req = pendingLandLogin;
+  if (!req || !state.wallet) return;
+  pendingLandLogin = null;                         // consume — don't re-prompt on later showWalletUI calls
+  try { history.replaceState(null, "", location.pathname + location.hash); } catch (e) {}
+  if (!LAND_ORIGIN_ALLOW.includes(req.site)) {
+    uiAlert(i18("landlogin.badOrigin", "Ignored a sign-in request for an unrecognised site.") + " (" + req.site + ")");
+    return;
+  }
+  const okc = await uiConfirm({
+    title: i18("landlogin.title", "Sign in to NADO Land"),
+    body: i18("landlogin.body", "Prove you own this wallet to build on {f} as {a}. This cannot move funds.",
+      { f: req.site.replace(/^https?:\/\//, ""), a: _abShort(state.wallet.address) }),
+    confirmText: i18("landlogin.signin", "Sign in"),
+  });
+  if (!okc) return;
+  try {
+    const msg = blake2bHash([DOMAIN_LAND_LOGIN, req.site, state.wallet.address, req.nonce, req.issued], 32);
+    const e = schemeSignEntry(state.wallet, hexToBytes(msg));
+    const form = document.createElement("form");
+    form.method = "POST"; form.action = req.site + "/land/api/login_callback";
+    for (const [n, v] of [["address", state.wallet.address], ["public_key", e.public_key], ["alg", e.alg || ""],
+                          ["signature", e.signature], ["nonce", req.nonce]]) {
+      const i = document.createElement("input"); i.type = "hidden"; i.name = n; i.value = v; form.appendChild(i);
+    }
+    document.body.appendChild(form);
+    form.submit();                                 // navigates to Land, which verifies + sets its session cookie
+  } catch (e) {
+    uiAlert(i18("landlogin.failed", "Land sign-in failed:") + " " + (e && e.message ? e.message : e));
+  }
+}
+
 // ---- FORUM SSO: forum.nadochain.com bounces the user here to sign a one-time login challenge with their
 // wallet. We show exactly what they're signing, sign with the ACTIVE account (so HD accounts pick their forum
 // identity), and POST the signature back to the forum as a top-level navigation POST (no CORS). Only a
@@ -5786,6 +5832,7 @@ function showWalletUI() {
   resumePendingClaim(); // if a #claim link was opened before this wallet existed, receive the banknote now
   renderInviteBanner(); // a pending #invite link: say what is waiting and the next step (claimed from pollOnce)
   resumePendingForumLogin(); // if the forum bounced us here to sign a login challenge, prompt + sign now
+  resumePendingLandLogin();  // the same for Land (land.nadochain.com)
   resumePendingExecSign();   // if a dApp (e.g. coinflip) bounced us here to sign a contract call, prompt + sign
 }
 

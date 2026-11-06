@@ -173,6 +173,18 @@ def _():
     assert bal(aid, MALLORY) == 1 and bal(aid, cid) == 0
 
 
+@prop("each planet's contract accepts only its own planet's titles: plot 7 of planet 1 is not plot 7 of planet 0")
+def _():
+    st, cid, ncid, call, mint, give, rd, bal = _fresh()
+    other = mint(P, seed=L.plot_seed(P, planet=1))                          # the same plot number on planet 1
+    assert other != int(asset_id(ISSUER, L.plot_seed(P))), "a different asset"
+    refused(call(ISSUER, "anchor", [P, C1], value=1, asset=other))
+    code1 = L.build(ISSUER, planet=1)
+    st.apply_blob({"op": "deploy", "runtime": "zkvm", "code": code1, "abi": L.ABI, "nonce": "p1"}, ISSUER, "dp1")
+    ok(call(ISSUER, "anchor", [P, C1], value=1, asset=other, contract=st.contract_id(ISSUER, code1, "p1")))
+    assert L.plot_seed(P, 1) >> 48 == L.plot_seed(P) >> 48 == 0x4C414E44 and (L.plot_seed(P, 1) >> 32) & 0xFFFF == 1
+
+
 @prop("plot ids at or above PLOT_MAX are refused even with a title minted under that seed")
 def _():
     st, cid, ncid, call, mint, give, rd, bal = _fresh()
