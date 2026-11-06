@@ -1,4 +1,4 @@
-"""A documentation-only fast-forward must NOT restart the node; anything else must.
+"""A documentation-only (or Land-game-only, or tests-only) fast-forward must NOT restart the node; anything else must.
 
 Ten doc commits pushed one at a time on 2026-09-10 restarted nado and nado-exec ten times, and wallet users saw
 "the exec node returned no data (HTTP 502)" on every one. The updater now skips the restart when every changed
@@ -38,11 +38,31 @@ def test_anything_executable_restarts():
 
 
 def test_served_assets_restart():
-    # static/ is stamped and served by the node; website/ may be served from this tree. Neither is inert,
+    # the wallet and the games are stamped and served by the node; website/ may be served from this tree. Not inert,
     # and a stale wallet bundle is exactly the class of bug that wasted a session before (?v= stamping).
     assert not _only_inert(["static/interface.js"])
-    assert not _only_inert(["static/i18n.js"])
+    assert not _only_inert(["static/nadodapp.js"])
+    assert not _only_inert(["static/mines.html"])
     assert not _only_inert(["website/index.html"])
+
+
+def test_a_land_game_update_does_not_restart():
+    # "do not restart nado nodes for this!!! make an exception as there is for docs" (operator, 2026-11-06): the Land
+    # page, its modules, rules, vendored three.js and textures, its translations (and the i18n.js they regenerate), its
+    # world server (run as nado-land, never by this updater) and the tests are read fresh or never by the node
+    assert _only_inert(["static/land.js", "static/land.html", "static/land-mesher.js", "static/land-recipes.json"])
+    assert _only_inert(["static/vendor/three/three.webgpu.js", "static/vendor/textures/grass_col.jpg"])
+    assert _only_inert(["static/i18n_games/land.json", "static/i18n.js"])
+    assert _only_inert(["scripts/land_server.py", "scripts/land_terrain.mjs"])
+    assert _only_inert(["tests/test_a_walker_crosses_slopes_and_steps_without_jitter.mjs", "doc/land.md"])
+    # ...but a Land commit that also touches anything the node runs still restarts
+    assert not _only_inert(["static/land.js", "execnode/games/land.py"])
+    assert not _only_inert(["static/land.js", "nado.py"])
+    assert not _only_inert(["static/i18n_games/land.json", "static/i18n/wallet.json"])
+    assert not _only_inert(["scripts/land_server.py", "scripts/other_tool.py"])
+    # look-alikes of the Land prefixes are not Land
+    assert not _only_inert(["static/landing.html"])
+    assert not _only_inert(["static/vendor/nado-crypto.js"])
 
 
 def test_ambiguity_restarts():

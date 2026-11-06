@@ -90,15 +90,24 @@ if _INSTANCE and _INSTANCE != "nado" and re.fullmatch(r"nado[a-z0-9]{1,16}", _IN
 # the native-library digest check in check_and_update: restart when the bytes that RUN changed, not whenever git
 # moved.
 #
-# DELIBERATELY TINY, AND THE DEFAULT IS TO RESTART. Anything not listed here — including static/, which the node
-# stamps and serves, and website/ — still restarts. A path wrongly called inert leaves the fleet running OLD code,
+# DELIBERATELY TINY, AND THE DEFAULT IS TO RESTART. Anything not listed here — the rest of static/ (the wallet and
+# games, which the node stamps and serves), and website/ — still restarts. A path wrongly called inert leaves the fleet running OLD code,
 # which is far worse than a needless bounce, so this list only grows with evidence that nothing loads the path.
-_INERT_PREFIXES = ("doc/",)
-_INERT_FILES = ("README.md", "LICENSE", "CHANGELOG.md")
+_INERT_PREFIXES = ("doc/",
+                   # THE LAND GAME (operator, 2026-11-06: "do not restart nado nodes for this!!! make an exception as there
+                   # is for docs"). Evidence, measured that day: no file under nado.py / ops / loops / execnode reads any of
+                   # these at import or keeps them; static/ is served through ops/static_versions.StaticVersions, which
+                   # re-stats every file within its TTL (2 s), so a running node serves a new land.js — and the i18n.js a
+                   # translation regenerates — without a restart. scripts/land_* run only as the nado-land service, which
+                   # this updater never restarted. tests/ is run by people and the pre-push hook, never by the node.
+                   "static/land.", "static/land-", "static/vendor/three/", "static/vendor/textures/",
+                   "static/i18n_games/land.json", "scripts/land_", "tests/")
+_INERT_FILES = ("README.md", "LICENSE", "CHANGELOG.md", "static/i18n.js")
 
 
 def _only_inert(paths) -> bool:
-    """True when EVERY changed path is documentation. Empty input is False: no information means restart."""
+    """True when EVERY changed path is inert (documentation, the Land game's files, tests). Empty input is False: no
+    information means restart."""
     paths = [p for p in paths if p]
     if not paths:
         return False
@@ -116,7 +125,7 @@ def _restart_needed(local: str, remote: str) -> bool:
         _log().warning(f"update: could not diff {local[:12]}..{remote[:12]} ({e}) — restarting to be safe")
         return True
     if _only_inert(changed):
-        _log().info(f"update: {len(changed)} documentation-only path(s) — no restart "
+        _log().info(f"update: {len(changed)} inert path(s) (docs, Land, tests) — no restart "
                     f"({', '.join(changed[:5])}{'...' if len(changed) > 5 else ''})")
         return False
     return True
@@ -933,7 +942,7 @@ def check_and_update(trigger: str) -> dict:
             note = None if restarting else "no systemd services found — restart the node manually"
         else:
             restarting = []
-            note = "documentation-only update — nothing that runs changed, so no restart"
+            note = "inert update (docs, Land game files, tests) — nothing the node runs changed, so no restart"
         out = {"status": "updated", "from": local[:12], "to": remote[:12], "trigger": trigger,
                "restarting": restarting, "note": note}
         if native:
