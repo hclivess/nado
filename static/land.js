@@ -13,8 +13,14 @@
 // COORDINATES. The player lives in grid space (face, u, v, h); metres are derived only to draw. The camera sits at the
 // origin and every mesh is placed at its anchor minus the camera's position, computed in doubles, so float32 never
 // carries a coordinate larger than the view distance however far the planet's centre is (R0 ~83 km).
-import * as THREE from "/static/vendor/three/three.webgpu.js";
-import * as TSL from "/static/vendor/three/three.tsl.js";
+// ONE COPY OF THREE: the core is imported by its import-map NAME, exactly as the add-ons below import it, and the map
+// names two shims (land-three-*.js) whose absolute imports the node stamps like three's own relative ones. The node stamps
+// every "/static/…" and "./…" import with ?v=<hash> and leaves bare names alone: a path here became three.webgpu.js?v=…
+// while the add-ons' "three/webgpu" stayed three.webgpu.js — two URLs, two module instances, two TSL node stacks, and
+// the page drew nothing ("pitch black", 2026-11-06; THREE.TSL "Cannot read properties of null (reading 'If')").
+// tests/test_the_land_page_loads_one_copy_of_three.py serves the page through the real stamper and pins this.
+import * as THREE from "three/webgpu";
+import * as TSL from "three/tsl";
 // r187's post-processing add-ons (static/vendor/three/addons, pinned like the core); they import "three/webgpu" and
 // "three/tsl", which land.html's import map points at the same vendored files
 import { ao } from "three/addons/tsl/display/GTAONode.js";

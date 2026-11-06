@@ -34,8 +34,10 @@ for name in ("three.webgpu.js", "three.tsl.js"):
     deps = set(re.findall(r"from '\./([^']+)'", open(os.path.join(D, name)).read()))
     check(f"every file {name} imports is vendored beside it", deps and all(os.path.exists(os.path.join(D, x)) for x in deps), deps)
 html = open(os.path.join(ROOT, "static", "land.html")).read()
-check("the page's import map points the add-ons' bare imports at this build",
-      '"three/webgpu":"/static/vendor/three/three.webgpu.js"' in html and '"three/tsl":"/static/vendor/three/three.tsl.js"' in html)
+check("the page's import map points the add-ons' bare imports at this build (through the one-URL shims)",
+      '"three/webgpu":"/static/land-three-webgpu.js"' in html and '"three/tsl":"/static/land-three-tsl.js"' in html
+      and 'export * from "/static/vendor/three/three.webgpu.js"' in open(os.path.join(ROOT, "static", "land-three-webgpu.js")).read()
+      and 'export * from "/static/vendor/three/three.tsl.js"' in open(os.path.join(ROOT, "static", "land-three-tsl.js")).read())
 land = open(os.path.join(ROOT, "static", "land.js")).read()
-check("the Land page imports this build", '"/static/vendor/three/three.webgpu.js"' in land)
+check("the Land page imports this build, by the import map's names", 'from "three/webgpu"' in land and 'from "three/tsl"' in land)
 _report.done()
