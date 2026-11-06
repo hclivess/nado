@@ -441,7 +441,12 @@ function done(m) {
     if (m.foliage) c.meshes.push(new THREE.Mesh(geom(m.foliage), matLeaves));
     if (m.stones) c.meshes.push(new THREE.Mesh(geom(m.stones), matGround));
     if (m.water) { const me = new THREE.Mesh(geom(m.water), matWater); me.renderOrder = 1; c.meshes.push(me); }
-    if (m.pieces) c.meshes.push(new THREE.Mesh(geom(m.pieces), matPieces));
+    if (m.pieces) {
+      // one draw group per material (the mesher sorted them), each in its real texture where it has one
+      const g = geom(m.pieces), mats = [];
+      for (const [start, count, blk] of m.pieces.groups || []) { g.addGroup(start, count, mats.length); mats.push(pieceMaterial(blk)); }
+      c.meshes.push(new THREE.Mesh(g, mats.length ? mats : matPieces));
+    }
     if (m.glassy) { const me = new THREE.Mesh(geom(m.glassy), matGlassy); me.renderOrder = 1; c.meshes.push(me); }
     if (m.grass) c.meshes.push(...grassMeshes(m.grass));
     if (m.solid) c.meshes.push(new THREE.Mesh(geom(m.solid), matSolid));
@@ -1263,6 +1268,49 @@ function treeMaterials() {
   const flutter = TSL.sin(t.mul(9).add(ph.mul(3)).add(TSL.positionLocal.x.mul(4)).add(TSL.positionLocal.z.mul(3))).mul(wind.xyz.length().mul(0.22));
   leaves.positionNode = sway.add(TSL.attribute("normal", "vec3").mul(flutter));
   return [bark, leaves];
+}
+
+// ---- built pieces in their real materials ("A REAL HOUSE"): the scanned CC0 textures (static/vendor/textures) with their
+// normal maps, tiled once per metre (the mesher's uv is in metres). Before, every piece sampled a 16 px atlas tile — the
+// blocky look of every house. A material with no scan (wool colours, lamps) keeps its tile (matPieces).
+//   block -> [texture, tint, roughness]
+const PIECE_TEX = {
+  9: ["planks", 1, 0.8], 15: ["darkwood", 1, 0.8], 11: ["brick", 1, 0.9], 14: ["plaster", 1, 0.95], 13: ["tiles", 1, 0.7],
+  10: ["cobble", 1, 0.9], 16: ["stonebrick", 1, 0.88], 7: ["bark", 1, 0.95], 31: ["birch", 1, 0.9], 32: ["plaster", 1.08, 0.6],
+  37: ["darkwood", 1.15, 0.75], 38: ["planks", 0.78, 0.85], 39: ["thatch", 1, 0.98],
+  2: ["dirt", 1, 0.95], 3: ["rock", 1, 0.85], 4: ["sand", 1, 0.9], 6: ["snow", 1, 0.55], 17: ["gravel", 1, 0.9],
+};
+const pieceMats = new Map();
+function pieceMaterial(blk) {
+  if (pieceMats.has(blk)) return pieceMats.get(blk);
+  const spec = PIECE_TEX[blk];
+  let m = matPieces;
+  if (spec) {
+    const [name, tint, rough] = spec;
+    m = new THREE.MeshStandardNodeMaterial({ roughness: rough, metalness: 0 });
+    const uv = TSL.uv(), col = name === "thatch" ? thatchTexture() : loadTex(name + "_col");
+    m.colorNode = TSL.texture(col, uv).rgb.mul(tint).mul(TSL.attribute("color", "vec3"));
+    if (name !== "thatch") { const nor = loadTex(name + "_nor"); nor.colorSpace = THREE.NoColorSpace; m.normalNode = TSL.normalMap(TSL.texture(nor, uv)); }
+  }
+  pieceMats.set(blk, m);
+  return m;
+}
+// thatch has no scan: bundles of straw painted in layers, each course overlapping the one below
+let thatchTex = null;
+function thatchTexture() {
+  if (thatchTex) return thatchTex;
+  const cv = document.createElement("canvas"); cv.width = cv.height = 256;
+  const g = cv.getContext("2d");
+  g.fillStyle = "#8a6f3a"; g.fillRect(0, 0, 256, 256);
+  let seed = 77; const R = () => { seed = (seed * 16807) % 2147483647; return seed / 2147483647; };
+  for (let course = 0; course < 8; course++) for (let i = 0; i < 260; i++) {
+    const x = R() * 256, y = course * 32 + R() * 10, len = 24 + R() * 18, l = 42 + R() * 22;
+    g.strokeStyle = `hsl(${40 + R() * 10},${45 + R() * 20}%,${l}%)`; g.lineWidth = 1 + R() * 1.5;
+    g.beginPath(); g.moveTo(x, y); g.lineTo(x + (R() - 0.5) * 4, y + len); g.stroke();
+  }
+  thatchTex = new THREE.CanvasTexture(cv);
+  thatchTex.wrapS = thatchTex.wrapT = THREE.RepeatWrapping; thatchTex.colorSpace = THREE.SRGBColorSpace; thatchTex.anisotropy = 8;
+  return thatchTex;
 }
 
 // ---- the picture: ambient occlusion, bloom, anti-aliasing ("overall not impressive", operator 2026-11-06) ---------------

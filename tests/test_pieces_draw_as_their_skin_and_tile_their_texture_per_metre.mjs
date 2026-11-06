@@ -13,6 +13,7 @@
  *
  * Run: node tests/test_pieces_draw_as_their_skin_and_tile_their_texture_per_metre.mjs
  */
+import { readFileSync } from "node:fs";
 import { join, dirname } from "node:path";
 import { fileURLToPath } from "node:url";
 
@@ -62,6 +63,21 @@ for (let y = 0; y < 16 && scatter.length < 20000; y++) for (let z = 0; z < 160 &
   for (let x = 0; x < 160 && scatter.length < 20000; x += 4) scatter.push([x * 10, z * 10, y0 + y * 100 + (z % 2) * 10, 5, 5, 5, Wd.B.planks]);
 const t0 = performance.now(), rs = mesh(scatter), ms = performance.now() - t0;
 ok(tris(rs) <= 20000 * 12 && ms < 3000, `20,000 scattered pieces: ${tris(rs)} triangles in ${ms.toFixed(0)} ms (at most 12 each, bounded time)`);
+
+// REAL MATERIALS ("A REAL HOUSE"): pieces come sorted by material, each one's run of triangles a draw group, so the page
+// draws each in its scanned texture with its normal map (the 16 px atlas tile was the blocky look of every house)
+{
+  const mixed = mesh([[100, 100, y0 + 200, 100, 20, 50, Wd.B.brick], [300, 100, y0 + 200, 100, 20, 50, Wd.B.planks],
+    [500, 100, y0 + 200, 100, 20, 50, Wd.B.brick], [700, 100, y0 + 200, 100, 200, 100, Wd.B.tiles, Wd.SLOPE_POS_Z]]);
+  const G = mixed.pieces.groups || [];
+  const covered = G.reduce((a, [, n]) => a + n, 0), ordered = G.every(([st, , m], i) => i === 0 || (st === G[i - 1][0] + G[i - 1][1] && m > G[i - 1][2]));
+  ok(G.length === 3 && covered === mixed.pieces.idx.length && ordered && G.map((g) => g[2]).join() === [Wd.B.planks, Wd.B.brick, Wd.B.tiles].sort((a, b) => a - b).join(),
+     `pieces come in one draw group per material, covering every triangle (${G.map((g) => Wd.BLOCKS[g[2]].key + ":" + g[1] / 3).join(", ")})`);
+  const land = readFileSync(join(ROOT, "static", "land.js"), "utf8"), table = land.slice(land.indexOf("const PIECE_TEX = {"), land.indexOf("const pieceMats"));
+  const building = ["planks", "darkwood", "brick", "plaster", "tiles", "cobble", "stonebrick", "door", "beam", "thatch"].map((k) => Wd.B[k]);
+  ok(building.every((b) => new RegExp(`\\b${b}: \\["`).test(table)), "every building material has a real texture (planks, brick, plaster, tiles, stone, door, beam, thatch…)");
+  ok(/m\.normalNode = TSL\.normalMap/.test(land) && /g\.addGroup\(start, count, mats\.length\)/.test(land), "with its normal map, one material per draw group");
+}
 
 console.log(fails ? `${fails} FAILED` : "all passed");
 process.exit(fails ? 1 : 0);

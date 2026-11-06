@@ -117,7 +117,13 @@ function meshBoxes(boxes, u0, v0, h0, place, solid, clear, lod) {
     }
     return false;
   };
+  // by material, each one's run of indices a draw group ([start, count, block]) — the page gives each material its own
+  // textured material (real wood, brick, plaster…; the 16 px atlas tile was the blocky look on houses)
+  mine.sort((a, b) => a[6] - b[6]);
+  let runM = -1, runAt = 0;
+  const close = () => { if (runM >= 0 && solid.idx.length > runAt) solid.groups.push([runAt, solid.idx.length - runAt, runM]); };
   for (const b of mine) {
+    if (opaque(b[6]) && b[6] !== runM) { close(); runM = b[6]; runAt = solid.idx.length; }
     if (shapeOf(b)) { meshSlope(b, u0, v0, place, !opaque(b[6]) ? clear : solid, lo, hi); continue; }
     const info = BLOCKS[b[6]], buf = !opaque(b[6]) ? clear : solid;
     const y0 = Math.max(b[2], lo), y1 = Math.min(b[2] + b[5], hi);          // this chunk's slice of the piece
@@ -151,6 +157,7 @@ function meshBoxes(boxes, u0, v0, h0, place, solid, clear, lod) {
       buf.n += 4;
     }
   }
+  close();
 }
 
 /** Mesh one chunk: { anchor, smooth (the ground), trees, bark, foliage, stones, solid, clear, water, pieces, glassy, grass }
@@ -543,7 +550,7 @@ function scatterGrass(g, density) {
   return out.length ? { inst: new Float32Array(out), kind: new Uint8Array(kinds) } : null;
 }
 
-function mk() { return { pos: [], nor: [], uv: [], col: [], tile: [], uvw: [], gn: [], w1: [], w2: [], wind: [], idx: [], n: 0 }; }
+function mk() { return { pos: [], nor: [], uv: [], col: [], tile: [], uvw: [], gn: [], w1: [], w2: [], wind: [], idx: [], groups: [], n: 0 }; }
 function pack(b) {
   if (!b.n || !b.idx.length) return null;
   const out = { pos: new Float32Array(b.pos), nor: new Float32Array(b.nor), col: new Float32Array(b.col),
@@ -551,6 +558,7 @@ function pack(b) {
   if (b.uv.length) out.uv = new Float32Array(b.uv);
   if (b.tile.length) out.tile = new Float32Array(b.tile);
   for (const k of ["uvw", "gn", "w1", "w2", "wind"]) if (b[k].length) out[k] = new Float32Array(b[k]);
+  if (b.groups.length) out.groups = b.groups;
   return out;
 }
 
