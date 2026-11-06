@@ -15,6 +15,11 @@
 // carries a coordinate larger than the view distance however far the planet's centre is (R0 ~83 km).
 import * as THREE from "/static/vendor/three/three.webgpu.js";
 import * as TSL from "/static/vendor/three/three.tsl.js";
+// r187's post-processing add-ons (static/vendor/three/addons, pinned like the core); they import "three/webgpu" and
+// "three/tsl", which land.html's import map points at the same vendored files
+import { ao } from "three/addons/tsl/display/GTAONode.js";
+import { bloom } from "three/addons/tsl/display/BloomNode.js";
+import { fxaa } from "three/addons/tsl/display/FXAANode.js";
 import * as Wd from "./land-world.js";
 import * as Cosmos from "./land-cosmos.js";
 import { NadoDapp, wireWallet, renderWallet, alertBar, notify, uiConfirm, uiPrompt, isAddress, esc, base, disp, $ } from "./nadodapp.js";
@@ -57,7 +62,8 @@ const PRESETS = [[100, 100, 100], [100, 100, 10], [100, 10, 100], [10, 10, 100],
 const SNAPS = [1, 5, 10, 25, 50, 100];
 let piece = { w: 100, d: 100, h: 100, snap: 10 };
 const plotBoxes = new Map();          // plot -> { list, idx: Map(1 m bucket -> [box]) }
-let renderer, scene, camera, sun, hemi, atlasTex, matSolid, matClear, matGround, matPieces, matGlassy, ghost, farMesh = null, farAt = null;
+let pipeline = null;                  // the post-processed render (or null: the plain render on a weak device)
+let renderer, scene, camera, sun, hemi, atlasTex, matSolid, matClear, matGround, matTrees, matPieces, matGlassy, ghost, farMesh = null, farAt = null;
 let highlight, lastT = 0, locked = false, keys = new Set(), touch = null, viewDist = 6;
 const LS = "nado_land_v1";
 
@@ -389,7 +395,8 @@ function request(k) {
   c.busy = true; c.dirty = false;
   const [face, cu, cv, ch] = k.split(":").map(Number);
   const pb = plotBoxes.get(Wd.plotId(face, cv, cu));        // a chunk column IS a plot (CHUNK == PLOT)
-  c.lod = Math.max(Math.abs(cu - Math.floor(P.u / CHUNK)), Math.abs(cv - Math.floor(P.v / CHUNK))) > 3 ? 1 : 0;
+  const dist = Math.max(Math.abs(cu - Math.floor(P.u / CHUNK)), Math.abs(cv - Math.floor(P.v / CHUNK)));
+  c.lod = dist <= 2 ? (touch ? 1 : 0) : dist <= 3 ? 1 : 2;        // 0: grass too (not on a phone); 2: small pieces skipped
   queue.push({ id: ++reqId, k, face, cu, cv, ch, edits: editsFor(face, cu, cv), boxes: pb ? pb.list : null, lod: c.lod });
   pump();
 }
@@ -413,6 +420,10 @@ function geom(part) {
   if (part.uv) g.setAttribute("uv", new THREE.BufferAttribute(part.uv, 2));
   g.setAttribute("color", new THREE.BufferAttribute(part.col, 3));
   if (part.tile) g.setAttribute("tile", new THREE.BufferAttribute(part.tile, 1));
+  if (part.uvw) g.setAttribute("uvw", new THREE.BufferAttribute(part.uvw, 3));
+  if (part.gn) g.setAttribute("gn", new THREE.BufferAttribute(part.gn, 3));
+  if (part.w1) g.setAttribute("w1", new THREE.BufferAttribute(part.w1, 4));
+  if (part.w2) g.setAttribute("w2", new THREE.BufferAttribute(part.w2, 2));
   g.setIndex(new THREE.BufferAttribute(part.idx, 1));
   g.computeBoundingSphere();
   return g;
@@ -427,12 +438,13 @@ function done(m) {
   if (!m.empty && !m.error) {
     c.anchor = m.anchor;
     if (m.smooth) c.meshes.push(new THREE.Mesh(geom(m.smooth), matGround));
-    if (m.trees) c.meshes.push(new THREE.Mesh(geom(m.trees), matGround));
+    if (m.trees) c.meshes.push(new THREE.Mesh(geom(m.trees), matTrees));
     if (m.pieces) c.meshes.push(new THREE.Mesh(geom(m.pieces), matPieces));
     if (m.glassy) { const me = new THREE.Mesh(geom(m.glassy), matGlassy); me.renderOrder = 1; c.meshes.push(me); }
+    if (m.grass) c.meshes.push(...grassMeshes(m.grass));
     if (m.solid) c.meshes.push(new THREE.Mesh(geom(m.solid), matSolid));
     if (m.clear) { const me = new THREE.Mesh(geom(m.clear), matClear); me.renderOrder = 1; c.meshes.push(me); }
-    for (const me of c.meshes) { me.castShadow = me.material !== matClear; me.receiveShadow = true; scene.add(me); }
+    for (const me of c.meshes) { me.castShadow = me.material !== matClear && !me.isInstancedMesh; me.receiveShadow = true; scene.add(me); }
   }
   if (c.dirty) request(k);
 }
@@ -471,11 +483,11 @@ function updateChunks() {
     if (Math.abs(dx) <= 2 && Math.abs(dy) <= 2) { lo = Math.min(lo, Math.max(0, Math.floor(P.h / CHUNK) - 1)); hi = Math.max(hi, Math.min(H / CHUNK - 1, Math.floor(P.h / CHUNK) + 1)); }
     const pb = plotBoxes.get(Wd.plotId(face, cv, cu));
     if (pb && pb.list.length) for (const b of pb.list) { lo = Math.min(lo, Math.floor(b[2] / (CHUNK * Wd.CM))); hi = Math.max(hi, Math.min(H / CHUNK - 1, Math.floor((b[2] + b[5] - 1) / (CHUNK * Wd.CM)))); }
-    const far = Math.max(Math.abs(dx), Math.abs(dy)) > 3 ? 1 : 0;
+    const dd = Math.max(Math.abs(dx), Math.abs(dy)), lodNow = dd <= 2 ? (touch ? 1 : 0) : dd <= 3 ? 1 : 2;
     for (let ch = lo; ch <= hi; ch++) {
       const k = face + ":" + cu + ":" + cv + ":" + ch, c = chunks.get(k);
       want.add(k);
-      if (c && pb && c.lod !== undefined && c.lod !== far) request(k);      // came near: draw its small pieces too
+      if (c && c.lod !== undefined && c.lod !== lodNow && (pb || c.lod === 0 || lodNow === 0)) request(k);   // grass and small pieces follow the player
     }
   }
   for (const k of want) if (!chunks.has(k)) { chunks.set(k, { meshes: [], anchor: null, busy: false, dirty: false }); request(k); }
@@ -954,6 +966,127 @@ function wireInput(canvas) {
 }
 
 // ---- frame -----------------------------------------------------------------------------------------------------
+// ---- the ground's material: six real textures (static/vendor/textures, CC0 Poly Haven) mixed by the weights the mesher
+// gives every ground vertex. Each is sampled at two scales and the two mixed, which hides the repetition a single tiling
+// shows from any height; rock is projected from three sides by the ground's normal, so a cliff is not a smear.
+const GROUND = ["grass", "dirt", "rock", "sand", "snow", "gravel"];
+const GROUND_ROUGH = [0.96, 0.95, 0.85, 0.9, 0.55, 0.9];
+function loadTex(name) {
+  const t = new THREE.TextureLoader().load(`/static/vendor/textures/${name}.jpg`);
+  t.wrapS = t.wrapT = THREE.RepeatWrapping;
+  t.colorSpace = THREE.SRGBColorSpace;
+  t.anisotropy = 8;
+  return t;
+}
+function groundMaterial() {
+  const uvw = TSL.attribute("uvw", "vec3"), gn = TSL.attribute("gn", "vec3").abs();
+  const w1 = TSL.attribute("w1", "vec4"), w2 = TSL.attribute("w2", "vec2");
+  const near = uvw.xy.div(3.2), far = uvw.xy.div(23.0);                // metres per repeat, close up and from afar
+  const two = (t) => TSL.mix(TSL.texture(t, near).rgb, TSL.texture(t, far).rgb, 0.35);
+  const tex = GROUND.map((k) => loadTex(k + "_col"));
+  // rock: three planar projections blended by the normal's weight on each axis
+  const tw = gn.pow(4), tws = tw.x.add(tw.y).add(tw.z);
+  const rock = TSL.texture(tex[2], TSL.vec2(uvw.y, uvw.z).div(4.5)).rgb.mul(tw.x)
+    .add(TSL.texture(tex[2], TSL.vec2(uvw.x, uvw.z).div(4.5)).rgb.mul(tw.y))
+    .add(TSL.texture(tex[2], near.mul(3.2 / 4.5)).rgb.mul(tw.z)).div(tws);
+  // the scanned grass is a forest floor (brown-green); under the blades it is tinted to a living meadow's green
+  const color = two(tex[0]).mul(TSL.vec3(0.72, 1.0, 0.55)).mul(w1.x).add(two(tex[1]).mul(w1.y)).add(rock.mul(w1.z)).add(two(tex[3]).mul(w1.w))
+    .add(two(tex[4]).mul(w2.x)).add(two(tex[5]).mul(w2.y));
+  const m = new THREE.MeshStandardNodeMaterial({ metalness: 0 });
+  m.colorNode = color.mul(TSL.attribute("color", "vec3"));
+  m.roughnessNode = w1.x.mul(GROUND_ROUGH[0]).add(w1.y.mul(GROUND_ROUGH[1])).add(w1.z.mul(GROUND_ROUGH[2])).add(w1.w.mul(GROUND_ROUGH[3]))
+    .add(w2.x.mul(GROUND_ROUGH[4])).add(w2.y.mul(GROUND_ROUGH[5]));
+  return m;
+}
+
+// ---- grass: instanced clumps of tapered blades, dark at the root and light at the tip, swaying in the wind on the GPU
+// (the mesher scatters them over the meadow, near the player only). One clump in 25 is a wildflower.
+let clumpGeo = null, flowerGeo = null, matGrass = null;
+function bladeClump(blades, flower) {
+  const pos = [], col = [], nor = [], idx = [];
+  let seed = flower ? 7 : 3;
+  const rnd = () => { seed = (seed * 16807) % 2147483647; return seed / 2147483647; };
+  for (let i = 0; i < blades; i++) {
+    const a = rnd() * Math.PI * 2, r = rnd() * 0.14, h = 0.22 + rnd() * 0.33, w = 0.01 + rnd() * 0.008, lean = 0.05 + rnd() * 0.12;
+    const bx = Math.cos(a) * r, bz = Math.sin(a) * r, dx = Math.cos(a + 1.3) * w, dz = Math.sin(a + 1.3) * w, lx = Math.cos(a) * lean, lz = Math.sin(a) * lean;
+    const base = pos.length / 3;
+    pos.push(bx - dx, 0, bz - dz, bx + dx, 0, bz + dz, bx - dx * 0.6 + lx * 0.4, h * 0.55, bz - dz * 0.6 + lz * 0.4,
+             bx + dx * 0.6 + lx * 0.4, h * 0.55, bz + dz * 0.6 + lz * 0.4, bx + lx, h, bz + lz);
+    const root = [0.05, 0.12, 0.02], mid = [0.13, 0.28, 0.05], tip = [0.30, 0.45, 0.10];
+    col.push(...root, ...root, ...mid, ...mid, ...tip);
+    for (let k = 0; k < 5; k++) nor.push(0, 1, 0);                 // up-facing normals: the blade takes the ground's light
+    // both faces, each wound to face out, both with the up normal: a double-sided material would flip the back face's
+    // normal downward and the blade's back would render black
+    idx.push(base, base + 1, base + 3, base, base + 3, base + 2, base + 2, base + 3, base + 4,
+             base, base + 3, base + 1, base, base + 2, base + 3, base + 2, base + 4, base + 3);
+  }
+  if (flower) for (let i = 0; i < 3; i++) {                        // three small yellow heads
+    const a = rnd() * Math.PI * 2, r = rnd() * 0.1, h = 0.45 + rnd() * 0.2, s = 0.03, base = pos.length / 3;
+    const x = Math.cos(a) * r, z = Math.sin(a) * r;
+    pos.push(x - s, h, z - s, x + s, h, z - s, x + s, h, z + s, x - s, h, z + s);
+    for (let k = 0; k < 4; k++) { col.push(0.95, 0.75, 0.12); nor.push(0, 1, 0); }
+    idx.push(base, base + 1, base + 2, base, base + 2, base + 3);
+  }
+  const g = new THREE.BufferGeometry();
+  g.setAttribute("position", new THREE.Float32BufferAttribute(pos, 3));
+  g.setAttribute("color", new THREE.Float32BufferAttribute(col, 3));
+  g.setAttribute("normal", new THREE.Float32BufferAttribute(nor, 3));
+  g.setIndex(idx);
+  return g;
+}
+function grassMeshes(gr) {
+  if (!clumpGeo) {
+    clumpGeo = bladeClump(9, false); flowerGeo = bladeClump(4, true);
+    matGrass = new THREE.MeshStandardNodeMaterial({ roughness: 0.85, metalness: 0 });
+    matGrass.colorNode = TSL.attribute("color", "vec3");
+    // wind: the tip sways most, the root not at all; each clump in its own phase
+    const lp = TSL.positionLocal, sway = TSL.sin(TSL.time.mul(1.7).add(TSL.instanceIndex.toFloat().mul(0.731))).mul(0.06)
+      .add(TSL.sin(TSL.time.mul(0.45).add(TSL.instanceIndex.toFloat().mul(0.113))).mul(0.05));
+    // the sway's strength comes from the blade's OWN height (the geometry's vertex), not from positionLocal: by here
+    // that already includes the instance's place in the chunk, metres up — squared, it threw the grass into the sky
+    const tipness = TSL.attribute("position", "vec3").y.div(0.75).clamp(0, 1).pow(2);
+    matGrass.positionNode = lp.add(TSL.vec3(sway, 0, sway.mul(0.6)).mul(tipness));
+  }
+  const n = gr.kind.length, nf = gr.kind.reduce((a, x) => a + x, 0);
+  const grass = new THREE.InstancedMesh(clumpGeo, matGrass, n - nf), flowers = new THREE.InstancedMesh(flowerGeo, matGrass, Math.max(1, nf));
+  const m = new THREE.Matrix4(), q = new THREE.Quaternion(), q2 = new THREE.Quaternion(), up = new THREE.Vector3(0, 1, 0), nv = new THREE.Vector3(), p = new THREE.Vector3(), sc = new THREE.Vector3();
+  let gi = 0, fi = 0;
+  for (let i = 0; i < n; i++) {
+    const o = i * 7, r = gr.inst[o + 6];
+    p.set(gr.inst[o], gr.inst[o + 1], gr.inst[o + 2]);
+    nv.set(gr.inst[o + 3], gr.inst[o + 4], gr.inst[o + 5]).normalize();
+    q.setFromUnitVectors(up, nv).multiply(q2.setFromAxisAngle(up, r * Math.PI * 2));
+    const s = 0.75 + 0.55 * r;
+    m.compose(p, q, sc.set(s, s, s));
+    if (gr.kind[i]) flowers.setMatrixAt(fi++, m); else grass.setMatrixAt(gi++, m);
+  }
+  flowers.count = fi;
+  return fi ? [grass, flowers] : [grass];
+}
+
+// ---- the picture: ambient occlusion, bloom, anti-aliasing ("overall not impressive", operator 2026-11-06) ---------------
+// GTAO from a depth + normal pre-pass darkens what the sky cannot reach — the foot of a wall, the inside of a doorway, the
+// ground under a tree — through builtinAOContext, i.e. on INDIRECT light only (the sun's own shadow map handles direct);
+// a soft bloom lets the sun and lit glass glow; FXAA smooths edges after tone mapping. A touch device gets the plain
+// render: two scene passes are more than a phone's GPU should pay for its first impression.
+function buildPipeline() {
+  if (touch || new URLSearchParams(location.search).has("plain")) return null;
+  try {
+    const pl = new THREE.RenderPipeline(renderer);
+    const pre = TSL.pass(scene, camera);
+    pre.setMRT(TSL.mrt({ output: TSL.normalView }));
+    const aoPass = ao(pre.getTextureNode("depth"), pre.getTextureNode(), camera);
+    aoPass.resolutionScale = 0.5;
+    aoPass.radius.value = 0.6;
+    const main = TSL.pass(scene, camera);
+    main.contextNode = TSL.builtinAOContext(aoPass.getTextureNode().sample(TSL.screenUV).r);
+    const lit = main.add(bloom(main, 0.18, 0.35, 0.92));
+    pl.outputColorTransform = false;                       // tone map + sRGB first, then anti-alias the finished image
+    pl.outputNode = fxaa(TSL.renderOutput(lit));
+    return pl;
+  } catch (e) { return null; }                             // an older backend without these nodes: the plain render
+}
+
 // ---- light and sky ------------------------------------------------------------------------------------------------
 // The sun is a real star at a real distance (static/land-cosmos.js): the planet orbits it and turns under it, and the page
 // reads where it is in the planet's frame, how far, how big it looks and how bright it is. Everything else follows ITS
@@ -1093,7 +1226,7 @@ function frame(now) {
     const pl = placement(a);
     if (pl) { frameBox(ghost, pl.plot, pl.box); ghost.material.color.setHex(pl.ok && mayBuild(pl.plot) ? 0x33dd77 : 0xdd4433); }
   }
-  renderer.render(scene, camera);
+  if (pipeline) pipeline.render(); else renderer.render(scene, camera);
 }
 let tick = 0;
 function slow() {
@@ -1137,7 +1270,8 @@ async function start() {
   atlasTex.generateMipmaps = false;
   matSolid = new THREE.MeshStandardMaterial({ map: atlasTex, vertexColors: true, alphaTest: 0.5, roughness: 0.85, metalness: 0 });
   matClear = new THREE.MeshStandardMaterial({ map: atlasTex, vertexColors: true, transparent: true, depthWrite: false, roughness: 0.15, metalness: 0 });
-  matGround = new THREE.MeshStandardMaterial({ vertexColors: true, roughness: 0.95, metalness: 0 });
+  matGround = groundMaterial();
+  matTrees = new THREE.MeshStandardMaterial({ vertexColors: true, roughness: 0.9, metalness: 0 });
   // pieces: the material's atlas tile, repeated once per METRE of the piece (uv is in metres; fract() keeps it inside
   // the tile, half a texel in from its edge), so any size shows its material at true scale
   // the tile number is ROUNDED: interpolated across a triangle, 16 arrives as 15.9999 and its row rounds down to the
@@ -1158,6 +1292,7 @@ async function start() {
   highlight = new THREE.LineSegments(new THREE.EdgesGeometry(new THREE.BoxGeometry(1.02, 1.02, 1.02)), new THREE.LineBasicMaterial({ color: 0x111111 }));
   scene.add(highlight);
   addEventListener("resize", () => { renderer.setSize(innerWidth, innerHeight); camera.aspect = innerWidth / innerHeight; camera.updateProjectionMatrix(); });
+  pipeline = buildPipeline();
   startWorkers();
   wireInput(canvas);
   hotbar();

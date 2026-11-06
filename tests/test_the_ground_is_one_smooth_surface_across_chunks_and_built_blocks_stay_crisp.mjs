@@ -4,13 +4,15 @@
  *   1. the ground is ONE watertight surface: over a 3 x 3 block of plots, every edge of the smooth mesh is shared by
  *      exactly two triangles except along the block's outer rim — no gap and no doubled seam where chunks meet;
  *   2. it is smooth: no smooth-surface vertex sits on a whole layer the way a cube's corner would (the surface follows
- *      the generator's exact height), and the meadow is coloured as grass, not bare earth;
+ *      the generator's exact height);
  *   3. trees are organic: the logs come out as round trunks and the canopy as a surface (their own part, `trees`), with
  *      no crisp cube for either;
  *   4. what people build stays crisp: a brick placed on the ground is textured cube faces (with atlas uvs), and the
  *      ground around it stays smooth;
  *   5. digging dents the ground: removing a solid cell lowers the surface there;
- *   6. the field is the one land-world.fieldOf rule the page touches the ground by (static/land.js fieldCell).
+ *   6. the field is the one land-world.fieldOf rule the page touches the ground by (static/land.js fieldCell);
+ *   7. every ground vertex carries six material weights summing to 1 and world texture coordinates; the landing meadow is
+ *      mostly grass; grass clumps cover it at about 6 per m² near the player and not beyond the grass radius.
  *
  * Run: node tests/test_the_ground_is_one_smooth_surface_across_chunks_and_built_blocks_stay_crisp.mjs
  */
@@ -30,7 +32,7 @@ const chs = [ch - 1, ch, ch + 1];
 
 // 1. watertight across chunks: count every smooth edge in world space (mm keys)
 const edgeUse = new Map();
-let smoothTris = 0, solidAny = false, onLayer = 0, verts = 0, green = 0, brown = 0;
+let smoothTris = 0, solidAny = false, onLayer = 0, verts = 0;
 const keyOf = (x, y, z) => `${Math.round(x * 1000)},${Math.round(y * 1000)},${Math.round(z * 1000)}`;
 for (let dx = 0; dx < 3; dx++) for (let dy = 0; dy < 3; dy++) for (const c of chs) {
   const r = M.meshChunk(q.face, cu0 + dx, cv0 + dy, c, null);
@@ -45,11 +47,9 @@ for (let dx = 0; dx < 3; dx++) for (let dy = 0; dy < 3; dy++) for (const c of ch
   }
   for (let i = 0; i < P.length / 3; i++) {
     verts++;
-    const x = A[0] + P[i * 3], y = A[1] + P[i * 3 + 1], z = A[2] + P[i * 3 + 2], g = Wd.gridOf([x, y, z].map((w) => w / Math.hypot(x, y, z)));
+    const x = A[0] + P[i * 3], y = A[1] + P[i * 3 + 1], z = A[2] + P[i * 3 + 2];
     const h = Math.hypot(x, y, z) - Wd.R0;
     if (Math.abs(h - Math.round(h)) < 1e-3) onLayer++;
-    const cr = r.smooth.col[i * 3], cg = r.smooth.col[i * 3 + 1];
-    if (g.u > q.u0 + 16 && g.u < q.u0 + 32 && g.v > q.v0 + 16 && g.v < q.v0 + 32) (cg > cr * 1.3 ? green++ : brown++);
   }
 }
 // rim: any edge with a vertex outside the inner ring of the 3x3 block (the outer chunks' far halves) may be open
@@ -63,7 +63,6 @@ ok(smoothTris > 1000 && open === 0 && doubled === 0, `the ground over 3 x 3 plot
 
 // 2. smooth, and coloured as a meadow
 ok(onLayer / verts < 0.05, `vertices follow the exact ground, not whole layers (${onLayer} of ${verts} on a layer)`);
-ok(green > brown * 3, `the meadow is grass-coloured (${green} green vertices, ${brown} other)`);
 
 // 3. trees: round trunks and canopy surfaces, no crisp cubes
 let treeParts = 0;
@@ -90,6 +89,26 @@ const lowest = (r, u, v) => {
 const before = lowest(M.meshChunk(q.face, cu0 + 1, cv0 + 1, Math.floor(dig / 16), null), du, dv);
 const after = lowest(M.meshChunk(q.face, cu0 + 1, cv0 + 1, Math.floor(dig / 16), new Map([[key(du, dv, dig), Wd.B.air]])), du, dv);
 ok(after < before - 0.3, `digging a cell dents the surface there (lowest point ${before.toFixed(2)} -> ${after.toFixed(2)} m)`);
+
+// 7. the ground's materials and its grass ("Realistic (PBR)"; the fidelity reference's meadow)
+const g0 = M.meshChunk(q.face, cu0 + 1, cv0 + 1, ch, null, null, 0);
+const w1 = g0.smooth.w1, w2 = g0.smooth.w2, nV = w1.length / 4;
+let worst = 0, grassy = 0;
+for (let i = 0; i < nV; i++) {
+  worst = Math.max(worst, Math.abs(w1[i * 4] + w1[i * 4 + 1] + w1[i * 4 + 2] + w1[i * 4 + 3] + w2[i * 2] + w2[i * 2 + 1] - 1));
+  if (w1[i * 4] > 0.5) grassy++;
+}
+ok(worst < 1e-5 && g0.smooth.uvw.length === nV * 3, "every ground vertex carries six material weights that sum to 1, and world texture coordinates");
+ok(grassy / nV > 0.8, `the landing meadow is mostly grass (${grassy} of ${nV} vertices)`);
+const G = g0.grass.inst, nG = G.length / 7;
+let area = 0;
+{ const P = g0.smooth.pos, I = g0.smooth.idx;
+  for (let t = 0; t < I.length; t += 3) { const a = I[t] * 3, b = I[t + 1] * 3, c = I[t + 2] * 3;
+    const e = [P[b] - P[a], P[b + 1] - P[a + 1], P[b + 2] - P[a + 2]], f = [P[c] - P[a], P[c + 1] - P[a + 1], P[c + 2] - P[a + 2]];
+    area += Math.hypot(e[1] * f[2] - e[2] * f[1], e[2] * f[0] - e[0] * f[2], e[0] * f[1] - e[1] * f[0]) / 2; } }
+ok(nG / area > 3.5 && nG / area < 8, `grass clumps cover the meadow at about 6 per m² (${(nG / area).toFixed(1)})`);
+const far = M.meshChunk(q.face, cu0 + 1, cv0 + 1, ch, null, null, 1);
+ok(!far.grass, "a chunk beyond the grass radius (lod 1) has no grass");
 
 // 6. one field for drawing and touching
 const land = readFileSync(join(ROOT, "static", "land.js"), "utf8");

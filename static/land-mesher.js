@@ -38,24 +38,33 @@ const DIRS = [
 // the ground's colours, written as sRGB (what an artist picks) and turned linear below — vertex colours are LINEAR to the
 // renderer, and sRGB values read as linear came out washed pale (the first smooth render, 2026-11-06)
 const C = {
-  grass: [0.30, 0.52, 0.18], grass2: [0.40, 0.58, 0.20], dirt: [0.42, 0.30, 0.19], stone: [0.47, 0.46, 0.45],
-  sand: [0.82, 0.74, 0.50], snow: [0.93, 0.95, 0.97], gravel: [0.52, 0.50, 0.47], basalt: [0.22, 0.22, 0.25],
-  bedrock: [0.15, 0.15, 0.15], leaves: [0.20, 0.42, 0.14], leaves2: [0.28, 0.50, 0.16], bark: [0.36, 0.25, 0.15],
+  leaves: [0.20, 0.42, 0.14], leaves2: [0.28, 0.50, 0.16], bark: [0.36, 0.25, 0.15],
   needles: [0.12, 0.30, 0.14], needles2: [0.16, 0.36, 0.17], fronds: [0.40, 0.62, 0.22], fronds2: [0.50, 0.68, 0.26],
   birch: [0.88, 0.86, 0.80],
 };
 for (const k in C) C[k] = C[k].map((x) => Math.pow(x, 2.2));
 const mix = (a, b, t) => [a[0] + (b[0] - a[0]) * t, a[1] + (b[1] - a[1]) * t, a[2] + (b[2] - a[2]) * t];
 function hash3(a, b, c) { let h = Math.imul(a, 374761393) ^ Math.imul(b, 668265263) ^ Math.imul(c, 2147483647); h = Math.imul(h ^ (h >>> 13), 1274126177); return ((h ^ (h >>> 16)) >>> 0) / 4294967296; }
-function groundColour(b, up, u, v, h) {
-  const j = 0.92 + 0.16 * hash3(u, v, h);              // a little grain, fixed per place
-  let c;
-  if (b === B.grass) c = up > 0.82 ? mix(C.grass, C.grass2, hash3(v, u, 7)) : up > 0.55 ? mix(C.dirt, C.grass, (up - 0.55) / 0.27) : mix(C.stone, C.dirt, Math.max(0, up - 0.2) / 0.35);
-  else if (b === B.snow) c = up > 0.6 ? C.snow : mix(C.stone, C.snow, Math.max(0, up - 0.3) / 0.3);
-  else if (b === B.dirt) c = up > 0.6 ? C.dirt : mix(C.stone, C.dirt, Math.max(0, up) / 0.6);
-  else c = C[BLOCKS[b].key] || C.stone;
-  return [c[0] * j, c[1] * j, c[2] * j];
+// THE GROUND'S MATERIALS ("Realistic (PBR)", operator 2026-11-06): each ground vertex carries blend weights for six real
+// textures (static/vendor/textures: grass, earth, rock, sand, snow, gravel) from its material and its slope — grass on
+// the flat gives way to earth and then rock as it steepens, snow slides off cliffs — and static/land.js's ground node
+// material mixes them. The vertex colour is only a faint per-place grain on top.
+const smoothstep = (a, b, x) => { const t = Math.max(0, Math.min(1, (x - a) / (b - a))); return t * t * (3 - 2 * t); };
+function groundWeights(b, up) {
+  const w = [0, 0, 0, 0, 0, 0];                          // grass, dirt, rock, sand, snow, gravel
+  const steep = smoothstep(0.62, 0.38, up);              // 1 on a cliff, 0 on the flat
+  if (b === B.grass) { const g = smoothstep(0.62, 0.85, up); w[0] = g; w[1] = 1 - g; }
+  else if (b === B.dirt) w[1] = 1;
+  else if (b === B.sand) w[3] = 1;
+  else if (b === B.snow) w[4] = 1;
+  else if (b === B.gravel) w[5] = 1;
+  else w[2] = 1;                                         // stone, basalt, bedrock
+  for (let i = 0; i < 6; i++) if (i !== 2) w[i] *= 1 - steep;
+  w[2] += steep * (b === B.sand ? 0.5 : 1);
+  const n = w.reduce((a, x) => a + x, 0) || 1;
+  return w.map((x) => x / n);
 }
+const groundGrain = (b, up, u, v, h) => { const j = 0.9 + 0.2 * hash3(u, v, h); return [j, j, j]; };
 
 /** The chunk's cells with the border: block ids and the ground field, index ((k * N) + j) * N + i. */
 function cells(face, cu, cv, ch, edits) {
@@ -80,14 +89,14 @@ function cells(face, cu, cv, ch, edits) {
 // attribute; static/land.js's node material takes fract(uv) inside the tile), so a 2 cm peg shows 2 cm of grain, not a
 // squeezed tile. Performance (the operator asked, 2026-11-06): one merged mesh per chunk; a face wholly covered by a
 // touching opaque piece is not drawn (a wall of flush planks is its outer skin, not every plank's six faces); a chunk the
-// page marks far (lod 1) skips pieces whose largest side is under LOD_SKIP_CM — detail costs nothing at a distance.
+// page marks far (lod 2) skips pieces whose largest side is under LOD_SKIP_CM — detail costs nothing at a distance.
 const LOD_SKIP_CM = 20;
 // axis and sign of each face. No baked shade: pieces are lit by the real sun and sky (a fixed per-face darkening on top of
 // that, as the cube cells once had, turned a wall in its own shadow black — the first house render, 2026-11-06)
 const BOX_FACES = [{ ax: 2, s: 1 }, { ax: 2, s: -1 }, { ax: 0, s: 1 }, { ax: 0, s: -1 }, { ax: 1, s: 1 }, { ax: 1, s: -1 }];
 function meshBoxes(boxes, u0, v0, h0, place, solid, clear, lod) {
   const lo = h0 * CM, hi = (h0 + CHUNK) * CM;
-  const mine = boxes.filter((b) => b[2] < hi && b[2] + b[5] > lo && !(lod && Math.max(b[3], b[4], b[5]) < LOD_SKIP_CM));
+  const mine = boxes.filter((b) => b[2] < hi && b[2] + b[5] > lo && !(lod >= 2 && Math.max(b[3], b[4], b[5]) < LOD_SKIP_CM));
   if (!mine.length) return;
   // neighbours by 1 m bucket, for the covered-face test
   const idx = new Map(), bk = (i, j, k) => (i * 64 + j) * 4096 + k;
@@ -144,8 +153,9 @@ function meshBoxes(boxes, u0, v0, h0, place, solid, clear, lod) {
   }
 }
 
-/** Mesh one chunk: { anchor, smooth (the ground), trees, solid, clear, pieces } (each {pos, nor, col, idx[, uv, tile]} or
- *  null), or { empty }. `boxes`: the plot's built pieces (land-world BOXES); `lod`: 1 for a far chunk. */
+/** Mesh one chunk: { anchor, smooth (the ground), trees, solid, clear, pieces, glassy, grass } or { empty }. `boxes`:
+ *  the plot's built pieces (land-world BOXES); `lod`: 0 near (grass and every piece), 1 middle (every piece), 2 far
+ *  (pieces under LOD_SKIP_CM skipped). */
 export function meshChunk(face, cu, cv, ch, edits, boxes, lod) {
   const h0 = ch * CHUNK;
   if ((!edits || edits.size === 0) && !(boxes && boxes.length)) {   // wholly above the ground, the trees and the sea: air
@@ -165,7 +175,7 @@ export function meshChunk(face, cu, cv, ch, edits, boxes, lod) {
   const smooth = mk(), trees = mk(), solid = mk(), clear = mk();
 
   // ---- the smooth surfaces: Surface Nets over a field sampled at cell centres -----------------------------------
-  function nets(F, colourOf, out, isMat = (b) => NATURAL.has(b)) {
+  function nets(F, colourOf, out, isMat = (b) => NATURAL.has(b), extra = null) {
     // cubes are indexed by their min-corner cell, real -1..15 (padded 0..16); a cube's vertex sits where F crosses 0
     const S = N - 1, vid = new Int32Array(S * S * S).fill(-1);
     const f = (pi, pj, pk) => F[(pk * N + pj) * N + pi];
@@ -204,6 +214,7 @@ export function meshChunk(face, cu, cv, ch, edits, boxes, lod) {
       const p = place(gu, gv, gh), col = colourOf(mat, nh, Math.floor(gu), Math.floor(gv), Math.floor(gh));
       vid[(pk * S + pj) * S + pi] = out.n;
       out.pos.push(p[0], p[1], p[2]); out.nor.push(nw[0], nw[1], nw[2]); out.col.push(col[0], col[1], col[2]);
+      if (extra) extra(out, mat, nu, nv, nh, gu, gv, gh);
       out.n++;
     }
     // quads: one per cell-centre edge the surface crosses, joining the 4 cubes around it; only edges whose LOWER cell is
@@ -225,7 +236,15 @@ export function meshChunk(face, cu, cv, ch, edits, boxes, lod) {
       }
     }
   }
-  nets(fld, groundColour, smooth);
+  // the ground: texture coordinates continuous across chunks (grid metres, folded every 4096 m — a whole number of
+  // texture repeats, so the fold is seamless and float32 keeps centimetres), its grid-space normal for the rock's
+  // three-way projection, and the material weights
+  nets(fld, groundGrain, smooth, undefined, (o, mat, nu, nv, nh, gu, gv, gh) => {
+    o.uvw.push(((gu % 4096) + 4096) % 4096, ((gv % 4096) + 4096) % 4096, gh);
+    o.gn.push(nu, nv, nh);
+    const w = groundWeights(mat, nh);
+    o.w1.push(w[0], w[1], w[2], w[3]); o.w2.push(w[4], w[5]);
+  });
   // canopies: a surface over the leaf cells (crisp tree tops would be the blockiest thing on the planet)
   let leaves = false;
   const leafF = new Float32Array(N * N * N);
@@ -306,19 +325,45 @@ export function meshChunk(face, cu, cv, ch, edits, boxes, lod) {
       buf.n += 4;
     }
   }
+  // GRASS ("your fidelity reference": a meadow of dense, waving grass with wildflowers): clumps scattered over every
+  // ground triangle that is mostly grass and gentle, about GRASS_DENSITY per m², each at a point chosen from the
+  // triangle's place (the same meadow on every screen). The page draws them instanced, near the player only.
+  const grass = lod ? null : scatterGrass(smooth);
   const pieces = mk(), glassy = mk();
   if (boxes && boxes.length) meshBoxes(boxes, u0, v0, h0, place, pieces, glassy, lod);
   if (!smooth.idx.length && !trees.idx.length && !solid.n && !clear.n && !pieces.n && !glassy.n) return { empty: true };
-  return { anchor, smooth: pack(smooth), trees: pack(trees), solid: pack(solid), clear: pack(clear), pieces: pack(pieces), glassy: pack(glassy) };
+  return { anchor, smooth: pack(smooth), trees: pack(trees), solid: pack(solid), clear: pack(clear), pieces: pack(pieces), glassy: pack(glassy), grass };
 }
 
-function mk() { return { pos: [], nor: [], uv: [], col: [], tile: [], idx: [], n: 0 }; }
+const GRASS_DENSITY = 6;                                   // clumps per m² of meadow
+function scatterGrass(g) {
+  const P = g.pos, N = g.nor, I = g.idx, W1 = g.w1, out = [], kinds = [];
+  for (let t = 0; t < I.length; t += 3) {
+    const a = I[t], b = I[t + 1], c = I[t + 2];
+    const gw = (W1[a * 4] + W1[b * 4] + W1[c * 4]) / 3;
+    if (gw < 0.55) continue;
+    const ax = P[a * 3], ay = P[a * 3 + 1], az = P[a * 3 + 2];
+    const ex = P[b * 3] - ax, ey = P[b * 3 + 1] - ay, ez = P[b * 3 + 2] - az, fx = P[c * 3] - ax, fy = P[c * 3 + 1] - ay, fz = P[c * 3 + 2] - az;
+    const cx = ey * fz - ez * fy, cy = ez * fx - ex * fz, cz = ex * fy - ey * fx, area = Math.hypot(cx, cy, cz) / 2;
+    const n = Math.floor(area * GRASS_DENSITY * gw + hash3(a, b, c));
+    for (let k = 0; k < n; k++) {
+      let r1 = hash3(a + k, b, c * 3 + 1), r2 = hash3(a, b + k, c * 7 + 2);
+      if (r1 + r2 > 1) { r1 = 1 - r1; r2 = 1 - r2; }
+      out.push(ax + ex * r1 + fx * r2, ay + ey * r1 + fy * r2, az + ez * r1 + fz * r2, N[a * 3], N[a * 3 + 1], N[a * 3 + 2], hash3(c, k, a));
+      kinds.push(hash3(k, a, c) < 0.04 ? 1 : 0);                       // one clump in 25 is a wildflower
+    }
+  }
+  return out.length ? { inst: new Float32Array(out), kind: new Uint8Array(kinds) } : null;
+}
+
+function mk() { return { pos: [], nor: [], uv: [], col: [], tile: [], uvw: [], gn: [], w1: [], w2: [], idx: [], n: 0 }; }
 function pack(b) {
   if (!b.n || !b.idx.length) return null;
   const out = { pos: new Float32Array(b.pos), nor: new Float32Array(b.nor), col: new Float32Array(b.col),
                 idx: b.n > 65535 ? new Uint32Array(b.idx) : new Uint16Array(b.idx) };
   if (b.uv.length) out.uv = new Float32Array(b.uv);
   if (b.tile.length) out.tile = new Float32Array(b.tile);
+  for (const k of ["uvw", "gn", "w1", "w2"]) if (b[k].length) out[k] = new Float32Array(b[k]);
   return out;
 }
 
@@ -330,7 +375,8 @@ if (typeof self !== "undefined" && typeof window === "undefined" && typeof self.
     try { res = meshChunk(m.face, m.cu, m.cv, m.ch, m.edits && m.edits.length ? new Map(m.edits) : null, m.boxes, m.lod); }
     catch (err) { res = { error: String(err && err.message || err) }; }
     const tr = [];
-    for (const part of [res.smooth, res.trees, res.solid, res.clear, res.pieces, res.glassy]) if (part) for (const a of [part.pos, part.nor, part.col, part.idx, part.uv, part.tile]) if (a) tr.push(a.buffer);
+    if (res.grass) tr.push(res.grass.inst.buffer, res.grass.kind.buffer);
+    for (const part of [res.smooth, res.trees, res.solid, res.clear, res.pieces, res.glassy]) if (part) for (const a of [part.pos, part.nor, part.col, part.idx, part.uv, part.tile, part.uvw, part.gn, part.w1, part.w2]) if (a) tr.push(a.buffer);
     self.postMessage(Object.assign({ id: m.id }, res), tr);
   };
 }

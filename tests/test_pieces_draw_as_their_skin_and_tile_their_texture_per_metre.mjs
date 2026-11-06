@@ -7,7 +7,7 @@
  *      not 300 x 6 faces; glass never hides what is behind it and goes to the transparent part;
  *   3. a piece taller than a chunk is cut at the chunk line: each chunk draws its slice, the top face only in the top
  *      chunk, the bottom only in the bottom one, and no face at the cut;
- *   4. a far chunk (lod 1) skips pieces under LOD_SKIP_CM on every side and keeps the big ones;
+ *   4. a far chunk (lod 2) skips pieces under LOD_SKIP_CM on every side and keeps the big ones;
  *   5. the measured worst case stays bounded: 20,000 scattered pieces mesh in the worker in a few hundred ms and draw at
  *      most 12 triangles each.
  *
@@ -54,7 +54,7 @@ ok(tris(parts[0]) === 10 && tris(parts[1]) === 8 && tris(parts[2]) === 10,
 
 // 4. distance
 const mix = [[10, 10, y0 + 100, 5, 5, 5, Wd.B.planks], [100, 100, y0 + 100, 15, 15, 15, Wd.B.planks], [300, 300, y0 + 100, 100, 100, 10, Wd.B.planks]];
-ok(tris(mesh(mix, 0)) === 36 && tris(mesh(mix, 1)) === 12, "a far chunk skips pieces under 20 cm on every side and keeps the slab");
+ok(tris(mesh(mix, 0)) === 36 && tris(mesh(mix, 1)) === 36 && tris(mesh(mix, 2)) === 12, "a far chunk skips pieces under 20 cm on every side and keeps the slab");
 
 // 5. the worst case
 const scatter = [];

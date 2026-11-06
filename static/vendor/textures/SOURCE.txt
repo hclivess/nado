@@ -1,0 +1,66 @@
+Land's material textures: Poly Haven (https://polyhaven.com), every asset CC0 1.0 Universal (public domain).
+Built by tools/land_textures.py: originals at 1k JPG, resized and re-encoded at quality 82.
+
+# originals (url md5)
+https://dl.polyhaven.org/file/ph-assets/Textures/jpg/1k/bark_brown_02/bark_brown_02_diff_1k.jpg 6669cca520594bdca19f94084984ab72
+https://dl.polyhaven.org/file/ph-assets/Textures/jpg/1k/bark_brown_02/bark_brown_02_nor_gl_1k.jpg 1cad3fe0349a44df2d4d1c2859c79920
+https://dl.polyhaven.org/file/ph-assets/Textures/jpg/1k/bark_willow/bark_willow_diff_1k.jpg 792d4f8467fe360092eee335ee60b698
+https://dl.polyhaven.org/file/ph-assets/Textures/jpg/1k/bark_willow/bark_willow_nor_gl_1k.jpg 91ffa6e3a1ba8cccb714908ef50122d5
+https://dl.polyhaven.org/file/ph-assets/Textures/jpg/1k/red_brick/red_brick_diff_1k.jpg 269e69449755abd1ede473e634b670e7
+https://dl.polyhaven.org/file/ph-assets/Textures/jpg/1k/red_brick/red_brick_nor_gl_1k.jpg 3a49f27fb909b2db794f60bf1ce6659f
+https://dl.polyhaven.org/file/ph-assets/Textures/jpg/1k/cobblestone_01/cobblestone_01_diff_1k.jpg d2010396dc4aa96d54d5f76176e51eee
+https://dl.polyhaven.org/file/ph-assets/Textures/jpg/1k/cobblestone_01/cobblestone_01_nor_gl_1k.jpg 3caec9559b848a24d67576881642dc72
+https://dl.polyhaven.org/file/ph-assets/Textures/jpg/1k/dark_wooden_planks/dark_wooden_planks_diff_1k.jpg 7ec8fe3e0b84289a4add3b10a54090bb
+https://dl.polyhaven.org/file/ph-assets/Textures/jpg/1k/dark_wooden_planks/dark_wooden_planks_nor_gl_1k.jpg 4093b4023a4270b3a06b762076106d58
+https://dl.polyhaven.org/file/ph-assets/Textures/jpg/1k/dirt/dirt_diff_1k.jpg cb37e24797597b1dd1ae3819fa80f076
+https://dl.polyhaven.org/file/ph-assets/Textures/jpg/1k/dirt/dirt_nor_gl_1k.jpg 362610edf09fd31735958eecec823a84
+https://dl.polyhaven.org/file/ph-assets/Textures/jpg/1k/leafy_grass/leafy_grass_diff_1k.jpg 0dbc071e91d6905edfcfbe8eb785a1ab
+https://dl.polyhaven.org/file/ph-assets/Textures/jpg/1k/leafy_grass/leafy_grass_nor_gl_1k.jpg 8279e096e204ea326d57a318869f99df
+https://dl.polyhaven.org/file/ph-assets/Textures/jpg/1k/gravel/gravel_diff_1k.jpg a4cbe2105f51b692057d70459c56b4a3
+https://dl.polyhaven.org/file/ph-assets/Textures/jpg/1k/gravel/gravel_nor_gl_1k.jpg 08e9a01d0f563f94037a6cf4e5c5d3bd
+https://dl.polyhaven.org/file/ph-assets/Textures/jpg/1k/brown_planks_07/brown_planks_07_diff_1k.jpg 70d8c4e445ebf0a67603ad2415b3b6fd
+https://dl.polyhaven.org/file/ph-assets/Textures/jpg/1k/brown_planks_07/brown_planks_07_nor_gl_1k.jpg 7863ca257c97556330708b0012d49b42
+https://dl.polyhaven.org/file/ph-assets/Textures/jpg/1k/painted_plaster_wall/painted_plaster_wall_diff_1k.jpg 15ba8c1f63a5ab412b1eabe31728540a
+https://dl.polyhaven.org/file/ph-assets/Textures/jpg/1k/painted_plaster_wall/painted_plaster_wall_nor_gl_1k.jpg 43fff290583dbdfc9bfa088a2750e840
+https://dl.polyhaven.org/file/ph-assets/Textures/jpg/1k/cliff_side/cliff_side_diff_1k.jpg a64986e5f858e4f8df30f0394ededd78
+https://dl.polyhaven.org/file/ph-assets/Textures/jpg/1k/cliff_side/cliff_side_nor_gl_1k.jpg 604fd4101fe5ad92181c22b96ed795c5
+https://dl.polyhaven.org/file/ph-assets/Textures/jpg/1k/coast_sand_01/coast_sand_01_diff_1k.jpg a1e243fc8635806381505c7dc44b192a
+https://dl.polyhaven.org/file/ph-assets/Textures/jpg/1k/coast_sand_01/coast_sand_01_nor_gl_1k.jpg 38bbe6863249a3d20d8417c9db207780
+https://dl.polyhaven.org/file/ph-assets/Textures/jpg/1k/snow_02/snow_02_diff_1k.jpg fc54766c6b36ff298699115a619d440b
+https://dl.polyhaven.org/file/ph-assets/Textures/jpg/1k/snow_02/snow_02_nor_gl_1k.jpg f16b5701f9ad521cdd6af10c1d6d2b48
+https://dl.polyhaven.org/file/ph-assets/Textures/jpg/1k/castle_brick_07/castle_brick_07_diff_1k.jpg 8e7b58e4c19c6ff30e38ce10a473b2d0
+https://dl.polyhaven.org/file/ph-assets/Textures/jpg/1k/castle_brick_07/castle_brick_07_nor_gl_1k.jpg 1b981aa5cf91b15a29d4b93e892c9513
+https://dl.polyhaven.org/file/ph-assets/Textures/jpg/1k/clay_roof_tiles/clay_roof_tiles_diff_1k.jpg d862ac9932b09b0918b5971ddb77099c
+https://dl.polyhaven.org/file/ph-assets/Textures/jpg/1k/clay_roof_tiles/clay_roof_tiles_nor_gl_1k.jpg d861a708c94c824befc8aac668052776
+
+# outputs (sha256  file)
+0546f2e7b803a5366415c9f1273017606fb5e0bbe265492ea120df78f1654d92  bark_col.jpg
+176e4f63bb407f7287c45cbb9e118f35a5b60bf0e814ddcd60c2a2497fc82fbf  bark_nor.jpg
+888ce7caf062712dc00b0f74e517a01e9f7dbc7582b06042d482b85f770ed7f4  birch_col.jpg
+216a17d1fd64f2b6b021981c529cb29d1faa079e368e39a4d7454abbac111b4c  birch_nor.jpg
+ec1913fe39abfd6c65119aba6a75060e80938e3522e81fce80d188b2bee0a896  brick_col.jpg
+2cbaf97793cc39450e50297512214e78708ad3845b258816712bf84268ad751e  brick_nor.jpg
+d53234d97f3db25c2b7e9abe5c453f4504282c2717ae4d71190d1a31796f91b4  cobble_col.jpg
+3126569189b3a42fff4462d313337208dfccbbd64c0bdc314b68b394f8e4e355  cobble_nor.jpg
+3b526a789e8dbd5868a127760a008590686d37bb0122561843b925e5f3e29d29  darkwood_col.jpg
+6c54b6371b400aeff4da9d8805057372198a2bfe697ec18baaed73fee35b2d46  darkwood_nor.jpg
+9cb909487da7a4c068459479c041ace9a3b28b6275157a6d78433a8923295755  dirt_col.jpg
+a2a4f4471b2612068cd38a2db22b98bdc00b6789fdec54325a64e25fd689092b  dirt_nor.jpg
+c306ce38f8393fbce61264e0a1f436d39de228dbdca75faafa64970cca1770b8  grass_col.jpg
+66de23e11c9999f582d63b1745acc7d658d1ba3955cde3f5c99a4b8291ea6829  grass_nor.jpg
+d16af68449bee22dda8f431670d47e9998f1a284ccbda90ffe9894bddcc38e78  gravel_col.jpg
+e868dd079a94500ebec6523221e208babdd6b60495b0d4ed39655030e60487ca  gravel_nor.jpg
+a5e0aa3b016306e597e2c897c27909b22bfbdba4f5371ab9d647e4018beaa97c  planks_col.jpg
+064793efb24233fe43ae4b767b8bd7caec50572974de7158cc82b0aebfc5fdc4  planks_nor.jpg
+54a521f43809b5c402b349305f0943c6e8939cdf1bc14c5422bf5ab3443fc174  plaster_col.jpg
+3857372d86c24044a5ce93cd42a0bf10ee8916656f8b06371c446f045a932e1b  plaster_nor.jpg
+7730975e42b0b4a90fd4d78f62a302912a8e65e27b41ac71e846e4b173065861  rock_col.jpg
+ff7851d621f84024fb0c95563190eac6a3df2705baa927dc391748d780ecbf0d  rock_nor.jpg
+55f6c3fb747f961494605b76b5e4ad61f41754656186626ebe2e7701005445e0  sand_col.jpg
+2e6a4239a8cdbf37061abce40a6ce198e484778f9cb1905830936334299b857f  sand_nor.jpg
+ee49dd61d86770dfdf5b052300e8d61110a3f1c0e7a78a3f9407f4306306532b  snow_col.jpg
+475d86a3f69d07e22288a40a7e85a5d534a45a39f7cf225d60662da013555865  snow_nor.jpg
+d190ae2ddfd4852e7ba5282b48792eaccd71ffbfcf6dace55edfc1ac23c87407  stonebrick_col.jpg
+a083ba0658e8411cb6b675e7f24ce402c59536f85d79cce4b6011fb8e93bd891  stonebrick_nor.jpg
+032acd21d92f8b8766fac4313fc7a915647ddd17573354b82b262135251f4ec2  tiles_col.jpg
+4fadeffeb569923d0ad36ad50e42c662bbcbf63fc1c31dd487b74e5e4489db5c  tiles_nor.jpg

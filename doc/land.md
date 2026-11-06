@@ -55,6 +55,20 @@ server and the API are untouched — and only the drawing, walking and aiming ch
 - tests/test_the_ground_is_one_smooth_surface_across_chunks_and_built_blocks_stay_crisp.mjs: watertight across chunks,
   exact heights, meadow colour, crisp bricks, digging dents.
 
+## The look
+
+"Realistic (PBR)" (operator, 2026-11-06), measured against the fidelity reference "Custom Engine Forest Showcase"
+(youtube uR5EvBWxN14: dense meadow grass with wildflowers, leafy trees, volumetric clouds, haze).
+
+- **Ground:** six CC0 Poly Haven textures (static/vendor/textures, built by tools/land_textures.py, pinned by hash —
+  tests/test_the_land_textures_are_the_recorded_cc0_sources.py) mixed per vertex by weights the mesher derives from the
+  ground's material and slope; each sampled at two scales to hide tiling, rock projected from three sides.
+- **Grass:** instanced clumps of tapered two-faced blades (one in 25 a wildflower) scattered by the mesher at ~6 per m²
+  over gentle meadow within 2 chunks, swaying on the GPU (the sway scales with the blade's own height); off on phones.
+- **Picture:** r187's GTAO (on indirect light only), bloom and FXAA (static/vendor/three/addons, pinned; land.html's
+  import map); off on phones and with ?plain.
+- **Still owed:** proper trees (branches, leaf cards, wind), clouds and atmosphere, character models and crafted clothing.
+
 ## The cosmos and the light
 
 "make sun a real object in a real distance, we are going interstellar in the end" (operator, 2026-11-06).

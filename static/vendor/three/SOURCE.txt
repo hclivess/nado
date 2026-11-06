@@ -11,4 +11,11 @@ eafead3154ec06093f3108bddceab360f048a6fcebd7c085d5aae0ab5404bd25  three.webgpu.j
 d8f3cdb8b85b799a5631bd9a8d77e185d88ce1eb1bb051f48b332728a5423e3f  three.tsl.js
 8b378ebe60e2fe500158cb0ac71cb5e8b7d92953c2abcc63a0eb90499653b5bc  LICENSE
 
+Post-processing add-ons, package/examples/jsm/tsl/display/* from the same tarball, unmodified (they import "three/webgpu"
+and "three/tsl", which static/land.html's import map points at the files above):
+
+ea946e1d8281ccf14cd19b3cd8b3e5ad387ff20320427e7153fdd884ce8da081  addons/tsl/display/GTAONode.js
+e7a39bf41581b5ada6463dfd2e571c6fff27648e459cc0d7fd13d64bbcf0f6ea  addons/tsl/display/BloomNode.js
+fe11c77f90f9eac220a382a6796b7ee8a49d41603c6813d9271b29dbe39469d5  addons/tsl/display/FXAANode.js
+
 three.webgpu.js imports ./three.core.js and ./three.tsl.js; three.tsl.js imports ./three.core.js. MIT licensed.
