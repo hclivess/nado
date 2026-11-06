@@ -8,6 +8,9 @@ holds, so a yield is what the ground really is.
     a log and rock cannot be broken by hand;
   * tools: cordage from fiber, a stone axe and pickaxe from sticks, stone and cordage; with the axe a cut trunk fells its
     tree above the cut (wood for every log, sticks from the crown, nothing left floating),
+  * a real house: iron ore in veins, charcoal, a bloomery and iron, an anvil and hammer, nails and hinges, a door that
+    goes in whole at its size, swings on its hinge and comes back as a door; lime and mortar for masonry; thatch and
+    beams; iron tools that outwork stone ones, and any axe for a recipe that needs one,
     with the pickaxe rock gives cobblestone; a tool you already made makes breaking quicker;
   * time: breaking spends seconds of work (hardness over tool speed) — a caller cannot strip the planet faster than a hand;
   * stations: planks need a workbench (which needs an axe), bricks need a kiln (which needs a campfire); a recipe is refused
@@ -69,6 +72,10 @@ console.log(JSON.stringify({ tree: out, grass: [out.face, g.u, g.v, gc.top], gra
   leaves: [out.face, out.u + 1, out.v, out.top + out.height], leavesBlock: W.terrainBlock(out.face, out.u + 1, out.v, out.top + out.height),
   log: [out.face, out.u, out.v, out.top + 2], logBlock: W.terrainBlock(out.face, out.u, out.v, out.top + 2),
   pebble: lit.pebble, twigs: lit.twigs,
+  // iron ore: the first ore cell under the grass column, down through the rock
+  ore: (() => { for (let h = gc.top - gc.soil - 1; h > 4; h--) if (W.terrainBlock(out.face, g.u, g.v, h) === W.B.ironore) return [out.face, g.u, g.v, h];
+                for (let du = 1; du < 40; du++) for (let h = gc.top - 6; h > 4; h--) if (W.terrainBlock(out.face, g.u + du, g.v, h) === W.B.ironore) return [out.face, g.u + du, g.v, h];
+                return null; })(),
   // a second grass top, away from the tree (the tree's own cells are felled earlier in the test)
   grass2: [out.face, out.u - 4, out.v + 3, W.column(out.face, out.u - 4, out.v + 3).top],
   grass2Block: W.terrainBlock(out.face, out.u - 4, out.v + 3, W.column(out.face, out.u - 4, out.v + 3).top) }));
@@ -181,6 +188,52 @@ async def main():
     check("the kiln fires clay into bricks", (await craft("brick", ha))["ok"] and inv(A["address"])["items"].get("brick") == 4)
     check("an unknown recipe is refused", not (await craft("warpdrive", ha))["ok"])
 
+    # ---- iron, and a real house ("continue working until the crafting tree has all components to build A REAL HOUSE")
+    rest()
+    r = await setc([CELLS["ore"] + [0]], ha)
+    check("iron ore lies in veins in the rock and the pickaxe mines it", CELLS["ore"] is not None and r["applied"] == 1
+          and inv(A["address"])["items"].get("ironore") == 1, (CELLS["ore"], r))
+    world.player(A["address"])["items"].update({"wood": 10, "ironore": 16, "cobble": 30, "clay": 12, "stone": 6, "sand": 8, "fiber": 12, "planks": 12})
+    check("wood burns to charcoal at the campfire", (await craft("charcoal", ha, 5))["ok"] and inv(A["address"])["items"].get("charcoal") == 10)
+    r = await craft("iron", ha)
+    check("iron needs a bloomery", not r["ok"] and "bloomery" in r["error"], r)
+    check("a bloomery (cobblestone and clay, at the campfire), then ore and charcoal smelt into iron",
+          (await craft("bloomery", ha))["ok"] and (await craft("iron", ha, 3))["ok"] and inv(A["address"])["items"].get("iron") == 3)
+    world.player(A["address"])["items"]["iron"] = 12
+    check("an anvil from iron, a hammer at the anvil", (await craft("anvil", ha))["ok"] and (await craft("hammer", ha))["ok"]
+          and "anvil" in inv(A["address"])["stations"] and "hammer" in inv(A["address"])["tools"])
+    check("nails and hinges are forged at the anvil with the hammer", (await craft("nails", ha))["ok"] and (await craft("hinges", ha))["ok"]
+          and inv(A["address"])["items"].get("nails") == 12 and inv(A["address"])["items"].get("hinges") == 2)
+    check("a door: planks, hinges and nails at the workbench with the hammer", (await craft("door", ha))["ok"] and inv(A["address"])["items"].get("door") == 1)
+    check("lime from stone and charcoal in the kiln; mortar from lime and sand", (await craft("lime", ha))["ok"] and (await craft("mortar", ha))["ok"]
+          and inv(A["address"])["items"].get("mortar") == 4)
+    n_sb = inv(A["address"])["items"].get("stonebrick", 0)
+    check("masonry is laid in mortar: stone brick needs it", (await craft("stonebrick", ha))["ok"] and inv(A["address"])["items"].get("stonebrick") == n_sb + 2
+          and inv(A["address"])["items"].get("mortar") == 3)
+    check("thatch from fibre; hewn timber beams from wood with an axe", (await craft("thatch", ha))["ok"] and (await craft("beam", ha))["ok"])
+    check("an iron axe is forged", (await craft("iron_axe", ha))["ok"] and "iron_axe" in inv(A["address"])["tools"])
+    pl = world.player(A["address"])
+    check("tools by class: the iron axe outworks the stone one (6 vs 3), and a recipe that needs an axe takes either",
+          S.World._speed(pl, "axe") == 6 and S.World._has_class(pl, "axe")
+          and S.World._has_class({"tools": ["iron_axe"], "stations": []}, "axe") and not S.World._has_class({"tools": ["pick"], "stations": []}, "axe"))
+    # the door: placed whole at its size, swings on its hinge, comes back as a door
+    pa_rec = world.plot(PA)
+    dx, dz, dy = 300, 300, (CELLS["grass"][3] + 40) * 100
+    added, removed, refused = await world.boxes(A["address"], PA, [[dx, dz, dy, 120, 5, 200, 37]], [])
+    check("a door goes in only at its own size", not added and "90 x 5 x 200" in refused[0][1], refused)
+    added, removed, refused = await world.boxes(A["address"], PA, [[dx, dz, dy, 90, 5, 200, 37]], [])
+    check("…and at its size it costs one door", added == [[dx, dz, dy, 90, 5, 200, 37]] and inv(A["address"])["items"].get("door", 0) == 0, (added, refused))
+    nb, ob, err = await world.door(A["address"], PA, [dx, dz, dy, 90, 5, 200, 37])
+    check("a door swings open on its hinge (width and depth swap)", err is None and nb == [dx, dz, dy, 5, 90, 200, 37], (nb, err))
+    nb2, ob2, err2 = await world.door(A["address"], PA, nb)
+    check("…and shut again", err2 is None and nb2 == [dx, dz, dy, 90, 5, 200, 37], (nb2, err2))
+    added, _, _ = await world.boxes(A["address"], PA, [[dx, dz + 5, dy, 30, 30, 30, 9]], [])
+    _, _, err3 = await world.door(A["address"], PA, nb2)
+    check("it will not swing through a piece in its way", added and err3 == "no room to swing it", (added, err3))
+    rest()
+    _, removed, _ = await world.boxes(A["address"], PA, [], [nb2])
+    check("taken down, it comes back as a door", removed == [nb2] and inv(A["address"])["items"].get("door") == 1, removed)
+
     # ---- the commons, and building --------------------------------------------------------------------------------
     rest()
     wild_cell = CELLS["leaves"][:3] + [CELLS["leaves"][3] + 6]          # open air above the crown
@@ -223,6 +276,7 @@ async def main():
     check("a gift moves items", r["ok"] and inv(Bk["address"])["items"].get("brick") == 2 and inv(A["address"])["items"].get("brick", 0) == 2, r)
     r = await (await post("/land/api/give", {"to": Bk["address"], "items": {"brick": 99}}, ha)).json()
     check("nobody gives what they lack", not r["ok"], r)
+    a_sand0 = inv(A["address"])["items"].get("sand", 0)
     r = await (await post("/land/api/offer", {"give": {"planks": 4}, "want": {"sand": 6}}, ha)).json()
     oid = r.get("id")
     check("an offer escrows what it gives", r["ok"] and inv(A["address"])["items"].get("planks", 0) == b0 - 4, r)
@@ -235,7 +289,7 @@ async def main():
     world.player(Bk["address"])["items"]["sand"] = 10
     r = await (await post("/land/api/accept", {"id": oid}, hb)).json()
     check("taking it moves both sides at once", r["ok"] and inv(Bk["address"])["items"].get("planks", 0) == 4
-          and inv(Bk["address"])["items"].get("sand", 0) == 4 and inv(A["address"])["items"].get("sand", 0) == 6 and oid not in world.offers, r)
+          and inv(Bk["address"])["items"].get("sand", 0) == 4 and inv(A["address"])["items"].get("sand", 0) == a_sand0 + 6 and oid not in world.offers, r)
     r = await (await post("/land/api/offer", {"give": {"cobble": 3}, "want": {"wood": 1}}, ha)).json()
     cb = inv(A["address"])["items"].get("cobble", 0)
     r2 = await (await post("/land/api/cancel_offer", {"id": r["id"]}, ha)).json()

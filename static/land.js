@@ -88,6 +88,7 @@ const PAINT = {
   23: ["#ffd98a", 0.06, "lamp"], 24: ["#c0392b", 0.06], 25: ["#e67e22", 0.06], 26: ["#f1c40f", 0.06], 27: ["#27ae60", 0.06],
   28: ["#2e6fd8", 0.06], 29: ["#8e44ad", 0.06], 30: ["#262626", 0.06], 31: ["#f4f4f4", 0.05], 32: ["#e9e6df", 0.05, "marble"],
   33: ["#2a2a2a", 0.3], 34: ["#e8e4da", 0.06, "birch"], 35: ["#24502a", 0.22, "leaves"], 36: ["#6aa83a", 0.2, "leaves"],
+  37: ["#7d7570", 0.14, "ore"], 38: ["#6e4a2c", 0.06, "door"], 39: ["#7a5534", 0.08, "beam"], 40: ["#c9a95a", 0.14, "thatch"],
 };
 function paintAtlas() {
   const cv = document.createElement("canvas");
@@ -113,9 +114,14 @@ function paintAtlas() {
       if (kind === "lamp" && (x < 2 || y < 2 || x > TILE - 3 || y > TILE - 3)) k = 0.6;
       if (kind === "marble" && Math.abs(Math.sin(x * 0.7 + y * 0.35)) < 0.12) k *= 0.85;
       if (kind === "leaves" && rnd() < 0.18) k *= 0.6;
+      if (kind === "door" && (x === 0 || x === TILE - 1 || y === 0 || y === TILE - 1 || x % 5 === 0)) k *= 0.7;
+      if (kind === "door" && x === TILE - 4 && y === 8) k = 2.2;                 // the handle
+      if (kind === "beam" && y % 5 === 2) k *= 0.82;
+      if (kind === "thatch" && (x * 3 + y) % 4 === 0) k *= 0.75;
       let col = c.clone().multiplyScalar(k);
       if (kind === "grassSide" && y < 4 + (rnd() < 0.4 ? 1 : 0)) col = new THREE.Color("#5f9e3a").multiplyScalar(k);
       if (kind === "snowSide" && y < 4 + (rnd() < 0.4 ? 1 : 0)) col = new THREE.Color("#f2f6f8").multiplyScalar(k);
+      if (kind === "ore" && (x * 5 + y * 7) % 9 < 2) col = new THREE.Color("#9a5a32").multiplyScalar(k);   // rusty specks
       const a = kind === "glass" && !(x === 0 || y === 0 || x === TILE - 1 || y === TILE - 1) ? 0.25 : t === 6 ? 0.75 : 1;
       g.fillStyle = `rgba(${Math.min(255, col.r * 255) | 0},${Math.min(255, col.g * 255) | 0},${Math.min(255, col.b * 255) | 0},${a})`;
       g.fillRect(x0 + x, y0 + y, 1, 1);
@@ -335,7 +341,8 @@ function save() {
 function pieceInfo() {
   const id = hot[slot], el = $("pieceInfo");
   if (!el) return;
-  el.textContent = id && RULES && !NATURAL_ITEMS.has(id) ? T("pieceInfo", "Piece {w} × {d} × {h} cm · snap {s} cm", { w: piece.w, d: piece.d, h: piece.h, s: piece.snap }) : "";
+  const [w, d, h] = pieceDims();
+  el.textContent = id && RULES && !NATURAL_ITEMS.has(id) ? T("pieceInfo", "Piece {w} × {d} × {h} cm · snap {s} cm", { w, d, h, s: piece.snap }) : "";
   save();
 }
 function load() {
@@ -805,8 +812,12 @@ function palette(open) {
   renderBag();
 }
 const bagText = (bag) => Object.entries(bag).map(([id, n]) => `${n} ${esc(nameOf(id))}`).join(", ");
+// TOOLS BY CLASS: a rule or recipe that needs "an axe" takes any axe (stone or iron), and work goes at the best one's speed —
+// as the world server judges it (scripts/land_server.py _has_class / _speed)
+const hasClass = (cls) => inv.tools.some((t) => t === cls || (RULES.tools[t] && RULES.tools[t].class === cls));
+const toolSpeed = (cls) => Math.max(1, ...inv.tools.filter((t) => RULES.tools[t] && RULES.tools[t].class === cls).map((t) => RULES.tools[t].speed));
 function canMake(r) {
-  return (r.with || []).every((w) => inv.tools.includes(w) || inv.stations.includes(w))
+  return (r.with || []).every((w) => hasClass(w) || inv.stations.includes(w))
     && r.uses.every(([id, n]) => (inv.items[id] || 0) >= n);
 }
 function renderBag() {
@@ -872,7 +883,7 @@ function renderBag() {
  *  ground where it hits; centred on the hit point on the other two axes, on the snap grid, inside the plot. */
 function placement(a) {
   if (!a) return null;
-  const { w, d, h, snap } = piece, sz = [w, d, h];
+  const [w, d, h] = pieceDims(), snap = piece.snap, sz = [w, d, h];
   const pt = a.point, c = plotCm(P.face, pt[0], pt[1], pt[2]);
   const at = [c.x, c.z, c.y], out = [0, 0, 0];
   let ax = 2, sign = 1;
@@ -899,15 +910,23 @@ function startBreak(c, mouse) {
   if (!RULES) return;
   const b = blockAt(P.face, c[0], c[1], c[2]), rule = RULES.breaking[b];
   if (!rule) return notify(T("cantGather", "Nothing here can be gathered."));
-  if (rule.needs && !inv.tools.includes(rule.needs)) return notify(T("needsTool", "That needs a {t}.", { t: nameOf(rule.needs) }));
-  const speed = rule.class && inv.tools.includes(rule.class) ? RULES.tools[rule.class].speed : 1;
+  if (rule.needs && !hasClass(rule.needs)) return notify(T("needsTool", "That needs a {t}.", { t: nameOf(rule.needs) }));
+  const speed = rule.class ? toolSpeed(rule.class) : 1;
   job = { cell: c, need: rule.hard / speed, done: 0, mouse };
+}
+/** Open or close the door aimed at (Q, or the touch button): it swings a quarter turn on its hinge (land_server.py door). */
+function useDoor() {
+  const a = aim();
+  if (!a || !a.box || a.box.b[6] !== B.door) return notify(T("noDoor", "Aim at a door to open or close it."));
+  if (!net.online || !net.me) return notify(T("signInFirst", "Sign in first."));
+  net.send({ t: "door", plot: a.box.plot, box: a.box.b, req: ++net.req });
 }
 function startTakeDown(bx, mouse) {
   const rule = RULES.breaking[bx.b[6]] || { hard: 1 };
-  if (rule.needs && !inv.tools.includes(rule.needs)) return notify(T("needsTool", "That needs a {t}.", { t: nameOf(rule.needs) }));
-  const speed = rule.class && inv.tools.includes(rule.class) ? RULES.tools[rule.class].speed : 1;
-  job = { box: bx, need: Math.max(0.05, (rule.hard * Wd.boxVolume(bx.b)) / 1e6 / speed), done: 0, mouse };
+  if (rule.needs && !hasClass(rule.needs)) return notify(T("needsTool", "That needs a {t}.", { t: nameOf(rule.needs) }));
+  const speed = rule.class ? toolSpeed(rule.class) : 1;
+  const unit = unitOf(bx.b[6]);
+  job = { box: bx, need: Math.max(0.05, (rule.hard * (unit ? 1e6 : Wd.boxVolume(bx.b))) / 1e6 / speed), done: 0, mouse };
 }
 function breakTick(dt) {
   const bar = $("breakBar");
@@ -926,7 +945,17 @@ function breakTick(dt) {
 }
 const NATURAL_ITEMS = new Set(["dirt", "sand", "gravel", "snow"]);   // these fill the ground's cells; the rest are pieces
 const haveCm3 = (id) => (inv.items[id] || 0) * 1e6 + ((inv.vol || {})[id] || 0);
+// UNIT ITEMS (a door): placed whole at their own size, either way round (T turns it), one item per piece
+const unitOf = (m) => { const id = RULES && Object.keys(RULES.items).find((k) => RULES.items[k].places === m); return id ? RULES.items[id].unit : null; };
+function pieceDims() {
+  const it = RULES && hot[slot] && RULES.items[hot[slot]];
+  if (it && it.unit) return piece.turned ? [it.unit[1], it.unit[0], it.unit[2]] : [it.unit[0], it.unit[1], it.unit[2]];
+  return [piece.w, piece.d, piece.h];
+}
 function act(place, mouse) {
+  // signed out, a tap says so whatever it points at: it used to say nothing when the view held no target (sky, a gap in
+  // a crown) — a visitor tapping in a forest got silence (the live two-player walk, 2026-11-07)
+  if (!net.me) return notify(T("signInBuild2", "Sign in to gather and build."));
   const a = aim();
   if (!a) return;
   if (place) {
@@ -948,7 +977,7 @@ function act(place, mouse) {
     if (!mayBuild(pl.plot)) return explainNoBuild(pl.plot);
     if (!pl.ok) return notify(T("noRoom", "No room for that piece there."));
     const box = pl.box.slice(); box[6] = RULES.items[id].places;
-    if (haveCm3(id) < Wd.boxVolume(box)) return notify(T("notEnough", "Not enough {i} for a piece that size.", { i: nameOf(id) }));
+    if (RULES.items[id].unit ? !((inv.items[id] || 0) >= 1) : haveCm3(id) < Wd.boxVolume(box)) return notify(T("notEnough", "Not enough {i} for a piece that size.", { i: nameOf(id) }));
     const cur = plotBoxes.get(pl.plot);
     setPlotBoxes(pl.plot, (cur ? cur.list : []).concat([box]));                 // shown at once; put back if refused
     net.send({ t: "boxes", plot: pl.plot, add: [box], req: ++net.req });
@@ -975,7 +1004,8 @@ function wireInput(canvas) {
     keys.add(e.code);
     if (/^Digit[1-9]$/.test(e.code) && Number(e.code.slice(5)) <= hot.length) { slot = Number(e.code.slice(5)) - 1; hotbar(); }
     if (e.code === "KeyR") { const i = PRESETS.findIndex((x) => x[0] === piece.w && x[1] === piece.d && x[2] === piece.h); [piece.w, piece.d, piece.h] = PRESETS[(i + 1) % PRESETS.length]; pieceInfo(); }
-    if (e.code === "KeyT") { [piece.w, piece.d] = [piece.d, piece.w]; pieceInfo(); }
+    if (e.code === "KeyT") { [piece.w, piece.d] = [piece.d, piece.w]; piece.turned = !piece.turned; pieceInfo(); }
+    if (e.code === "KeyQ") useDoor();
     if (e.code === "BracketLeft" || e.code === "BracketRight") { const i = SNAPS.indexOf(piece.snap); piece.snap = SNAPS[Math.max(0, Math.min(SNAPS.length - 1, (i < 0 ? 2 : i) + (e.code === "BracketRight" ? 1 : -1)))]; pieceInfo(); }
     if (e.code === "KeyF") { P.fly = !P.fly; P.vh = 0; notify(P.fly ? T("flyOn", "Flying — Space up, C down, Shift fast") : T("flyOff", "Walking"), 1600); }
     if (e.code === "KeyE") palette($("palette").classList.contains("hidden"));

@@ -1,6 +1,6 @@
 {
  "about": "Land's gathering and crafting web (doc/land.md 'Gathering, tools, crafting'). ONE file read by the page (static/land.js) and the world server (scripts/land_server.py), so both apply the same rules: 'you must gather resources to make tools to make tools to collect more resources' (operator, 2026-11-06). No eras: every recipe names exactly what it needs. Block ids are static/land-world.js BLOCKS.",
- "version": 1,
+ "version": 2,
  "items": {
   "fiber": {
    "name": "Plant fiber"
@@ -68,6 +68,44 @@
   "plaster": {
    "name": "Plaster",
    "places": 14
+  },
+  "charcoal": {
+   "name": "Charcoal"
+  },
+  "ironore": {
+   "name": "Iron ore"
+  },
+  "iron": {
+   "name": "Iron"
+  },
+  "nails": {
+   "name": "Nails"
+  },
+  "hinges": {
+   "name": "Hinges"
+  },
+  "lime": {
+   "name": "Lime"
+  },
+  "mortar": {
+   "name": "Mortar"
+  },
+  "beam": {
+   "name": "Timber beam",
+   "places": 38
+  },
+  "thatch": {
+   "name": "Thatch",
+   "places": 39
+  },
+  "door": {
+   "name": "Door",
+   "places": 37,
+   "unit": [
+    90,
+    5,
+    200
+   ]
   }
  },
  "tools": {
@@ -85,6 +123,26 @@
    "name": "Stone shovel",
    "class": "shovel",
    "speed": 3
+  },
+  "hammer": {
+   "name": "Hammer",
+   "class": "hammer",
+   "speed": 1
+  },
+  "iron_axe": {
+   "name": "Iron axe",
+   "class": "axe",
+   "speed": 6
+  },
+  "iron_pick": {
+   "name": "Iron pickaxe",
+   "class": "pick",
+   "speed": 6
+  },
+  "iron_shovel": {
+   "name": "Iron shovel",
+   "class": "shovel",
+   "speed": 6
   }
  },
  "stations": {
@@ -96,6 +154,12 @@
   },
   "kiln": {
    "name": "Kiln"
+  },
+  "bloomery": {
+   "name": "Bloomery"
+  },
+  "anvil": {
+   "name": "Anvil"
   }
  },
  "breaking": {
@@ -337,6 +401,46 @@
      2
     ]
    ]
+  },
+  "36": {
+   "hard": 3.5,
+   "class": "pick",
+   "needs": "pick",
+   "yields": [
+    [
+     "ironore",
+     1
+    ]
+   ]
+  },
+  "37": {
+   "hard": 1.0,
+   "class": "axe",
+   "yields": [
+    [
+     "door",
+     1
+    ]
+   ]
+  },
+  "38": {
+   "hard": 1.5,
+   "class": "axe",
+   "yields": [
+    [
+     "beam",
+     1
+    ]
+   ]
+  },
+  "39": {
+   "hard": 0.5,
+   "yields": [
+    [
+     "thatch",
+     1
+    ]
+   ]
   }
  },
  "recipes": [
@@ -536,6 +640,10 @@
     [
      "cobble",
      4
+    ],
+    [
+     "mortar",
+     1
     ]
    ],
    "with": [
@@ -651,6 +759,319 @@
    ],
    "with": [
     "kiln"
+   ]
+  },
+  {
+   "id": "charcoal",
+   "makes": [
+    [
+     "charcoal",
+     2
+    ]
+   ],
+   "uses": [
+    [
+     "wood",
+     1
+    ]
+   ],
+   "with": [
+    "campfire"
+   ]
+  },
+  {
+   "id": "bloomery",
+   "makes": [
+    [
+     "bloomery",
+     1
+    ]
+   ],
+   "uses": [
+    [
+     "cobble",
+     10
+    ],
+    [
+     "clay",
+     6
+    ]
+   ],
+   "with": [
+    "campfire"
+   ]
+  },
+  {
+   "id": "iron",
+   "makes": [
+    [
+     "iron",
+     1
+    ]
+   ],
+   "uses": [
+    [
+     "ironore",
+     2
+    ],
+    [
+     "charcoal",
+     2
+    ]
+   ],
+   "with": [
+    "bloomery"
+   ]
+  },
+  {
+   "id": "anvil",
+   "makes": [
+    [
+     "anvil",
+     1
+    ]
+   ],
+   "uses": [
+    [
+     "iron",
+     5
+    ]
+   ],
+   "with": [
+    "bloomery"
+   ]
+  },
+  {
+   "id": "hammer",
+   "makes": [
+    [
+     "hammer",
+     1
+    ]
+   ],
+   "uses": [
+    [
+     "iron",
+     1
+    ],
+    [
+     "sticks",
+     1
+    ]
+   ],
+   "with": [
+    "anvil"
+   ]
+  },
+  {
+   "id": "nails",
+   "makes": [
+    [
+     "nails",
+     12
+    ]
+   ],
+   "uses": [
+    [
+     "iron",
+     1
+    ]
+   ],
+   "with": [
+    "anvil",
+    "hammer"
+   ]
+  },
+  {
+   "id": "hinges",
+   "makes": [
+    [
+     "hinges",
+     2
+    ]
+   ],
+   "uses": [
+    [
+     "iron",
+     1
+    ]
+   ],
+   "with": [
+    "anvil",
+    "hammer"
+   ]
+  },
+  {
+   "id": "iron_axe",
+   "makes": [
+    [
+     "iron_axe",
+     1
+    ]
+   ],
+   "uses": [
+    [
+     "iron",
+     2
+    ],
+    [
+     "sticks",
+     2
+    ]
+   ],
+   "with": [
+    "anvil",
+    "hammer"
+   ]
+  },
+  {
+   "id": "iron_pick",
+   "makes": [
+    [
+     "iron_pick",
+     1
+    ]
+   ],
+   "uses": [
+    [
+     "iron",
+     3
+    ],
+    [
+     "sticks",
+     2
+    ]
+   ],
+   "with": [
+    "anvil",
+    "hammer"
+   ]
+  },
+  {
+   "id": "iron_shovel",
+   "makes": [
+    [
+     "iron_shovel",
+     1
+    ]
+   ],
+   "uses": [
+    [
+     "iron",
+     1
+    ],
+    [
+     "sticks",
+     2
+    ]
+   ],
+   "with": [
+    "anvil",
+    "hammer"
+   ]
+  },
+  {
+   "id": "lime",
+   "makes": [
+    [
+     "lime",
+     2
+    ]
+   ],
+   "uses": [
+    [
+     "stone",
+     2
+    ],
+    [
+     "charcoal",
+     1
+    ]
+   ],
+   "with": [
+    "kiln"
+   ]
+  },
+  {
+   "id": "mortar",
+   "makes": [
+    [
+     "mortar",
+     4
+    ]
+   ],
+   "uses": [
+    [
+     "lime",
+     1
+    ],
+    [
+     "sand",
+     2
+    ]
+   ],
+   "with": []
+  },
+  {
+   "id": "beam",
+   "makes": [
+    [
+     "beam",
+     1
+    ]
+   ],
+   "uses": [
+    [
+     "wood",
+     1
+    ]
+   ],
+   "with": [
+    "workbench",
+    "axe"
+   ]
+  },
+  {
+   "id": "thatch",
+   "makes": [
+    [
+     "thatch",
+     1
+    ]
+   ],
+   "uses": [
+    [
+     "fiber",
+     6
+    ]
+   ],
+   "with": []
+  },
+  {
+   "id": "door",
+   "makes": [
+    [
+     "door",
+     1
+    ]
+   ],
+   "uses": [
+    [
+     "planks",
+     6
+    ],
+    [
+     "hinges",
+     2
+    ],
+    [
+     "nails",
+     4
+    ]
+   ],
+   "with": [
+    "workbench",
+    "hammer"
    ]
   }
  ],

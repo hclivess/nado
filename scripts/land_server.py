@@ -46,7 +46,8 @@ AGENT_ORIGIN = "land-agent"       # the origin an agent's challenge names (a bro
 CHALLENGE_TTL = 300
 SESSION_TTL = 7 * 86400
 FACE_N, PLOT, W, H = L.FACE_N, L.PLOT, L.FACE_N * L.PLOT, 256
-N_BLOCKS = 36                     # static/land-world.js BLOCKS.length (tests/test_the_land_planet_… checks the two agree)
+N_BLOCKS = 40                     # static/land-world.js BLOCKS.length (tests/test_the_land_planet_… checks the two agree)
+DOOR = 37                         # static/land-world.js B.door: a piece that swings open and shut ("door" op)
 TREE_WOOD = {7, 31}                # static/land-world.js TREE_WOOD (log, birchlog): cutting one fells its tree above
 UNBUILDABLE = {5, 30}             # water, bedrock: never placed (no item in land-recipes.json places them either)
 MAX_CELLS = 4096                  # per /set call or ws "set"
@@ -341,7 +342,17 @@ class World:
                 "stations": sorted(pl["stations"]), "vol": {k: v for k, v in sorted(pl["vol"].items()) if v > 0}}
 
     def _has(self, pl, need):
-        return need in pl["tools"] or need in pl["stations"]
+        """A station by id; a tool by id OR by class — a recipe "with an axe" takes an iron axe as well as a stone one."""
+        return need in pl["stations"] or self._has_class(pl, need)
+
+    @staticmethod
+    def _has_class(pl, cls):
+        return any(t == cls or RULES["tools"].get(t, {}).get("class") == cls for t in pl["tools"])
+
+    @staticmethod
+    def _speed(pl, cls):
+        """The best speed among the caller's tools of class `cls` (an iron axe outworks a stone one); 1 by hand."""
+        return max([RULES["tools"][t]["speed"] for t in pl["tools"] if t in RULES["tools"] and RULES["tools"][t].get("class") == cls] or [1])
 
     def work(self, who, seconds):
         """Breaking takes time: a bucket of WORK_CAP seconds refilling at 1 s/s. An agent works no faster than a hand."""
@@ -393,9 +404,9 @@ class World:
                     refused.append([c, "nothing here that can be gathered"]); continue
                 if titled and not may:
                     refused.append([c, "not your plot — only its owner and the builders they invite take from it"]); continue
-                if rule.get("needs") and rule["needs"] not in pl["tools"]:
+                if rule.get("needs") and not self._has_class(pl, rule["needs"]):
                     refused.append([c, f"needs a {RULES['tools'][rule['needs']]['name'].lower()}"]); continue
-                speed = RULES["tools"][rule["class"]]["speed"] if rule.get("class") in pl["tools"] else 1
+                speed = self._speed(pl, rule.get("class"))
                 if not self.work(who, rule["hard"] / speed):
                     refused.append([c, "too fast — breaking takes time (a better tool is quicker)"]); continue
                 for item, n in rule["yields"]:
@@ -495,12 +506,16 @@ class World:
             if b not in rec["boxes"]:
                 refused.append([b, "no such piece here"]); continue
             rule = RULES["breaking"].get(str(b[6])) or {"hard": 1.0}
-            speed = RULES["tools"][rule["class"]]["speed"] if rule.get("class") in pl["tools"] else 1
-            if not self.work(who, max(0.05, rule["hard"] * box_vol(b) / BLOCK_CM3 / speed)):
+            unit = RULES["items"][places[b[6]]].get("unit")
+            speed = self._speed(pl, rule.get("class"))
+            if not self.work(who, max(0.05, rule["hard"] * (1 if unit else box_vol(b) / BLOCK_CM3) / speed)):
                 refused.append([b, "too fast — taking a piece down takes time"]); continue
             rec["boxes"].remove(b)
             idx.remove(b)
-            self._refund(pl, places[b[6]], box_vol(b))
+            if unit:                                                # a door comes back as the door it was
+                pl["items"][places[b[6]]] = pl["items"].get(places[b[6]], 0) + 1
+            else:
+                self._refund(pl, places[b[6]], box_vol(b))
             removed.append(b)
         for b in add:
             b = list(b) if isinstance(b, (list, tuple)) else b
@@ -510,7 +525,15 @@ class World:
                 refused.append([b, f"a plot holds at most {MAX_BOXES} pieces"]); continue
             if idx.overlaps(b):
                 refused.append([b, "it would overlap another piece"]); continue
-            if not self._spend(pl, places[b[6]], box_vol(b)):
+            # UNIT ITEMS (a door): made whole, placed whole at their own size (either way round), one per piece
+            unit = RULES["items"][places[b[6]]].get("unit")
+            if unit:
+                if sorted(b[3:5]) != sorted(unit[:2]) or b[5] != unit[2]:
+                    refused.append([b, f"a {RULES['items'][places[b[6]]]['name'].lower()} is {unit[0]} x {unit[1]} x {unit[2]} cm"]); continue
+                if pl["items"].get(places[b[6]], 0) < 1:
+                    refused.append([b, f"you have no {RULES['items'][places[b[6]]]['name'].lower()}"]); continue
+                pl["items"][places[b[6]]] -= 1
+            elif not self._spend(pl, places[b[6]], box_vol(b)):
                 refused.append([b, f"not enough {RULES['items'][places[b[6]]]['name'].lower()} (it takes {box_vol(b) / BLOCK_CM3:.3f} of a block)"]); continue
             rec["boxes"].append(b)
             idx.add(b)
@@ -519,6 +542,31 @@ class World:
             rec["ver"] += 1
             self.dirty.add(p); self.pdirty.add(who)
         return added, removed, refused
+
+    async def door(self, who, p, b):
+        """Open or close door `b` on plot `p`: it swings a quarter turn on its hinge (the corner at its x, z), i.e. its width
+        and depth swap. Anyone signed in may (a lock is for later); refused if the swung door would hit another piece.
+        Returns (new box, removed box, error)."""
+        rec = self.plots.get(p)
+        b = list(b) if isinstance(b, (list, tuple)) else b
+        if not rec or not isinstance(b, list) or b not in rec.get("boxes", []):
+            return None, None, "no such door here"
+        if b[6] != DOOR:
+            return None, None, "that is not a door"
+        nb = [b[0], b[1], b[2], b[4], b[3], b[5], b[6]]
+        if not box_ok(nb):
+            return None, None, "no room to swing it"
+        if "index" not in rec:
+            rec["index"] = BoxIndex(rec["boxes"])
+        idx = rec["index"]
+        idx.remove(b)
+        if idx.overlaps(nb):
+            idx.add(b)
+            return None, None, "no room to swing it"
+        rec["boxes"].remove(b); rec["boxes"].append(nb); idx.add(nb)
+        rec["ver"] += 1
+        self.dirty.add(p)
+        return nb, b, None
 
     # -- crafting
     def craft(self, who, rid, times=1):
@@ -961,6 +1009,14 @@ def make_app(world, hub, site_origin, wallet_url, secure_cookies=True):
                     await hub.boxes(m.get("plot"), added, removed, addr)
                     if added or removed:
                         await hub.inv(world, addr)
+                elif t == "door":
+                    if not addr:
+                        await ws.send_json({"t": "done", "req": m.get("req"), "error": "sign in first"})
+                        continue
+                    nb, ob, err = await world.door(addr, m.get("plot"), m.get("box"))
+                    await ws.send_json({"t": "done", "req": m.get("req"), "error": err})
+                    if not err:
+                        await hub.boxes(m.get("plot"), [nb], [ob], addr)
                 elif t in ("craft", "give", "offer", "accept", "cancel_offer"):
                     if not addr:
                         await ws.send_json({"t": "done", "req": m.get("req"), "error": "sign in first"})

@@ -181,9 +181,15 @@ export const BLOCKS = [
   // litter on the ground (appended): picked up by hand, walked through, drawn as a stone or a fallen stick (land-mesher.js)
   { key: "pebble", solid: false, see: true, tex: [4, 4, 4] },
   { key: "twigs", solid: false, see: true, tex: [10, 10, 10] },
+  // a real house (appended, "continue working until the crafting tree has all components to build A REAL HOUSE"):
+  // iron ore in veins through the rock; doors, hewn timber and thatch to build with
+  { key: "ironore", solid: true, tex: [37, 37, 37] },
+  { key: "door", solid: true, tex: [38, 38, 38] },
+  { key: "beam", solid: true, tex: [39, 39, 39] },
+  { key: "thatch", solid: true, tex: [40, 40, 40] },
 ];
 export const B = Object.fromEntries(BLOCKS.map((b, i) => [b.key, i]));
-export const ATLAS_TILES = 37;              // tiles 0..36 (0 unused)
+export const ATLAS_TILES = 41;              // tiles 0..40 (0 unused)
 export const opaque = (id) => BLOCKS[id].solid && !BLOCKS[id].see;
 
 // ---- terrain ---------------------------------------------------------------------------------------------------
@@ -327,7 +333,11 @@ export function terrainBlock(face, u, v, h, colCache) {
   if (h <= 0) return B.bedrock;
   const col = colCache ? colCache(face, u, v) : column(face, u, v);
   if (h <= col.top) {
-    if (h < col.top - col.soil + 1) return h < 4 ? B.bedrock : B.stone;
+    if (h < col.top - col.soil + 1) {
+      if (h < 4) return B.bedrock;
+      // IRON ORE in veins through the rock: a 3-D field over a few metres, so a vein runs on as you follow it
+      return noise3(PERM[6], u / 7.3, v / 7.3, h / 4.1 + face * 977) > 0.38 ? B.ironore : B.stone;
+    }
     if (col.biome === "beach" || col.biome === "desert") return B.sand;
     if (col.biome === "rock") return h === col.top && col.top > SEA + 95 ? B.snow : B.stone;
     if (col.top < SEA) return h === col.top ? B.gravel : B.dirt;
@@ -360,7 +370,7 @@ export function terrainBlock(face, u, v, h, colCache) {
 //   an untouched cell:  height(column) - (h + 0.5), clamped to [-1, 1] — the generator's exact, unrounded ground;
 //   an edited cell:     +1 if a natural material was put there, -1 otherwise (dug out, or a built block, which carves
 //                       its own room in the ground and is drawn crisp).
-export const NATURAL = new Set([B.grass, B.dirt, B.stone, B.sand, B.snow, B.gravel, B.basalt, B.bedrock]);
+export const NATURAL = new Set([B.grass, B.dirt, B.stone, B.sand, B.snow, B.gravel, B.basalt, B.bedrock, B.ironore]);
 export function fieldOf(col, h, edit) {
   if (edit !== undefined) return NATURAL.has(edit) ? 1 : -1;
   if (h <= 0) return 1;
