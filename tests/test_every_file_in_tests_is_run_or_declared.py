@@ -37,6 +37,7 @@ DECLARED = {
     "_stwo_zk_probe.rs": ("library", "the witness-leak probe test_a_stwo_proof_reveals_nothing_about_its_witness builds into a temp copy of native/stwo_js"),
     "stwo_js_attack": ("data", "a directory: the forging harness test_stwo_js_every_post_proof_mutation_and_cheat_is_refused builds into a temp copy of native/stwo_js"),
     "_attest_fixtures.py": ("library", "device-attestation fixtures for the test_device_attest_* tests"),
+    "_land_live_fixture.py": ("library", "the Land page + world server + fake exec on one origin that test_two_players_and_an_agent_build_together_in_the_live_world drives"),
     "autogame_action_matrix.py": ("library", "the action matrix test_autogame_contract_matches_the_reference_model drives"),
     "autogame_engine_verify.mjs": ("library", "the browser-engine leg of test_autogame_contract_matches_the_reference_model"),
     "autogame_model.py": ("library", "the readable reference model the autogame contract is diffed against"),
