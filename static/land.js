@@ -29,7 +29,7 @@ import { fxaa } from "three/addons/tsl/display/FXAANode.js";
 import * as Wd from "./land-world.js";
 import * as Cosmos from "./land-cosmos.js";
 import { walk, trunkAt, TRUNK_R } from "./land-walk.js";
-import { snapBox } from "./land-snap.js";
+import { snapBox, piecesFor } from "./land-snap.js";
 import { groundWeights } from "./land-mesher.js";
 import { NadoDapp, wireWallet, renderWallet, alertBar, notify, uiConfirm, uiPrompt, isAddress, esc, base, disp, $ } from "./nadodapp.js";
 
@@ -70,7 +70,7 @@ let mouseHeld = false;
 // any W x D x H in the bag) and lands on a SNAP grid they choose; the ground stays whole cells.
 const PRESETS = [[100, 100, 100], [100, 100, 10], [100, 10, 100], [10, 10, 100], [200, 20, 5], [25, 25, 25], [5, 5, 5], [1, 1, 1]];
 const SNAPS = [1, 5, 10, 25, 50, 100];
-let piece = { w: 100, d: 100, h: 100, snap: 10 };
+let piece = { w: 100, d: 100, h: 100, snap: 10, shape: 0, rot: 0 };   // shape: 0 box, 1 slope, 2 stairs (G cycles; T turns)
 const plotBoxes = new Map();          // plot -> { list, idx: Map(1 m bucket -> [box]) }
 let pipeline = null;                  // the post-processed render (or null: the plain render on a weak device)
 let renderer, scene, camera, sun, hemi, atlasTex, matSolid, matClear, matGround, matTrees, matPieces, matGlassy, matBark, matLeaves, matWater, ghost, farMesh = null, farAt = null;
@@ -185,7 +185,7 @@ function boxAt(f, u, v, h) {
   const c = plotCm(f, u, v, h), rec = plotBoxes.get(c.plot);
   if (!rec) return null;
   for (const b of rec.idx.get(bkey(Math.floor(c.x / Wd.CM), Math.floor(c.z / Wd.CM), Math.floor(c.y / Wd.CM))) || [])
-    if (c.x >= b[0] && c.x < b[0] + b[3] && c.z >= b[1] && c.z < b[1] + b[4] && c.y >= b[2] && c.y < b[2] + b[5]) return { plot: c.plot, b };
+    if (Wd.inPiece(b, c.x, c.z, c.y)) return { plot: c.plot, b };      // a slope is solid below its sloped face
   return null;
 }
 function setPlotBoxes(plot, list) {
@@ -342,7 +342,8 @@ function pieceInfo() {
   const id = hot[slot], el = $("pieceInfo");
   if (!el) return;
   const [w, d, h] = pieceDims();
-  el.textContent = id && RULES && !NATURAL_ITEMS.has(id) ? T("pieceInfo", "Piece {w} × {d} × {h} cm · snap {s} cm", { w, d, h, s: piece.snap }) : "";
+  const shapeName = [T("shapeBox", "box"), T("shapeSlope", "slope"), T("shapeStairs", "stairs")][piece.shape || 0];
+  el.textContent = id && RULES && !NATURAL_ITEMS.has(id) ? T("pieceInfo", "Piece {w} × {d} × {h} cm · snap {s} cm", { w, d, h, s: piece.snap }) + " · " + shapeName : "";
   save();
 }
 function load() {
@@ -863,7 +864,7 @@ function renderBag() {
   g.querySelectorAll("[data-preset]").forEach((b) => { b.onclick = () => { [piece.w, piece.d, piece.h] = PRESETS[Number(b.dataset.preset)]; pieceInfo(); renderBag(); }; });
   const size = () => {
     const v = (id, max) => Math.max(1, Math.min(max, Math.round(Number($(id).value) || 1)));
-    piece = { w: v("pzW", Wd.PLOT_CM), d: v("pzD", Wd.PLOT_CM), h: v("pzH", Wd.H_CM), snap: Number($("pzS").value) };
+    piece = { w: v("pzW", Wd.PLOT_CM), d: v("pzD", Wd.PLOT_CM), h: v("pzH", Wd.H_CM), snap: Number($("pzS").value), shape: piece.shape, rot: piece.rot, turned: piece.turned };
     pieceInfo();
   };
   for (const id of ["pzW", "pzD", "pzH", "pzS"]) $(id).onchange = size;
@@ -904,8 +905,16 @@ function placement(a) {
   const body = [me.x - HALF * Wd.CM, me.z - HALF * Wd.CM, me.y, 2 * HALF * Wd.CM, 2 * HALF * Wd.CM, TALL * Wd.CM];
   const rec = plotBoxes.get(c.plot);
   const clash = (me.plot === c.plot && Wd.boxesOverlap(box, body)) || (rec && rec.list.some((o) => Wd.boxesOverlap(box, o)));
-  return { plot: c.plot, box, ok: !clash && box[2] >= 0 && box[2] + h <= Wd.H_CM };
+  return { plot: c.plot, box, pieces: shaped(box, it && it.unit ? 0 : piece.shape), ok: !clash && box[2] >= 0 && box[2] + h <= Wd.H_CM };
 }
+// ROOFS AND STAIRS ("A REAL HOUSE"): which way a slope or a flight rises — away from the player, the way they face, then
+// turned a quarter at a time by T — as land-world's shape number (1 +x, 2 -x, 3 +z, 4 -z)
+function riseShape() {
+  const e = Math.sin(P.yaw), n = Math.cos(P.yaw), order = [1, 3, 2, 4];
+  const s = Math.abs(e) > Math.abs(n) ? (e > 0 ? 1 : 2) : (n > 0 ? 3 : 4);
+  return order[(order.indexOf(s) + (piece.rot || 0)) % 4];
+}
+const shaped = (box, shape) => piecesFor(box, shape, shape ? riseShape() : 0);
 function startBreak(c, mouse) {
   if (!RULES) return;
   const b = blockAt(P.face, c[0], c[1], c[2]), rule = RULES.breaking[b];
@@ -976,11 +985,12 @@ function act(place, mouse) {
     if (!pl) return;
     if (!mayBuild(pl.plot)) return explainNoBuild(pl.plot);
     if (!pl.ok) return notify(T("noRoom", "No room for that piece there."));
-    const box = pl.box.slice(); box[6] = RULES.items[id].places;
-    if (RULES.items[id].unit ? !((inv.items[id] || 0) >= 1) : haveCm3(id) < Wd.boxVolume(box)) return notify(T("notEnough", "Not enough {i} for a piece that size.", { i: nameOf(id) }));
+    const add = pl.pieces.map((b) => { const x = b.slice(); x[6] = RULES.items[id].places; return x; });
+    const vol = add.reduce((a, b) => a + Wd.boxVolume(b), 0);
+    if (RULES.items[id].unit ? !((inv.items[id] || 0) >= 1) : haveCm3(id) < vol) return notify(T("notEnough", "Not enough {i} for a piece that size.", { i: nameOf(id) }));
     const cur = plotBoxes.get(pl.plot);
-    setPlotBoxes(pl.plot, (cur ? cur.list : []).concat([box]));                 // shown at once; put back if refused
-    net.send({ t: "boxes", plot: pl.plot, add: [box], req: ++net.req });
+    setPlotBoxes(pl.plot, (cur ? cur.list : []).concat(add));                   // shown at once; put back if refused
+    net.send({ t: "boxes", plot: pl.plot, add, req: ++net.req });
   } else {
     if (a.box) return startTakeDown(a.box, mouse);
     const [u, v, h] = a.hit;
@@ -1006,6 +1016,8 @@ function wireInput(canvas) {
     if (e.code === "KeyR") { const i = PRESETS.findIndex((x) => x[0] === piece.w && x[1] === piece.d && x[2] === piece.h); [piece.w, piece.d, piece.h] = PRESETS[(i + 1) % PRESETS.length]; pieceInfo(); }
     if (e.code === "KeyT") { [piece.w, piece.d] = [piece.d, piece.w]; piece.turned = !piece.turned; pieceInfo(); }
     if (e.code === "KeyQ") useDoor();
+    if (e.code === "KeyG") { piece.shape = ((piece.shape || 0) + 1) % 3; pieceInfo(); }
+    if (e.code === "KeyT" && piece.shape) piece.rot = ((piece.rot || 0) + 1) % 4;
     if (e.code === "BracketLeft" || e.code === "BracketRight") { const i = SNAPS.indexOf(piece.snap); piece.snap = SNAPS[Math.max(0, Math.min(SNAPS.length - 1, (i < 0 ? 2 : i) + (e.code === "BracketRight" ? 1 : -1)))]; pieceInfo(); }
     if (e.code === "KeyF") { P.fly = !P.fly; P.vh = 0; notify(P.fly ? T("flyOn", "Flying — Space up, C down, Shift fast") : T("flyOff", "Walking"), 1600); }
     if (e.code === "KeyE") palette($("palette").classList.contains("hidden"));

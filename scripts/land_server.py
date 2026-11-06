@@ -73,12 +73,19 @@ MAX_BOX_OPS = 1024                                 # pieces added or removed per
 
 
 def box_ok(b):
-    """land-world.js boxOk: [x, z, y, w, d, h, m] in whole centimetres inside the plot, positive size, a solid material."""
-    if not isinstance(b, (list, tuple)) or len(b) != 7 or not all(isinstance(v, int) and not isinstance(v, bool) for v in b):
+    """land-world.js boxOk: [x, z, y, w, d, h, m] in whole centimetres inside the plot, positive size, a solid material —
+    or with an 8th number, a slope's shape 1..4 (land-world.js SHAPES: a roof needs slopes)."""
+    if not isinstance(b, (list, tuple)) or len(b) not in (7, 8) or not all(isinstance(v, int) and not isinstance(v, bool) for v in b):
         return False
-    x, z, y, w, d, h, m = b
+    x, z, y, w, d, h, m = b[:7]
     return (x >= 0 and z >= 0 and y >= 0 and w >= 1 and d >= 1 and h >= 1 and x + w <= PLOT_CM and z + d <= PLOT_CM
-            and y + h <= H_CM and 0 < m < N_BLOCKS and m != 5)
+            and y + h <= H_CM and 0 < m < N_BLOCKS and m != 5 and (len(b) == 7 or 1 <= b[7] <= 4))
+
+
+def normal_box(b):
+    """land-world.js normalBox: one spelling — a box is 7 numbers, a slope 8 (a trailing shape 0 is dropped)."""
+    b = list(b)
+    return b[:7] if len(b) > 7 and not b[7] else b
 
 
 def boxes_overlap(a, b):
@@ -86,18 +93,19 @@ def boxes_overlap(a, b):
 
 
 def commitment_bytes(plot, salt, edits, boxes=()):
-    """land-world.js commitmentBytes, byte for byte (v2: the ground's cell edits, then the built boxes)."""
+    """land-world.js commitmentBytes, byte for byte (v3: the ground's cell edits, then the built pieces with their shapes)."""
     if len(salt) != 32:
         raise ValueError("salt must be 32 bytes")
-    ce, cb = canonical_edits(edits), sorted({tuple(b) for b in boxes})
+    ce, cb = canonical_edits(edits), sorted({tuple(normal_box(b)) for b in boxes})
     if not all(box_ok(list(b)) for b in cb):
         raise ValueError("bad box")
-    out = bytearray(b"nado-land-plot-v2") + plot.to_bytes(4, "big") + salt + len(ce).to_bytes(4, "big")
+    out = bytearray(b"nado-land-plot-v3") + plot.to_bytes(4, "big") + salt + len(ce).to_bytes(4, "big")
     for x, z, y, b in ce:
         out += bytes([x, z, y >> 8, y & 255, b])
     out += len(cb).to_bytes(4, "big")
-    for x, z, y, w, d, h, m in cb:
-        out += b"".join(v.to_bytes(2, "big") for v in (x, z, y, w, d, h)) + bytes([m])
+    for bx in cb:
+        x, z, y, w, d, h, m = bx[:7]
+        out += b"".join(v.to_bytes(2, "big") for v in (x, z, y, w, d, h)) + bytes([m, bx[7] if len(bx) > 7 else 0])
     return bytes(out)
 
 
@@ -107,7 +115,8 @@ def commitment(plot, salt, edits, boxes=()):
 
 
 def box_vol(b):
-    return b[3] * b[4] * b[5]
+    """cm³ a piece costs — a slope (8th number 1..4) half its box (land-world.js boxVolume)."""
+    return b[3] * b[4] * b[5] // 2 if len(b) > 7 and b[7] else b[3] * b[4] * b[5]
 
 
 def buckets_of(b):
@@ -502,7 +511,7 @@ class World:
         idx = rec["index"]
         added, removed, refused = [], [], []
         for b in remove:
-            b = list(b) if isinstance(b, (list, tuple)) else b
+            b = normal_box(b) if isinstance(b, (list, tuple)) else b
             if b not in rec["boxes"]:
                 refused.append([b, "no such piece here"]); continue
             rule = RULES["breaking"].get(str(b[6])) or {"hard": 1.0}
@@ -518,7 +527,7 @@ class World:
                 self._refund(pl, places[b[6]], box_vol(b))
             removed.append(b)
         for b in add:
-            b = list(b) if isinstance(b, (list, tuple)) else b
+            b = normal_box(b) if isinstance(b, (list, tuple)) else b
             if not box_ok(b) or b[6] not in places:
                 refused.append([b, "a piece is [x, z, y, w, d, h, material] in whole cm inside the plot, of a material you can place"]); continue
             if len(rec["boxes"]) >= MAX_BOXES:
@@ -528,7 +537,7 @@ class World:
             # UNIT ITEMS (a door): made whole, placed whole at their own size (either way round), one per piece
             unit = RULES["items"][places[b[6]]].get("unit")
             if unit:
-                if sorted(b[3:5]) != sorted(unit[:2]) or b[5] != unit[2]:
+                if sorted(b[3:5]) != sorted(unit[:2]) or b[5] != unit[2] or len(b) > 7:
                     refused.append([b, f"a {RULES['items'][places[b[6]]]['name'].lower()} is {unit[0]} x {unit[1]} x {unit[2]} cm"]); continue
                 if pl["items"].get(places[b[6]], 0) < 1:
                     refused.append([b, f"you have no {RULES['items'][places[b[6]]]['name'].lower()}"]); continue

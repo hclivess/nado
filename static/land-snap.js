@@ -39,3 +39,21 @@ export function snapBox(box, list, fixed = -1) {
   }
   return out;
 }
+
+/** The pieces one placement makes from its box ("A REAL HOUSE": roofs and stairs): the box itself (shape 0), a slope —
+ *  the box with its shape `rise` (land-world SHAPES: 1 +x, 2 -x, 3 +z, 4 -z) — or (shape 2) a flight of solid steps of
+ *  about 20 cm rise climbing the same way, each step filled down to the box's bottom (the walker climbs steps,
+ *  land-walk.js STEP). */
+export function piecesFor(box, shape, rise) {
+  if (!shape) return [box];
+  if (shape === 1) return [box.slice(0, 7).concat([rise])];
+  const along = rise <= 2 ? 0 : 1, L = box[3 + along], n = Math.max(1, Math.min(Math.round(box[5] / 20), L)), out = [];
+  for (let i = 0; i < n; i++) {
+    const a0 = Math.floor((i * L) / n), a1 = Math.floor(((i + 1) * L) / n), top = Math.floor(((i + 1) * box[5]) / n);
+    const st = box.slice(0, 7);
+    st[3 + along] = a1 - a0; st[5] = top;
+    st[along] = (rise === 1 || rise === 3) ? box[along] + a0 : box[along] + L - a1;   // rising toward -x / -z: from the far end
+    out.push(st);
+  }
+  return out;
+}

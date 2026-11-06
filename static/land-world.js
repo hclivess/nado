@@ -396,27 +396,43 @@ export function canonicalEdits(edits) {
   }
   return [...m.keys()].sort((a, b) => a - b).map((k) => [k % PLOT, Math.floor(k / PLOT) % PLOT, Math.floor(k / (PLOT * PLOT)), m.get(k)]);
 }
-/** Is [x, z, y, w, d, h, m] a box inside the plot? (whole centimetres, positive size, a known material) */
+// SHAPES (a roof needs slopes — "A REAL HOUSE", operator 2026-11-06): a piece may carry an 8th number, its shape — 1..4 a
+// slope (a wedge) rising toward +x, -x, +z, -z across its box; absent (or 0) a box. A wedge is solid below its slope; it
+// pays half its box's volume; for overlap it is its box (two wedges of a gable sit side by side).
+export const SLOPE_POS_X = 1, SLOPE_NEG_X = 2, SLOPE_POS_Z = 3, SLOPE_NEG_Z = 4;
+/** Is [x, z, y, w, d, h, m] (or with a shape 1..4 as an 8th number) a piece inside the plot? */
 export function boxOk(b) {
-  if (!Array.isArray(b) || b.length !== 7 || !b.every(Number.isInteger)) return false;
+  if (!Array.isArray(b) || (b.length !== 7 && b.length !== 8) || !b.every(Number.isInteger)) return false;
   const [x, z, y, w, d, h, m] = b;
   return x >= 0 && z >= 0 && y >= 0 && w >= 1 && d >= 1 && h >= 1 && x + w <= PLOT_CM && z + d <= PLOT_CM && y + h <= H_CM
-    && m > 0 && m < BLOCKS.length && !BLOCKS[m].liquid;
+    && m > 0 && m < BLOCKS.length && !BLOCKS[m].liquid && (b.length === 7 || (b[7] >= 1 && b[7] <= 4));
 }
+export const shapeOf = (b) => (b.length > 7 ? b[7] : 0);
+/** One canonical spelling: a box is 7 numbers, a slope 8 (a trailing 0 is dropped). */
+export const normalBox = (b) => (b.length > 7 && !b[7] ? b.slice(0, 7) : b.slice());
 export const boxesOverlap = (a, b) => a[0] < b[0] + b[3] && b[0] < a[0] + a[3] && a[1] < b[1] + b[4] && b[1] < a[1] + a[4] && a[2] < b[2] + b[5] && b[2] < a[2] + a[5];
-export const boxVolume = (b) => b[3] * b[4] * b[5];          // cm³; one gathered block is 1,000,000
+export const boxVolume = (b) => (shapeOf(b) ? Math.floor(b[3] * b[4] * b[5] / 2) : b[3] * b[4] * b[5]);   // cm³; a block is 1,000,000
+/** Is the point (x, z, y) in cm inside piece b — for a slope, below its sloped face? */
+export function inPiece(b, x, z, y) {
+  if (!(x >= b[0] && x < b[0] + b[3] && z >= b[1] && z < b[1] + b[4] && y >= b[2] && y < b[2] + b[5])) return false;
+  const s = shapeOf(b);
+  if (!s) return true;
+  const f = s === 1 ? (x - b[0]) / b[3] : s === 2 ? (b[0] + b[3] - x) / b[3] : s === 3 ? (z - b[1]) / b[4] : (b[1] + b[4] - z) / b[4];
+  return y - b[2] <= f * b[5];
+}
 export function canonicalBoxes(boxes) {
-  const out = [...new Map(boxes.map((b) => { if (!boxOk(b)) throw new Error("bad box"); return [b.join(","), b.slice()]; })).values()];
-  return out.sort((a, b) => { for (let i = 0; i < 7; i++) if (a[i] !== b[i]) return a[i] - b[i]; return 0; });
+  const out = [...new Map(boxes.map((b0) => { const b = normalBox(b0); if (!boxOk(b)) throw new Error("bad box"); return [b.join(","), b]; })).values()];
+  return out.sort((a, b) => { for (let i = 0; i < 7; i++) if (a[i] !== b[i]) return a[i] - b[i]; return a.length - b.length; });
 }
 const enc = new TextEncoder();
 /** The bytes a commitment hashes: tag, plot id (u32 BE), the 32-byte salt, the edit count (u32 BE) and each edit as
- *  x u8, z u8, y u16 BE, block u8, then the box count (u32 BE) and each box as x, z, y, w, d, h (u16 BE each) and its
- *  material u8. scripts/land_server.py builds the same bytes (commitment_bytes; the server test checks the two agree). */
+ *  x u8, z u8, y u16 BE, block u8, then the box count (u32 BE) and each box as x, z, y, w, d, h (u16 BE each), its
+ *  material u8 and its shape u8 (v3: shapes; no title had been minted, so no v2 anchor exists to keep).
+ *  scripts/land_server.py builds the same bytes (commitment_bytes; the server test checks the two agree). */
 export function commitmentBytes(plot, salt, edits, boxes = []) {
-  const tag = enc.encode("nado-land-plot-v2"), ce = canonicalEdits(edits), cb = canonicalBoxes(boxes);
+  const tag = enc.encode("nado-land-plot-v3"), ce = canonicalEdits(edits), cb = canonicalBoxes(boxes);
   if (!(salt instanceof Uint8Array) || salt.length !== 32) throw new Error("salt must be 32 bytes");
-  const out = new Uint8Array(tag.length + 4 + 32 + 4 + ce.length * 5 + 4 + cb.length * 13);
+  const out = new Uint8Array(tag.length + 4 + 32 + 4 + ce.length * 5 + 4 + cb.length * 14);
   out.set(tag, 0);
   let o = tag.length;
   const u32 = (n) => { out[o++] = n >>> 24; out[o++] = (n >>> 16) & 255; out[o++] = (n >>> 8) & 255; out[o++] = n & 255; };
@@ -426,7 +442,7 @@ export function commitmentBytes(plot, salt, edits, boxes = []) {
   u32(ce.length);
   for (const [x, z, y, b] of ce) { out[o++] = x; out[o++] = z; u16(y); out[o++] = b; }
   u32(cb.length);
-  for (const [x, z, y, w, d, h, m] of cb) { u16(x); u16(z); u16(y); u16(w); u16(d); u16(h); out[o++] = m; }
+  for (const b of cb) { const [x, z, y, w, d, h, m] = b; u16(x); u16(z); u16(y); u16(w); u16(d); u16(h); out[o++] = m; out[o++] = shapeOf(b); }
   return out;
 }
 /** The commitment anchored on chain (land.py anchor arg 1): SHA-256 of commitmentBytes as a 256-bit integer string. */

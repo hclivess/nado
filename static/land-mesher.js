@@ -19,7 +19,7 @@
 // Cells are generated with a one-cell border (wrapped across face seams by land-world.wrap). A surface edge is drawn by
 // the chunk that holds its LOWER cell, so every edge of the world belongs to exactly one chunk (no gaps, no doubles).
 // Positions are metres RELATIVE TO THE CHUNK'S ANCHOR; the page places each mesh at anchor - camera in doubles.
-import { CHUNK, H, R0, W, B, BLOCKS, ATLAS_TILES, NATURAL, CM, TREE_WOOD, TREE_LEAVES, isTree, opaque, dirOf, frameOf, wrap, column, terrainBlock, fieldOf, treeAt, treeCell, LITTER } from "./land-world.js";
+import { CHUNK, H, R0, W, B, BLOCKS, ATLAS_TILES, NATURAL, CM, TREE_WOOD, TREE_LEAVES, isTree, opaque, dirOf, frameOf, wrap, column, terrainBlock, fieldOf, treeAt, treeCell, LITTER, shapeOf } from "./land-world.js";
 import { treeModel, leafCellModel, twigModel } from "./land-trees.js";
 
 const N = CHUNK + 2;                                     // cells with the border: real index r in -1..16 is r + 1
@@ -111,13 +111,14 @@ function meshBoxes(boxes, u0, v0, h0, place, solid, clear, lod) {
     cell[ax] = Math.floor((s > 0 ? plane : plane - 1) / CM);
     cell[o[0]] = Math.floor(b[o[0]] / CM); cell[o[1]] = Math.floor(b[o[1]] / CM);
     for (const n of idx.get(bk(cell[0], cell[1], cell[2])) || []) {
-      if (n === b || !opaque(n[6]) || BLOCKS[n[6]].see) continue;
+      if (n === b || !opaque(n[6]) || BLOCKS[n[6]].see || shapeOf(n)) continue;   // a slope's box is not solid: it hides nothing
       if ((s > 0 ? n[ax] : n[ax] + n[ax + 3]) !== plane) continue;
       if (n[o[0]] <= b[o[0]] && n[o[0]] + n[o[0] + 3] >= b[o[0]] + b[o[0] + 3] && n[o[1]] <= b[o[1]] && n[o[1]] + n[o[1] + 3] >= b[o[1]] + b[o[1] + 3]) return true;
     }
     return false;
   };
   for (const b of mine) {
+    if (shapeOf(b)) { meshSlope(b, u0, v0, place, !opaque(b[6]) ? clear : solid, lo, hi); continue; }
     const info = BLOCKS[b[6]], buf = !opaque(b[6]) ? clear : solid;
     const y0 = Math.max(b[2], lo), y1 = Math.min(b[2] + b[5], hi);          // this chunk's slice of the piece
     const mn = [b[0], b[1], y0], mx = [b[0] + b[3], b[1] + b[4], y1];
@@ -385,6 +386,54 @@ export function meshChunk(face, cu, cv, ch, edits, boxes, lod, grassOn = true) {
   if (!smooth.idx.length && !trees.idx.length && !solid.n && !clear.n && !pieces.n && !glassy.n && !bark.n && !foliage.n && !stones.n && !water.n) return { empty: true };
   return { anchor, smooth: pack(smooth), trees: pack(trees), solid: pack(solid), clear: pack(clear), pieces: pack(pieces), glassy: pack(glassy),
            bark: pack(bark), foliage: pack(foliage), stones: pack(stones), water: pack(water), grass };
+}
+
+// ---- a slope (land-world SHAPES): five faces — the bottom, the tall end, the sloped face and two triangular sides. Built
+// in the piece's own terms (r: 0..1 up the rise, c: 0..1 across it, y: 0..1 up), mapped to the plot by its shape; each
+// face is wound by its own geometry (its normal turned away from the piece's middle), so all four shapes come out right.
+function meshSlope(b, u0, v0, place, buf, lo, hi) {
+  if (b[2] >= hi || b[2] + b[5] <= lo) return;               // drawn whole by the chunk its bottom is in
+  if (b[2] < lo) return;
+  const s = shapeOf(b), info = BLOCKS[b[6]], tile = info.tex[1];
+  const at = (r, c, y) => {
+    const X = s === 1 ? b[0] + r * b[3] : s === 2 ? b[0] + (1 - r) * b[3] : b[0] + c * b[3];
+    const Z = s === 3 ? b[1] + r * b[4] : s === 4 ? b[1] + (1 - r) * b[4] : b[1] + c * b[4];
+    return [X, Z, b[2] + y * b[5]];
+  };
+  const mid = at(0.66, 0.5, 0.33);
+  const faces = [
+    [at(0, 0, 0), at(1, 0, 0), at(1, 1, 0), at(0, 1, 0)],    // bottom
+    [at(1, 0, 0), at(1, 0, 1), at(1, 1, 1), at(1, 1, 0)],    // the tall end
+    [at(0, 0, 0), at(0, 1, 0), at(1, 1, 1), at(1, 0, 1)],    // the slope
+    [at(0, 0, 0), at(1, 0, 1), at(1, 0, 0)],                 // a side
+    [at(0, 1, 0), at(1, 1, 0), at(1, 1, 1)],                 // the other side
+  ];
+  for (let f of faces) {
+    const P = f.map((q) => place(u0 + q[0] / CM, v0 + q[1] / CM, q[2] / CM));
+    const e1 = P[1].map((x, i) => x - P[0][i]), e2 = P[2].map((x, i) => x - P[0][i]);
+    let n = [e1[1] * e2[2] - e1[2] * e2[1], e1[2] * e2[0] - e1[0] * e2[2], e1[0] * e2[1] - e1[1] * e2[0]];
+    const cf = f.reduce((a, q) => a.map((x, i) => x + q[i] / f.length), [0, 0, 0]);
+    const pc = place(u0 + cf[0] / CM, v0 + cf[1] / CM, cf[2] / CM), pm = place(u0 + mid[0] / CM, v0 + mid[1] / CM, mid[2] / CM);
+    if (n[0] * (pc[0] - pm[0]) + n[1] * (pc[1] - pm[1]) + n[2] * (pc[2] - pm[2]) < 0) { f = f.slice().reverse(); P.reverse(); n = n.map((x) => -x); }
+    const nl = Math.hypot(...n) || 1;
+    // texture per metre across the face: its first edge and the one at right angles to it
+    const ax = f[1].map((x, i) => x - f[0][i]), al = Math.hypot(...ax) || 1, ux = ax.map((x) => x / al);
+    const ay0 = f[f.length - 1].map((x, i) => x - f[0][i]), k = ay0[0] * ux[0] + ay0[1] * ux[1] + ay0[2] * ux[2];
+    const ay = ay0.map((x, i) => x - k * ux[i]), ayl = Math.hypot(...ay) || 1, uy = ay.map((x) => x / ayl);
+    const base = buf.n;
+    for (let i = 0; i < f.length; i++) {
+      buf.pos.push(P[i][0], P[i][1], P[i][2]);
+      buf.nor.push(n[0] / nl, n[1] / nl, n[2] / nl);
+      const d = f[i].map((x, j) => x - f[0][j]);
+      buf.uv.push((d[0] * ux[0] + d[1] * ux[1] + d[2] * ux[2]) / CM, (d[0] * uy[0] + d[1] * uy[1] + d[2] * uy[2]) / CM);
+      buf.tile.push(tile);
+      const sh = info.glow ? 1.6 : 1;
+      buf.col.push(sh, sh, sh);
+      buf.n++;
+    }
+    if (f.length === 4) buf.idx.push(base, base + 1, base + 2, base, base + 2, base + 3);
+    else buf.idx.push(base, base + 1, base + 2);
+  }
 }
 
 // ---- a loose stone: a once-subdivided icosahedron, flattened, its corners pushed in and out by the place's hash --------

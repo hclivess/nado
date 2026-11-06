@@ -136,7 +136,11 @@
   "land.s.anvil": "Anvil",
   "land.noDoor": "Aim at a door to open or close it.",
   "land.signInFirst": "Sign in first.",
-  "land.kDoor": "open or close a door"
+  "land.kDoor": "open or close a door",
+  "land.shapeBox": "box",
+  "land.shapeSlope": "slope",
+  "land.shapeStairs": "stairs",
+  "land.kShape": "box, slope or stairs"
  },
  "cs": {
   "land.notYours": "Pozemek {p} patří někomu jinému. Kupte si pozemek, nebo požádejte jeho vlastníka o pozvání.",
@@ -275,7 +279,11 @@
   "land.s.anvil": "Kovadlina",
   "land.noDoor": "Zamiř na dveře, abys je otevřel nebo zavřel.",
   "land.signInFirst": "Nejdřív se přihlas.",
-  "land.kDoor": "otevřít či zavřít dveře"
+  "land.kDoor": "otevřít či zavřít dveře",
+  "land.shapeBox": "kvádr",
+  "land.shapeSlope": "svah",
+  "land.shapeStairs": "schody",
+  "land.kShape": "kvádr, svah nebo schody"
  },
  "es": {
   "land.notYours": "La parcela {p} pertenece a otra persona. Compra una parcela o pide a su dueño que te invite.",
@@ -414,7 +422,11 @@
   "land.s.anvil": "Yunque",
   "land.noDoor": "Apunta a una puerta para abrirla o cerrarla.",
   "land.signInFirst": "Inicia sesión primero.",
-  "land.kDoor": "abrir o cerrar una puerta"
+  "land.kDoor": "abrir o cerrar una puerta",
+  "land.shapeBox": "bloque",
+  "land.shapeSlope": "pendiente",
+  "land.shapeStairs": "escalera",
+  "land.kShape": "bloque, pendiente o escalera"
  },
  "pt": {
   "land.notYours": "O lote {p} pertence a outra pessoa. Compre um lote ou peça ao dono que convide você.",
@@ -553,7 +565,11 @@
   "land.s.anvil": "Bigorna",
   "land.noDoor": "Aponte para uma porta para a abrir ou fechar.",
   "land.signInFirst": "Inicie sessão primeiro.",
-  "land.kDoor": "abrir ou fechar uma porta"
+  "land.kDoor": "abrir ou fechar uma porta",
+  "land.shapeBox": "bloco",
+  "land.shapeSlope": "rampa",
+  "land.shapeStairs": "escada",
+  "land.kShape": "bloco, rampa ou escada"
  },
  "fr": {
   "land.notYours": "La parcelle {p} appartient à quelqu'un d'autre. Achetez une parcelle ou demandez à son propriétaire de vous inviter.",
@@ -692,7 +708,11 @@
   "land.s.anvil": "Enclume",
   "land.noDoor": "Visez une porte pour l'ouvrir ou la fermer.",
   "land.signInFirst": "Connectez-vous d'abord.",
-  "land.kDoor": "ouvrir ou fermer une porte"
+  "land.kDoor": "ouvrir ou fermer une porte",
+  "land.shapeBox": "bloc",
+  "land.shapeSlope": "pente",
+  "land.shapeStairs": "escalier",
+  "land.kShape": "bloc, pente ou escalier"
  },
  "de": {
   "land.notYours": "Grundstück {p} gehört jemand anderem. Kauf dir ein Grundstück oder bitte den Besitzer um eine Einladung.",
@@ -831,7 +851,11 @@
   "land.s.anvil": "Amboss",
   "land.noDoor": "Ziele auf eine Tür, um sie zu öffnen oder zu schließen.",
   "land.signInFirst": "Melde dich zuerst an.",
-  "land.kDoor": "Tür öffnen oder schließen"
+  "land.kDoor": "Tür öffnen oder schließen",
+  "land.shapeBox": "Quader",
+  "land.shapeSlope": "Schräge",
+  "land.shapeStairs": "Treppe",
+  "land.kShape": "Quader, Schräge oder Treppe"
  },
  "it": {
   "land.notYours": "Il lotto {p} appartiene a qualcun altro. Compra un lotto o chiedi al proprietario di invitarti.",
@@ -970,7 +994,11 @@
   "land.s.anvil": "Incudine",
   "land.noDoor": "Punta una porta per aprirla o chiuderla.",
   "land.signInFirst": "Accedi prima.",
-  "land.kDoor": "aprire o chiudere una porta"
+  "land.kDoor": "aprire o chiudere una porta",
+  "land.shapeBox": "blocco",
+  "land.shapeSlope": "pendenza",
+  "land.shapeStairs": "scala",
+  "land.kShape": "blocco, pendenza o scala"
  },
  "ru": {
   "land.notYours": "Участок {p} принадлежит другому игроку. Купите участок или попросите владельца пригласить вас.",
@@ -1109,7 +1137,11 @@
   "land.s.anvil": "Наковальня",
   "land.noDoor": "Наведитесь на дверь, чтобы открыть или закрыть её.",
   "land.signInFirst": "Сначала войдите.",
-  "land.kDoor": "открыть или закрыть дверь"
+  "land.kDoor": "открыть или закрыть дверь",
+  "land.shapeBox": "блок",
+  "land.shapeSlope": "скат",
+  "land.shapeStairs": "лестница",
+  "land.kShape": "блок, скат или лестница"
  },
  "zh": {
   "land.notYours": "地块 {p} 属于别人。购买一块地，或请它的所有者邀请你。",
@@ -1248,7 +1280,11 @@
   "land.s.anvil": "铁砧",
   "land.noDoor": "对准一扇门即可开关它。",
   "land.signInFirst": "请先登录。",
-  "land.kDoor": "开关门"
+  "land.kDoor": "开关门",
+  "land.shapeBox": "方块",
+  "land.shapeSlope": "斜坡",
+  "land.shapeStairs": "楼梯",
+  "land.kShape": "方块、斜坡或楼梯"
  },
  "ja": {
   "land.notYours": "区画 {p} は他の人のものです。区画を購入するか、所有者に招待してもらいましょう。",
@@ -1387,7 +1423,11 @@
   "land.s.anvil": "金床",
   "land.noDoor": "扉に狙いを合わせると開け閉めできます。",
   "land.signInFirst": "先にサインインしてください。",
-  "land.kDoor": "扉を開け閉め"
+  "land.kDoor": "扉を開け閉め",
+  "land.shapeBox": "ブロック",
+  "land.shapeSlope": "斜面",
+  "land.shapeStairs": "階段",
+  "land.kShape": "ブロック・斜面・階段"
  },
  "ko": {
   "land.notYours": "구역 {p}은(는) 다른 사람의 땅입니다. 구역을 사거나 소유자에게 초대를 요청하세요.",
@@ -1526,7 +1566,11 @@
   "land.s.anvil": "모루",
   "land.noDoor": "문을 겨누면 열고 닫을 수 있습니다.",
   "land.signInFirst": "먼저 로그인하세요.",
-  "land.kDoor": "문 열기/닫기"
+  "land.kDoor": "문 열기/닫기",
+  "land.shapeBox": "블록",
+  "land.shapeSlope": "경사",
+  "land.shapeStairs": "계단",
+  "land.kShape": "블록, 경사 또는 계단"
  },
  "ar": {
   "land.notYours": "القطعة {p} ملك لشخص آخر. اشترِ قطعة، أو اطلب من مالكها أن يدعوك.",
@@ -1665,7 +1709,11 @@
   "land.s.anvil": "سندان",
   "land.noDoor": "صوّب نحو باب لتفتحه أو تغلقه.",
   "land.signInFirst": "سجّل الدخول أولاً.",
-  "land.kDoor": "فتح باب أو إغلاقه"
+  "land.kDoor": "فتح باب أو إغلاقه",
+  "land.shapeBox": "مكعّب",
+  "land.shapeSlope": "منحدر",
+  "land.shapeStairs": "درج",
+  "land.kShape": "مكعّب أو منحدر أو درج"
  },
  "hi": {
   "land.notYours": "प्लॉट {p} किसी और का है। कोई प्लॉट खरीदें, या उसके मालिक से आपको आमंत्रित करने को कहें।",
@@ -1804,7 +1852,11 @@
   "land.s.anvil": "निहाई",
   "land.noDoor": "दरवाज़ा खोलने या बंद करने के लिए उस पर निशाना लगाएँ।",
   "land.signInFirst": "पहले साइन इन करें।",
-  "land.kDoor": "दरवाज़ा खोलें या बंद करें"
+  "land.kDoor": "दरवाज़ा खोलें या बंद करें",
+  "land.shapeBox": "खंड",
+  "land.shapeSlope": "ढलान",
+  "land.shapeStairs": "सीढ़ियाँ",
+  "land.kShape": "खंड, ढलान या सीढ़ियाँ"
  },
  "tr": {
   "land.notYours": "{p} arsası başkasına ait. Bir arsa satın al ya da sahibinden seni davet etmesini iste.",
@@ -1943,7 +1995,11 @@
   "land.s.anvil": "Örs",
   "land.noDoor": "Açıp kapatmak için bir kapıya nişan al.",
   "land.signInFirst": "Önce giriş yap.",
-  "land.kDoor": "kapı aç ya da kapat"
+  "land.kDoor": "kapı aç ya da kapat",
+  "land.shapeBox": "blok",
+  "land.shapeSlope": "eğim",
+  "land.shapeStairs": "merdiven",
+  "land.kShape": "blok, eğim ya da merdiven"
  },
  "id": {
   "land.notYours": "Petak {p} milik orang lain. Beli sebuah petak, atau minta pemiliknya mengundangmu.",
@@ -2082,7 +2138,11 @@
   "land.s.anvil": "Landasan",
   "land.noDoor": "Arahkan ke pintu untuk membuka atau menutupnya.",
   "land.signInFirst": "Masuk dulu.",
-  "land.kDoor": "buka atau tutup pintu"
+  "land.kDoor": "buka atau tutup pintu",
+  "land.shapeBox": "balok",
+  "land.shapeSlope": "lereng",
+  "land.shapeStairs": "tangga",
+  "land.kShape": "balok, lereng, atau tangga"
  },
  "vi": {
   "land.notYours": "Mảnh đất {p} thuộc về người khác. Hãy mua một mảnh, hoặc nhờ chủ của nó mời bạn.",
@@ -2221,7 +2281,11 @@
   "land.s.anvil": "Đe",
   "land.noDoor": "Nhắm vào cánh cửa để mở hoặc đóng nó.",
   "land.signInFirst": "Hãy đăng nhập trước.",
-  "land.kDoor": "mở hoặc đóng cửa"
+  "land.kDoor": "mở hoặc đóng cửa",
+  "land.shapeBox": "khối",
+  "land.shapeSlope": "dốc",
+  "land.shapeStairs": "cầu thang",
+  "land.kShape": "khối, dốc hoặc cầu thang"
  },
  "pl": {
   "land.notYours": "Działka {p} należy do kogoś innego. Kup działkę albo poproś jej właściciela o zaproszenie.",
@@ -2360,6 +2424,10 @@
   "land.s.anvil": "Kowadło",
   "land.noDoor": "Wyceluj w drzwi, aby je otworzyć lub zamknąć.",
   "land.signInFirst": "Najpierw się zaloguj.",
-  "land.kDoor": "otwórz lub zamknij drzwi"
+  "land.kDoor": "otwórz lub zamknij drzwi",
+  "land.shapeBox": "bryła",
+  "land.shapeSlope": "skos",
+  "land.shapeStairs": "schody",
+  "land.kShape": "bryła, skos lub schody"
  }
 }

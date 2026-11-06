@@ -1,7 +1,7 @@
 """
 Built pieces at 1 cm, any size ("what about 1 cm and people can increase the block size to whatever?", operator
 2026-11-06): the world server (scripts/land_server.py `boxes`) keeps a plot's pieces as [x, z, y, w, d, h, m] boxes in
-centimetres, and the commitment the owner anchors covers them (static/land-world.js commitmentBytes v2).
+centimetres, and the commitment the owner anchors covers them (static/land-world.js commitmentBytes v3: with shapes).
 
   * a piece from 1 cm³ to a large slab is accepted where the caller may build, and only there;
   * it must lie inside the plot, in whole centimetres, of a material the caller can place; it may not overlap another;
@@ -141,6 +141,24 @@ async def main():
     await boxes([[1000, 1000, 12000, 1, 1, 1, PLANKS]])
     pj2 = await (await c.get(f"/land/api/plot?plot={PA}", headers=ha)).json()
     check("…and changes when a single 1 cm piece is added", pj2["commitment"] != pj["commitment"])
+    # SLOPES (a roof): an 8th number 1..4 is the slope's shape; it pays half its box, and the commitment covers the shape
+    # the same in Python and in the browser (v3)
+    rest()
+    pa["items"]["planks"] = pa["items"].get("planks", 0) + 2
+    planks0 = world.player(A["address"])["items"].get("planks", 0) * S.BLOCK_CM3 + world.player(A["address"])["vol"].get("planks", 0)
+    added, _, refused = await world.boxes(A["address"], PA, [[1200, 1200, 12000, 100, 100, 100, PLANKS, 3]], [])
+    planks1 = world.player(A["address"])["items"].get("planks", 0) * S.BLOCK_CM3 + world.player(A["address"])["vol"].get("planks", 0)
+    check("a slope goes in (its shape the 8th number) and costs half its box", added == [[1200, 1200, 12000, 100, 100, 100, PLANKS, 3]]
+          and planks0 - planks1 == 500000, (added, refused, planks0 - planks1))
+    added, _, refused = await world.boxes(A["address"], PA, [[1400, 1200, 12000, 10, 10, 10, PLANKS, 9]], [])
+    check("a shape outside 1..4 is refused", not added and refused, refused)
+    added, _, _ = await world.boxes(A["address"], PA, [[1400, 1200, 12000, 10, 10, 10, PLANKS, 0]], [])
+    check("a trailing shape 0 is the plain box (one spelling)", added == [[1400, 1200, 12000, 10, 10, 10, PLANKS]], added)
+    pj3 = await (await c.get(f"/land/api/plot?plot={PA}", headers=ha)).json()
+    js3 = js_commitment(PA, pj3["salt"], pj3["edits"], pj3["boxes"])
+    check("the commitment covers a slope's shape, byte for byte the browser's", js3 == pj3["commitment"] and any(len(b) == 8 for b in pj3["boxes"]), (js3, pj3["commitment"]))
+    flat = [b[:7] if len(b) == 8 else b for b in pj3["boxes"]]
+    check("…and a slope and the plain box it sits in commit differently", S.commitment(PA, bytes.fromhex(pj3["salt"]), pj3["edits"], flat) != pj3["commitment"])
 
     # persistence and the index
     world.flush()
