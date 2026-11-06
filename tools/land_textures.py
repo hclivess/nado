@@ -15,8 +15,6 @@ import json
 import os
 import sys
 
-from PIL import Image
-
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 OUT = os.path.join(ROOT, "static", "vendor", "textures")
 # material key -> (Poly Haven asset, pixels)
@@ -31,6 +29,7 @@ QUALITY = 82
 
 
 def main():
+    from PIL import Image          # here, not at import: the texture test reads MATERIALS where Pillow is not installed
     src, plan = sys.argv[1], json.load(open(sys.argv[2]))
     os.makedirs(OUT, exist_ok=True)
     lines = ["Land's material textures: Poly Haven (https://polyhaven.com), every asset CC0 1.0 Universal (public domain).",

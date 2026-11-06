@@ -23,7 +23,18 @@ check = _report.check
 D = os.path.join(ROOT, "static", "vendor", "textures")
 src = open(os.path.join(D, "SOURCE.txt")).read()
 spec = importlib.util.spec_from_file_location("land_textures", os.path.join(ROOT, "tools", "land_textures.py"))
-TL = importlib.util.module_from_spec(spec); spec.loader.exec_module(TL)
+TL = importlib.util.module_from_spec(spec)
+# Pillow blocked while the table is read: the pre-push runner has none, and an import of it at module level refused a push
+_pil = sys.modules.get("PIL", False); sys.modules["PIL"] = None
+try:
+    spec.loader.exec_module(TL); readable = True
+except ImportError:
+    readable = False
+finally:
+    sys.modules.pop("PIL") if _pil is False else sys.modules.__setitem__("PIL", _pil)
+check("the tool's material table reads where Pillow is not installed", readable)
+if not readable:
+    _report.done()
 
 check("the licence is stated: Poly Haven, CC0 1.0", "CC0 1.0" in src and "polyhaven.com" in src)
 originals = re.findall(r"^(https://dl\.polyhaven\.org/\S+) ([0-9a-f]{32})$", src, re.M)
