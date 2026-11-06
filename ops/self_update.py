@@ -168,7 +168,8 @@ except Exception:
 
 
 def running_head():
-    """Short hash of the commit this PROCESS was started from (None outside a git checkout)."""
+    """Short hash of the commit this PROCESS runs: the one it started from, or a later one it ADOPTED because every path
+    in between is inert (apply_stale_checkout) — the same running code either way. None outside a git checkout."""
     return _RUNNING_HEAD
 
 
@@ -255,6 +256,17 @@ def apply_stale_checkout(now=None):
             pass                                    # config unreadable: fall through to the safety guards
         if _stale_acted[0] == repo:
             return {"status": "already_restarted", "repo": repo}
+        # INERT: everything between the running commit and the checkout is a path nothing running loads (docs, the Land
+        # game's files, tests — _INERT_PREFIXES). The process already runs the new commit's code byte for byte, so it
+        # ADOPTS that commit (running_commit follows, and the fleet still reads uniform) instead of restarting. Before
+        # this the inert exception never held: an inert fast-forward skipped its restart in check_and_update, left
+        # running_head on the old commit, and this check restarted the node 90 s later anyway — on every fleet node
+        # and on the push host ("do not restart nado nodes for this!!!", operator 2026-11-06).
+        if not _restart_needed(run, repo):
+            global _RUNNING_HEAD
+            _RUNNING_HEAD = repo
+            _stale_since[0] = None
+            return {"status": "adopted", "running": repo, "was": run, "reason": "inert paths only — nothing that runs changed"}
         if working_tree_dirty():
             return {"status": "dirty", "reason": "uncommitted changes — refusing to load a half-finished edit",
                     "running": run, "repo": repo}

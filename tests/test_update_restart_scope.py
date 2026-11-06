@@ -79,6 +79,37 @@ def test_lookalike_paths_are_not_inert():
     assert not _only_inert(["doctor.py"])
 
 
+def test_an_inert_update_is_adopted_not_restarted():
+    # The inert exception never held before: check_and_update skipped the restart, but running_head stayed on the old
+    # commit and apply_stale_checkout restarted the node 90 s later anyway (2026-11-06: "do not restart nado nodes for
+    # this!!!"). Now the process adopts an inert commit — and a commit range with anything else in it still restarts.
+    import ops.self_update as su
+    calls = []
+    saved = (su._RUNNING_HEAD, su.repo_head, su._git, su.working_tree_dirty, su._schedule_restart, su._stale_since[0], su._stale_acted[0],
+             su._rebuild_optional_crates, su._missing_required_libs)
+    try:
+        su._rebuild_optional_crates = lambda *a, **k: {}                       # never a real cargo build from a test
+        su._missing_required_libs = lambda: []
+        su.working_tree_dirty = lambda: False
+        su._schedule_restart = lambda: calls.append("restart") or ["nado"]
+        su._stale_acted[0] = None
+        for diff, inert in (("static/land.js\ntests/test_x.mjs\ndoc/land.md", True), ("static/land.js\nnado.py", False)):
+            su._RUNNING_HEAD, su._stale_since[0] = "aaaaaaaaaaaa", None
+            su.repo_head = lambda: "bbbbbbbbbbbb"
+            su._git = lambda *a, **k: diff if a[0] == "diff" else ""
+            out = su.apply_stale_checkout(now=0.0)
+            if inert:
+                assert out["status"] == "adopted" and su.running_head() == "bbbbbbbbbbbb" and not calls, out
+                assert su.apply_stale_checkout(now=1000.0)["status"] == "current"     # and stays put
+            else:
+                assert out["status"] == "observing" and su.running_head() == "aaaaaaaaaaaa", out
+                out = su.apply_stale_checkout(now=1000.0)
+                assert out["status"] == "restarting" and calls == ["restart"], out
+    finally:
+        (su._RUNNING_HEAD, su.repo_head, su._git, su.working_tree_dirty, su._schedule_restart, su._stale_since[0], su._stale_acted[0],
+         su._rebuild_optional_crates, su._missing_required_libs) = saved
+
+
 if __name__ == "__main__":
     for name, fn in sorted(globals().items()):
         if name.startswith("test_") and callable(fn):
