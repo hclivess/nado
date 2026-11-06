@@ -9,14 +9,15 @@
  *   3. it stands ON the surface, never inside it and never more than a millimetre above it;
  *   4. a 50 cm step is climbed, and the eye glides up it over several frames (none moves it 15 cm; the old step: 50 cm in one);
  *   5. a 2 m ledge is a real fall (airborne, then landed); a jump leaves the ground and lands again;
- *   6. a walker buried by ground or a block placed into them comes up onto it ("build oneself into the terrain").
+ *   6. a walker buried by ground or a block placed into them comes up onto it ("build oneself into the terrain");
+ *   7. a tree trunk is solid ("trees have no collision"): walked into, it stops the walker at its bark.
  *
  * Run: node tests/test_a_walker_crosses_slopes_and_steps_without_jitter.mjs
  */
 import { join, dirname } from "node:path";
 import { fileURLToPath } from "node:url";
 const ROOT = join(dirname(fileURLToPath(import.meta.url)), "..");
-const { walk } = await import(join(ROOT, "static", "land-walk.js"));
+const { walk, trunkAt } = await import(join(ROOT, "static", "land-walk.js"));
 let fails = 0;
 const ok = (c, m) => { console.log((c ? "ok   " : "FAIL ") + m); if (!c) fails++; };
 
@@ -75,6 +76,18 @@ const raised = (u, v) => 1.2;
 P = { u: 0, v: 0, h: 0, vu: 0, vv: 0, vh: 0, ground: true, fly: false };
 L = run(raised, P, 3, [0, 0]);
 ok(onSurface(P, raised), `a walker buried 1.2 m deep comes up onto the surface (h ${P.h.toFixed(3)})`);
+
+// 7. a tree trunk is solid: a log column at cell (5, 0); a walker heading straight at it stops short of it, one
+// passing 0.7 m to the side walks by — and a body centred on the trunk (between its corner points) is caught
+const isLog = (cu, cv, ch) => cu === 5 && cv === 0 && ch >= 0 && ch < 6;
+const treeBody = (u, v, h) => h < 0 || trunkAt(u, v, h, HALF, TALL, isLog);
+P = { u: 1, v: 0.5, h: 0, vu: 0, vv: 0, vh: 0, ground: true, fly: false };
+for (let f = 0; f < 120; f++) walk(P, [WALK, 0], false, dt, treeBody, C);
+ok(P.u < 5.5 - 0.26 - HALF + 0.01 && P.u > 4, `walking into a trunk stops at its bark (u ${P.u.toFixed(2)}; trunk face at ${(5.5 - 0.26).toFixed(2)})`);
+P = { u: 1, v: 1.2, h: 0, vu: 0, vv: 0, vh: 0, ground: true, fly: false };
+for (let f = 0; f < 120; f++) walk(P, [WALK, 0], false, dt, treeBody, C);
+ok(P.u > 8, "a walker passing beside it walks by");
+ok(trunkAt(5.5, 0.5, 0, HALF, TALL, isLog) && !body(() => 0)(5.5, 0.5, 0.5), "a body centred on a trunk is caught (its corner points alone miss it)");
 
 if (fails) { console.log(`${fails} FAILURES`); process.exit(1); }
 console.log("ALL PASS");

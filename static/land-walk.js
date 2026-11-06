@@ -60,3 +60,18 @@ export function walk(P, wish, jump, dt, collides, C) {
   if (P.eyeH === undefined || P.fly || !P.ground || Math.abs(P.h - P.eyeH) > 1.2) P.eyeH = P.h;
   else P.eyeH += (P.h - P.eyeH) * Math.min(1, dt * 14);
 }
+
+// TREE TRUNKS ARE SOLID ("trees have no collision", operator 2026-11-06): a log cell is a cylinder of TRUNK_R round its
+// cell's centre, as the model draws it (land-trees.js), tested against the body's square — a body's corner points sit
+// 0.6 m apart and would let a trunk through between them. Leaves stay walk-through.
+export const TRUNK_R = 0.26;
+/** Does a body (half-width `half`, height `tall`) standing at (u, v, h) touch a trunk? isLog(cu, cv, ch): a log cell. */
+export function trunkAt(u, v, h, half, tall, isLog) {
+  for (let cu = Math.floor(u - half - TRUNK_R); cu <= Math.floor(u + half + TRUNK_R); cu++)
+    for (let cv = Math.floor(v - half - TRUNK_R); cv <= Math.floor(v + half + TRUNK_R); cv++) {
+      const x = Math.max(u - half, Math.min(cu + 0.5, u + half)) - (cu + 0.5), y = Math.max(v - half, Math.min(cv + 0.5, v + half)) - (cv + 0.5);
+      if (x * x + y * y >= TRUNK_R * TRUNK_R) continue;
+      for (let ch = Math.floor(h); ch <= Math.floor(h + tall - 0.01); ch++) if (isLog(cu, cv, ch)) return true;
+    }
+  return false;
+}

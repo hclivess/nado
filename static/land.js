@@ -28,7 +28,7 @@ import { bloom } from "three/addons/tsl/display/BloomNode.js";
 import { fxaa } from "three/addons/tsl/display/FXAANode.js";
 import * as Wd from "./land-world.js";
 import * as Cosmos from "./land-cosmos.js";
-import { walk } from "./land-walk.js";
+import { walk, trunkAt, TRUNK_R } from "./land-walk.js";
 import { groundWeights } from "./land-mesher.js";
 import { NadoDapp, wireWallet, renderWallet, alertBar, notify, uiConfirm, uiPrompt, isAddress, esc, base, disp, $ } from "./nadodapp.js";
 
@@ -207,8 +207,10 @@ function eyePos() { return Wd.posOf(P.face, P.u, P.v, (P.eyeH === undefined ? P.
 function collides(u, v, h) {
   for (const du of [-HALF, HALF]) for (const dv of [-HALF, HALF]) for (const dh of [0.01, 0.9, TALL - 0.01])
     if (solidAt(P.face, u + du, v + dv, h + dh)) return true;
-  return false;
+  return trunkAt(u, v, h, HALF, TALL, isLog);
 }
+// trunks are solid cylinders (land-walk.js trunkAt); leaves stay walk-through
+const isLog = (cu, cv, ch) => Wd.TREE_WOOD.has(blockAt(P.face, cu, cv, ch));
 function step(dt) {
   const fwd = (keys.has("KeyW") || keys.has("ArrowUp") ? 1 : 0) - (keys.has("KeyS") || keys.has("ArrowDown") ? 1 : 0) + (touch ? touch.my : 0);
   const side = (keys.has("KeyD") || keys.has("ArrowRight") ? 1 : 0) - (keys.has("KeyA") || keys.has("ArrowLeft") ? 1 : 0) + (touch ? touch.mx : 0);
@@ -248,6 +250,9 @@ function aim() {
     const b = blockAt(P.face, c[0], c[1], c[2]);
     let hit = null;
     if (crispB(b) || Wd.isTree(b)) hit = c;
+    // the foot of a trunk: the drawn trunk stands on the smooth surface, inside the grass cell below its first log, so a
+    // ray at it reaches the ground cell first — and dug grass from under the tree ("it goes through it and digs grass")
+    else if (Wd.TREE_WOOD.has(blockAt(P.face, c[0], c[1], c[2] + 1)) && Math.hypot(p[0] - c[0] - 0.5, p[1] - c[1] - 0.5) < TRUNK_R + 0.1) hit = [c[0], c[1], c[2] + 1];
     else if (fieldAt(P.face, p[0], p[1], p[2]) > 0) {
       // the cell the surface was hit in, when it is solid ground; only when the hit lands on the air side of a cell
       // centre does a neighbour (the most solid one) stand in — never a deeper cell under a solid one

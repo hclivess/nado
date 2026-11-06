@@ -13,7 +13,8 @@
  *   6. the field is the one land-world.fieldOf rule the page touches the ground by (static/land.js fieldCell);
  *   7. every ground vertex carries six material weights summing to 1 and world texture coordinates; the landing meadow is
  *      mostly grass; grass clumps cover it at about 6 per m² near the player, a third of that in the middle distance,
- *      none far away or on a phone.
+ *      none far away or on a phone;
+ *   8. a dug hole's floor (3 x 3 and wider) is earth, not the rim's grass, and the soil goes 4+ layers down before rock.
  *
  * Run: node tests/test_the_ground_is_one_smooth_surface_across_chunks_and_built_blocks_stay_crisp.mjs
  */
@@ -120,6 +121,34 @@ ok(!M.meshChunk(q.face, cu0 + 1, cv0 + 1, ch, null, null, 0, false).grass, "and 
 const land = readFileSync(join(ROOT, "static", "land.js"), "utf8");
 ok(/Wd\.fieldOf\(colAt\(/.test(land) && /fieldOf/.test(readFileSync(join(ROOT, "static", "land-mesher.js"), "utf8")),
    "the page touches the ground by the same fieldOf the mesher draws it by");
+
+// 8. a dug hole (3 x 3 and wider) has a floor of what is down there, not the rim's grass ("and at the bottom theres
+// grass?" — a hole one cell wide has no floor vertices of its own: Surface Nets puts them between cells, shared with the
+// rim), and the soil goes down several layers before rock ("there is barely any digging depth")
+{
+  const hu = q.u0 + 7, hv = q.v0 + 7, ht = Wd.column(q.face, hu, hv).top, edits = new Map();
+  for (let i = -1; i <= 1; i++) for (let j = -1; j <= 1; j++) {
+    const t = Wd.column(q.face, hu + i, hv + j).top;
+    edits.set(q.face + ":" + (hu + i) + ":" + (hv + j) + ":" + t, 0);         // one layer: the grass, as a spade takes it
+  }
+  let floor = 0, grassyFloor = 0;
+  for (const c of new Set([Math.floor((ht - 1) / 16), Math.floor(ht / 16)])) {
+    const r = M.meshChunk(q.face, cu0, cv0, c, edits, null, 0);
+    if (r.empty || !r.smooth) continue;
+    const U = r.smooth.uvw, W1 = r.smooth.w1;
+    for (let i = 0; i < U.length / 3; i++) {
+      const gu = U[i * 3] - (q.u0 % 4096), gv = U[i * 3 + 1] - (q.v0 % 4096), gh = U[i * 3 + 2];
+      if (Math.abs(gu - 7.5) < 0.9 && Math.abs(gv - 7.5) < 0.9 && gh < ht + 0.1) { floor++; if (W1[i * 4] > 0.2) grassyFloor++; }
+    }
+  }
+  ok(floor > 0 && grassyFloor === 0, `a dug hole's floor is earth, not the rim's grass (${grassyFloor} of ${floor} floor vertices grassy)`);
+  let shallow = 0, n = 0;
+  for (let i = 0; i < 48; i += 3) for (let j = 0; j < 48; j += 3) {
+    const c = Wd.column(q.face, q.u0 + i, q.v0 + j); n++;
+    if (Wd.terrainBlock(q.face, q.u0 + i, q.v0 + j, c.top - 4) !== Wd.B.dirt) shallow++;
+  }
+  ok(shallow === 0, `the meadow's soil is earth at least 4 layers down everywhere (${shallow} of ${n} columns hit rock sooner)`);
+}
 
 console.log(fails ? `${fails} FAILED` : "all passed");
 process.exit(fails ? 1 : 0);

@@ -6,7 +6,8 @@ holds, so a yield is what the ground really is.
 
   * by hand: grass gives earth and fiber, leaves give sticks and fiber, a loose stone a stone, a fallen stick two sticks;
     a log and rock cannot be broken by hand;
-  * tools: cordage from fiber, a stone axe and pickaxe from sticks, stone and cordage; with the axe a log gives wood,
+  * tools: cordage from fiber, a stone axe and pickaxe from sticks, stone and cordage; with the axe a cut trunk fells its
+    tree above the cut (wood for every log, sticks from the crown, nothing left floating),
     with the pickaxe rock gives cobblestone; a tool you already made makes breaking quicker;
   * time: breaking spends seconds of work (hardness over tool speed) — a caller cannot strip the planet faster than a hand;
   * stations: planks need a workbench (which needs an axe), bricks need a kiln (which needs a campfire); a recipe is refused
@@ -66,7 +67,10 @@ console.log(JSON.stringify({ tree: out, grass: [out.face, g.u, g.v, gc.top], gra
   rock: [out.face, g.u, g.v, gc.top - 5], rockBlock: W.terrainBlock(out.face, g.u, g.v, gc.top - 5),
   leaves: [out.face, out.u + 1, out.v, out.top + out.height], leavesBlock: W.terrainBlock(out.face, out.u + 1, out.v, out.top + out.height),
   log: [out.face, out.u, out.v, out.top + 2], logBlock: W.terrainBlock(out.face, out.u, out.v, out.top + 2),
-  pebble: lit.pebble, twigs: lit.twigs }));
+  pebble: lit.pebble, twigs: lit.twigs,
+  // a second grass top, away from the tree (the tree's own cells are felled earlier in the test)
+  grass2: [out.face, out.u - 4, out.v + 3, W.column(out.face, out.u - 4, out.v + 3).top],
+  grass2Block: W.terrainBlock(out.face, out.u - 4, out.v + 3, W.column(out.face, out.u - 4, out.v + 3).top) }));
 """ % (json.dumps(os.path.join(ROOT, "static", "land-world.js")), PA)
 CELLS = json.loads(subprocess.run(["node", "--input-type=module", "-e", js], capture_output=True, text=True, timeout=120).stdout)
 
@@ -149,7 +153,15 @@ async def main():
     check("…and a stone pickaxe", (await craft("pick", ha))["ok"] and "pick" in inv(A["address"])["tools"])
     rest()
     r = await setc([CELLS["log"] + [0]], ha)
-    check("with the axe a log gives wood", r["applied"] == 1 and inv(A["address"])["items"].get("wood") == 1, r)
+    # FELLING ("can we add some basic gravity", operator 2026-11-06): the log cut is 2 above the ground; every log above
+    # it comes down as wood and the crown as what its leaves give — nothing is left floating
+    H0, sticks_after_cut = CELLS["tree"]["height"], inv(A["address"])["items"].get("sticks", 0)
+    check("with the axe, cutting a trunk fells the tree above the cut: a wood for the cut and for every log above it",
+          r["applied"] > H0 - 1 and inv(A["address"])["items"].get("wood") == 1 + (H0 - 2), (r["applied"], inv(A["address"])["items"]))
+    check("…and its crown comes down as sticks", sticks_after_cut > n0.get("sticks", 0) + 2, inv(A["address"])["items"])
+    above = [CELLS["log"][0], CELLS["log"][1], CELLS["log"][2], CELLS["log"][3] + 1, 0]
+    r2 = await setc([above], ha)
+    check("nothing is left floating: the log above the cut is already gone", r2["applied"] == 0 and "nothing" in r2["refused"][0][1], r2)
     r = await setc([CELLS["rock"] + [0]], ha)
     check("with the pickaxe rock gives cobblestone", r["applied"] == 1 and inv(A["address"])["items"].get("cobble", 0) >= 1, r)
     check("a tool makes its work quicker: a log is 2.5 s by hand, 2.5 / 3 s with the axe",
@@ -179,8 +191,8 @@ async def main():
     check("…and what is built there stays (it is not set to regrow)", world.plots[pw0]["edits"].get(k0) == 10 and k0 not in world.plots[pw0].get("exp", {}))
     r = await setc([CELLS["grass"][:3] + [CELLS["grass"][3] + 3, 0]], hb)
     rest()
-    r = await setc([[CELLS["tree"]["face"], CELLS["tree"]["u"] - 1, CELLS["tree"]["v"], CELLS["tree"]["top"] + 4, 0]], hb)
-    check("anyone signed in gathers in the wilderness", r["applied"] == 1, r)
+    r = await setc([CELLS["grass2"] + [0]], hb)
+    check("anyone signed in gathers in the wilderness", CELLS["grass2Block"] == 1 and r["applied"] == 1, r)
     pw = S.plot_of(*CELLS["leaves"][:3])
     k = (CELLS["leaves"][1] % 16, CELLS["leaves"][2] % 16, CELLS["leaves"][3])
     check("a gathered wilderness cell is set to grow back", k in world.plots[pw].get("exp", {}))

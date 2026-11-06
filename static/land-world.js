@@ -201,7 +201,10 @@ export function column(face, u, v) {
   const top = Math.floor(height);
   const temp = at(PERM[4], 20000, 3) * 0.6 + at(PERM[0], 7000, 2) * 0.4 - Math.abs(d[1]) * 0.55 - Math.max(0, top - SEA) * 0.004;
   const biome = top < SEA + 2 && top >= SEA - 3 ? "beach" : temp < -0.32 ? "snow" : top > SEA + 70 ? "rock" : "grass";
-  return { top, height, biome };
+  // the soil's depth before rock, varying over ~60 m — measured 5 to 8 layers ("there is barely any digging depth",
+  // operator 2026-11-06: it was 3 everywhere, so a spade met rock almost at once)
+  const soil = 4 + Math.min(5, Math.max(0, Math.floor((at(PERM[3], 60, 2) * 0.5 + 0.5) * 6)));
+  return { top, height, biome, soil };
 }
 
 function hash32(a, b, c) {
@@ -296,7 +299,7 @@ export function terrainBlock(face, u, v, h, colCache) {
   if (h <= 0) return B.bedrock;
   const col = colCache ? colCache(face, u, v) : column(face, u, v);
   if (h <= col.top) {
-    if (h < col.top - 3) return h < 4 ? B.bedrock : B.stone;
+    if (h < col.top - col.soil + 1) return h < 4 ? B.bedrock : B.stone;
     if (col.biome === "beach") return B.sand;
     if (col.biome === "rock") return h === col.top && col.top > SEA + 95 ? B.snow : B.stone;
     if (col.top < SEA) return h === col.top ? B.gravel : B.dirt;

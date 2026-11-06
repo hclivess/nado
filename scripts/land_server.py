@@ -47,6 +47,7 @@ CHALLENGE_TTL = 300
 SESSION_TTL = 7 * 86400
 FACE_N, PLOT, W, H = L.FACE_N, L.PLOT, L.FACE_N * L.PLOT, 256
 N_BLOCKS = 36                     # static/land-world.js BLOCKS.length (tests/test_the_land_planet_… checks the two agree)
+TREE_WOOD = {7, 31}                # static/land-world.js TREE_WOOD (log, birchlog): cutting one fells its tree above
 UNBUILDABLE = {5, 30}             # water, bedrock: never placed (no item in land-recipes.json places them either)
 MAX_CELLS = 4096                  # per /set call or ws "set"
 RATE = 400                        # cells per second per caller, refilling a bucket that holds one full call (MAX_CELLS)
@@ -299,6 +300,16 @@ class World:
                                                            stdin=asyncio.subprocess.PIPE, stdout=asyncio.subprocess.PIPE)
         self.oracle_lock = asyncio.Lock()
 
+    async def fell_cells(self, face, u, v, h):
+        """The untouched planet's cells of the tree cut at [face, u, v, h] that stand above the cut (land_terrain.mjs fell)."""
+        async with self.oracle_lock:
+            self.oracle.stdin.write((json.dumps({"fell": [face, u, v, h]}) + "\n").encode())
+            await self.oracle.stdin.drain()
+            r = json.loads(await self.oracle.stdout.readline())
+        if "error" in r:
+            raise RuntimeError("terrain oracle: " + r["error"])
+        return r["cells"]
+
     async def terrain(self, cells):
         """Block ids of the untouched planet at [face, u, v, h] cells (one round trip for the lot)."""
         if not cells:
@@ -396,6 +407,21 @@ class World:
                 rec["edits"][k] = 0
                 if not titled:                                     # the commons regrows: the cell comes back later
                     rec.setdefault("exp", {})[k] = time.time() + RULES["wilderness_regrow_s"]
+                if cur in TREE_WOOD:
+                    # FELLING ("can we add some basic gravity", operator 2026-11-06): a cut trunk brings down everything
+                    # of its tree above the cut — logs and crown — instead of leaving it floating. Only cells still as
+                    # the planet made them come down (an edit is someone's), each paying what breaking it would; a tree
+                    # lies inside its own plot (land-world roots keep 2 columns from an edge), so the plot is this one.
+                    for ff, fu, fv, fh, fb in await self.fell_cells(face, u, v, h):
+                        fk = (fu - (p % FACE_N) * PLOT, fv - ((p // FACE_N) % FACE_N) * PLOT, fh)
+                        if fk in rec["edits"]:
+                            continue
+                        for item, n in (RULES["breaking"].get(str(fb)) or {"yields": []})["yields"]:
+                            pl["items"][item] = pl["items"].get(item, 0) + n
+                        rec["edits"][fk] = 0
+                        if not titled:
+                            rec.setdefault("exp", {})[fk] = time.time() + RULES["wilderness_regrow_s"]
+                        applied.setdefault(p, []).append([ff, fu, fv, fh, 0])
             else:                                                   # ---- place: spend one item
                 # "you can build anywhere unless it is owned" (operator, 2026-11-06): unowned land is open to everyone
                 if titled and not may:

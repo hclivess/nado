@@ -9,7 +9,8 @@
  *   4. taking a tree apart never makes a blob ("taking apart bushes creates blobs", operator 2026-11-06): cutting a log
  *      keeps the model and leaves out that length of trunk, chopping a bush's leaf cell leaves out those leaves, and
  *      neither draws any cell surface; a leaf block placed in the open is a cluster of leaf cards, not a surface;
- *   5. the same chunk meshes to the same bytes twice (every screen grows the same forest), and wind weights are present.
+ *   5. the same chunk meshes to the same bytes twice (every screen grows the same forest), and wind weights are present;
+ *   6. a ray at a trunk's foot cuts the trunk, not the grass it stands in.
  *
  * Run: node tests/test_trees_are_drawn_as_models_and_taking_one_apart_never_makes_a_blob.mjs
  */
@@ -92,6 +93,15 @@ const a1 = M.meshChunk(q.face, cu, cv, ch, null, null, 0), a2 = M.meshChunk(q.fa
 const same = (x, y) => x && y && x.length === y.length && x.every((w, i) => w === y[i]);
 ok(same(a1.foliage.pos, a2.foliage.pos) && same(a1.bark.pos, a2.bark.pos), "the same chunk meshes to the same forest twice");
 ok(a1.foliage.wind && a1.foliage.wind.some((w, i) => i % 4 !== 3 && w !== 0), "leaves carry wind weights");
+
+// 6: aiming at a trunk's foot cuts the trunk: the drawn trunk stands on the smooth surface, inside the grass cell below
+// its first log, and a ray at it dug the grass under the tree ("it goes through it and digs grass", 2026-11-06)
+{
+  const { readFileSync } = await import("node:fs");
+  const land = readFileSync(join(ROOT, "static", "land.js"), "utf8"), aim = land.slice(land.indexOf("function aim("), land.indexOf("function groundAt"));
+  const foot = aim.indexOf("TREE_WOOD.has(blockAt(P.face, c[0], c[1], c[2] + 1))"), field = aim.indexOf("fieldAt(P.face, p[0], p[1], p[2]) > 0");
+  ok(foot > 0 && foot < field && /hit = \[c\[0\], c\[1\], c\[2\] \+ 1\]/.test(aim), "a ray at a trunk's foot hits the trunk's first log, before the ground is considered");
+}
 
 if (fails) { console.log(`${fails} FAILURES`); process.exit(1); }
 console.log("ALL PASS");
