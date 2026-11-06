@@ -1479,7 +1479,17 @@ async function otcAction(what, o, btn) {
       value: blob, confirmText: "Done" });
     return;
   }
-  if (what === "cancel") return dapp.call("cancel", [o], null, "Cancelling #" + o + "…", { otc: o }, { cid: OTC_CID });
+  // INVARIANT: a value-free call is signed in the background with NO wallet dialog, so this confirm is the only thing
+  // between one click and an order gone for good (2026-11-05: two open ETH asks were cancelled a minute after posting
+  // by a click their owner never meant). Every branch here that ends an order or a fill confirms first.
+  const terms = od.kind === OTC_INTRA ? `${limText(od.gast, od.escRaw)} for ${limText(od.wast, od.want)}`
+                                      : `${rawToNado(od.namtRaw.toString())} NADO for ${od.wamt} ${coinOf(od)}`;
+  if (what === "cancel") {
+    if (!await uiConfirm({ title: `Cancel order #${o}?`,
+      body: "It leaves the book for good and whatever it escrowed comes back to you. To trade again you post a new order.",
+      rows: [{ k: "Order", v: terms }], confirmText: "Cancel the order", cancelText: "Keep it", danger: true })) return;
+    return dapp.call("cancel", [o], null, "Cancelling #" + o + "…", { otc: o }, { cid: OTC_CID });
+  }
   if (what === "boost") {
     if (od.st !== 1 && od.st !== 2) return alertBar("This order is finished — nothing left to tip.");
     // §8: attach a NADO bounty ANYONE can win by finishing this order (settle / expire / atomic fill).
@@ -1602,7 +1612,12 @@ async function otcAction(what, o, btn) {
     if (dapp.htlcRefund) return dapp.htlcRefund({ htlcId: od.hid }, { otc: o, phase: "htlc_refund" });
     return alertBar("Reclaim the NADO lock from your wallet's Swap tab (lock " + od.hid.slice(0, 12) + "…).");
   }
-  if (what === "release") return dapp.call("release", [o], null, "Releasing #" + o + "…", { otc: o }, { cid: OTC_CID });
+  if (what === "release") {
+    if (!await uiConfirm({ title: `Release order #${o}?`,
+      body: "The taker never locked, so their fill ends and the order goes back on the book for anyone to take.",
+      rows: [{ k: "Order", v: terms }], confirmText: "Release", cancelText: "Not now" })) return;
+    return dapp.call("release", [o], null, "Releasing #" + o + "…", { otc: o }, { cid: OTC_CID });
+  }
   if (what === "nadoclaim") {
     // The NADO leg pays out through an L1 htlc_claim, not through this contract. ASK: the taker claims once
     // the maker revealed the secret on the foreign chain. BID: the maker claims with their own secret — and
