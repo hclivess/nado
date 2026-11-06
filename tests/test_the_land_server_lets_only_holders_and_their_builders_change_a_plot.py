@@ -121,6 +121,9 @@ async def main():
     c.session.cookie_jar.clear()
 
     # ---- writes ----------------------------------------------------------------------------------------------------
+    # placing spends items (test_land_players_gather_make_tools_craft_and_trade pins the economy): stock the builders
+    for kd in (OWNER, BUILDER, BUYER, STRANGER):
+        world.player(kd["address"])["items"].update({"brick": 50, "planks": 50, "glass": 50, "dirt": 9000})
     st, stranger, _ = await agent_login(c, STRANGER)
     st, builder, _ = await agent_login(c, BUILDER)
     cell = [SPAWN_FACE, UA + 3, VA + 4, 120, 11]
@@ -150,7 +153,7 @@ async def main():
     check("water, bedrock, the bedrock layer and cells off the planet are refused", r["applied"] == 0 and len(r["refused"]) == 5, r)
     r = await (await c.post("/land/api/set", json={"cells": [cell] * (S.MAX_CELLS + 1)}, headers=auth(owner["token"]))).json()
     check(f"a call carries at most {S.MAX_CELLS} cells", r["applied"] == 0 and "at most" in r["refused"][0][1], r)
-    many = [[SPAWN_FACE, UA + (i % 16), VA + (i // 16) % 16, 130 + i // 256, 3] for i in range(S.MAX_CELLS)]
+    many = [[SPAWN_FACE, UA + (i % 16), VA + (i // 16) % 16, 130 + i // 256, 2] for i in range(S.MAX_CELLS)]
     r1 = await (await c.post("/land/api/set", json={"cells": many}, headers=auth(stranger["token"]))).json()
     r2 = await (await c.post("/land/api/set", json={"cells": many[:800]}, headers=auth(stranger["token"]))).json()
     check(f"one full call goes through the limiter, then a caller is held to {S.RATE} cells/s",
@@ -162,36 +165,41 @@ async def main():
     w1 = await c.ws_connect("/land/ws?token=" + owner["token"])
     w2 = await c.ws_connect("/land/ws?token=" + stranger["token"])
     rj = lambda ws: asyncio.wait_for(ws.receive_json(), 5)                  # never wait forever on a socket
-    h1, h2 = await rj(w1), await rj(w2)
+
+    async def next_of(ws, *types):
+        """The next message of one of `types`: the server also pushes inventories, the offer board and positions."""
+        for _ in range(40):
+            m = await rj(ws)
+            if m["t"] in types:
+                return m
+        raise AssertionError(f"no {types} message")
+    h1, h2 = await next_of(w1, "hello"), await next_of(w2, "hello")
     check("a socket is greeted with who it is", h1["you"] == OWNER["address"] and h2["you"] == STRANGER["address"], (h1, h2))
+    inv1 = await next_of(w1, "inv")
+    check("…and with its player's inventory", inv1["items"].get("glass") == 50, inv1)
     await w2.send_json({"t": "watch", "plots": [PA]})
-    first = await rj(w2)
-    check("watching a plot sends its edits", first["t"] == "plot" and first["plot"] == PA and len(first["edits"]) >= 2 and "salt" not in first, first)
-    await w1.send_json({"t": "watch", "plots": [PA]}); await rj(w1)
+    first = await next_of(w2, "plot")
+    check("watching a plot sends its edits", first["plot"] == PA and len(first["edits"]) >= 2 and "salt" not in first, first)
+    await w1.send_json({"t": "watch", "plots": [PA]}); await next_of(w1, "plot")
     await w1.send_json({"t": "set", "cells": [[SPAWN_FACE, UA + 9, VA + 9, 121, 12]], "req": 7})
-    got = {}
-    for ws, name in ((w1, "w1"), (w1, "w1"), (w2, "w2")):
-        m = await asyncio.wait_for(ws.receive_json(), 5)
-        while m["t"] == "players":
-            m = await asyncio.wait_for(ws.receive_json(), 5)
-        got.setdefault(name, []).append(m)
-    check("the sender is told what applied", any(m["t"] == "set_ok" and m["applied"] == 1 and m["req"] == 7 for m in got["w1"]), got["w1"])
+    ok1 = await next_of(w1, "set_ok")
+    check("the sender is told what applied", ok1["applied"] == 1 and ok1["req"] == 7, ok1)
+    e1, e2 = await next_of(w1, "edit"), await next_of(w2, "edit")
     check("every watcher gets the edit, the sender's included",
-          any(m["t"] == "edit" and m["cells"] == [[SPAWN_FACE, UA + 9, VA + 9, 121, 12]] for m in got["w1"])
-          and got["w2"][0]["t"] == "edit" and got["w2"][0]["by"] == OWNER["address"], got)
+          e1["cells"] == [[SPAWN_FACE, UA + 9, VA + 9, 121, 12]] and e2["cells"] == e1["cells"] and e2["by"] == OWNER["address"], (e1, e2))
+    inv2 = await next_of(w1, "inv")
+    check("placing spends one item, and the player's socket is told", inv2["items"].get("glass") == 49, inv2)
     await w1.send_json({"t": "pos", "p": [SPAWN_FACE, UA + 1.5, VA + 1.5, 120, 0]})
     await w2.send_json({"t": "pos", "p": [SPAWN_FACE, UA + 30.5, VA + 2.5, 121, 1]})
     seen = None
     for _ in range(20):
-        m = await asyncio.wait_for(w2.receive_json(), 5)
-        if m["t"] == "players" and m["list"]:
+        m = await next_of(w2, "players")
+        if m["list"]:
             seen = m["list"]; break
     check("players near each other see each other", seen and seen[0]["who"] == OWNER["address"], seen)
     await w2.send_json({"t": "set", "cells": [[SPAWN_FACE, UA + 1, VA + 1, 121, 12]]})
-    m = await asyncio.wait_for(w2.receive_json(), 5)
-    while m["t"] == "players":
-        m = await asyncio.wait_for(w2.receive_json(), 5)
-    check("a stranger's socket edit is refused like an API call", m["t"] == "set_ok" and m["applied"] == 0, m)
+    m = await next_of(w2, "set_ok")
+    check("a stranger's socket edit is refused like an API call", m["applied"] == 0, m)
     await w1.close(); await w2.close()
 
     # ---- storage and the commitment ----------------------------------------------------------------------------------

@@ -6,7 +6,8 @@
  *   2. an agent the plot's owner invited signs in with ITS OWN key and builds a 3 x 3 wall through the API — the
  *      visitor's HUD counts the 9 changed blocks without reloading (the server pushed them);
  *   3. the owner, signed in (their session cookie), sees the plot as theirs and the agent's 9 blocks on arrival;
- *   4. the owner places a block — the visitor sees it arrive (10 changed blocks), and the two players see each other;
+ *   4. the owner places a plank from their inventory — the visitor sees it arrive (10 changed blocks), and the two
+ *      players see each other;
  *   5. the visitor taps Place — nothing changes anywhere, and the page says why.
  * Every check reads what a player sees (the HUD) or what crossed the wire (the page's own websocket frames).
  *
@@ -109,7 +110,8 @@ try {
   ok(await until(A, "/Sign in to build/.test(document.getElementById('hudPlot').textContent)"),
      "a visitor is online and offered Sign in to build: " + await hudText(A));
 
-  // 2. the owner's invited agent builds through the API
+  // 2. the owner's invited agent builds through the API, with plaster it holds (placing spends items)
+  await getJ("/fixture/seed?who=agent&items=" + encodeURIComponent(JSON.stringify({ plaster: 9 })));
   const built = await getJ("/fixture/agent_build?top=" + Wd.column(q.face, q.u0 + 2, q.v0 + 12).top);
   ok(built.applied === 9 && !built.refused.length, "an invited agent, signed in with its own key, builds a 3 x 3 wall via the API: " + JSON.stringify(built));
   ok(await until(A, "/ · 9 changed blocks$/.test(document.getElementById('hudPos').textContent)", 10000),
@@ -117,10 +119,11 @@ try {
 
   // 3. the owner, signed in
   const { token } = await getJ("/fixture/owner_token");
+  await getJ("/fixture/seed?who=owner&items=" + encodeURIComponent(JSON.stringify({ planks: 3 })));
   const B = await tab();
   await send(B, "Network.setCookie", { name: "land_session", value: token, url: base + "/", httpOnly: true });
   await open(B, SO);
-  ok(await until(B, "/Your plot/.test(document.getElementById('hudPlot').textContent) && / · 9 changed blocks$/.test(document.getElementById('hudPos').textContent)"),
+  ok(await until(B, "/Your plot/.test(document.getElementById('hudPlot').textContent) && / · 9 changed blocks$/.test(document.getElementById('hudPos').textContent) && /Planks/.test(document.getElementById('hotName').textContent)"),
      "the signed-in owner sees the plot as theirs and the agent's blocks on arrival: " + await hudText(B));
 
   // 4. the owner builds; the visitor sees it; they see each other

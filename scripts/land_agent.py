@@ -11,9 +11,14 @@
                                                                 x/z 0..15 within the plot, y the layer (0..255)
   Also: `plot --plot <id>` (the plot's edits), `set --cells '[[face,u,v,h,block],…]'`, `watch --plot <id>` (live edits).
 
-Blocks are static/land-world.js BLOCKS ids (1 grass … 29 marble; 0 clears a cell; water and bedrock cannot be placed).
-The server applies only what the agent may build — the plot's holder or a builder that holder invited — at most
-MAX_CELLS cells per call and RATE cells a second; anything else comes back in `refused` with the reason.
+THE AGENT PLAYS BY THE SAME RULES AS A PERSON (static/land-recipes.json): a cell set to 0 is BROKEN — gathered into the
+agent's own inventory, if its tools can break it, at the speed a hand (or that tool) works — anywhere in the wilderness,
+and on a titled plot only where it may build; any other block id is PLACED from its inventory, one item each, only where
+it may build. So an agent gathers, makes tools and trades like anyone:
+  inventory · craft --recipe <id> [--times n] · give --to <address> --items '{"cobble": 4}' · offers ·
+  offer --give '{"planks": 8}' --want '{"sand": 4}' · accept --id <offer> · cancel --id <offer>
+Blocks are static/land-world.js BLOCKS ids. At most MAX_CELLS cells per call and RATE cells a second; anything refused
+comes back in `refused` with the reason.
 """
 import os, sys, tempfile
 os.environ["HOME"] = tempfile.mkdtemp(prefix="nado-land-agent-")   # BEFORE the crypto import (CLAUDE.md rule 4)
@@ -67,6 +72,13 @@ def main():
     st = sub.add_parser("set"); st.add_argument("--cells", required=True)
     bd = sub.add_parser("build"); bd.add_argument("--plot", type=int, required=True); bd.add_argument("--file", required=True)
     wt = sub.add_parser("watch"); wt.add_argument("--plot", type=int, required=True)
+    sub.add_parser("inventory")
+    cr = sub.add_parser("craft"); cr.add_argument("--recipe", required=True); cr.add_argument("--times", type=int, default=1)
+    gv = sub.add_parser("give"); gv.add_argument("--to", required=True); gv.add_argument("--items", required=True)
+    sub.add_parser("offers")
+    of = sub.add_parser("offer"); of.add_argument("--give", required=True); of.add_argument("--want", required=True)
+    ac = sub.add_parser("accept"); ac.add_argument("--id", required=True)
+    cn = sub.add_parser("cancel"); cn.add_argument("--id", required=True)
     a = ap.parse_args()
 
     if a.cmd == "newkey":
@@ -96,6 +108,19 @@ def main():
             if i + 2048 < len(cells):
                 time.sleep(5.5)
         print(json.dumps({"applied": applied, "refused": refused[:20], "refused_total": len(refused)}))
+    elif a.cmd == "inventory":
+        print(json.dumps(call(a.server, "/land/api/inventory", token=login(a.server, kd))))
+    elif a.cmd == "craft":
+        print(json.dumps(call(a.server, "/land/api/craft", {"recipe": a.recipe, "times": a.times}, token=login(a.server, kd))))
+    elif a.cmd == "give":
+        print(json.dumps(call(a.server, "/land/api/give", {"to": a.to, "items": json.loads(a.items)}, token=login(a.server, kd))))
+    elif a.cmd == "offers":
+        print(json.dumps(call(a.server, "/land/api/offers")))
+    elif a.cmd == "offer":
+        print(json.dumps(call(a.server, "/land/api/offer", {"give": json.loads(a.give), "want": json.loads(a.want)}, token=login(a.server, kd))))
+    elif a.cmd in ("accept", "cancel"):
+        path = "/land/api/accept" if a.cmd == "accept" else "/land/api/cancel_offer"
+        print(json.dumps(call(a.server, path, {"id": a.id}, token=login(a.server, kd))))
     elif a.cmd == "watch":
         import asyncio, aiohttp
         async def run():

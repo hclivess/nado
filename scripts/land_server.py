@@ -47,10 +47,12 @@ CHALLENGE_TTL = 300
 SESSION_TTL = 7 * 86400
 FACE_N, PLOT, W, H = L.FACE_N, L.PLOT, L.FACE_N * L.PLOT, 256
 N_BLOCKS = 31                     # static/land-world.js BLOCKS.length
-UNBUILDABLE = {5, 30}             # water, bedrock: never placed (land-world.js `build: false` besides air)
+UNBUILDABLE = {5, 30}             # water, bedrock: never placed (no item in land-recipes.json places them either)
 MAX_CELLS = 4096                  # per /set call or ws "set"
 RATE = 400                        # cells per second per caller, refilling a bucket that holds one full call (MAX_CELLS)
 PLANET = 0
+WORK_CAP = 10.0                   # seconds of breaking work a caller can bank (refills at 1 s/s)
+RULES = json.load(open(os.path.join(REPO, "static", "land-recipes.json")))   # the page reads the same file
 
 # ---- the plot's commitment (land-world.js commitmentBytes, byte for byte) ------------------------------------------
 def canonical_edits(edits):
@@ -99,13 +101,22 @@ class World:
         self.challenges = {}                  # nonce -> {"issued", "origin", "bind"}
         self.sessions = {}                    # token -> {"address", "until"}
         self.buckets = {}                     # caller -> [tokens, at]
-        self.http = None
+        self.workb = {}                       # caller -> [seconds of work banked, at]
+        self.players, self.pdirty = {}, set()  # address -> {"items", "tools", "stations"}; who changed since the flush
+        os.makedirs(os.path.join(self.dir, "players"), exist_ok=True)
+        try:
+            self.offers = json.load(open(os.path.join(self.dir, "offers.json")))
+        except Exception:
+            self.offers = {}
+        self.odirty = False
+        self.http = self.oracle = None
         for f in os.listdir(self.dir):
             if f.endswith(".json") and f[:-5].isdigit():
                 try:
                     d = json.load(open(os.path.join(self.dir, f)))
                     self.plots[int(f[:-5])] = {"edits": {tuple(map(int, k.split(":"))): b for k, b in d["edits"].items()},
-                                               "salt": bytes.fromhex(d["salt"]), "ver": int(d.get("ver", 0))}
+                                               "salt": bytes.fromhex(d["salt"]), "ver": int(d.get("ver", 0)),
+                                               "exp": {tuple(map(int, k.split(":"))): t for k, t in d.get("exp", {}).items()}}
                 except Exception:
                     pass
 
@@ -119,13 +130,23 @@ class World:
     def flush(self):
         for p in list(self.dirty):
             rec = self.plots[p]
-            body = {"edits": {f"{x}:{z}:{y}": b for (x, z, y), b in rec["edits"].items()}, "salt": rec["salt"].hex(), "ver": rec["ver"]}
-            path = os.path.join(self.dir, f"{p}.json")
-            fd, tmp = tempfile.mkstemp(dir=self.dir, prefix=".plot-")
-            with os.fdopen(fd, "w") as f:
-                json.dump(body, f, separators=(",", ":"))
-            os.replace(tmp, path)                  # a reader (or a crash) never sees half a plot
+            body = {"edits": {f"{x}:{z}:{y}": b for (x, z, y), b in rec["edits"].items()}, "salt": rec["salt"].hex(), "ver": rec["ver"],
+                    "exp": {f"{x}:{z}:{y}": t for (x, z, y), t in (rec.get("exp") or {}).items()}}
+            self._write(f"{p}.json", body)
             self.dirty.discard(p)
+        for a in list(self.pdirty):
+            self._write(os.path.join("players", a + ".json"), self.players[a])
+            self.pdirty.discard(a)
+        if self.odirty:
+            self._write("offers.json", self.offers)
+            self.odirty = False
+
+    def _write(self, rel, body):
+        path = os.path.join(self.dir, rel)
+        fd, tmp = tempfile.mkstemp(dir=os.path.dirname(path), prefix=".tmp-")
+        with os.fdopen(fd, "w") as f:
+            json.dump(body, f, separators=(",", ":"))
+        os.replace(tmp, path)                      # a reader (or a crash) never sees half a file
 
     # -- the chain's answers, cached a few seconds (a view is a VM run on the exec node)
     async def _get(self, path):
@@ -200,13 +221,63 @@ class World:
         self.buckets[who] = [t - n, time.time()]
         return True
 
+    # -- the untouched planet, from the browsers' own generator (scripts/land_terrain.mjs)
+    async def start_oracle(self):
+        self.oracle = await asyncio.create_subprocess_exec("node", os.path.join(REPO, "scripts", "land_terrain.mjs"),
+                                                           stdin=asyncio.subprocess.PIPE, stdout=asyncio.subprocess.PIPE)
+        self.oracle_lock = asyncio.Lock()
+
+    async def terrain(self, cells):
+        """Block ids of the untouched planet at [face, u, v, h] cells (one round trip for the lot)."""
+        if not cells:
+            return []
+        async with self.oracle_lock:
+            self.oracle.stdin.write((json.dumps({"cells": cells}) + "\n").encode())
+            await self.oracle.stdin.drain()
+            r = json.loads(await self.oracle.stdout.readline())
+        if "error" in r:
+            raise RuntimeError("terrain oracle: " + r["error"])
+        return r["blocks"]
+
+    # -- players: inventory, tools, stations, and the work their hands (or tools) can do per second
+    def player(self, addr):
+        pl = self.players.get(addr)
+        if pl is None:
+            path = os.path.join(self.dir, "players", addr + ".json")
+            try:
+                pl = json.load(open(path))
+            except Exception:
+                pl = {"items": {}, "tools": [], "stations": []}
+            pl.setdefault("items", {}); pl.setdefault("tools", []); pl.setdefault("stations", [])
+            self.players[addr] = pl
+        return pl
+
+    def inv_json(self, addr):
+        pl = self.player(addr)
+        return {"items": {k: n for k, n in sorted(pl["items"].items()) if n > 0}, "tools": sorted(pl["tools"]),
+                "stations": sorted(pl["stations"])}
+
+    def _has(self, pl, need):
+        return need in pl["tools"] or need in pl["stations"]
+
+    def work(self, who, seconds):
+        """Breaking takes time: a bucket of WORK_CAP seconds refilling at 1 s/s. An agent works no faster than a hand."""
+        t, at = self.workb.get(who, [WORK_CAP, time.time()])
+        t = min(WORK_CAP, t + (time.time() - at))
+        if seconds > t:
+            self.workb[who] = [t, time.time()]
+            return False
+        self.workb[who] = [t - seconds, time.time()]
+        return True
+
     async def apply(self, who, cells):
-        """Apply [face, u, v, h, block] cells the caller may build on; returns (applied by plot, refused)."""
+        """Apply [face, u, v, h, block] cells: block 0 BREAKS (gathering: its yield goes to the caller's inventory),
+        any other id PLACES one item from the inventory. Returns (applied by plot, refused, inventory changed)."""
         if not isinstance(cells, list) or len(cells) > MAX_CELLS:
-            return {}, [[None, f"at most {MAX_CELLS} cells per call"]]
+            return {}, [[None, f"at most {MAX_CELLS} cells per call"]], False
         if not self.take(who, len(cells)):
-            return {}, [[None, "rate limited — slow down"]]
-        applied, refused, ok_plot = {}, [], {}
+            return {}, [[None, "rate limited — slow down"]], False
+        parsed, refused = [], []
         for c in cells:
             try:
                 face, u, v, h, b = (int(x) for x in c)
@@ -214,21 +285,172 @@ class World:
                 refused.append([c, "a cell is [face, u, v, h, block]"]); continue
             if not (0 <= face < 6 and 0 <= u < W and 0 <= v < W and 1 <= h < H and 0 <= b < N_BLOCKS) or b in UNBUILDABLE:
                 refused.append([c, "out of the world, or not a block you can place"]); continue
+            parsed.append((face, u, v, h, b, c))
+        # what is there now: an edit, else the untouched planet
+        keys = []
+        for face, u, v, h, b, c in parsed:
             p = plot_of(face, u, v)
-            if p not in ok_plot:
-                ok_plot[p] = await self.may_build(p, who)
-            if not ok_plot[p]:
-                refused.append([c, "not your plot — only its owner and the builders they invite build here"]); continue
             fr, fc = (p // FACE_N) % FACE_N, p % FACE_N
-            key = (u - fc * PLOT, v - fr * PLOT, h)
-            rec = self.plot(p)
-            if rec["edits"].get(key) == b:
-                continue
-            rec["edits"][key] = b          # an edit back to the terrain's own block stays listed: the server does not
-            rec["ver"] += 1                # generate terrain, so it cannot tell — the commitment binds it either way
+            keys.append((p, (u - fc * PLOT, v - fr * PLOT, h)))
+        # the untouched planet for every cell without an edit at the start, by index (a cell listed twice in one batch
+        # reads the first one's edit the second time, never another cell's terrain)
+        idx = [i for i, ((f, u, v, h, b, c), (p, k)) in enumerate(zip(parsed, keys)) if k not in (self.plots.get(p) or {}).get("edits", {})]
+        base = dict(zip(idx, await self.terrain([list(parsed[i][:4]) for i in idx]))) if idx else {}
+        pl, places = self.player(who), {it["places"]: name for name, it in RULES["items"].items() if "places" in it}
+        applied, titled_ok, changed = {}, {}, False
+        for i, ((face, u, v, h, b, c), (p, k)) in enumerate(zip(parsed, keys)):
+            rec = self.plots.get(p)
+            cur = rec["edits"][k] if rec and k in rec["edits"] else base[i]
+            if p not in titled_ok:
+                titled_ok[p] = (await self.holder(p)) is not None, await self.may_build(p, who)
+            titled, may = titled_ok[p]
+            if b == 0:                                              # ---- break: gather
+                rule = RULES["breaking"].get(str(cur))
+                if not rule:
+                    refused.append([c, "nothing here that can be gathered"]); continue
+                if titled and not may:
+                    refused.append([c, "not your plot — only its owner and the builders they invite take from it"]); continue
+                if rule.get("needs") and rule["needs"] not in pl["tools"]:
+                    refused.append([c, f"needs a {RULES['tools'][rule['needs']]['name'].lower()}"]); continue
+                speed = RULES["tools"][rule["class"]]["speed"] if rule.get("class") in pl["tools"] else 1
+                if not self.work(who, rule["hard"] / speed):
+                    refused.append([c, "too fast — breaking takes time (a better tool is quicker)"]); continue
+                for item, n in rule["yields"]:
+                    pl["items"][item] = pl["items"].get(item, 0) + n
+                if rule.get("bonus") and (face * 7919 + u * 31 + v * 17 + h) % rule["bonus"][1] == 0:
+                    pl["items"][rule["bonus"][0]] = pl["items"].get(rule["bonus"][0], 0) + 1
+                changed = True
+                rec = self.plot(p)
+                rec["edits"][k] = 0
+                if not titled:                                     # the commons regrows: the cell comes back later
+                    rec.setdefault("exp", {})[k] = time.time() + RULES["wilderness_regrow_s"]
+            else:                                                   # ---- place: spend one item
+                if not may:
+                    refused.append([c, "not your plot — only its owner and the builders they invite build here"]); continue
+                if cur not in (0, 5):
+                    refused.append([c, "something is already there"]); continue
+                item = places.get(b)
+                if not item or pl["items"].get(item, 0) < 1:
+                    refused.append([c, f"you have no {RULES['items'][item]['name'].lower() if item else 'such block'} to place"]); continue
+                pl["items"][item] -= 1
+                changed = True
+                rec = self.plot(p)
+                rec["edits"][k] = b
+                rec.get("exp", {}).pop(k, None)
+            rec["ver"] += 1
             self.dirty.add(p)
-            applied.setdefault(p, []).append([face, u, v, h, b])
-        return applied, refused
+            self.pdirty.add(who)
+            applied.setdefault(p, []).append([face, u, v, h, rec["edits"][k]])
+        return applied, refused, changed
+
+    def regrow(self):
+        """Wilderness cells whose time is up go back to the untouched planet: {plot: [[face, u, v, h], ...]}."""
+        out, now = {}, time.time()
+        for p, rec in self.plots.items():
+            exp = rec.get("exp")
+            if not exp:
+                continue
+            face, row, col = plot_coords(p)
+            for k in [k for k, t in exp.items() if t <= now]:
+                exp.pop(k); rec["edits"].pop(k, None); rec["ver"] += 1; self.dirty.add(p)
+                out.setdefault(p, []).append([face, col * PLOT + k[0], row * PLOT + k[1], k[2]])
+        return out
+
+    # -- crafting
+    def craft(self, who, rid, times=1):
+        r = next((x for x in RULES["recipes"] if x["id"] == rid), None)
+        if not r or not isinstance(times, int) or not 1 <= times <= 64:
+            return "no such recipe"
+        pl = self.player(who)
+        for need in r.get("with", []):
+            if not self._has(pl, need):
+                return f"needs a {(RULES['tools'].get(need) or RULES['stations'].get(need))['name'].lower()}"
+        for item, n in r["uses"]:
+            if pl["items"].get(item, 0) < n * times:
+                return f"needs {n * times} {RULES['items'][item]['name'].lower()}"
+        for item, n in r["uses"]:
+            pl["items"][item] -= n * times
+        for item, n in r["makes"]:
+            if item in RULES["tools"]:
+                if item not in pl["tools"]:
+                    pl["tools"].append(item)
+            elif item in RULES["stations"]:
+                if item not in pl["stations"]:
+                    pl["stations"].append(item)
+            else:
+                pl["items"][item] = pl["items"].get(item, 0) + n * times
+        self.pdirty.add(who)
+        return None
+
+    # -- trading: a gift, or an offer anyone may take (both sides move at once, or neither)
+    def _bag(self, d):
+        if not isinstance(d, dict) or not d or len(d) > 16:
+            return None
+        out = {}
+        for k, n in d.items():
+            if k not in RULES["items"] or not isinstance(n, int) or not 1 <= n <= 10 ** 6:
+                return None
+            out[k] = n
+        return out
+
+    def give(self, who, to, items):
+        bag = self._bag(items)
+        if not bag:
+            return "name the items and counts to give"
+        if not validate_address(to, allow_reserved=False) or to == who:
+            return "that is not another player's address"
+        pl = self.player(who)
+        if any(pl["items"].get(k, 0) < n for k, n in bag.items()):
+            return "you do not have that much"
+        dst = self.player(to)
+        for k, n in bag.items():
+            pl["items"][k] -= n; dst["items"][k] = dst["items"].get(k, 0) + n
+        self.pdirty.update((who, to))
+        return None
+
+    def offer(self, who, give, want):
+        g, w = self._bag(give), self._bag(want)
+        if not g or not w:
+            return None, "an offer gives some items and wants some items"
+        pl = self.player(who)
+        if any(pl["items"].get(k, 0) < n for k, n in g.items()):
+            return None, "you do not have what you offer"
+        if sum(1 for o in self.offers.values() if o["by"] == who) >= 50:
+            return None, "at most 50 open offers each"
+        for k, n in g.items():                                     # escrowed until taken or cancelled
+            pl["items"][k] -= n
+        oid = secrets.token_hex(6)
+        self.offers[oid] = {"id": oid, "by": who, "give": g, "want": w, "at": int(time.time())}
+        self.pdirty.add(who); self.odirty = True
+        return oid, None
+
+    def accept(self, who, oid):
+        o = self.offers.get(oid)
+        if not o:
+            return "that offer is gone"
+        if o["by"] == who:
+            return "that is your own offer"
+        pl, maker = self.player(who), self.player(o["by"])
+        if any(pl["items"].get(k, 0) < n for k, n in o["want"].items()):
+            return "you do not have what it asks for"
+        for k, n in o["want"].items():
+            pl["items"][k] -= n; maker["items"][k] = maker["items"].get(k, 0) + n
+        for k, n in o["give"].items():
+            pl["items"][k] = pl["items"].get(k, 0) + n
+        del self.offers[oid]
+        self.pdirty.update((who, o["by"])); self.odirty = True
+        return None
+
+    def cancel(self, who, oid):
+        o = self.offers.get(oid)
+        if not o or o["by"] != who:
+            return "not an offer of yours"
+        pl = self.player(who)
+        for k, n in o["give"].items():
+            pl["items"][k] = pl["items"].get(k, 0) + n
+        del self.offers[oid]
+        self.pdirty.add(who); self.odirty = True
+        return None
 
     # -- identity
     def challenge(self, origin, bind=None):
@@ -288,6 +510,35 @@ class Hub:
                     except Exception:
                         pass
 
+    async def reverts(self, back):
+        """Wilderness cells that regrew: every watcher drops its override and shows the untouched planet again."""
+        for ws, st in list(self.socks.items()):
+            for p, cells in back.items():
+                if p in st["watch"]:
+                    try:
+                        await ws.send_json({"t": "revert", "plot": p, "cells": cells})
+                    except Exception:
+                        pass
+
+    async def inv(self, world, addr):
+        """A player's inventory changed: tell every socket that player has open."""
+        if not addr:
+            return
+        for ws, st in list(self.socks.items()):
+            if st["who"] == addr:
+                try:
+                    await ws.send_json(dict(world.inv_json(addr), t="inv"))
+                except Exception:
+                    pass
+
+    async def offers(self, world):
+        snap = {"t": "offers", "offers": sorted(world.offers.values(), key=lambda o: -o["at"])[:500]}
+        for ws in list(self.socks):
+            try:
+                await ws.send_json(snap)
+            except Exception:
+                pass
+
     async def positions(self):
         socks = list(self.socks.items())
         for ws, st in socks:
@@ -306,13 +557,27 @@ class Hub:
 def make_app(world, hub, site_origin, wallet_url, secure_cookies=True):
     async def on_start(app):
         world.http = ClientSession(timeout=ClientTimeout(total=10))
-        app["bg"] = [asyncio.ensure_future(_flusher()), asyncio.ensure_future(_mover())]
+        await world.start_oracle()
+        app["bg"] = [asyncio.ensure_future(_flusher()), asyncio.ensure_future(_mover()), asyncio.ensure_future(_regrower())]
 
     async def on_stop(app):
         for t in app.get("bg", []):
             t.cancel()
         world.flush()
         await world.http.close()
+        if world.oracle and world.oracle.returncode is None:
+            world.oracle.kill()
+            await world.oracle.wait()                         # reaped here, not by a finalizer after the loop is gone
+
+    async def _regrower():
+        while True:
+            await asyncio.sleep(5)
+            try:
+                back = world.regrow()
+                if back:
+                    await hub.reverts(back)
+            except Exception:
+                pass
 
     async def _flusher():
         while True:
@@ -407,9 +672,59 @@ def make_app(world, hub, site_origin, wallet_url, secure_cookies=True):
         if not addr:
             raise web.HTTPUnauthorized(text="sign in first (agents: /land/api/agent_login)")
         d = await request.json()
-        applied, refused = await world.apply(addr, d.get("cells"))
+        applied, refused, changed = await world.apply(addr, d.get("cells"))
         await hub.edits(applied, addr)
-        return web.json_response({"applied": sum(len(c) for c in applied.values()), "refused": refused})
+        if changed:
+            await hub.inv(world, addr)
+        return web.json_response({"applied": sum(len(c) for c in applied.values()), "refused": refused, "inventory": world.inv_json(addr)})
+
+    def need_addr(request):
+        addr = world.who(request)
+        if not addr:
+            raise web.HTTPUnauthorized(text="sign in first (agents: /land/api/agent_login)")
+        return addr
+
+    async def inventory(request):
+        return web.json_response(world.inv_json(need_addr(request)))
+
+    async def craft(request):
+        addr, d = need_addr(request), await request.json()
+        err = world.craft(addr, d.get("recipe"), d.get("times", 1))
+        if not err:
+            await hub.inv(world, addr)
+        return web.json_response({"ok": not err, "error": err, "inventory": world.inv_json(addr)})
+
+    async def give(request):
+        addr, d = need_addr(request), await request.json()
+        err = world.give(addr, d.get("to", ""), d.get("items"))
+        if not err:
+            await hub.inv(world, addr); await hub.inv(world, d.get("to"))
+        return web.json_response({"ok": not err, "error": err, "inventory": world.inv_json(addr)})
+
+    async def offers(request):
+        return web.json_response({"offers": sorted(world.offers.values(), key=lambda o: -o["at"])[:500]})
+
+    async def offer(request):
+        addr, d = need_addr(request), await request.json()
+        oid, err = world.offer(addr, d.get("give"), d.get("want"))
+        if not err:
+            await hub.inv(world, addr); await hub.offers(world)
+        return web.json_response({"ok": not err, "id": oid, "error": err, "inventory": world.inv_json(addr)})
+
+    async def accept(request):
+        addr, d = need_addr(request), await request.json()
+        maker = (world.offers.get(d.get("id")) or {}).get("by")
+        err = world.accept(addr, d.get("id"))
+        if not err:
+            await hub.inv(world, addr); await hub.inv(world, maker); await hub.offers(world)
+        return web.json_response({"ok": not err, "error": err, "inventory": world.inv_json(addr)})
+
+    async def cancel_offer(request):
+        addr, d = need_addr(request), await request.json()
+        err = world.cancel(addr, d.get("id"))
+        if not err:
+            await hub.inv(world, addr); await hub.offers(world)
+        return web.json_response({"ok": not err, "error": err, "inventory": world.inv_json(addr)})
 
     async def ws_handler(request):
         """{t:"watch", plots:[…]} -> {t:"plot", …} for each; {t:"pos", p:[face,u,v,h,yaw]}; {t:"set", cells:[…]} ->
@@ -419,6 +734,9 @@ def make_app(world, hub, site_origin, wallet_url, secure_cookies=True):
         addr = world.who(request)
         st = hub.socks[ws] = {"who": addr, "watch": set(), "pos": None, "id": secrets.token_hex(4)}
         await ws.send_json({"t": "hello", "you": addr, "id": st["id"]})
+        if addr:
+            await ws.send_json(dict(world.inv_json(addr), t="inv"))
+        await ws.send_json({"t": "offers", "offers": sorted(world.offers.values(), key=lambda o: -o["at"])[:500]})
         try:
             async for msg in ws:
                 if msg.type != WSMsgType.TEXT:
@@ -442,9 +760,27 @@ def make_app(world, hub, site_origin, wallet_url, secure_cookies=True):
                     if not addr:
                         await ws.send_json({"t": "set_ok", "applied": 0, "refused": [[None, "sign in to build"]], "req": m.get("req")})
                         continue
-                    applied, refused = await world.apply(addr, m.get("cells"))
+                    applied, refused, changed = await world.apply(addr, m.get("cells"))
                     await ws.send_json({"t": "set_ok", "applied": sum(len(c) for c in applied.values()), "refused": refused, "req": m.get("req")})
                     await hub.edits(applied, addr)
+                    if changed:
+                        await hub.inv(world, addr)
+                elif t in ("craft", "give", "offer", "accept", "cancel_offer"):
+                    if not addr:
+                        await ws.send_json({"t": "done", "req": m.get("req"), "error": "sign in first"})
+                        continue
+                    other = (world.offers.get(m.get("id")) or {}).get("by") if t == "accept" else m.get("to") if t == "give" else None
+                    err = (world.craft(addr, m.get("recipe"), m.get("times", 1)) if t == "craft"
+                           else world.give(addr, m.get("to", ""), m.get("items")) if t == "give"
+                           else world.offer(addr, m.get("give"), m.get("want"))[1] if t == "offer"
+                           else world.accept(addr, m.get("id")) if t == "accept" else world.cancel(addr, m.get("id")))
+                    await ws.send_json({"t": "done", "req": m.get("req"), "error": err})
+                    if not err:
+                        await hub.inv(world, addr)
+                        if other:
+                            await hub.inv(world, other)
+                        if t in ("offer", "accept", "cancel_offer"):
+                            await hub.offers(world)
         finally:
             hub.socks.pop(ws, None)
         return ws
@@ -462,6 +798,13 @@ def make_app(world, hub, site_origin, wallet_url, secure_cookies=True):
         web.get("/land/api/plot", plot),
         web.get("/land/api/region", region),
         web.post("/land/api/set", set_cells),
+        web.get("/land/api/inventory", inventory),
+        web.post("/land/api/craft", craft),
+        web.post("/land/api/give", give),
+        web.get("/land/api/offers", offers),
+        web.post("/land/api/offer", offer),
+        web.post("/land/api/accept", accept),
+        web.post("/land/api/cancel_offer", cancel_offer),
         web.get("/land/ws", ws_handler),
     ])
     return app

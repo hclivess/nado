@@ -71,20 +71,40 @@ local up, a sky dome coloured zenith-to-horizon with a sunset glow and daytime s
 fog in the horizon's colour, ACES tone mapping on physically based materials.
 tests/test_the_sun_is_a_real_star_at_a_real_distance_and_the_planet_turns_under_it.mjs pins it.
 
-## Proposed: from sticks and stones to a post-robotic society
+## From sticks and stones to a post-robotic society
 
 "there should be like... humanity progression - start with sticks and stones and invent stuff to move forward until you
-end up in a postrobotic society" (operator, 2026-11-06). NOT BUILT YET — a design for the operator's yes:
+end up in a postrobotic society" (operator, 2026-11-06), and "there will be no eras". BUILT SO FAR: bare hands → fiber,
+sticks, stone → cordage → stone axe, pickaxe, shovel → wood, cobblestone → workbench, campfire → planks, stone brick,
+plaster, charred planks → clay → kiln → fired brick, roof tiles, glass (next section). The web continues from there:
 
-- **Eras**, each unlocking materials, tools and structures: Stone (sticks, stone, clay, thatch) → Bronze (kiln brick,
-  copper tools) → Iron (iron, glass, mills) → Steam (machines, rails) → Electric (power, lamps, wiring) → Information
-  (computers, solar) → Robotic (assemblers, drones that build for you) → Post-robotic (matter shaping, the first ships
-  that leave the planet — the bridge to the interstellar game).
-- **Resources are gathered from the world** (the ground's materials by digging, wood from trees, ores the generator
-  places by depth and region), carried in an inventory, and **crafted** by recipes; inventing an era's key item unlocks it.
-- **Per player first, per settlement later**: a player's era, inventory and inventions live on the world server; whether
-  progress (or rare finds) is anchored on chain is an open question for the operator.
-- What it changes now: the block palette becomes what you have and know, not all 29 types.
+- **One continuous web of inventions — no eras, no ages, no named levels.** Every invention needs earlier inventions and
+  the materials to make it (a stone axe needs a stick and a stone; a kiln needs clay and fire; and so on, all the way to
+  matter shaping and the first ships that leave the planet — the bridge to the interstellar game). What a player can make
+  is exactly what they have invented, nothing grouped or gated by a label.
+- **Next resources**: ores the generator places by depth and region (copper, tin, iron, coal…), so metal and machines
+  can follow; settlements (shared stations and stock) after per-player progress.
+- Whether any progress is anchored on chain is an open question for the operator.
+
+## Gathering, tools, crafting, trade
+
+"you must gather resources to make tools to make tools to collect more resources", "materials trading is necessary",
+"it is one continuous world, no eras" (operator, 2026-11-06). Minecraft was the prototype, not the template.
+
+- **The rules are one file**, static/land-recipes.json, read by the page and the world server alike: what each block
+  takes to break (seconds by hand, the tool class that speeds it, a tool it NEEDS), what it yields, and the recipes (what
+  each uses, makes, and needs WITH it — a tool or a station). No eras: every recipe names exactly what it needs.
+- **The server is the judge.** It asks scripts/land_terrain.mjs — static/land-world.js itself, run in node — what an
+  untouched cell holds, so a yield is what the ground really is; it keeps each player's inventory, tools and stations
+  (~/land/planet0/players/<address>.json), and charges breaking in seconds of work (a bucket of 10 s refilling at 1 s/s),
+  so neither a fast page nor an agent strips the planet quicker than a hand would.
+- **The commons:** anyone signed in gathers in the wilderness (untitled land), nobody builds there, and a gathered
+  wilderness cell grows back after `wilderness_regrow_s` (15 min). On a titled plot only its holder and invited builders
+  gather or build. Placing spends one item and only where you may build; breaking a placed block gives it back.
+- **Trade:** a gift moves items; an offer escrows what it gives until someone takes it (both sides move at once) or its
+  maker withdraws it (the escrow comes back). Bridging materials to on-chain tokens is a later decision for the operator.
+- tests/test_land_players_gather_make_tools_craft_and_trade.py (the server, against the real terrain) and
+  tests/test_a_player_gathers_by_hand_makes_tools_and_builds_only_where_they_may.mjs (the page, as a player).
 
 ## Titles and the land contract
 
@@ -144,7 +164,8 @@ down, fly, break, place and the palette.
 
 - tests/test_a_land_title_is_shown_to_anchor_or_grant_and_a_sale_voids_the_old_owners_grants.py — the contract
 - tests/test_the_land_planet_is_one_continuous_world_and_a_plot_is_what_its_title_names.mjs — the planet
-- tests/test_a_plot_holder_builds_on_their_plot_and_nowhere_else.mjs — the page, walked on a touch screen
+- tests/test_a_player_gathers_by_hand_makes_tools_and_builds_only_where_they_may.mjs — the page, walked as a player
+- tests/test_land_players_gather_make_tools_craft_and_trade.py — the economy on the world server
 - tests/test_the_vendored_three_js_is_the_published_r187.py — the renderer's bytes
 - tests/test_the_land_server_lets_only_holders_and_their_builders_change_a_plot.py — the world server
 - tests/test_an_ai_agent_builds_a_structure_with_its_own_key_once_invited.py — the agent client
@@ -182,7 +203,8 @@ person's click and an agent's call, and the grant dies when the plot is sold. Pl
 nado-land.service and documented with a reference client:
 
 - read: the plots in a region (titles, holders, anchors), a plot's edits, the generated terrain of a column range;
-- write: set or clear blocks, or a whole structure (a list of cells) in one call, inside plots the caller may build on;
+- write: break cells (gathering them) and place blocks from the agent's own inventory, one cell or a whole structure per
+  call, under exactly the rules a person plays by; craft, give, offer, accept and withdraw offers;
 - live: the same websocket the page uses (players' positions and everyone's edits);
 - limits: per-caller rate and size limits on writes, so an agent builds at the pace the world can carry.
 

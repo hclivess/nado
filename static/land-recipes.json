@@ -1,0 +1,71 @@
+{
+ "about": "Land's gathering and crafting web (doc/land.md 'Gathering, tools, crafting'). ONE file read by the page (static/land.js) and the world server (scripts/land_server.py), so both apply the same rules: 'you must gather resources to make tools to make tools to collect more resources' (operator, 2026-11-06). No eras: every recipe names exactly what it needs. Block ids are static/land-world.js BLOCKS.",
+ "version": 1,
+ "items": {
+  "fiber":      {"name": "Plant fiber"},
+  "sticks":     {"name": "Sticks"},
+  "stone":      {"name": "Stone"},
+  "cordage":    {"name": "Cordage"},
+  "dirt":       {"name": "Earth", "places": 2},
+  "sand":       {"name": "Sand", "places": 4},
+  "gravel":     {"name": "Gravel", "places": 17},
+  "snow":       {"name": "Snow", "places": 6},
+  "cobble":     {"name": "Cobblestone", "places": 10},
+  "wood":       {"name": "Wood", "places": 7},
+  "planks":     {"name": "Planks", "places": 9},
+  "darkwood":   {"name": "Charred planks", "places": 15},
+  "stonebrick": {"name": "Stone brick", "places": 16},
+  "clay":       {"name": "Clay"},
+  "brick":      {"name": "Fired brick", "places": 11},
+  "tiles":      {"name": "Roof tiles", "places": 13},
+  "glass":      {"name": "Glass", "places": 12},
+  "plaster":    {"name": "Plaster", "places": 14}
+ },
+ "tools": {
+  "axe":    {"name": "Stone axe", "class": "axe", "speed": 3},
+  "pick":   {"name": "Stone pickaxe", "class": "pick", "speed": 3},
+  "shovel": {"name": "Stone shovel", "class": "shovel", "speed": 3}
+ },
+ "stations": {
+  "campfire":  {"name": "Campfire"},
+  "workbench": {"name": "Workbench"},
+  "kiln":      {"name": "Kiln"}
+ },
+ "breaking": {
+  "about": "block id -> what it takes to break and what it yields. hard: seconds by hand (or with a tool of `class`, hard / speed). needs: a tool class without which it cannot be broken at all. yields: [item, count]; `bonus` is one more item every `every`-th cell (chosen by the cell's position, so the same cell always gives the same).",
+  "1":  {"hard": 0.6, "class": "shovel", "yields": [["dirt", 1], ["fiber", 1]], "bonus": ["stone", 4]},
+  "2":  {"hard": 0.6, "class": "shovel", "yields": [["dirt", 1]], "bonus": ["stone", 3]},
+  "4":  {"hard": 0.5, "class": "shovel", "yields": [["sand", 1]]},
+  "6":  {"hard": 0.4, "class": "shovel", "yields": [["snow", 1]]},
+  "7":  {"hard": 2.5, "class": "axe", "needs": "axe", "yields": [["wood", 1]]},
+  "8":  {"hard": 0.25, "yields": [["sticks", 1], ["fiber", 1]]},
+  "3":  {"hard": 3.0, "class": "pick", "needs": "pick", "yields": [["cobble", 1]], "bonus": ["stone", 2]},
+  "10": {"hard": 2.5, "class": "pick", "needs": "pick", "yields": [["cobble", 1]]},
+  "16": {"hard": 3.0, "class": "pick", "needs": "pick", "yields": [["stonebrick", 1]]},
+  "17": {"hard": 0.7, "class": "shovel", "yields": [["gravel", 1]], "bonus": ["stone", 2]},
+  "9":  {"hard": 1.0, "class": "axe", "yields": [["planks", 1]]},
+  "15": {"hard": 1.0, "class": "axe", "yields": [["darkwood", 1]]},
+  "11": {"hard": 2.0, "class": "pick", "needs": "pick", "yields": [["brick", 1]]},
+  "13": {"hard": 1.5, "class": "pick", "yields": [["tiles", 1]]},
+  "12": {"hard": 0.5, "yields": [["glass", 1]]},
+  "14": {"hard": 1.5, "class": "pick", "yields": [["plaster", 1]]}
+ },
+ "recipes": [
+  {"id": "cordage",    "makes": [["cordage", 1]],          "uses": [["fiber", 3]]},
+  {"id": "axe",        "makes": [["axe", 1]],              "uses": [["sticks", 2], ["stone", 1], ["cordage", 1]]},
+  {"id": "pick",       "makes": [["pick", 1]],             "uses": [["sticks", 2], ["stone", 2], ["cordage", 1]]},
+  {"id": "shovel",     "makes": [["shovel", 1]],           "uses": [["sticks", 2], ["stone", 1], ["cordage", 1]]},
+  {"id": "campfire",   "makes": [["campfire", 1]],         "uses": [["sticks", 6], ["stone", 4]]},
+  {"id": "clay",       "makes": [["clay", 2]],             "uses": [["dirt", 1], ["sand", 1]]},
+  {"id": "workbench",  "makes": [["workbench", 1]],        "uses": [["wood", 6], ["cordage", 2]], "with": ["axe"]},
+  {"id": "planks",     "makes": [["planks", 4]],           "uses": [["wood", 1]], "with": ["workbench"]},
+  {"id": "darkwood",   "makes": [["darkwood", 2]],         "uses": [["planks", 2], ["sticks", 1]], "with": ["campfire"]},
+  {"id": "stonebrick", "makes": [["stonebrick", 2]],       "uses": [["cobble", 4]], "with": ["workbench", "pick"]},
+  {"id": "plaster",    "makes": [["plaster", 2]],          "uses": [["sand", 2], ["stone", 1]], "with": ["workbench"]},
+  {"id": "kiln",       "makes": [["kiln", 1]],             "uses": [["cobble", 8], ["clay", 4]], "with": ["campfire"]},
+  {"id": "brick",      "makes": [["brick", 4]],            "uses": [["clay", 2], ["wood", 1]], "with": ["kiln"]},
+  {"id": "tiles",      "makes": [["tiles", 4]],            "uses": [["clay", 2], ["wood", 1]], "with": ["kiln"]},
+  {"id": "glass",      "makes": [["glass", 2]],            "uses": [["sand", 4], ["wood", 1]], "with": ["kiln"]}
+ ],
+ "wilderness_regrow_s": 900
+}

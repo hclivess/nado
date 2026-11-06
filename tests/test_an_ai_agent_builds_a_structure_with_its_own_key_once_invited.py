@@ -76,6 +76,8 @@ async def main():
     rc, out, err = await run("newkey", "--out", AGENT)
     check("newkey never overwrites a key file", rc != 0 and "refusing to overwrite" in err, (rc, err))
 
+    world.player(addr)["items"]["tiles"] = 4                         # what it builds with is its own inventory
+    world.player(addr)["items"]["brick"] = 18
     json.dump(CELLS, open(HOUSE, "w"))
     rc, out, err = await run("--keys", AGENT, "build", "--plot", str(PA), "--file", HOUSE)
     r = json.loads(out or "{}")
@@ -86,6 +88,8 @@ async def main():
     rc, out, err = await run("--keys", AGENT, "build", "--plot", str(PA), "--file", HOUSE)
     r = json.loads(out or "{}")
     check("once invited, every cell of the structure lands", rc == 0 and r.get("applied") == len(CELLS) and r.get("refused_total") == 0, (rc, out, err))
+    rc, out, err = await run("--keys", AGENT, "inventory")
+    check("…spending exactly the bricks and tile it placed", rc == 0 and json.loads(out)["items"] == {"tiles": 3}, (rc, out, err))
     rc, out, err = await run("--keys", AGENT, "plot", "--plot", str(PA))
     pj = json.loads(out or "{}")
     got = sorted(map(tuple, pj.get("edits", [])))

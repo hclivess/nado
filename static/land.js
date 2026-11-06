@@ -32,11 +32,18 @@ const GRAV = 26, JUMP = 8.4, WALK = 4.6, RUN = 7.5, FLY = 14, FLY_FAST = 60;
 const P = { face: Wd.SPAWN_FACE, u: 0, v: 0, h: 0, yaw: 0, pitch: -0.15, vu: 0, vv: 0, vh: 0, fly: false, ground: false };
 const edits = new Map();              // "face:u:v:h" -> block id: every known edit (mine and, with the server, everyone's)
 const plotEdit = new Map();           // plot -> Map(local key "x:z:y" -> block)
-const salts = new Map();              // plot -> Uint8Array(32), the commitment salt (kept with the plot's edits)
 const titles = new Map();             // plot -> { aid, holder } for every issued title
 const mine = new Set();               // plots whose title the signed-in address holds
 const builds = new Set();             // plots the world server says the signed-in address was invited to build on
-let hot = [B.grass, B.dirt, B.stone, B.planks, B.cobble, B.brick, B.glass, B.tiles, B.lamp], slot = 0;
+// GATHERING, TOOLS, CRAFTING, TRADE (doc/land.md): "you must gather resources to make tools to make tools to collect more
+// resources". The rules are static/land-recipes.json, the same file the world server judges by; the inventory is the
+// server's (it arrives as "inv" messages) — the page never decides what anyone owns.
+let RULES = null;
+const inv = { items: {}, tools: [], stations: [] };
+let offers = [];
+let hot = [], slot = 0;               // the hotbar: placeable item ids
+let job = null;                       // the break in progress: { cell, need (s), done (s), mouse }
+let mouseHeld = false;
 let renderer, scene, camera, sun, hemi, atlasTex, matSolid, matClear, matGround, farMesh = null, farAt = null;
 let highlight, lastT = 0, locked = false, keys = new Set(), touch = null, viewDist = 6;
 const LS = "nado_land_v1";
@@ -216,11 +223,18 @@ function aim() {
       if (!hit) continue;
     }
     if (!hit) continue;
+    // where a block goes: the nearest cell back along the ray that is really EMPTY (air or water) — on smooth ground the
+    // top layer's cell often lies above the drawn surface but still holds grass, and the world server (rightly) places
+    // nothing into a cell that holds something
+    // Never a cell the player stands in; failing every cell back along the ray, the first empty cell on top of the hit.
+    const pu = Math.floor(P.u), pv = Math.floor(P.v), ph = Math.floor(P.h);
+    const free = (q) => { const qb = blockAt(P.face, q[0], q[1], q[2]); return (qb === B.air || BLOCKS[qb].liquid) && !(q[0] === pu && q[1] === pv && (q[2] === ph || q[2] === ph + 1)); };
     let prev = null;
-    for (const back of [0.3, 0.6, 1.0, 1.5]) {
+    for (const back of [0.3, 0.6, 1.0, 1.5, 2.0, 2.5]) {
       const pc = cellOf([p[0] - d[0] * back, p[1] - d[1] * back, p[2] - d[2] * back]);
-      if (!same(pc, hit) && !solidAt(P.face, pc[0] + 0.5, pc[1] + 0.5, pc[2] + 0.5)) { prev = pc; break; }
+      if (!same(pc, hit) && free(pc)) { prev = pc; break; }
     }
+    for (let up = 1; !prev && up <= 3; up++) { const q = [hit[0], hit[1], hit[2] + up]; if (free(q)) prev = q; }
     return { hit, prev };
   }
   return null;
@@ -233,62 +247,51 @@ function groundAt(f, u, v) {
 }
 
 // ---- edits ------------------------------------------------------------------------------------------------------
-function plotEditsList(plot) { return [...(plotEdit.get(plot) || new Map())].map(([k, b]) => { const [x, z, y] = k.split(":").map(Number); return [x, z, y, b]; }); }
-function saltOf(plot) {
-  let s = salts.get(plot);
-  if (!s) { s = crypto.getRandomValues(new Uint8Array(32)); salts.set(plot, s); }
-  return s;
-}
 const mayBuild = (plot) => mine.has(plot) || builds.has(plot);
-/** Record one cell. `mirror`: the world server's list, kept exactly as it sent it (an edit back to the terrain's own
- *  block stays listed there, so it stays listed here — the commitment is computed over the server's list). */
-function putCell(face, u, v, h, b, mirror) {
+/** Record one cell exactly as the world server holds it (an edit back to the terrain's own block stays listed there,
+ *  so it stays listed here — the commitment is computed over the server's list). */
+function putCell(face, u, v, h, b) {
   const plot = Wd.plotOf(face, u, v), k = key(face, u, v, h);
   const pc = Wd.plotCoords(plot), lk = (u - pc.u0) + ":" + (v - pc.v0) + ":" + h;
   let pe = plotEdit.get(plot); if (!pe) { pe = new Map(); plotEdit.set(plot, pe); }
-  if (!mirror && b === Wd.terrainBlock(face, u, v, h, colAt)) { edits.delete(k); pe.delete(lk); } else { edits.set(k, b); pe.set(lk, b); }
+  edits.set(k, b); pe.set(lk, b);
   remeshAround(face, u, v, h);
 }
+/** A cell back to the untouched planet (the wilderness regrew it). */
+function dropCell(face, u, v, h) {
+  const plot = Wd.plotOf(face, u, v), pc = Wd.plotCoords(plot), pe = plotEdit.get(plot);
+  edits.delete(key(face, u, v, h));
+  if (pe) pe.delete((u - pc.u0) + ":" + (v - pc.v0) + ":" + h);
+  remeshAround(face, u, v, h);
+}
+/** Change one cell through the world server, which decides: breaking (b = air) gathers — anywhere in the wilderness,
+ *  and on a titled plot only for its owner and invited builders — and placing spends one item, only on such a plot. The
+ *  cell shows at once and is put back if the server refuses. */
 function setBlock(f, u, v, h, b) {
+  if (!net.online) return notify(T("offline", "The world server is out of reach — you can explore, but not gather or build."));
   const w = Wd.wrap(f, u, v), plot = Wd.plotOf(w.face, w.u, w.v);
-  if (!mayBuild(plot)) return explainNoBuild(plot);
+  if (!net.me) return explainNoBuild(plot);
+  if ((b !== B.air || titles.has(plot)) && !mayBuild(plot)) return explainNoBuild(plot);
   if (h <= 0 || h >= H) return false;
-  if (net.online) {                                 // the world server decides; the cell shows at once and is put back if refused
-    putCell(w.face, w.u, w.v, h, b, true);
-    net.send({ t: "set", cells: [[w.face, w.u, w.v, h, b]], req: ++net.req });
-    net.pending.set(net.req, plot);
-  } else {
-    putCell(w.face, w.u, w.v, h, b, false);
-    saltOf(plot);
-    save();
-  }
+  putCell(w.face, w.u, w.v, h, b);
+  net.send({ t: "set", cells: [[w.face, w.u, w.v, h, b]], req: ++net.req });
+  net.pending.set(net.req, plot);
   return true;
 }
 function explainNoBuild(plot) {
   const t = titles.get(plot);
-  if (net.online && !net.me) notify(T("needSignIn", "Sign in to build — only a plot's owner and the builders they invite can change it."));
-  else if (!net.online && !dapp.me) notify(T("needSignIn", "Sign in to build — only a plot's owner and the builders they invite can change it."));
-  else if (!t) notify(T("notForSale", "This land has no title yet — it is wilderness. Plots open for sale in waves."));
-  else notify(T("notYours", "Plot {p} belongs to someone else. Buy a plot, or ask its owner to invite you.", { p: t ? plotLabel(plot) : "" }));
+  if (!net.me) notify(T("needSignIn", "Sign in to build — only a plot's owner and the builders they invite can change it."));
+  else if (!t) notify(T("wildBuild", "This is wilderness: gather here, but build only on a plot you own or were invited to."));
+  else notify(T("notYours", "Plot {p} belongs to someone else. Buy a plot, or ask its owner to invite you.", { p: plotLabel(plot) }));
   return false;
 }
 function save() {
-  try {
-    const out = {};
-    for (const [plot, pe] of plotEdit) if (pe.size) out[plot] = { e: [...pe], s: btoa(String.fromCharCode(...saltOf(plot))) };
-    localStorage.setItem(LS, JSON.stringify({ p: [P.face, P.u, P.v, P.h, P.yaw, P.pitch], plots: out, hot }));
-  } catch (e) {}
+  try { localStorage.setItem(LS, JSON.stringify({ p: [P.face, P.u, P.v, P.h, P.yaw, P.pitch], hot })); } catch (e) {}
 }
 function load() {
   let d = null;
   try { d = JSON.parse(localStorage.getItem(LS) || "null"); } catch (e) {}
-  if (d && d.plots) for (const [plot, rec] of Object.entries(d.plots)) {
-    const id = Number(plot), pc = Wd.plotCoords(id), pe = new Map(rec.e || []);
-    plotEdit.set(id, pe);
-    if (rec.s) salts.set(id, Uint8Array.from(atob(rec.s), (c) => c.charCodeAt(0)));
-    for (const [lk, b] of pe) { const [x, z, y] = lk.split(":").map(Number); edits.set(key(pc.face, pc.u0 + x, pc.v0 + z, y), b); }
-  }
-  if (d && Array.isArray(d.hot) && d.hot.length === 9) hot = d.hot.map((b) => (BLOCKS[b] && BLOCKS[b].build ? b : B.stone));
+  if (d && Array.isArray(d.hot)) hot = d.hot.filter((x) => typeof x === "string").slice(0, 9);
   if (d && Array.isArray(d.p)) { [P.face, P.u, P.v, P.h, P.yaw] = d.p; if (typeof d.p[5] === "number") P.pitch = d.p[5]; return; }
   const sp = Wd.plotCoords(Wd.plotId(Wd.SPAWN_FACE, Wd.SPAWN_PLOT_ROW + 5, Wd.SPAWN_PLOT_COL + 5));
   P.face = sp.face; P.u = sp.u0 + 0.5; P.v = sp.v0 - 6.5;            // amid the first wave of plots
@@ -474,14 +477,12 @@ async function holderOf(plot) {
 async function anchor(plot) {
   const t = titles.get(plot);
   if (!t || !mine.has(plot)) return explainNoBuild(plot);
-  let list = plotEditsList(plot), commit;
-  if (net.online) {
-    // the world server holds the plot's list and salt; recompute its commitment here before the wallet signs it
-    const r = await (await fetch("/land/api/plot?plot=" + plot, { cache: "no-store", credentials: "same-origin" })).json();
-    list = r.edits || [];
-    commit = r.salt ? await Wd.plotCommitment(plot, Uint8Array.from(r.salt.match(/../g).map((x) => parseInt(x, 16))), list) : null;
-    if (!commit || commit !== r.commitment) return alertBar(T("anchorMismatch", "The world server's copy of this plot does not match its fingerprint — not anchoring. Reload and try again."));
-  } else commit = await Wd.plotCommitment(plot, saltOf(plot), list);
+  if (!net.online) return notify(T("offline", "The world server is out of reach — you can explore, but not gather or build."));
+  // the world server holds the plot's list and salt; recompute its commitment here before the wallet signs it
+  const r = await (await fetch("/land/api/plot?plot=" + plot, { cache: "no-store", credentials: "same-origin" })).json();
+  const list = r.edits || [];
+  const commit = r.salt ? await Wd.plotCommitment(plot, Uint8Array.from(r.salt.match(/../g).map((x) => parseInt(x, 16))), list) : null;
+  if (!commit || commit !== r.commitment) return alertBar(T("anchorMismatch", "The world server's copy of this plot does not match its fingerprint — not anchoring. Reload and try again."));
   if (!await uiConfirm({ title: T("anchorTitle", "Anchor plot {p} on chain?", { p: plotLabel(plot) }),
     body: T("anchorBody", "The chain records a fingerprint of this plot's build — not the build itself. Your title is shown to the land contract and comes straight back."),
     rows: [{ k: T("edits", "Changed blocks"), v: String(list.length) }, { k: T("fingerprint", "Fingerprint"), v: commit.slice(0, 18) + "…" }],
@@ -503,7 +504,7 @@ async function invite(plot) {
 }
 
 // ---- the live world (scripts/land_server.py, behind /land/ on land.nadochain.com) --------------------------------------
-// Without it (the page served elsewhere, or the server down) the page still runs: edits stay in this browser.
+// Without it (the page served elsewhere, or the server down) the planet can still be explored, not changed.
 const net = { ws: null, online: false, me: null, req: 0, pending: new Map(), lastWatch: "", tries: 0, send(m) { try { if (this.ws && this.ws.readyState === 1) this.ws.send(JSON.stringify(m)); } catch (e) {} } };
 const others = new Map();             // player id -> { mesh, p: [face, u, v, h, yaw], who }
 function connect() {
@@ -518,12 +519,22 @@ function connect() {
       // the server is the record now: drop the plots this browser cached, the server sends each watched one back
       for (const [plot, pe] of plotEdit) { const q = Wd.plotCoords(plot); for (const lk of pe.keys()) { const [x, z, y] = lk.split(":").map(Number); edits.delete(key(q.face, q.u0 + x, q.v0 + z, y)); } }
       plotEdit.clear();
+      if (!net.me) { inv.items = {}; inv.tools = []; inv.stations = []; hotbar(); }
       if (net.me !== was) refreshTitles();
       hud();
     } else if (m.t === "plot") {
       applyPlot(m.plot, m.edits || []);
     } else if (m.t === "edit") {
-      for (const [f, u, v, h, b] of m.cells || []) putCell(f, u, v, h, b, true);
+      for (const [f, u, v, h, b] of m.cells || []) putCell(f, u, v, h, b);
+    } else if (m.t === "revert") {
+      for (const [f, u, v, h] of m.cells || []) dropCell(f, u, v, h);
+    } else if (m.t === "inv") {
+      inv.items = m.items || {}; inv.tools = m.tools || []; inv.stations = m.stations || [];
+      fillHot(); hotbar(); if (bagOpen()) renderBag();
+    } else if (m.t === "offers") {
+      offers = m.offers || []; if (bagOpen()) renderBag();
+    } else if (m.t === "done") {
+      if (m.error) notify(String(m.error));
     } else if (m.t === "set_ok") {
       const plot = net.pending.get(m.req); net.pending.delete(m.req);
       if (m.refused && m.refused.length) {
@@ -550,7 +561,7 @@ function applyPlot(plot, list) {
   const q = Wd.plotCoords(plot), old = plotEdit.get(plot);
   if (old) for (const lk of old.keys()) { const [x, z, y] = lk.split(":").map(Number); edits.delete(key(q.face, q.u0 + x, q.v0 + z, y)); }
   plotEdit.delete(plot);
-  for (const [x, z, y, b] of list) putCell(q.face, q.u0 + x, q.v0 + z, y, b, true);
+  for (const [x, z, y, b] of list) putCell(q.face, q.u0 + x, q.v0 + z, y, b);
   if (old) for (let ch = 0; ch < H / CHUNK; ch++) { const k = q.face + ":" + q.u0 / CHUNK + ":" + q.v0 / CHUNK + ":" + ch; if (chunks.has(k)) request(k); }
 }
 async function resync(plot) {
@@ -606,46 +617,129 @@ function hud() {
     const iv = $("btnInvite"); if (iv) iv.onclick = () => invite(plot);
   }
 }
+// ---- names: every item, tool and station through i18n (keys land.i.<id>, land.t.<id>, land.s.<id>) ---------------------
+const nameOf = (id) => RULES.items[id] ? T("i." + id, RULES.items[id].name) : RULES.tools[id] ? T("t." + id, RULES.tools[id].name)
+  : RULES.stations[id] ? T("s." + id, RULES.stations[id].name) : id;
+const placeable = (id) => RULES && RULES.items[id] && RULES.items[id].places;
+/** Keep the hotbar on what the player can place: what they chose first, then anything placeable they hold. */
+function fillHot() {
+  if (!RULES) return;
+  hot = hot.filter((id) => placeable(id));
+  for (const id of Object.keys(inv.items)) if (placeable(id) && inv.items[id] > 0 && !hot.includes(id) && hot.length < 9) hot.push(id);
+  if (slot >= Math.max(1, hot.length)) slot = 0;
+}
+function tileIcon(cv, id, px) {
+  const g = cv.getContext("2d"), tile = BLOCKS[RULES.items[id].places].tex[1];
+  g.imageSmoothingEnabled = false;
+  g.drawImage(atlasTex.image, (tile % TCOLS) * TILE, Math.floor(tile / TCOLS) * TILE, TILE, TILE, 0, 0, px, px);
+}
 function hotbar() {
   const bar = $("hotbar");
-  bar.innerHTML = hot.map((b, i) => `<div class="hs${i === slot ? " on" : ""}" data-i="${i}" title="${esc(T("b." + BLOCKS[b].key, BLOCKS[b].name))}"><canvas width="32" height="32"></canvas><span>${i + 1}</span></div>`).join("");
+  if (!RULES || !hot.length) {
+    bar.innerHTML = `<div class="hs empty">${esc(net.me ? T("emptyHands", "Empty hands — gather something") : T("signInGather", "Sign in to gather"))}</div>`;
+    $("hotName").textContent = "";
+    return;
+  }
+  bar.innerHTML = hot.map((id, i) => `<div class="hs${i === slot ? " on" : ""}${(inv.items[id] || 0) ? "" : " none"}" data-i="${i}" title="${esc(nameOf(id))}"><canvas width="32" height="32"></canvas><span>${i + 1}</span><b>${inv.items[id] || 0}</b></div>`).join("");
   bar.querySelectorAll(".hs").forEach((el) => {
-    const i = Number(el.dataset.i), cv = el.querySelector("canvas"), tile = BLOCKS[hot[i]].tex[1];
-    cv.getContext("2d").imageSmoothingEnabled = false;
-    cv.getContext("2d").drawImage(atlasTex.image, (tile % TCOLS) * TILE, Math.floor(tile / TCOLS) * TILE, TILE, TILE, 0, 0, 32, 32);
+    const i = Number(el.dataset.i);
+    tileIcon(el.querySelector("canvas"), hot[i], 32);
     el.onclick = (e) => { e.stopPropagation(); slot = i; hotbar(); };
   });
-  $("hotName").textContent = T("b." + BLOCKS[hot[slot]].key, BLOCKS[hot[slot]].name);
+  $("hotName").textContent = nameOf(hot[slot]);
 }
+
+// ---- the bag: what you have, what you can make, and trade ---------------------------------------------------------
+const bagOpen = () => !$("palette").classList.contains("hidden");
 function palette(open) {
-  const pal = $("palette");
-  pal.classList.toggle("hidden", !open);
+  $("palette").classList.toggle("hidden", !open);
   if (!open) return;
   if (document.pointerLockElement) document.exitPointerLock();
-  const list = BLOCKS.map((b, i) => [b, i]).filter(([b]) => b.build);
-  $("palGrid").innerHTML = list.map(([b, i]) => `<button class="pb" data-b="${i}"><canvas width="40" height="40"></canvas><span>${esc(T("b." + b.key, b.name))}</span></button>`).join("");
-  $("palGrid").querySelectorAll(".pb").forEach((el) => {
-    const id = Number(el.dataset.b), cv = el.querySelector("canvas"), tile = BLOCKS[id].tex[1], g = cv.getContext("2d");
-    g.imageSmoothingEnabled = false;
-    g.drawImage(atlasTex.image, (tile % TCOLS) * TILE, Math.floor(tile / TCOLS) * TILE, TILE, TILE, 0, 0, 40, 40);
-    el.onclick = () => { hot[slot] = id; save(); hotbar(); palette(false); };
-  });
+  renderBag();
+}
+const bagText = (bag) => Object.entries(bag).map(([id, n]) => `${n} ${esc(nameOf(id))}`).join(", ");
+function canMake(r) {
+  return (r.with || []).every((w) => inv.tools.includes(w) || inv.stations.includes(w))
+    && r.uses.every(([id, n]) => (inv.items[id] || 0) >= n);
+}
+function renderBag() {
+  if (!RULES) return;
+  if (!net.me) { $("palGrid").innerHTML = `<p class="dim">${esc(T("bagSignIn", "Sign in to gather, make things and trade."))}</p>`; return; }
+  const items = Object.entries(inv.items).filter(([, n]) => n > 0);
+  const opts = Object.keys(RULES.items).map((id) => `<option value="${id}">${esc(nameOf(id))}</option>`).join("");
+  $("palGrid").innerHTML = `
+    <h3>${esc(T("have", "You have"))}</h3>
+    <div class="chips">${items.length ? items.map(([id, n]) => `<button class="chip${placeable(id) ? " pl" : ""}" data-pick="${id}">${n} × ${esc(nameOf(id))}</button>`).join("") : `<span class="dim">${esc(T("nothingYet", "Nothing yet — break grass, earth or leaves by hand to start."))}</span>`}
+      ${inv.tools.map((t) => `<span class="chip tool">${esc(nameOf(t))}</span>`).join("")}${inv.stations.map((t) => `<span class="chip tool">${esc(nameOf(t))}</span>`).join("")}</div>
+    <h3>${esc(T("make", "Make"))}</h3>
+    <div class="recipes">${RULES.recipes.map((r) => {
+      const out = r.makes.map(([id, n]) => (RULES.items[id] ? n + " " : "") + nameOf(id)).join(", ");
+      const need = r.uses.map(([id, n]) => `${n} ${nameOf(id)}`).join(" + ") + ((r.with || []).length ? " · " + T("with", "with {w}", { w: r.with.map(nameOf).join(", ") }) : "");
+      const own = r.makes.every(([id]) => inv.tools.includes(id) || inv.stations.includes(id));
+      return `<div class="rcp${canMake(r) && !own ? "" : " off"}"><div><b>${esc(out)}</b><div class="dim">${esc(need)}</div></div>
+        <button class="ghost" data-make="${r.id}" ${canMake(r) && !own ? "" : "disabled"}>${esc(own ? T("haveIt", "You have it") : T("makeGo", "Make"))}</button></div>`;
+    }).join("")}</div>
+    <h3>${esc(T("trade", "Trade"))}</h3>
+    <div class="offers">${offers.length ? offers.map((o) => `<div class="rcp"><div>${esc(T("offerLine", "{g} for {w}", { g: bagText(o.give), w: bagText(o.want) }))}<div class="dim">${esc(o.by === net.me ? T("yourOffer", "Your offer") : disp(o.by))}</div></div>
+        ${o.by === net.me ? `<button class="ghost" data-cancel="${o.id}">${esc(T("cancelOffer", "Withdraw"))}</button>` : `<button class="ghost" data-accept="${o.id}" ${Object.entries(o.want).every(([id, n]) => (inv.items[id] || 0) >= n) ? "" : "disabled"}>${esc(T("acceptOffer", "Trade"))}</button>`}</div>`).join("") : `<span class="dim">${esc(T("noOffers", "No offers yet."))}</span>`}</div>
+    <div class="tradeform">
+      <span>${esc(T("offerGive", "Give"))}</span><input id="ofGN" type="number" min="1" value="1"><select id="ofG">${opts}</select>
+      <span>${esc(T("offerWant", "for"))}</span><input id="ofWN" type="number" min="1" value="1"><select id="ofW">${opts}</select>
+      <button class="ghost" id="ofPost">${esc(T("offerPost", "Post offer"))}</button>
+    </div>
+    <div class="tradeform">
+      <span>${esc(T("giveTo", "Give"))}</span><input id="gvN" type="number" min="1" value="1"><select id="gvI">${opts}</select>
+      <input id="gvTo" placeholder="${esc(T("inviteAddr", "NADO address"))}"><button class="ghost" id="gvGo">${esc(T("giveGo", "Give"))}</button>
+    </div>`;
+  const g = $("palGrid"), req = (m) => net.send(Object.assign({ req: ++net.req }, m));
+  g.querySelectorAll("[data-make]").forEach((b) => { b.onclick = () => req({ t: "craft", recipe: b.dataset.make }); });
+  g.querySelectorAll("[data-pick]").forEach((b) => { b.onclick = () => { const id = b.dataset.pick; if (!placeable(id)) return; if (!hot.includes(id)) { if (hot.length < 9) hot.push(id); else hot[slot] = id; } slot = hot.indexOf(id); save(); hotbar(); }; });
+  g.querySelectorAll("[data-accept]").forEach((b) => { b.onclick = () => req({ t: "accept", id: b.dataset.accept }); });
+  g.querySelectorAll("[data-cancel]").forEach((b) => { b.onclick = () => req({ t: "cancel_offer", id: b.dataset.cancel }); });
+  $("ofPost").onclick = () => req({ t: "offer", give: { [$("ofG").value]: Number($("ofGN").value) }, want: { [$("ofW").value]: Number($("ofWN").value) } });
+  $("gvGo").onclick = () => {
+    const to = $("gvTo").value.trim();
+    if (!isAddress(to) || to === net.me) return alertBar(T("inviteBad", "That is not someone else's NADO address."));
+    req({ t: "give", to, items: { [$("gvI").value]: Number($("gvN").value) } });
+  };
 }
 
 // ---- input -----------------------------------------------------------------------------------------------------
-function act(place) {
+// Breaking takes as long as the material's hardness over the tool's speed (land-recipes.json "breaking"); the server
+// keeps the same clock, so a quicker page gains nothing. A mouse breaks while held; a tap on a touch screen keeps
+// breaking the aimed cell until it gives or the aim moves.
+function startBreak(c, mouse) {
+  if (!RULES) return;
+  const b = blockAt(P.face, c[0], c[1], c[2]), rule = RULES.breaking[b];
+  if (!rule) return notify(T("cantGather", "Nothing here can be gathered."));
+  if (rule.needs && !inv.tools.includes(rule.needs)) return notify(T("needsTool", "That needs a {t}.", { t: nameOf(rule.needs) }));
+  const speed = rule.class && inv.tools.includes(rule.class) ? RULES.tools[rule.class].speed : 1;
+  job = { cell: c, need: rule.hard / speed, done: 0, mouse };
+}
+function breakTick(dt) {
+  const bar = $("breakBar");
+  if (!job) { bar.classList.add("hidden"); return; }
+  const a = aim();
+  if ((job.mouse && !mouseHeld) || !a || a.hit.join() !== job.cell.join()) { job = null; bar.classList.add("hidden"); return; }
+  job.done += dt;
+  bar.classList.remove("hidden");
+  bar.firstElementChild.style.width = Math.min(100, (100 * job.done) / job.need) + "%";
+  if (job.done >= job.need) { const [u, v, h] = job.cell; job = null; bar.classList.add("hidden"); setBlock(P.face, u, v, h, B.air); }
+}
+function act(place, mouse) {
   const a = aim();
   if (!a) return;
   if (place) {
     if (!a.prev) return;
     const [u, v, h] = a.prev;
-    const pu = Math.floor(P.u), pv = Math.floor(P.v);           // never inside the player
-    if (u === pu && v === pv && (h === Math.floor(P.h) || h === Math.floor(P.h + 1))) return;
-    setBlock(P.face, u, v, h, hot[slot]);
+    const id = hot[slot];
+    if (!net.online || !net.me) return setBlock(P.face, u, v, h, B.air);   // says why first: offline, or not signed in
+    if (!id || !(inv.items[id] > 0)) return notify(T("noItem", "You have none of that — gather or make some first."));
+    setBlock(P.face, u, v, h, RULES.items[id].places);
   } else {
     const [u, v, h] = a.hit;
     if (blockAt(P.face, u, v, h) === B.bedrock) return;
-    setBlock(P.face, u, v, h, B.air);
+    startBreak(a.hit, mouse);
   }
 }
 function wireInput(canvas) {
@@ -655,13 +749,14 @@ function wireInput(canvas) {
     if (!locked) return;
     P.yaw += e.movementX * 0.0024; P.pitch = Math.max(-1.55, Math.min(1.55, P.pitch - e.movementY * 0.0024));
   });
-  document.addEventListener("mousedown", (e) => { if (locked) act(e.button === 2); });
+  document.addEventListener("mousedown", (e) => { if (!locked) return; if (e.button === 0) { mouseHeld = true; act(false, true); } else if (e.button === 2) act(true); });
+  document.addEventListener("mouseup", (e) => { if (e.button === 0) mouseHeld = false; });
   document.addEventListener("contextmenu", (e) => { if (locked) e.preventDefault(); });
-  document.addEventListener("wheel", (e) => { if (!locked) return; slot = (slot + (e.deltaY > 0 ? 1 : 8)) % 9; hotbar(); }, { passive: true });
+  document.addEventListener("wheel", (e) => { if (!locked || !hot.length) return; slot = (slot + (e.deltaY > 0 ? 1 : hot.length - 1)) % hot.length; hotbar(); }, { passive: true });
   document.addEventListener("keydown", (e) => {
     if (e.target && /INPUT|TEXTAREA/.test(e.target.tagName)) return;
     keys.add(e.code);
-    if (/^Digit[1-9]$/.test(e.code)) { slot = Number(e.code.slice(5)) - 1; hotbar(); }
+    if (/^Digit[1-9]$/.test(e.code) && Number(e.code.slice(5)) <= hot.length) { slot = Number(e.code.slice(5)) - 1; hotbar(); }
     if (e.code === "KeyF") { P.fly = !P.fly; P.vh = 0; notify(P.fly ? T("flyOn", "Flying — Space up, C down, Shift fast") : T("flyOff", "Walking"), 1600); }
     if (e.code === "KeyE") palette($("palette").classList.contains("hidden"));
     if (e.code === "Escape") palette(false);
@@ -694,7 +789,7 @@ function wireInput(canvas) {
     const hold = (id, k) => { const el = $(id); el.addEventListener("touchstart", (e) => { touch[k] = true; e.preventDefault(); }, { passive: false }); el.addEventListener("touchend", () => { touch[k] = false; }); };
     hold("tJump", "up"); hold("tDown", "down");
     $("tFly").onclick = () => { P.fly = !P.fly; P.vh = 0; };
-    $("tBreak").onclick = () => act(false);
+    $("tBreak").onclick = () => act(false, false);
     $("tPlace").onclick = () => act(true);
     $("tPal").onclick = () => palette(true);
   }
@@ -801,6 +896,7 @@ function sky(fr) {
 function frame(now) {
   const dt = Math.min(0.05, (now - lastT) / 1000 || 0); lastT = now;
   step(dt);
+  breakTick(dt);
   const cam = eyePos(), { fr, fw } = look();
   camera.up.set(fr.up[0], fr.up[1], fr.up[2]);
   camera.lookAt(fw[0], fw[1], fw[2]);
@@ -839,6 +935,7 @@ function slow() {
 // ---- start -----------------------------------------------------------------------------------------------------
 async function start() {
   load();
+  RULES = await (await fetch("/static/land-recipes.json", { cache: "no-cache" })).json();
   const canvas = $("world");
   renderer = new THREE.WebGPURenderer({ canvas, antialias: true });
   renderer.setPixelRatio(Math.min(2, devicePixelRatio || 1));
