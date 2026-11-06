@@ -30,6 +30,7 @@ import * as Wd from "./land-world.js";
 import * as Cosmos from "./land-cosmos.js";
 import { walk, trunkAt, TRUNK_R } from "./land-walk.js";
 import { snapBox, piecesFor } from "./land-snap.js";
+import { levelOps, earthNeeded, trunkIn } from "./land-level.js";
 import { groundWeights } from "./land-mesher.js";
 import { NadoDapp, wireWallet, renderWallet, alertBar, notify, uiConfirm, uiPrompt, isAddress, esc, base, disp, $ } from "./nadodapp.js";
 
@@ -89,6 +90,7 @@ const PAINT = {
   28: ["#2e6fd8", 0.06], 29: ["#8e44ad", 0.06], 30: ["#262626", 0.06], 31: ["#f4f4f4", 0.05], 32: ["#e9e6df", 0.05, "marble"],
   33: ["#2a2a2a", 0.3], 34: ["#e8e4da", 0.06, "birch"], 35: ["#24502a", 0.22, "leaves"], 36: ["#6aa83a", 0.2, "leaves"],
   37: ["#7d7570", 0.14, "ore"], 38: ["#6e4a2c", 0.06, "door"], 39: ["#7a5534", 0.08, "beam"], 40: ["#c9a95a", 0.14, "thatch"],
+  41: ["#5a3a22", 0.06, "door"],
 };
 function paintAtlas() {
   const cv = document.createElement("canvas");
@@ -958,6 +960,50 @@ function breakTick(dt) {
   }
 }
 const NATURAL_ITEMS = new Set(["dirt", "sand", "gravel", "snow"]);   // these fill the ground's cells; the rest are pieces
+
+// ---- LEVELLING ("it is currently not possible to level ground ... to have a nice clean structure", operator 2026-11-06;
+// Enshrouded and Valheim level a site with a hoe first). L with a shovel flattens the 5 x 5 columns around the aimed cell
+// to that cell's layer T: natural cells above T are dug out (the player keeps what they give), cell T becomes edited earth
+// (untouched turf there is dug and replaced), hollows below T are filled with earth from the bag, and an untouched air
+// cell just above T is made an exact one (an earth placed and dug back, nothing spent) — edited cells sit on whole layers,
+// so the ground comes out dead flat; an untouched air cell would blend it up to 17 cm high. Plain breaks and placements,
+// judged by the world server as ever; a column's batch goes only when the shovel's work time allows (land_server work()).
+const LEVEL_R = 2, LEVEL_DEPTH = 3;
+let level = null;                                          // { cols: [{ plot, ops }], at }
+const levelWorld = { block: (u, v, h) => blockAt(P.face, u, v, h), edited: (u, v, h) => edits.has(key(P.face, u, v, h)), top: (u, v) => colAt(P.face, u, v).top };
+function startLevel() {
+  if (!net.me) return notify(T("signInBuild2", "Sign in to gather and build."));
+  if (!hasClass("shovel")) return notify(T("levelNeedsShovel", "Levelling needs a shovel."));
+  const a = aim();
+  if (!a || !a.hit || a.box) return notify(T("levelAim", "Aim at the ground to level it."));
+  const [u0, v0, T0] = a.hit, cols = [];
+  let trunk = false;
+  for (let du = -LEVEL_R; du <= LEVEL_R; du++) for (let dv = -LEVEL_R; dv <= LEVEL_R; dv++) {
+    const u = u0 + du, v = v0 + dv, plot = Wd.plotOf(P.face, u, v);
+    if (!mayBuild(plot)) return explainNoBuild(plot);
+    if (Math.abs(colAt(P.face, u, v).top - T0) > LEVEL_DEPTH + 1) continue;      // a cliff edge is left alone
+    const ops = levelOps(levelWorld, u, v, T0, LEVEL_DEPTH, hasClass("axe"));
+    if (!hasClass("axe") && trunkIn(levelWorld, u, v, T0)) trunk = true;
+    if (ops.length) cols.push({ plot, ops });
+  }
+  if (trunk) notify(T("levelTrunk", "A tree stands on the site — make an axe to fell it, or the ground stays bumped there."));
+  if (earthNeeded(cols.flatMap((c) => c.ops), levelWorld) > (inv.items.dirt || 0))
+    return notify(T("levelNoEarth", "Not enough earth to fill the hollows — dig some first."));
+  level = { cols, at: 0 };
+  notify(T("levelling", "Levelling…"));
+}
+function levelTick(now) {
+  if (!level || now < level.at) return;
+  const c = level.cols.shift();
+  if (!c) { level = null; return notify(T("levelDone", "Level.")); }
+  const cells = c.ops.map(([u, v, h, b]) => [P.face, u, v, h, b]);
+  for (const [u, v, h, b] of c.ops) putCell(P.face, u, v, h, b);                       // shown at once; resynced if refused
+  net.send({ t: "set", cells, req: ++net.req });
+  net.pending.set(net.req, c.plot);
+  // the next column when this one's work is done: each break is its rule's hardness over the shovel's speed
+  const work = c.ops.filter((o) => o[3] === B.air).reduce((t) => t + 0.6 / toolSpeed("shovel"), 0);
+  level.at = now + work * 1000 + 120;
+}
 const haveCm3 = (id) => (inv.items[id] || 0) * 1e6 + ((inv.vol || {})[id] || 0);
 // UNIT ITEMS (a door): placed whole at their own size, either way round (T turns it), one item per piece
 const unitOf = (m) => { const id = RULES && Object.keys(RULES.items).find((k) => RULES.items[k].places === m); return id ? RULES.items[id].unit : null; };
@@ -1021,6 +1067,7 @@ function wireInput(canvas) {
     if (e.code === "KeyR") { const i = PRESETS.findIndex((x) => x[0] === piece.w && x[1] === piece.d && x[2] === piece.h); [piece.w, piece.d, piece.h] = PRESETS[(i + 1) % PRESETS.length]; pieceInfo(); }
     if (e.code === "KeyT") { [piece.w, piece.d] = [piece.d, piece.w]; piece.turned = !piece.turned; pieceInfo(); }
     if (e.code === "KeyQ") useDoor();
+    if (e.code === "KeyL") startLevel();
     if (e.code === "KeyG") { piece.shape = ((piece.shape || 0) + 1) % 3; pieceInfo(); }
     if (e.code === "KeyT" && piece.shape) piece.rot = ((piece.rot || 0) + 1) % 4;
     if (e.code === "BracketLeft" || e.code === "BracketRight") { const i = SNAPS.indexOf(piece.snap); piece.snap = SNAPS[Math.max(0, Math.min(SNAPS.length - 1, (i < 0 ? 2 : i) + (e.code === "BracketRight" ? 1 : -1)))]; pieceInfo(); }
@@ -1277,7 +1324,7 @@ function treeMaterials() {
 const PIECE_TEX = {
   9: ["planks", 1, 0.8], 15: ["darkwood", 1, 0.8], 11: ["brick", 1, 0.9], 14: ["plaster", 1, 0.95], 13: ["tiles", 1, 0.7],
   10: ["cobble", 1, 0.9], 16: ["stonebrick", 1, 0.88], 7: ["bark", 1, 0.95], 31: ["birch", 1, 0.9], 32: ["plaster", 1.08, 0.6],
-  37: ["darkwood", 1.15, 0.75], 38: ["planks", 0.78, 0.85], 39: ["thatch", 1, 0.98],
+  37: ["darkwood", 1.15, 0.75], 38: ["planks", 0.78, 0.85], 39: ["thatch", 1, 0.98], 40: ["darkwood", 1.25, 0.7],
   2: ["dirt", 1, 0.95], 3: ["rock", 1, 0.85], 4: ["sand", 1, 0.9], 6: ["snow", 1, 0.55], 17: ["gravel", 1, 0.9],
 };
 const pieceMats = new Map();
@@ -1437,6 +1484,7 @@ function frame(now) {
   const dt = Math.min(0.05, (now - lastT) / 1000 || 0); lastT = now;
   step(dt);
   breakTick(dt);
+  levelTick(now);
   const cam = eyePos(), { fr, fw } = look();
   camera.up.set(fr.up[0], fr.up[1], fr.up[2]);
   camera.lookAt(fw[0], fw[1], fw[2]);
@@ -1534,9 +1582,12 @@ async function start() {
   const sample = TSL.texture(atlasTex, atlasUV), shade = TSL.attribute("color", "vec3");
   matPieces = new THREE.MeshStandardNodeMaterial({ roughness: 0.85, metalness: 0 });
   matPieces.colorNode = sample.rgb.mul(shade);
-  matGlassy = new THREE.MeshStandardNodeMaterial({ roughness: 0.1, metalness: 0, transparent: true, depthWrite: false });
-  matGlassy.colorNode = sample.rgb.mul(shade);
-  matGlassy.opacityNode = sample.a;
+  // GLASS ("windows on the house look weird": a flat blue tile with its frame lines): clear, faintly green-grey, and more
+  // of a mirror the more glancing the view (fresnel), so a pane shows the room behind it head-on and the sky at an angle
+  matGlassy = new THREE.MeshStandardNodeMaterial({ roughness: 0.04, metalness: 0, transparent: true, depthWrite: false });
+  const glassView = TSL.positionView.normalize().negate(), glassFres = TSL.float(1).sub(TSL.normalView.dot(glassView).abs()).pow(3);
+  matGlassy.colorNode = TSL.mix(TSL.vec3(0.70, 0.78, 0.80), TSL.uniform(waterSky), glassFres.mul(0.8)).mul(shade);
+  matGlassy.opacityNode = TSL.float(0.16).add(glassFres.mul(0.62));
   ghost = new THREE.LineSegments(new THREE.EdgesGeometry(new THREE.BoxGeometry(1, 1, 1)), new THREE.LineBasicMaterial({ color: 0x33dd77 }));
   ghost.visible = false;
   scene.add(ghost);

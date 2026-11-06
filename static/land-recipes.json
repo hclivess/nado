@@ -106,6 +106,15 @@
     5,
     200
    ]
+  },
+  "window": {
+   "name": "Window",
+   "places": 40,
+   "unit": [
+    100,
+    10,
+    120
+   ]
   }
  },
  "tools": {
@@ -438,6 +447,16 @@
    "yields": [
     [
      "thatch",
+     1
+    ]
+   ]
+  },
+  "40": {
+   "hard": 1.0,
+   "class": "axe",
+   "yields": [
+    [
+     "window",
      1
     ]
    ]
@@ -1062,6 +1081,33 @@
     ],
     [
      "hinges",
+     2
+    ],
+    [
+     "nails",
+     4
+    ]
+   ],
+   "with": [
+    "workbench",
+    "hammer"
+   ]
+  },
+  {
+   "id": "window",
+   "makes": [
+    [
+     "window",
+     1
+    ]
+   ],
+   "uses": [
+    [
+     "glass",
+     1
+    ],
+    [
+     "planks",
      2
     ],
     [

@@ -125,6 +125,7 @@ function meshBoxes(boxes, u0, v0, h0, place, solid, clear, lod) {
   for (const b of mine) {
     if (opaque(b[6]) && b[6] !== runM) { close(); runM = b[6]; runAt = solid.idx.length; }
     if (shapeOf(b)) { meshSlope(b, u0, v0, place, !opaque(b[6]) ? clear : solid, lo, hi); continue; }
+    if (b[6] === B.window) { meshWindow(b, u0, v0, place, solid, clear, lo, hi); continue; }
     const info = BLOCKS[b[6]], buf = !opaque(b[6]) ? clear : solid;
     const y0 = Math.max(b[2], lo), y1 = Math.min(b[2] + b[5], hi);          // this chunk's slice of the piece
     const mn = [b[0], b[1], y0], mx = [b[0] + b[3], b[1] + b[4], y1];
@@ -393,6 +394,46 @@ export function meshChunk(face, cu, cv, ch, edits, boxes, lod, grassOn = true) {
   if (!smooth.idx.length && !trees.idx.length && !solid.n && !clear.n && !pieces.n && !glassy.n && !bark.n && !foliage.n && !stones.n && !water.n) return { empty: true };
   return { anchor, smooth: pack(smooth), trees: pack(trees), solid: pack(solid), clear: pack(clear), pieces: pack(pieces), glassy: pack(glassy),
            bark: pack(bark), foliage: pack(foliage), stones: pack(stones), water: pack(water), grass };
+}
+
+// ---- a window (land-world B.window): a timber frame — two jambs, a sill, a head and a cross mullion, FRAME cm thick, the
+// window's full depth — around a 1 cm pane at the middle of its depth (the pane in the glass part). Its thin axis (x or z)
+// is the wall it sits in. Drawn whole by the chunk its bottom is in.
+const FRAME = 8, BAR = 5;
+function meshWindow(b, u0, v0, place, solid, clear, lo, hi) {
+  if (b[2] < lo || b[2] >= hi) return;
+  const thinX = b[3] < b[4], W = thinX ? b[4] : b[3], D = thinX ? b[3] : b[4], H = b[5], tile = BLOCKS[b[6]].tex[1];
+  // a sub-box in the window's own terms (a: across, t: through the wall, y: up), in cm from its corner
+  const sub = (buf, a0, a1, t0, t1, y0, y1, tl) => {
+    const lo3 = thinX ? [b[0] + t0, b[1] + a0, b[2] + y0] : [b[0] + a0, b[1] + t0, b[2] + y0];
+    const hi3 = thinX ? [b[0] + t1, b[1] + a1, b[2] + y1] : [b[0] + a1, b[1] + t1, b[2] + y1];
+    cuboid(buf, lo3, hi3, u0, v0, place, tl);
+  };
+  sub(solid, 0, FRAME, 0, D, 0, H, tile); sub(solid, W - FRAME, W, 0, D, 0, H, tile);          // jambs
+  sub(solid, FRAME, W - FRAME, 0, D, 0, FRAME, tile); sub(solid, FRAME, W - FRAME, 0, D, H - FRAME, H, tile);   // sill, head
+  sub(solid, W / 2 - BAR / 2, W / 2 + BAR / 2, D / 2 - 2, D / 2 + 2, FRAME, H - FRAME, tile);     // the mullion
+  sub(solid, FRAME, W - FRAME, D / 2 - 2, D / 2 + 2, H / 2 - BAR / 2, H / 2 + BAR / 2, tile);     // the transom
+  sub(clear, FRAME, W - FRAME, D / 2 - 0.5, D / 2 + 0.5, FRAME, H - FRAME, BLOCKS[B.glass].tex[1]);   // the pane
+}
+/** Six faces of the cuboid lo..hi (plot cm), each wound to face out, texture per metre. */
+function cuboid(buf, lo, hi, u0, v0, place, tile) {
+  const c = [(lo[0] + hi[0]) / 2, (lo[1] + hi[1]) / 2, (lo[2] + hi[2]) / 2];
+  for (let ax = 0; ax < 3; ax++) for (const side of [0, 1]) {
+    const o = [0, 1, 2].filter((a) => a !== ax), q = (a, b2) => { const p = [0, 0, 0]; p[ax] = side ? hi[ax] : lo[ax]; p[o[0]] = a ? hi[o[0]] : lo[o[0]]; p[o[1]] = b2 ? hi[o[1]] : lo[o[1]]; return p; };
+    let f = [q(0, 0), q(1, 0), q(1, 1), q(0, 1)];
+    const P = f.map((p) => place(u0 + p[0] / CM, v0 + p[1] / CM, p[2] / CM));
+    const e1 = P[1].map((x, i) => x - P[0][i]), e2 = P[2].map((x, i) => x - P[0][i]);
+    let n = [e1[1] * e2[2] - e1[2] * e2[1], e1[2] * e2[0] - e1[0] * e2[2], e1[0] * e2[1] - e1[1] * e2[0]];
+    // wound to face out: its normal turned away from the cuboid's middle
+    const pa = place(u0 + c[0] / CM, v0 + c[1] / CM, c[2] / CM), fcp = f.reduce((a, p) => a.map((x, i) => x + p[i] / 4), [0, 0, 0]), pf = place(u0 + fcp[0] / CM, v0 + fcp[1] / CM, fcp[2] / CM);
+    if (n[0] * (pf[0] - pa[0]) + n[1] * (pf[1] - pa[1]) + n[2] * (pf[2] - pa[2]) < 0) { f = f.slice().reverse(); P.reverse(); n = n.map((x) => -x); }
+    const nl = Math.hypot(...n) || 1, base = buf.n;
+    for (let i = 0; i < 4; i++) {
+      buf.pos.push(P[i][0], P[i][1], P[i][2]); buf.nor.push(n[0] / nl, n[1] / nl, n[2] / nl);
+      buf.uv.push(f[i][o[0]] / CM, f[i][o[1]] / CM); buf.tile.push(tile); buf.col.push(1, 1, 1); buf.n++;
+    }
+    buf.idx.push(base, base + 1, base + 2, base, base + 2, base + 3);
+  }
 }
 
 // ---- a slope (land-world SHAPES): five faces — the bottom, the tall end, the sloped face and two triangular sides. Built

@@ -187,9 +187,12 @@ export const BLOCKS = [
   { key: "door", solid: true, tex: [38, 38, 38] },
   { key: "beam", solid: true, tex: [39, 39, 39] },
   { key: "thatch", solid: true, tex: [40, 40, 40] },
+  // a window: a timber frame with a cross mullion around a thin pane, made whole (land-mesher.js meshWindow) — set into a
+  // wall's frame as in Medieval Dynasty's window walls, not a sheet of blue glass ("windows on the house look weird")
+  { key: "window", solid: true, tex: [41, 41, 41] },
 ];
 export const B = Object.fromEntries(BLOCKS.map((b, i) => [b.key, i]));
-export const ATLAS_TILES = 41;              // tiles 0..40 (0 unused)
+export const ATLAS_TILES = 42;              // tiles 0..41 (0 unused)
 export const opaque = (id) => BLOCKS[id].solid && !BLOCKS[id].see;
 
 // ---- terrain ---------------------------------------------------------------------------------------------------

@@ -140,7 +140,15 @@
   "land.shapeBox": "box",
   "land.shapeSlope": "slope",
   "land.shapeStairs": "stairs",
-  "land.kShape": "box, slope or stairs"
+  "land.kShape": "box, slope or stairs",
+  "land.i.window": "Window",
+  "land.kLevel": "level the ground (shovel)",
+  "land.levelNeedsShovel": "Levelling needs a shovel.",
+  "land.levelAim": "Aim at the ground to level it.",
+  "land.levelNoEarth": "Not enough earth to fill the hollows — dig some first.",
+  "land.levelling": "Levelling…",
+  "land.levelDone": "Level.",
+  "land.levelTrunk": "A tree stands on the site — make an axe to fell it, or the ground stays bumped there."
  },
  "cs": {
   "land.notYours": "Pozemek {p} patří někomu jinému. Kupte si pozemek, nebo požádejte jeho vlastníka o pozvání.",
@@ -283,7 +291,15 @@
   "land.shapeBox": "kvádr",
   "land.shapeSlope": "svah",
   "land.shapeStairs": "schody",
-  "land.kShape": "kvádr, svah nebo schody"
+  "land.kShape": "kvádr, svah nebo schody",
+  "land.i.window": "Okno",
+  "land.kLevel": "srovnat terén (lopata)",
+  "land.levelNeedsShovel": "Na srovnání terénu potřebuješ lopatu.",
+  "land.levelAim": "Zamiř na zem, kterou chceš srovnat.",
+  "land.levelNoEarth": "Na zasypání prohlubní nemáš dost hlíny — nejdřív nějakou vykopej.",
+  "land.levelling": "Srovnávám…",
+  "land.levelDone": "Srovnáno.",
+  "land.levelTrunk": "Na místě stojí strom — vyrob si sekeru a pokácej ho, jinak tam zůstane hrbol."
  },
  "es": {
   "land.notYours": "La parcela {p} pertenece a otra persona. Compra una parcela o pide a su dueño que te invite.",
@@ -426,7 +442,15 @@
   "land.shapeBox": "bloque",
   "land.shapeSlope": "pendiente",
   "land.shapeStairs": "escalera",
-  "land.kShape": "bloque, pendiente o escalera"
+  "land.kShape": "bloque, pendiente o escalera",
+  "land.i.window": "Ventana",
+  "land.kLevel": "nivelar el terreno (pala)",
+  "land.levelNeedsShovel": "Para nivelar necesitas una pala.",
+  "land.levelAim": "Apunta al suelo para nivelarlo.",
+  "land.levelNoEarth": "No tienes tierra suficiente para rellenar los huecos: excava primero.",
+  "land.levelling": "Nivelando…",
+  "land.levelDone": "Nivelado.",
+  "land.levelTrunk": "Hay un árbol en el terreno: fabrica un hacha para talarlo o el suelo quedará abultado ahí."
  },
  "pt": {
   "land.notYours": "O lote {p} pertence a outra pessoa. Compre um lote ou peça ao dono que convide você.",
@@ -569,7 +593,15 @@
   "land.shapeBox": "bloco",
   "land.shapeSlope": "rampa",
   "land.shapeStairs": "escada",
-  "land.kShape": "bloco, rampa ou escada"
+  "land.kShape": "bloco, rampa ou escada",
+  "land.i.window": "Janela",
+  "land.kLevel": "nivelar o terreno (pá)",
+  "land.levelNeedsShovel": "Para nivelar precisa de uma pá.",
+  "land.levelAim": "Aponte para o chão para o nivelar.",
+  "land.levelNoEarth": "Não tem terra suficiente para encher as covas — escave primeiro.",
+  "land.levelling": "A nivelar…",
+  "land.levelDone": "Nivelado.",
+  "land.levelTrunk": "Há uma árvore no terreno — faça um machado para a abater, ou o chão fica alto ali."
  },
  "fr": {
   "land.notYours": "La parcelle {p} appartient à quelqu'un d'autre. Achetez une parcelle ou demandez à son propriétaire de vous inviter.",
@@ -712,7 +744,15 @@
   "land.shapeBox": "bloc",
   "land.shapeSlope": "pente",
   "land.shapeStairs": "escalier",
-  "land.kShape": "bloc, pente ou escalier"
+  "land.kShape": "bloc, pente ou escalier",
+  "land.i.window": "Fenêtre",
+  "land.kLevel": "niveler le sol (pelle)",
+  "land.levelNeedsShovel": "Il faut une pelle pour niveler.",
+  "land.levelAim": "Visez le sol pour le niveler.",
+  "land.levelNoEarth": "Pas assez de terre pour combler les creux — creusez-en d'abord.",
+  "land.levelling": "Nivellement…",
+  "land.levelDone": "C'est de niveau.",
+  "land.levelTrunk": "Un arbre se dresse sur le terrain — fabriquez une hache pour l'abattre, sinon le sol restera bosselé là."
  },
  "de": {
   "land.notYours": "Grundstück {p} gehört jemand anderem. Kauf dir ein Grundstück oder bitte den Besitzer um eine Einladung.",
@@ -855,7 +895,15 @@
   "land.shapeBox": "Quader",
   "land.shapeSlope": "Schräge",
   "land.shapeStairs": "Treppe",
-  "land.kShape": "Quader, Schräge oder Treppe"
+  "land.kShape": "Quader, Schräge oder Treppe",
+  "land.i.window": "Fenster",
+  "land.kLevel": "Boden ebnen (Schaufel)",
+  "land.levelNeedsShovel": "Zum Ebnen brauchst du eine Schaufel.",
+  "land.levelAim": "Ziele auf den Boden, um ihn zu ebnen.",
+  "land.levelNoEarth": "Nicht genug Erde, um die Mulden zu füllen — grab erst welche.",
+  "land.levelling": "Ebne ein…",
+  "land.levelDone": "Eben.",
+  "land.levelTrunk": "Auf dem Platz steht ein Baum — stell eine Axt her, um ihn zu fällen, sonst bleibt dort eine Beule."
  },
  "it": {
   "land.notYours": "Il lotto {p} appartiene a qualcun altro. Compra un lotto o chiedi al proprietario di invitarti.",
@@ -998,7 +1046,15 @@
   "land.shapeBox": "blocco",
   "land.shapeSlope": "pendenza",
   "land.shapeStairs": "scala",
-  "land.kShape": "blocco, pendenza o scala"
+  "land.kShape": "blocco, pendenza o scala",
+  "land.i.window": "Finestra",
+  "land.kLevel": "livellare il terreno (pala)",
+  "land.levelNeedsShovel": "Per livellare serve una pala.",
+  "land.levelAim": "Punta il terreno per livellarlo.",
+  "land.levelNoEarth": "Non hai abbastanza terra per riempire le buche: scava prima.",
+  "land.levelling": "Livellamento…",
+  "land.levelDone": "Livellato.",
+  "land.levelTrunk": "Sul terreno c'è un albero: costruisci un'ascia per abbatterlo, o lì il terreno resterà rialzato."
  },
  "ru": {
   "land.notYours": "Участок {p} принадлежит другому игроку. Купите участок или попросите владельца пригласить вас.",
@@ -1141,7 +1197,15 @@
   "land.shapeBox": "блок",
   "land.shapeSlope": "скат",
   "land.shapeStairs": "лестница",
-  "land.kShape": "блок, скат или лестница"
+  "land.kShape": "блок, скат или лестница",
+  "land.i.window": "Окно",
+  "land.kLevel": "выровнять землю (лопата)",
+  "land.levelNeedsShovel": "Чтобы выровнять землю, нужна лопата.",
+  "land.levelAim": "Наведитесь на землю, чтобы выровнять её.",
+  "land.levelNoEarth": "Не хватает земли, чтобы засыпать ямы — сначала накопайте.",
+  "land.levelling": "Выравниваю…",
+  "land.levelDone": "Ровно.",
+  "land.levelTrunk": "На участке стоит дерево — сделайте топор, чтобы срубить его, иначе там останется бугор."
  },
  "zh": {
   "land.notYours": "地块 {p} 属于别人。购买一块地，或请它的所有者邀请你。",
@@ -1284,7 +1348,15 @@
   "land.shapeBox": "方块",
   "land.shapeSlope": "斜坡",
   "land.shapeStairs": "楼梯",
-  "land.kShape": "方块、斜坡或楼梯"
+  "land.kShape": "方块、斜坡或楼梯",
+  "land.i.window": "窗户",
+  "land.kLevel": "平整地面（铲子）",
+  "land.levelNeedsShovel": "平整地面需要一把铲子。",
+  "land.levelAim": "对准地面即可平整。",
+  "land.levelNoEarth": "泥土不够填平洼地——先挖一些。",
+  "land.levelling": "正在平整……",
+  "land.levelDone": "已平整。",
+  "land.levelTrunk": "场地上有一棵树——做一把斧头把它砍倒，否则那里会留下一个鼓包。"
  },
  "ja": {
   "land.notYours": "区画 {p} は他の人のものです。区画を購入するか、所有者に招待してもらいましょう。",
@@ -1427,7 +1499,15 @@
   "land.shapeBox": "ブロック",
   "land.shapeSlope": "斜面",
   "land.shapeStairs": "階段",
-  "land.kShape": "ブロック・斜面・階段"
+  "land.kShape": "ブロック・斜面・階段",
+  "land.i.window": "窓",
+  "land.kLevel": "地面をならす（シャベル）",
+  "land.levelNeedsShovel": "地面をならすにはシャベルが必要です。",
+  "land.levelAim": "ならす地面に狙いを合わせてください。",
+  "land.levelNoEarth": "くぼみを埋める土が足りません。先に掘ってください。",
+  "land.levelling": "ならしています…",
+  "land.levelDone": "平らになりました。",
+  "land.levelTrunk": "敷地に木が立っています。斧を作って切り倒さないと、そこが盛り上がったままになります。"
  },
  "ko": {
   "land.notYours": "구역 {p}은(는) 다른 사람의 땅입니다. 구역을 사거나 소유자에게 초대를 요청하세요.",
@@ -1570,7 +1650,15 @@
   "land.shapeBox": "블록",
   "land.shapeSlope": "경사",
   "land.shapeStairs": "계단",
-  "land.kShape": "블록, 경사 또는 계단"
+  "land.kShape": "블록, 경사 또는 계단",
+  "land.i.window": "창문",
+  "land.kLevel": "땅 고르기 (삽)",
+  "land.levelNeedsShovel": "땅을 고르려면 삽이 필요합니다.",
+  "land.levelAim": "고를 땅을 겨누세요.",
+  "land.levelNoEarth": "움푹한 곳을 메울 흙이 모자랍니다. 먼저 파 오세요.",
+  "land.levelling": "고르는 중…",
+  "land.levelDone": "평평해졌습니다.",
+  "land.levelTrunk": "부지에 나무가 서 있습니다. 도끼를 만들어 베지 않으면 그 자리가 볼록하게 남습니다."
  },
  "ar": {
   "land.notYours": "القطعة {p} ملك لشخص آخر. اشترِ قطعة، أو اطلب من مالكها أن يدعوك.",
@@ -1713,7 +1801,15 @@
   "land.shapeBox": "مكعّب",
   "land.shapeSlope": "منحدر",
   "land.shapeStairs": "درج",
-  "land.kShape": "مكعّب أو منحدر أو درج"
+  "land.kShape": "مكعّب أو منحدر أو درج",
+  "land.i.window": "نافذة",
+  "land.kLevel": "تسوية الأرض (مجرفة)",
+  "land.levelNeedsShovel": "تحتاج إلى مجرفة لتسوية الأرض.",
+  "land.levelAim": "صوّب نحو الأرض لتسويتها.",
+  "land.levelNoEarth": "لا يكفي التراب لردم الحفر — احفر بعضه أولاً.",
+  "land.levelling": "جارٍ التسوية…",
+  "land.levelDone": "صارت مستوية.",
+  "land.levelTrunk": "تقف شجرة في الموقع — اصنع فأسًا لقطعها، وإلا بقيت الأرض ناتئة هناك."
  },
  "hi": {
   "land.notYours": "प्लॉट {p} किसी और का है। कोई प्लॉट खरीदें, या उसके मालिक से आपको आमंत्रित करने को कहें।",
@@ -1856,7 +1952,15 @@
   "land.shapeBox": "खंड",
   "land.shapeSlope": "ढलान",
   "land.shapeStairs": "सीढ़ियाँ",
-  "land.kShape": "खंड, ढलान या सीढ़ियाँ"
+  "land.kShape": "खंड, ढलान या सीढ़ियाँ",
+  "land.i.window": "खिड़की",
+  "land.kLevel": "ज़मीन समतल करें (फावड़ा)",
+  "land.levelNeedsShovel": "ज़मीन समतल करने के लिए फावड़ा चाहिए।",
+  "land.levelAim": "समतल करने के लिए ज़मीन पर निशाना लगाएँ।",
+  "land.levelNoEarth": "गड्ढे भरने के लिए पर्याप्त मिट्टी नहीं — पहले कुछ खोदें।",
+  "land.levelling": "समतल कर रहे हैं…",
+  "land.levelDone": "समतल हो गया।",
+  "land.levelTrunk": "जगह पर एक पेड़ खड़ा है — उसे काटने के लिए कुल्हाड़ी बनाएँ, नहीं तो वहाँ ज़मीन उभरी रहेगी।"
  },
  "tr": {
   "land.notYours": "{p} arsası başkasına ait. Bir arsa satın al ya da sahibinden seni davet etmesini iste.",
@@ -1999,7 +2103,15 @@
   "land.shapeBox": "blok",
   "land.shapeSlope": "eğim",
   "land.shapeStairs": "merdiven",
-  "land.kShape": "blok, eğim ya da merdiven"
+  "land.kShape": "blok, eğim ya da merdiven",
+  "land.i.window": "Pencere",
+  "land.kLevel": "zemini düzle (kürek)",
+  "land.levelNeedsShovel": "Zemini düzlemek için kürek gerekir.",
+  "land.levelAim": "Düzlemek için zemine nişan al.",
+  "land.levelNoEarth": "Çukurları doldurmaya yetecek toprak yok — önce biraz kaz.",
+  "land.levelling": "Düzleniyor…",
+  "land.levelDone": "Düzlendi.",
+  "land.levelTrunk": "Alanda bir ağaç var — kesmek için bir balta yap, yoksa orada zemin kabarık kalır."
  },
  "id": {
   "land.notYours": "Petak {p} milik orang lain. Beli sebuah petak, atau minta pemiliknya mengundangmu.",
@@ -2142,7 +2254,15 @@
   "land.shapeBox": "balok",
   "land.shapeSlope": "lereng",
   "land.shapeStairs": "tangga",
-  "land.kShape": "balok, lereng, atau tangga"
+  "land.kShape": "balok, lereng, atau tangga",
+  "land.i.window": "Jendela",
+  "land.kLevel": "ratakan tanah (sekop)",
+  "land.levelNeedsShovel": "Perlu sekop untuk meratakan tanah.",
+  "land.levelAim": "Arahkan ke tanah untuk meratakannya.",
+  "land.levelNoEarth": "Tanah tidak cukup untuk menimbun cekungan — gali dulu.",
+  "land.levelling": "Meratakan…",
+  "land.levelDone": "Rata.",
+  "land.levelTrunk": "Ada pohon di lahan — buat kapak untuk menebangnya, atau tanah di situ tetap menggunduk."
  },
  "vi": {
   "land.notYours": "Mảnh đất {p} thuộc về người khác. Hãy mua một mảnh, hoặc nhờ chủ của nó mời bạn.",
@@ -2285,7 +2405,15 @@
   "land.shapeBox": "khối",
   "land.shapeSlope": "dốc",
   "land.shapeStairs": "cầu thang",
-  "land.kShape": "khối, dốc hoặc cầu thang"
+  "land.kShape": "khối, dốc hoặc cầu thang",
+  "land.i.window": "Cửa sổ",
+  "land.kLevel": "san phẳng đất (xẻng)",
+  "land.levelNeedsShovel": "Cần một cái xẻng để san phẳng đất.",
+  "land.levelAim": "Nhắm vào mặt đất để san phẳng.",
+  "land.levelNoEarth": "Không đủ đất để lấp chỗ trũng — hãy đào thêm trước.",
+  "land.levelling": "Đang san phẳng…",
+  "land.levelDone": "Đã phẳng.",
+  "land.levelTrunk": "Có một cái cây trên khu đất — hãy làm rìu để đốn nó, nếu không chỗ đó sẽ còn gồ lên."
  },
  "pl": {
   "land.notYours": "Działka {p} należy do kogoś innego. Kup działkę albo poproś jej właściciela o zaproszenie.",
@@ -2428,6 +2556,14 @@
   "land.shapeBox": "bryła",
   "land.shapeSlope": "skos",
   "land.shapeStairs": "schody",
-  "land.kShape": "bryła, skos lub schody"
+  "land.kShape": "bryła, skos lub schody",
+  "land.i.window": "Okno",
+  "land.kLevel": "wyrównaj teren (łopata)",
+  "land.levelNeedsShovel": "Do wyrównania terenu potrzebna jest łopata.",
+  "land.levelAim": "Wyceluj w ziemię, aby ją wyrównać.",
+  "land.levelNoEarth": "Za mało ziemi, by zasypać zagłębienia — najpierw trochę wykop.",
+  "land.levelling": "Wyrównywanie…",
+  "land.levelDone": "Wyrównane.",
+  "land.levelTrunk": "Na terenie stoi drzewo — zrób siekierę, by je ściąć, inaczej zostanie tam garb."
  }
 }

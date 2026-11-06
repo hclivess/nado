@@ -63,12 +63,12 @@ const HOUSE = {
   "foundation: stone brick laid in mortar": ["stonebrick", "mortar", "cobble"],
   "walls: planks, timber beams, fired brick, plaster": ["planks", "beam", "brick", "plaster"],
   "roof: roof tiles or thatch": ["tiles", "thatch"],
-  "windows: glass": ["glass"],
+  "windows: framed, glazed": ["glass", "window"],
   "a door, with its hinges and nails": ["door", "hinges", "nails"],
   "iron for the ironwork": ["iron"],
 };
 for (const [what, ids] of Object.entries(HOUSE)) ok(ids.every((i) => have.has(i)), `${what} — reachable from bare hands (${ids.filter((i) => !have.has(i)).join(", ") || "all"})`);
-for (const id of ["stonebrick", "cobble", "planks", "beam", "brick", "plaster", "tiles", "thatch", "glass", "door"])
+for (const id of ["stonebrick", "cobble", "planks", "beam", "brick", "plaster", "tiles", "thatch", "glass", "door", "window"])
   ok(!!R.items[id].places, `${id} is something a player can build with`);
 ok(["axe", "pick", "shovel", "hammer", "iron_axe", "iron_pick"].every((t) => tools.has(t)) && ["campfire", "workbench", "kiln", "bloomery", "anvil"].every((s) => stations.has(s)),
    "and every tool and station on the way is reachable too");
