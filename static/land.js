@@ -29,6 +29,7 @@ import { fxaa } from "three/addons/tsl/display/FXAANode.js";
 import * as Wd from "./land-world.js";
 import * as Cosmos from "./land-cosmos.js";
 import { walk, trunkAt, TRUNK_R } from "./land-walk.js";
+import { snapBox } from "./land-snap.js";
 import { groundWeights } from "./land-mesher.js";
 import { NadoDapp, wireWallet, renderWallet, alertBar, notify, uiConfirm, uiPrompt, isAddress, esc, base, disp, $ } from "./nadodapp.js";
 
@@ -882,7 +883,11 @@ function placement(a) {
   } else out[2] = Math.floor(at[2]);                       // on the ground: its bottom where the ground was hit
   for (const i of [0, 1, 2]) if (i !== ax) out[i] = Math.round((at[i] - sz[i] / 2) / snap) * snap;
   out[0] = Math.max(0, Math.min(Wd.PLOT_CM - w, out[0])); out[1] = Math.max(0, Math.min(Wd.PLOT_CM - d, out[1]));
-  const box = [out[0], out[1], out[2], w, d, h, 0];
+  // lined up with the pieces around it (land-snap.js): same material first, edges, flush faces, level bottoms and tops
+  const it = RULES && hot[slot] && RULES.items[hot[slot]], rec0 = plotBoxes.get(c.plot);
+  let box = [out[0], out[1], out[2], w, d, h, it && it.places ? it.places : 0];
+  if (rec0 && rec0.list.length) box = snapBox(box, rec0.list, a.box ? ax : -1);
+  box[0] = Math.max(0, Math.min(Wd.PLOT_CM - w, box[0])); box[1] = Math.max(0, Math.min(Wd.PLOT_CM - d, box[1]));
   // never inside the player
   const me = plotCm(P.face, P.u, P.v, P.h);
   const body = [me.x - HALF * Wd.CM, me.z - HALF * Wd.CM, me.y, 2 * HALF * Wd.CM, 2 * HALF * Wd.CM, TALL * Wd.CM];
