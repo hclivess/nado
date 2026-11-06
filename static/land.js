@@ -15,6 +15,7 @@
 // carries a coordinate larger than the view distance however far the planet's centre is (R0 ~83 km).
 import * as THREE from "/static/vendor/three/three.webgpu.js";
 import * as Wd from "./land-world.js";
+import * as Cosmos from "./land-cosmos.js";
 import { NadoDapp, wireWallet, renderWallet, alertBar, notify, uiConfirm, uiPrompt, isAddress, esc, base, disp, $ } from "./nadodapp.js";
 
 const CID = "0000000000000000000000000000000c";      // set by execnode/games/redeploy.py wire() at deploy
@@ -24,7 +25,7 @@ const dapp = new NadoDapp({ cid: CID, app: "Land" });
 const T = (k, en, v) => window.t("land." + k, en, v);
 
 const { CHUNK, PLOT, W, H, B, BLOCKS } = Wd;
-const EYE = 1.62, HALF = 0.3, TALL = 1.8, REACH = 7;
+const EYE = 1.62, HALF = 0.3, TALL = 1.8, REACH = 7, STEP = 0.65;
 const GRAV = 26, JUMP = 8.4, WALK = 4.6, RUN = 7.5, FLY = 14, FLY_FAST = 60;
 
 // ---- state ------------------------------------------------------------------------------------------------------
@@ -36,7 +37,7 @@ const titles = new Map();             // plot -> { aid, holder } for every issue
 const mine = new Set();               // plots whose title the signed-in address holds
 const builds = new Set();             // plots the world server says the signed-in address was invited to build on
 let hot = [B.grass, B.dirt, B.stone, B.planks, B.cobble, B.brick, B.glass, B.tiles, B.lamp], slot = 0;
-let renderer, scene, camera, sun, hemi, atlasTex, matSolid, matClear, farMesh = null, farAt = null;
+let renderer, scene, camera, sun, hemi, atlasTex, matSolid, matClear, matGround, farMesh = null, farAt = null;
 let highlight, lastT = 0, locked = false, keys = new Set(), touch = null, viewDist = 6;
 const LS = "nado_land_v1";
 
@@ -101,7 +102,30 @@ function blockAt(f, u, v, h) {
   const w = Wd.wrap(f, u, v), e = edits.get(key(w.face, w.u, w.v, h));
   return e !== undefined ? e : Wd.terrainBlock(w.face, w.u, w.v, h, colAt);
 }
-const solidAt = (f, u, v, h) => BLOCKS[blockAt(f, Math.floor(u), Math.floor(v), Math.floor(h))].solid;
+// THE SMOOTH GROUND, as the player touches it: land-world.fieldOf at cell centres, interpolated — the same field the mesher
+// draws (static/land-mesher.js nets), so the foot lands where the surface is drawn, not on a hidden cube. What people
+// build stays a crisp cell, and a log is a solid cell inside its round trunk; leaves can be walked through.
+const crispB = (b) => b !== B.air && !Wd.NATURAL.has(b) && b !== B.leaves && !BLOCKS[b].liquid;
+function fieldCell(f, u, v, h) {
+  if (h < 0) return 1;
+  if (h >= H) return -1;
+  const w = Wd.wrap(f, u, v);
+  return Wd.fieldOf(colAt(w.face, w.u, w.v), h, edits.get(key(w.face, w.u, w.v, h)));
+}
+function fieldAt(f, u, v, h) {
+  const x = u - 0.5, y = v - 0.5, z = h - 0.5, i = Math.floor(x), j = Math.floor(y), k = Math.floor(z), a = x - i, b = y - j, c = z - k;
+  let s = 0;
+  for (let n = 0; n < 8; n++) {
+    const di = n & 1, dj = (n >> 1) & 1, dk = n >> 2;
+    s += fieldCell(f, i + di, j + dj, k + dk) * (di ? a : 1 - a) * (dj ? b : 1 - b) * (dk ? c : 1 - c);
+  }
+  return s;
+}
+function solidAt(f, u, v, h) {
+  const b = blockAt(f, Math.floor(u), Math.floor(v), Math.floor(h));
+  if (crispB(b)) return BLOCKS[b].solid;
+  return fieldAt(f, u, v, h) > 0;
+}
 
 // ---- camera frame -----------------------------------------------------------------------------------------------
 function look() {
@@ -134,20 +158,28 @@ function step(dt) {
     P.vh -= GRAV * dt;
     if ((keys.has("Space") || (touch && touch.up)) && P.ground) { P.vh = JUMP; P.ground = false; }
   }
-  // per axis, so a wall stops one direction and the player slides along it
-  const nu = P.u + P.vu * dt; if (!collides(nu, P.v, P.h)) P.u = nu; else P.vu = 0;
-  const nv = P.v + P.vv * dt; if (!collides(P.u, nv, P.h)) P.v = nv; else P.vv = 0;
+  // per axis, so a wall stops one direction and the player slides along it; a slope or a low step is climbed (up to
+  // STEP) rather than stopping the walk — on smooth ground almost every move is a little uphill or downhill
+  const move = (nu, nv) => {
+    if (!collides(nu, nv, P.h)) return true;
+    if (!P.fly && !P.ground) return false;
+    for (let lift = 0.05; lift <= STEP; lift += 0.05) if (!collides(nu, nv, P.h + lift)) { P.h += lift; return true; }
+    return false;
+  };
+  const nu = P.u + P.vu * dt; if (move(nu, P.v)) P.u = nu; else P.vu = 0;
+  const nv = P.v + P.vv * dt; if (move(P.u, nv)) P.v = nv; else P.vv = 0;
   const nh = P.h + P.vh * dt;
   if (!collides(P.u, P.v, nh)) { P.h = nh; P.ground = false; }
   else {
-    if (P.vh < 0) {                                   // landed: stand exactly on the top of the block below
+    if (P.vh < 0) {                                   // landed: settle exactly onto the surface (it is not on a layer)
       P.ground = true;
-      const snap = Math.floor(nh + 0.01) + 1;
-      if (snap <= P.h + 1e-6 && !collides(P.u, P.v, snap)) P.h = snap;
+      let lo = nh, hi = P.h;
+      for (let n = 0; n < 12; n++) { const mid = (lo + hi) / 2; if (collides(P.u, P.v, mid)) lo = mid; else hi = mid; }
+      P.h = hi;
     }
     P.vh = 0;
   }
-  if (P.h < 1) { P.h = Wd.column(P.face, Math.floor(P.u), Math.floor(P.v)).top + 1; P.vh = 0; }
+  if (P.h < 1) { P.h = groundAt(P.face, P.u, P.v); P.vh = 0; }
   if (P.h > H + 400) P.h = H + 400;
   // leaving the face: continue on the neighbouring face, keeping the world direction the player faces
   if (P.u < 0 || P.v < 0 || P.u >= W || P.v >= W) {
@@ -159,23 +191,45 @@ function step(dt) {
   }
 }
 
-// ---- aiming: a voxel walk along the look direction --------------------------------------------------------------
+// ---- aiming: a march along the look direction --------------------------------------------------------------------
+// It stops at the first crisp block, log or leaves cell, or at the smooth surface; there the target is the most solid
+// natural cell around the hit point (so a click always takes a real cell out, never a sliver of air), and a block is
+// placed in the cell the ray came through.
 function aim() {
   const { fr, fw } = look();
-  const d = [fw[0] * fr.east[0] + fw[1] * fr.east[1] + fw[2] * fr.east[2], fw[0] * fr.north[0] + fw[1] * fr.north[1] + fw[2] * fr.north[2],
-             fw[0] * fr.up[0] + fw[1] * fr.up[1] + fw[2] * fr.up[2]];
-  const o = [P.u, P.v, P.h + EYE];
-  let c = o.map(Math.floor), prev = null;
-  const st = d.map((x) => (x > 0 ? 1 : -1)), tD = d.map((x) => Math.abs(1 / (x || 1e-9)));
-  let tM = d.map((x, i) => (x > 0 ? c[i] + 1 - o[i] : o[i] - c[i]) * tD[i]), t = 0;
-  for (let i = 0; i < 64 && t <= REACH; i++) {
+  const d = [fr.east, fr.north, fr.up].map((ax) => fw[0] * ax[0] + fw[1] * ax[1] + fw[2] * ax[2]);   // in grid axes
+  const o = [P.u, P.v, P.h + EYE], cellOf = (p) => p.map(Math.floor), same = (a, b) => a[0] === b[0] && a[1] === b[1] && a[2] === b[2];
+  for (let t = 0; t <= REACH; t += 0.05) {
+    const p = [o[0] + d[0] * t, o[1] + d[1] * t, o[2] + d[2] * t], c = cellOf(p);
     const b = blockAt(P.face, c[0], c[1], c[2]);
-    if (b !== B.air && !BLOCKS[b].liquid) return { hit: c.slice(), prev };
-    prev = c.slice();
-    const a = tM[0] < tM[1] ? (tM[0] < tM[2] ? 0 : 2) : (tM[1] < tM[2] ? 1 : 2);
-    c[a] += st[a]; t = tM[a]; tM[a] += tD[a];
+    let hit = null;
+    if (crispB(b) || b === B.log || b === B.leaves) hit = c;
+    else if (fieldAt(P.face, p[0], p[1], p[2]) > 0) {
+      // the cell the surface was hit in, when it is solid ground; only when the hit lands on the air side of a cell
+      // centre does a neighbour (the most solid one) stand in — never a deeper cell under a solid one
+      let best = fieldCell(P.face, c[0], c[1], c[2]) > 0 && Wd.NATURAL.has(b) ? Infinity : -Infinity;
+      if (best === Infinity) hit = c;
+      else for (const [x, y, z] of [[0, 0, -1], [0, 0, 1], [1, 0, 0], [-1, 0, 0], [0, 1, 0], [0, -1, 0]]) {
+        const q = [c[0] + x, c[1] + y, c[2] + z], fq = fieldCell(P.face, q[0], q[1], q[2]);
+        if (fq > 0 && Wd.NATURAL.has(blockAt(P.face, q[0], q[1], q[2])) && fq > best) { best = fq; hit = q; }
+      }
+      if (!hit) continue;
+    }
+    if (!hit) continue;
+    let prev = null;
+    for (const back of [0.3, 0.6, 1.0, 1.5]) {
+      const pc = cellOf([p[0] - d[0] * back, p[1] - d[1] * back, p[2] - d[2] * back]);
+      if (!same(pc, hit) && !solidAt(P.face, pc[0] + 0.5, pc[1] + 0.5, pc[2] + 0.5)) { prev = pc; break; }
+    }
+    return { hit, prev };
   }
   return null;
+}
+/** The height a player stands at on (face, u, v): just above the smooth surface. */
+function groundAt(f, u, v) {
+  let h = Wd.column(f, Math.floor(u), Math.floor(v)).height + 0.05;
+  while (collides(u, v, h) && h < H) h += 0.25;
+  return h;
 }
 
 // ---- edits ------------------------------------------------------------------------------------------------------
@@ -238,7 +292,7 @@ function load() {
   if (d && Array.isArray(d.p)) { [P.face, P.u, P.v, P.h, P.yaw] = d.p; if (typeof d.p[5] === "number") P.pitch = d.p[5]; return; }
   const sp = Wd.plotCoords(Wd.plotId(Wd.SPAWN_FACE, Wd.SPAWN_PLOT_ROW + 5, Wd.SPAWN_PLOT_COL + 5));
   P.face = sp.face; P.u = sp.u0 + 0.5; P.v = sp.v0 - 6.5;            // amid the first wave of plots
-  P.h = Wd.column(P.face, Math.floor(P.u), Math.floor(P.v)).top + 1;
+  P.h = groundAt(P.face, P.u, P.v);
 }
 
 // ---- chunks: a pool of mesher workers ---------------------------------------------------------------------------
@@ -295,7 +349,7 @@ function geom(part) {
   const g = new THREE.BufferGeometry();
   g.setAttribute("position", new THREE.BufferAttribute(part.pos, 3));
   g.setAttribute("normal", new THREE.BufferAttribute(part.nor, 3));
-  g.setAttribute("uv", new THREE.BufferAttribute(part.uv, 2));
+  if (part.uv) g.setAttribute("uv", new THREE.BufferAttribute(part.uv, 2));
   g.setAttribute("color", new THREE.BufferAttribute(part.col, 3));
   g.setIndex(new THREE.BufferAttribute(part.idx, 1));
   g.computeBoundingSphere();
@@ -310,9 +364,11 @@ function done(m) {
   c.meshes = [];
   if (!m.empty && !m.error) {
     c.anchor = m.anchor;
+    if (m.smooth) c.meshes.push(new THREE.Mesh(geom(m.smooth), matGround));
+    if (m.trees) c.meshes.push(new THREE.Mesh(geom(m.trees), matGround));
     if (m.solid) c.meshes.push(new THREE.Mesh(geom(m.solid), matSolid));
     if (m.clear) { const me = new THREE.Mesh(geom(m.clear), matClear); me.renderOrder = 1; c.meshes.push(me); }
-    for (const me of c.meshes) { me.matrixAutoUpdate = true; scene.add(me); }
+    for (const me of c.meshes) { me.castShadow = me.material !== matClear; me.receiveShadow = true; scene.add(me); }
   }
   if (c.dirty) request(k);
 }
@@ -360,7 +416,7 @@ function buildFar() {
     const u = fu + (i - N / 2) * STEP, v = fv + (j - N / 2) * STEP;
     const w = Wd.wrap(face, Math.round(u), Math.round(v)), c = Wd.column(w.face, w.u, w.v);
     const near = Math.abs(i - N / 2) * STEP < viewDist * CHUNK && Math.abs(j - N / 2) * STEP < viewDist * CHUNK;
-    const h = Math.max(c.top, Wd.SEA) + 0.5 - (near ? 6 : 0);           // tucked under the chunks it overlaps
+    const h = Math.max(c.height, Wd.SEA + 0.88) - (near ? 6 : 0);       // tucked under the chunks it overlaps
     const p = Wd.posOf(face, u, v, h);
     pos.push(p[0] - anchor[0], p[1] - anchor[1], p[2] - anchor[2]);
     col.push(...tint(c));
@@ -371,7 +427,8 @@ function buildFar() {
   g.setAttribute("color", new THREE.Float32BufferAttribute(col, 3));
   g.setIndex(idx); g.computeVertexNormals();
   if (farMesh) { scene.remove(farMesh); farMesh.geometry.dispose(); }
-  farMesh = new THREE.Mesh(g, new THREE.MeshLambertMaterial({ vertexColors: true }));
+  farMesh = new THREE.Mesh(g, new THREE.MeshStandardMaterial({ vertexColors: true, roughness: 1, metalness: 0 }));
+  farMesh.receiveShadow = true;
   farMesh.userData.anchor = anchor;
   scene.add(farMesh);
   farAt = { face, u: fu, v: fv };
@@ -645,7 +702,102 @@ function wireInput(canvas) {
 }
 
 // ---- frame -----------------------------------------------------------------------------------------------------
-const DAY_S = 40 * 60;                       // a day on the planet: 40 minutes
+// ---- light and sky ------------------------------------------------------------------------------------------------
+// The sun is a real star at a real distance (static/land-cosmos.js): the planet orbits it and turns under it, and the page
+// reads where it is in the planet's frame, how far, how big it looks and how bright it is. Everything else follows ITS
+// HEIGHT ABOVE THE PLAYER'S HORIZON, so it is noon on one side of the planet while it is night on the other. One sunlight casts shadows in a box that follows
+// the player (the camera is the origin); the moon is its dim blue opposite. The dome is re-coloured from that height —
+// a deep zenith over a pale horizon by day, a glow around the sun as it sets, stars at night — and the fog takes the
+// horizon's colour so the land melts into the sky instead of ending at a wall.
+const SKY = { zenith: new THREE.Color(0x2f6fc8), horizon: new THREE.Color(0xb7d6ef), nightZ: new THREE.Color(0x03060d),
+  nightH: new THREE.Color(0x0b1424), dusk: new THREE.Color(0xf0874a), duskZ: new THREE.Color(0x29386d), white: new THREE.Color(0xfff8ee) };
+let moon, dome, sunDisc, sunGlow, sunHalo, stars, skyAt = 0;
+const SKY_R = 3200;                          // the dome's radius: everything celestial is drawn at its true ANGLE on it
+const smooth01 = (a, b, x) => { const t = Math.max(0, Math.min(1, (x - a) / (b - a))); return t * t * (3 - 2 * t); };
+function glowTexture() {
+  const cv = document.createElement("canvas"); cv.width = cv.height = 128;
+  const g = cv.getContext("2d"), r = g.createRadialGradient(64, 64, 0, 64, 64, 64);
+  r.addColorStop(0, "rgba(255,244,220,1)"); r.addColorStop(0.12, "rgba(255,226,170,0.55)"); r.addColorStop(0.4, "rgba(255,190,120,0.12)"); r.addColorStop(1, "rgba(255,170,90,0)");
+  g.fillStyle = r; g.fillRect(0, 0, 128, 128);
+  const t = new THREE.CanvasTexture(cv); t.colorSpace = THREE.SRGBColorSpace;
+  return t;
+}
+function buildSky() {
+  dome = new THREE.Mesh(new THREE.SphereGeometry(3400, 48, 24), new THREE.MeshBasicMaterial({ vertexColors: true, side: THREE.BackSide, fog: false, depthWrite: false }));
+  dome.geometry.setAttribute("color", new THREE.BufferAttribute(new Float32Array(dome.geometry.attributes.position.count * 3), 3));
+  dome.renderOrder = -2;
+  scene.add(dome);
+  // the star itself: a sphere whose radius on the dome gives it its TRUE apparent size, and a glow that the eye (and a
+  // camera) would see around something that bright
+  sunDisc = new THREE.Mesh(new THREE.SphereGeometry(1, 24, 12), new THREE.MeshBasicMaterial({ color: 0xfff6e8, fog: false, depthWrite: false }));
+  sunDisc.renderOrder = -1;
+  const glowMat = () => new THREE.SpriteMaterial({ map: glowTexture(), fog: false, depthWrite: false, transparent: true, blending: THREE.AdditiveBlending });
+  sunGlow = new THREE.Sprite(glowMat());                    // the tight bloom around the disc
+  sunHalo = new THREE.Sprite(glowMat());                    // the wide, faint one
+  sunGlow.renderOrder = sunHalo.renderOrder = -1;
+  scene.add(sunDisc, sunGlow, sunHalo);
+  const n = 2200, pos = new Float32Array(n * 3);
+  let seed = 99;
+  const rnd = () => { seed = (seed * 16807) % 2147483647; return seed / 2147483647; };
+  for (let i = 0; i < n; i++) {
+    const z = rnd() * 2 - 1, a = rnd() * Math.PI * 2, r = Math.sqrt(1 - z * z);
+    pos.set([Math.cos(a) * r * 3300, z * 3300, Math.sin(a) * r * 3300], i * 3);
+  }
+  const g = new THREE.BufferGeometry(); g.setAttribute("position", new THREE.BufferAttribute(pos, 3));
+  stars = new THREE.Points(g, new THREE.PointsMaterial({ color: 0xffffff, size: 1.6, sizeAttenuation: false, transparent: true, fog: false, depthWrite: false }));
+  stars.renderOrder = -1;
+  scene.add(stars);
+}
+function sky(fr) {
+  const star = Cosmos.sunFrom(Wd.PLANET), sd = new THREE.Vector3(...star.dir), up = new THREE.Vector3(fr.up[0], fr.up[1], fr.up[2]);
+  const elev = sd.dot(up);                                  // the sun's height over this player's horizon (-1..1)
+  const day = smooth01(-0.08, 0.22, elev), dusk = Math.max(0, 1 - Math.abs(elev) / 0.22);
+  sun.position.copy(sd).multiplyScalar(150);
+  sun.color.setRGB(1, 0.62 + 0.35 * smooth01(0, 0.4, elev), 0.38 + 0.55 * smooth01(0, 0.5, elev));
+  sun.intensity = 2.4 * Math.min(1.6, star.flux) * day;
+  // shadows only once the sun is well up: at a grazing sun the shadow map streaks the ground (acne), and real dusk
+  // shadows are long and faint anyway
+  sun.castShadow = elev > 0.12;
+  moon.position.copy(sd).multiplyScalar(-150);
+  moon.intensity = 0.35 * (1 - day);
+  hemi.position.copy(up);                                   // three's hemisphere light assumes +Y; here "up" is radial
+  hemi.intensity = 0.45 + 0.85 * day;
+  hemi.color.copy(SKY.nightH).lerp(SKY.horizon, day);
+  const zen = SKY.nightZ.clone().lerp(SKY.zenith, day).lerp(SKY.duskZ, dusk * 0.5);
+  const hor = SKY.nightH.clone().lerp(SKY.horizon, day).lerp(SKY.dusk, dusk * 0.6);
+  scene.fog.color.copy(hor);
+  scene.background = hor;
+  dome.quaternion.setFromUnitVectors(new THREE.Vector3(0, 1, 0), up);
+  sunDisc.position.copy(sd).multiplyScalar(SKY_R);
+  sunDisc.scale.setScalar(SKY_R * Math.tan(star.angularRadius));    // ~17 m at 3.2 km: 0.6° of sky, as from 0.8 AU
+  sunDisc.visible = sunGlow.visible = sunHalo.visible = elev > -0.05;
+  // over-bright on purpose: the tone mapper takes the disc to white, as a real sun reads to an eye or a camera
+  sunDisc.material.color.setRGB(6 * star.colour[0], 6 * star.colour[1] * (0.75 + 0.25 * day), 6 * star.colour[2] * (0.55 + 0.45 * day));
+  const rs = SKY_R * Math.tan(star.angularRadius);
+  sunGlow.position.copy(sd).multiplyScalar(SKY_R * 0.99); sunGlow.scale.setScalar(rs * 14);
+  sunHalo.position.copy(sd).multiplyScalar(SKY_R * 0.98); sunHalo.scale.setScalar(rs * 60);
+  sunGlow.material.opacity = 1; sunHalo.material.opacity = 0.35 + 0.25 * day;
+  stars.material.opacity = 1 - smooth01(-0.15, 0.05, elev);
+  const R = Cosmos.skyRotation(Wd.PLANET);                  // the fixed stars, carried into the turning planet's frame
+  stars.matrixAutoUpdate = false;
+  stars.matrix.set(R[0], R[1], R[2], 0, R[3], R[4], R[5], 0, R[6], R[7], R[8], 0, 0, 0, 0, 1);
+  if (performance.now() - skyAt < 400) return;              // the dome's colours change slowly: repaint twice a second
+  skyAt = performance.now();
+  const local = sd.clone().applyQuaternion(dome.quaternion.clone().invert());
+  const pos = dome.geometry.attributes.position, Cc = dome.geometry.attributes.color, v = new THREE.Vector3(), c = new THREE.Color();
+  for (let i = 0; i < pos.count; i++) {
+    v.fromBufferAttribute(pos, i).normalize();
+    const alt = v.y;
+    c.copy(hor).lerp(zen, Math.pow(Math.max(0, alt), 0.55));
+    const toward = Math.max(0, v.dot(local));
+    const glow = dusk * Math.pow(toward, 6) * (1 - Math.max(0, alt));
+    c.lerp(SKY.dusk, Math.min(1, glow * 1.4));
+    c.lerp(SKY.white, day * 0.45 * Math.pow(toward, 24));    // by day the sky whitens toward the sun (scattering)
+    if (alt < 0) c.multiplyScalar(1 + alt * 0.6);           // below the horizon: the haze darkens
+    Cc.setXYZ(i, c.r, c.g, c.b);
+  }
+  Cc.needsUpdate = true;
+}
 function frame(now) {
   const dt = Math.min(0.05, (now - lastT) / 1000 || 0); lastT = now;
   step(dt);
@@ -663,15 +815,7 @@ function frame(now) {
     const fx = Math.sin(yaw) * ofr.east[0] + Math.cos(yaw) * ofr.north[0], fy = Math.sin(yaw) * ofr.east[1] + Math.cos(yaw) * ofr.north[1], fz = Math.sin(yaw) * ofr.east[2] + Math.cos(yaw) * ofr.north[2];
     r.mesh.lookAt(r.mesh.position.x + fx, r.mesh.position.y + fy, r.mesh.position.z + fz);
   }
-  // the sun turns about the planet's axis; the sky follows its height above the player's horizon
-  const ang = (Date.now() / 1000 / DAY_S) * 2 * Math.PI;
-  const sd = new THREE.Vector3(Math.cos(ang), 0.35, Math.sin(ang)).normalize();
-  sun.position.copy(sd).multiplyScalar(100);
-  const elev = sd.x * fr.up[0] + sd.y * fr.up[1] + sd.z * fr.up[2];
-  const day = Math.max(0, Math.min(1, elev * 3 + 0.35));
-  sun.intensity = 3 * day; hemi.intensity = 0.3 + 1.3 * day;
-  const sky = new THREE.Color(0x0a1020).lerp(new THREE.Color(0x8ec5ee), day);
-  scene.background = sky; scene.fog.color = sky;
+  sky(fr);
   // the aimed block's outline
   const a = aim();
   if (a) {
@@ -699,21 +843,32 @@ async function start() {
   renderer = new THREE.WebGPURenderer({ canvas, antialias: true });
   renderer.setPixelRatio(Math.min(2, devicePixelRatio || 1));
   renderer.setSize(innerWidth, innerHeight);
+  renderer.toneMapping = THREE.ACESFilmicToneMapping;
+  renderer.toneMappingExposure = 1.05;
+  renderer.shadowMap.enabled = true;
+  renderer.shadowMap.type = THREE.PCFShadowMap;            // r187's WebGPU renderer has no PCFSoftShadowMap
   await renderer.init();
   $("hudGpu").textContent = renderer.backend && renderer.backend.isWebGPUBackend ? "WebGPU" : "WebGL2";
   scene = new THREE.Scene();
-  scene.fog = new THREE.Fog(0x8ec5ee, viewDist * CHUNK * 0.8, 2600);
+  scene.fog = new THREE.Fog(0xb7d6ef, viewDist * CHUNK * 0.9, 2900);
   camera = new THREE.PerspectiveCamera(72, innerWidth / innerHeight, 0.08, 4000);
   camera.position.set(0, 0, 0);
-  sun = new THREE.DirectionalLight(0xfff4e0, 2.4); scene.add(sun);
-  hemi = new THREE.HemisphereLight(0xcfe8ff, 0x6a5a48, 0.9); scene.add(hemi);
-  scene.add(new THREE.AmbientLight(0xffffff, 0.22));      // a night is dark, never black
+  sun = new THREE.DirectionalLight(0xfff4e0, 3);
+  sun.shadow.mapSize.set(2048, 2048);
+  Object.assign(sun.shadow.camera, { left: -48, right: 48, top: 48, bottom: -48, near: 10, far: 320 });
+  sun.shadow.bias = -0.0004; sun.shadow.normalBias = 0.04;
+  scene.add(sun, sun.target);                               // the target stays at the origin: the player
+  moon = new THREE.DirectionalLight(0x8fa8d8, 0.3); scene.add(moon, moon.target);
+  hemi = new THREE.HemisphereLight(0xcfe8ff, 0x5a4a38, 0.9); scene.add(hemi);
+  scene.add(new THREE.AmbientLight(0x8090b0, 0.3));       // a night is dark, never black
+  buildSky();
   const atlas = paintAtlas();
   atlasTex = new THREE.CanvasTexture(atlas);
   atlasTex.magFilter = THREE.NearestFilter; atlasTex.minFilter = THREE.NearestFilter; atlasTex.colorSpace = THREE.SRGBColorSpace;
   atlasTex.generateMipmaps = false;
-  matSolid = new THREE.MeshLambertMaterial({ map: atlasTex, vertexColors: true, alphaTest: 0.5 });
-  matClear = new THREE.MeshLambertMaterial({ map: atlasTex, vertexColors: true, transparent: true, depthWrite: false });
+  matSolid = new THREE.MeshStandardMaterial({ map: atlasTex, vertexColors: true, alphaTest: 0.5, roughness: 0.85, metalness: 0 });
+  matClear = new THREE.MeshStandardMaterial({ map: atlasTex, vertexColors: true, transparent: true, depthWrite: false, roughness: 0.15, metalness: 0 });
+  matGround = new THREE.MeshStandardMaterial({ vertexColors: true, roughness: 0.95, metalness: 0 });
   highlight = new THREE.LineSegments(new THREE.EdgesGeometry(new THREE.BoxGeometry(1.02, 1.02, 1.02)), new THREE.LineBasicMaterial({ color: 0x111111 }));
   scene.add(highlight);
   addEventListener("resize", () => { renderer.setSize(innerWidth, innerHeight); camera.aspect = innerWidth / innerHeight; camera.updateProjectionMatrix(); });

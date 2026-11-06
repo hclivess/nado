@@ -189,11 +189,11 @@ export function column(face, u, v) {
   const detail = at(PERM[2], 45, 2);                             // the ground's grain, ~45 m
   const rid = 1 - Math.abs(at(PERM[3], 2500, 5));                // mountain ridges, ~2.5 km
   const mtn = Math.max(0, at(PERM[4], 12000, 3) * 2.2 - 0.15);   // where the ranges are, ~12 km
-  let top = SEA + 4 + cont * 90 + hills * 14 + detail * 2.5 + rid * rid * rid * mtn * 110;
-  top = Math.max(8, Math.min(H - 8, Math.floor(top)));
+  const height = Math.max(8, Math.min(H - 8, SEA + 4 + cont * 90 + hills * 14 + detail * 2.5 + rid * rid * rid * mtn * 110));
+  const top = Math.floor(height);
   const temp = at(PERM[4], 20000, 3) * 0.6 + at(PERM[0], 7000, 2) * 0.4 - Math.abs(d[1]) * 0.55 - Math.max(0, top - SEA) * 0.004;
   const biome = top < SEA + 2 && top >= SEA - 3 ? "beach" : temp < -0.32 ? "snow" : top > SEA + 70 ? "rock" : "grass";
-  return { top, biome };
+  return { top, height, biome };
 }
 
 function hash32(a, b, c) {
@@ -241,6 +241,20 @@ export function terrainBlock(face, u, v, h, colCache) {
     if (dh >= 4 && dh <= 6 && r <= (dh === 6 ? 1 : 3) && !(du === 0 && dv === 0 && dh <= 5)) return B.leaves;
   }
   return B.air;
+}
+
+// ---- the smooth ground ---------------------------------------------------------------------------------------------
+// "it should not really be blocky" (operator, 2026-11-06): NATURAL ground is drawn as a smooth surface, built materials
+// stay crisp. The data is unchanged — cells with a block id — and the surface is the zero level of a FIELD over the cell
+// centres, one definition shared by the mesher (what is drawn), collision and aiming (what is touched):
+//   an untouched cell:  height(column) - (h + 0.5), clamped to [-1, 1] — the generator's exact, unrounded ground;
+//   an edited cell:     +1 if a natural material was put there, -1 otherwise (dug out, or a built block, which carves
+//                       its own room in the ground and is drawn crisp).
+export const NATURAL = new Set([B.grass, B.dirt, B.stone, B.sand, B.snow, B.gravel, B.basalt, B.bedrock]);
+export function fieldOf(col, h, edit) {
+  if (edit !== undefined) return NATURAL.has(edit) ? 1 : -1;
+  if (h <= 0) return 1;
+  return Math.max(-1, Math.min(1, col.height - (h + 0.5)));
 }
 
 // ---- plot data and its commitment ---------------------------------------------------------------------------------

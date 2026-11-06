@@ -40,6 +40,52 @@ import (or mirror) it.
 - **The landing site** is face 0, plot rows 4924–4933, columns 4662–4671: temperate grassland ~5 m above a sea in sight,
   near the face centre — chosen by scanning the equator band. The first wave is those 100 plots. **Fixed once minted.**
 
+## Smooth ground, crisp buildings
+
+"it should not really be blocky" (operator, 2026-11-06). The data stays cells with a block id — titles, commitments, the
+server and the API are untouched — and only the drawing, walking and aiming changed:
+
+- **Natural ground** (land-world `NATURAL`: grass, dirt, stone, sand, snow, gravel, basalt, bedrock) is the zero surface of
+  a field over cell centres (`fieldOf`): an untouched cell is `height − (h + 0.5)` clamped to ±1 — the generator's exact,
+  unrounded height — and an edited cell is +1 for a natural material, −1 for anything else (dug, or built). The mesher
+  draws it by Surface Nets, coloured by material and slope; the page walks and aims on the same field interpolated, so a
+  foot lands where the surface is drawn. A click digs the solid cell it hit (or adds earth where it came from).
+- **Trees** are round trunks and canopy surfaces (their own part, `trees`).
+- **What people build** (planks, brick, tiles, glass, wool…) stays crisp textured cubes, carving its own room in the ground.
+- tests/test_the_ground_is_one_smooth_surface_across_chunks_and_built_blocks_stay_crisp.mjs: watertight across chunks,
+  exact heights, meadow colour, crisp bricks, digging dents.
+
+## The cosmos and the light
+
+"make sun a real object in a real distance, we are going interstellar in the end" (operator, 2026-11-06).
+static/land-cosmos.js holds star systems in SI units and doubles: the first star (radius 6.3·10⁸ m) and planet 0 on a
+0.8 AU orbit (≈120 million km), a year of 30 planet days, a 40-minute day, an axial tilt of 0.36 rad. Day and night are
+the planet TURNING under a star that stays put; seasons come from the tilt. The page reads the star's real direction in
+the planet's frame, its distance, its apparent size (asin(radius / distance) ≈ 0.6°) and its flux, and draws it at that
+true angle and size on the sky dome, with a bloom; the fixed stars turn by the inverse of the planet's own rotation.
+Travel later moves the observer through these frames.
+
+Light follows the star's height over the player's horizon: a shadow-casting sunlight that warms toward the horizon (no
+shadows below ~7° elevation, where the map would streak), a dim blue moonlight opposite, a hemisphere light turned to the
+local up, a sky dome coloured zenith-to-horizon with a sunset glow and daytime scattering toward the sun, stars at night,
+fog in the horizon's colour, ACES tone mapping on physically based materials.
+tests/test_the_sun_is_a_real_star_at_a_real_distance_and_the_planet_turns_under_it.mjs pins it.
+
+## Proposed: from sticks and stones to a post-robotic society
+
+"there should be like... humanity progression - start with sticks and stones and invent stuff to move forward until you
+end up in a postrobotic society" (operator, 2026-11-06). NOT BUILT YET — a design for the operator's yes:
+
+- **Eras**, each unlocking materials, tools and structures: Stone (sticks, stone, clay, thatch) → Bronze (kiln brick,
+  copper tools) → Iron (iron, glass, mills) → Steam (machines, rails) → Electric (power, lamps, wiring) → Information
+  (computers, solar) → Robotic (assemblers, drones that build for you) → Post-robotic (matter shaping, the first ships
+  that leave the planet — the bridge to the interstellar game).
+- **Resources are gathered from the world** (the ground's materials by digging, wood from trees, ores the generator
+  places by depth and region), carried in an inventory, and **crafted** by recipes; inventing an era's key item unlocks it.
+- **Per player first, per settlement later**: a player's era, inventory and inventions live on the world server; whether
+  progress (or rare finds) is anchored on chain is an open question for the operator.
+- What it changes now: the block palette becomes what you have and know, not all 29 types.
+
 ## Titles and the land contract
 
 A title is a native asset issued by ISSUER with `seed` = `0x4C414E44 << 48 | planet << 32 | plot` (land.py
@@ -87,6 +133,7 @@ reveals nothing about a build; anyone handed the edits and the salt can check th
 | static/land.js | renderer, player movement and collision on the sphere, face-seam crossing, chunk streaming, the far land, aiming, edits, titles, anchoring |
 | static/land-mesher.js | the chunk mesher (a module Web Worker): a 16³ chunk with a one-block border wrapped across seams, faces culled |
 | static/land-world.js | the planet (above) |
+| static/land-cosmos.js | the star system: the sun's real direction, distance, size and light |
 | static/i18n_games/land.json | every string in the 17 languages |
 
 Controls: WASD, Space (jump / up), Shift (run / fast), F (fly), C (down), left click break, right click place, 1–9 and
@@ -102,6 +149,8 @@ down, fly, break, place and the palette.
 - tests/test_the_land_server_lets_only_holders_and_their_builders_change_a_plot.py — the world server
 - tests/test_an_ai_agent_builds_a_structure_with_its_own_key_once_invited.py — the agent client
 - tests/test_two_players_and_an_agent_build_together_in_the_live_world.mjs — two browsers and an agent, live
+- tests/test_the_ground_is_one_smooth_surface_across_chunks_and_built_blocks_stay_crisp.mjs — the smooth ground
+- tests/test_the_sun_is_a_real_star_at_a_real_distance_and_the_planet_turns_under_it.mjs — the cosmos
 
 ## The world server
 

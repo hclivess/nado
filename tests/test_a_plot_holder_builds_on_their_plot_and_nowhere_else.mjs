@@ -41,7 +41,10 @@ function spot(plot) {
     const u = q.u0 + 7 + du, v = q.v0 + 6 + dv, top = Wd.column(q.face, u, v).top;
     if (Wd.terrainBlock(q.face, u, v, top + 1) === Wd.B.air && Wd.terrainBlock(q.face, u, v + 1, top + 1) === Wd.B.air
         && Wd.column(q.face, u, v + 1).top === top && Wd.terrainBlock(q.face, u, v + 1, top + 2) === Wd.B.air)
-      return { face: q.face, u: u + 0.5, v: v + 0.5, h: top + 1, top, cu: u, cv: v + 1 };
+      // the ground a click digs is the highest cell the SMOOTH field calls solid (land-world.fieldOf): the top layer
+      // when the exact ground sits high in it, the one below when the surface dips under its middle
+      return { face: q.face, u: u + 0.5, v: v + 0.5, h: top + 1, top, cu: u, cv: v + 1,
+               dig: Wd.fieldOf(Wd.column(q.face, u, v + 1), top) > 0 ? top : top - 1 };
   }
   throw new Error("no flat standing spot in plot " + plot);
 }
@@ -149,7 +152,7 @@ try {
   ok((await evl(editsOf(MINE))).length === 0, "Break takes the placed block back out: the plot is untouched again");
   await tap("tBreak"); await sleep(300);
   const e3 = await evl(editsOf(MINE));
-  ok(e3.length === 1 && e3[0][1] === Wd.B.air && e3[0][0] === `${S1.cu - q.u0}:${S1.cv - q.v0}:${S1.top}`, "Break again digs the ground block itself: " + JSON.stringify(e3));
+  ok(e3.length === 1 && e3[0][1] === Wd.B.air && e3[0][0] === `${S1.cu - q.u0}:${S1.cv - q.v0}:${S1.dig}`, "Break again digs the solid ground under the smooth surface: " + JSON.stringify(e3));
   ok(/^[A-Za-z0-9+/]+=*$/.test(((await evl(saved)).plots[MINE] || {}).s || ""), "the plot's commitment salt is kept with its edits");
 
   // ---- on a plot someone else holds --------------------------------------------------------------------------------
