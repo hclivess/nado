@@ -7,7 +7,10 @@
      'unsafe-inline', and this page has ZERO inline scripts or inline event handlers of its own. 'wasm-unsafe-eval'
      (+'unsafe-eval' for older engines) keeps the in-browser WASM prover/miner working; the two CDN hosts are the
      crypto fallback loadDeps() uses; connect-src * because the relay/exec node is a user-configurable origin. -->
-<meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self' 'wasm-unsafe-eval' 'unsafe-eval' https://esm.sh https://cdn.jsdelivr.net; style-src 'self' 'unsafe-inline'; img-src 'self' data:; connect-src *; object-src 'none'; base-uri 'self'; form-action 'self' https://forum.nadochain.com" />
+<!-- form-action MUST name every site the wallet signs a login for (interface.js FORUM_ORIGIN_ALLOW, LAND_ORIGIN_ALLOW):
+     the signed login goes back as a top-level form POST, and an origin missing here is blocked by the browser AFTER the
+     user approves — Land sign-in silently went nowhere until 2026-11-06. tests/test_the_wallet_may_post_every_login_it_signs.py -->
+<meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self' 'wasm-unsafe-eval' 'unsafe-eval' https://esm.sh https://cdn.jsdelivr.net; style-src 'self' 'unsafe-inline'; img-src 'self' data:; connect-src *; object-src 'none'; base-uri 'self'; form-action 'self' https://forum.nadochain.com https://land.nadochain.com" />
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
 <meta name="theme-color" content="#0b0f14" />
 <meta name="color-scheme" content="dark" />

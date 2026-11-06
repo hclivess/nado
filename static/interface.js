@@ -5226,6 +5226,8 @@ let pendingWallet = null;
 // verifies every offered scheme, scripts/land_server.py login), domain-tagged so the signature is good for nothing but a
 // Land login, and sent ONLY to an allowlisted origin as a top-level form POST. It cannot move funds; the server binds the
 // challenge to the browser that started it (its login cookie) and accepts it once.
+// INVARIANT: every origin here is also in interface.html's CSP form-action, or the browser blocks the signed POST after
+// the user approved it (tests/test_the_wallet_may_post_every_login_it_signs.py).
 const LAND_ORIGIN_ALLOW = ["https://land.nadochain.com"];
 let pendingLandLogin = (() => {
   try {

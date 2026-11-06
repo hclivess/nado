@@ -23,6 +23,11 @@ const CID = "0000000000000000000000000000000c";      // set by execnode/games/re
 const ISSUER = "3cc4c44a94a900f79716dc6d3822a81603b1ce7862ce03572f";   // land.py ISSUER — every title's issuer
 const NFT_URL = "https://nft.nadochain.com/";
 const dapp = new NadoDapp({ cid: CID, app: "Land" });
+// ONE SIGN-IN ("im already signed in and it tells me to sign in", operator 2026-11-06). Building needs the world server
+// to know who you are, which only a signed login proves (scripts/land_server.py login); the SDK's plain wallet connect
+// shares an address and no signature. So in Land the wallet button IS the signed login, and the address that login
+// proves becomes the page's wallet address too (anchoring, inviting).
+dapp.signIn = () => { location.href = "/land/api/login"; };
 const T = (k, en, v) => window.t("land." + k, en, v);
 
 const { CHUNK, PLOT, W, H, B, BLOCKS } = Wd;
@@ -590,6 +595,13 @@ function connect() {
       // the server is the record now: drop the plots this browser cached, the server sends each watched one back
       for (const [plot, pe] of plotEdit) { const q = Wd.plotCoords(plot); for (const lk of pe.keys()) { const [x, z, y] = lk.split(":").map(Number); edits.delete(key(q.face, q.u0 + x, q.v0 + z, y)); } }
       plotEdit.clear();
+      // the world server's answer decides who this page is signed in as: an address left over from a plain wallet connect
+      // (no signature) would show "connected" while every build is refused — the operator's "already signed in"
+      if (net.me !== dapp.me) {
+        dapp.me = net.me;
+        try { if (net.me) localStorage.setItem(dapp.LS_ME, net.me); else localStorage.removeItem(dapp.LS_ME); } catch (e) {}
+        renderWallet(dapp);
+      }
       if (!net.me) { inv.items = {}; inv.tools = []; inv.stations = []; hotbar(); }
       if (net.me !== was) refreshTitles();
       hud();
