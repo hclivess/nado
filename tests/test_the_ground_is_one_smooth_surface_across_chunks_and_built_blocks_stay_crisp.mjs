@@ -5,7 +5,7 @@
  *      exactly two triangles except along the block's outer rim — no gap and no doubled seam where chunks meet;
  *   2. it is smooth: no smooth-surface vertex sits on a whole layer the way a cube's corner would (the surface follows
  *      the generator's exact height);
- *   3. trees are organic: the logs come out as round trunks and the canopy as a surface (their own part, `trees`), with
+ *   3. trees are organic: models (bark, foliage) or, once cut, round trunks and a canopy surface (`trees`), with
  *      no crisp cube for either;
  *   4. what people build stays crisp: a brick placed on the ground is textured cube faces (with atlas uvs), and the
  *      ground around it stays smooth;
@@ -66,8 +66,9 @@ ok(onLayer / verts < 0.05, `vertices follow the exact ground, not whole layers (
 
 // 3. trees: round trunks and canopy surfaces, no crisp cubes
 let treeParts = 0;
-for (let dx = 0; dx < 3; dx++) for (let dy = 0; dy < 3; dy++) for (const c of chs) { const r = M.meshChunk(q.face, cu0 + dx, cv0 + dy, c, null); if (!r.empty && r.trees) treeParts++; }
-ok(!solidAny && treeParts > 0, `no crisp cube anywhere in untouched land; the trees are their own smooth part (${treeParts} chunks hold some)`);
+// (untouched trees are models — bark + foliage, tests/test_untouched_trees_are_drawn_as_models_and_cut_ones_as_their_cells.mjs)
+for (let dx = 0; dx < 3; dx++) for (let dy = 0; dy < 3; dy++) for (const c of chs) { const r = M.meshChunk(q.face, cu0 + dx, cv0 + dy, c, null); if (!r.empty && (r.trees || r.foliage)) treeParts++; }
+ok(!solidAny && treeParts > 0, `no crisp cube anywhere in untouched land; the trees are their own part (${treeParts} chunks hold some)`);
 
 // 4. a brick stays crisp
 const key = (u, v, h) => `${q.face}:${u}:${v}:${h}`;

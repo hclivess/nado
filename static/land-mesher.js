@@ -6,8 +6,10 @@
 //   smooth — the natural ground (land-world NATURAL) as the zero surface of land-world.fieldOf, by Surface Nets: one
 //            vertex per cell-corner cube the surface crosses, placed at the mean of the crossings on its edges, with the
 //            field's gradient as its normal; coloured by material and slope (grass on the flat, earth and rock on the
-//            steep, snow that slides off cliffs). Tree canopies are a second surface over the leaf cells, and every log
-//            cell is a round trunk segment.
+//            steep, snow that slides off cliffs).
+//   bark, foliage — every UNTOUCHED tree as a model (land-trees.js): trunk, limbs and alpha leaf cards, weighted for the
+//            wind. A tree someone has cut into is drawn from its cells instead (`trees`: a canopy surface over its leaf
+//            cells, a round segment per log), so the picture never shows wood that is gone.
 //   solid  — built materials (planks, brick, tiles, wool…) as crisp textured cubes, culled against crisp neighbours and
 //            against ground that buries them.
 //   clear  — glass, ice and the sea's surface.
@@ -17,7 +19,8 @@
 // Cells are generated with a one-cell border (wrapped across face seams by land-world.wrap). A surface edge is drawn by
 // the chunk that holds its LOWER cell, so every edge of the world belongs to exactly one chunk (no gaps, no doubles).
 // Positions are metres RELATIVE TO THE CHUNK'S ANCHOR; the page places each mesh at anchor - camera in doubles.
-import { CHUNK, H, R0, B, BLOCKS, ATLAS_TILES, NATURAL, CM, TREE_WOOD, TREE_LEAVES, isTree, opaque, dirOf, frameOf, wrap, column, terrainBlock, fieldOf } from "./land-world.js";
+import { CHUNK, H, R0, W, B, BLOCKS, ATLAS_TILES, NATURAL, CM, TREE_WOOD, TREE_LEAVES, isTree, opaque, dirOf, frameOf, wrap, column, terrainBlock, fieldOf, treeAt, treeCell } from "./land-world.js";
+import { treeModel } from "./land-trees.js";
 
 const N = CHUNK + 2;                                     // cells with the border: real index r in -1..16 is r + 1
 const TILE_COLS = 8;                                      // the atlas is TILE_COLS tiles across (static/land.js paints it)
@@ -81,7 +84,7 @@ function cells(face, cu, cv, ch, edits) {
       fld[x] = h < 0 ? 1 : h >= H ? -1 : fieldOf(col, h, e);
     }
   }
-  return { blk, fld };
+  return { blk, fld, colCache };
 }
 
 // ---- built pieces: boxes at 1 cm (land-world.js BOXES) ------------------------------------------------------------
@@ -166,7 +169,7 @@ export function meshChunk(face, cu, cv, ch, edits, boxes, lod) {
     }
     if (h0 > hi + 16 && h0 > 100) return { empty: true };
   }
-  const { blk, fld } = cells(face, cu, cv, ch, edits);
+  const { blk, fld, colCache } = cells(face, cu, cv, ch, edits);
   const at = (i, j, k) => blk[((k + 1) * N + (j + 1)) * N + (i + 1)];
   const u0 = cu * CHUNK, v0 = cv * CHUNK;
   const anchor = dirOf(face, u0, v0).map((x) => x * (R0 + h0));
@@ -245,6 +248,37 @@ export function meshChunk(face, cu, cv, ch, edits, boxes, lod) {
     const w = groundWeights(mat, nh);
     o.w1.push(w[0], w[1], w[2], w[3]); o.w2.push(w[4], w[5]);
   });
+  // ---- the forest: untouched trees as models, their cells masked out of the cell drawing below ---------------------
+  // A tree is untouched when no edit lands on any of its cells. Roots keep 2 columns from a plot edge and a chunk column
+  // IS a plot, so every tree lies within its own chunk column; each chunk it spans masks its own cells, and the chunk
+  // holding its root's ground layer draws the model — once.
+  const modelled = new Uint8Array(N * N * N);
+  const bark = mk(), foliage = mk();
+  // roots up to 3 columns outside the chunk too: their crowns reach the one-cell border the surfaces are built over, and an
+  // unmasked border cell left a sliver of cell canopy beside every neighbour's model (the first model render)
+  for (let j = -3; j < CHUNK + 3; j++) for (let i = -3; i < CHUNK + 3; i++) {
+    const gu = u0 + i, gv = v0 + j;
+    if (gu < 0 || gv < 0 || gu >= W || gv >= W) continue;              // across a face seam: drawn from its cells there
+    const col = colCache(face, gu, gv), t = treeAt(face, gu, gv, col);
+    if (!t) continue;
+    const span = t.height + 2;
+    if (col.top + span < h0 - 1 || col.top > h0 + CHUNK) continue;
+    let cut = false;
+    if (edits && edits.size) {
+      for (let du = -2; du <= 2 && !cut; du++) for (let dv = -2; dv <= 2 && !cut; dv++) for (let dh = 1; dh <= span; dh++)
+        if (treeCell(t, du, dv, dh) && edits.has(face + ":" + (gu + du) + ":" + (gv + dv) + ":" + (col.top + dh))) { cut = true; break; }
+    }
+    if (cut) continue;
+    for (let du = -2; du <= 2; du++) for (let dv = -2; dv <= 2; dv++) for (let dh = 1; dh <= span; dh++) {
+      const pi = i + du + 1, pj = j + dv + 1, pk = col.top + dh - h0 + 1;
+      if (pi < 0 || pj < 0 || pk < 0 || pi >= N || pj >= N || pk >= N || !treeCell(t, du, dv, dh)) continue;
+      const x = (pk * N + pj) * N + pi;
+      if (isTree(blk[x])) modelled[x] = 1;
+    }
+    if (i < 0 || j < 0 || i >= CHUNK || j >= CHUNK || col.top < h0 || col.top >= h0 + CHUNK) continue;
+    placeTree(t, face, gu, gv, col.height, lod, place, bark, foliage);
+  }
+
   // canopies: a surface over the leaf cells (crisp tree tops would be the blockiest thing on the planet)
   let leaves = false;
   const leafF = new Float32Array(N * N * N);
@@ -253,8 +287,8 @@ export function meshChunk(face, cu, cv, ch, edits, boxes, lod) {
   const leafAt = (x) => x >= 0 && x < blk.length && TREE_LEAVES.has(blk[x]);
   for (let x = 0; x < blk.length; x++) {
     const crown = TREE_WOOD.has(blk[x]) && (leafAt(x + 1) || leafAt(x - 1) || leafAt(x + N) || leafAt(x - N));
-    leafF[x] = TREE_LEAVES.has(blk[x]) || crown ? 1 : -1;
-    if (TREE_LEAVES.has(blk[x])) leaves = true;
+    leafF[x] = !modelled[x] && (TREE_LEAVES.has(blk[x]) || crown) ? 1 : -1;
+    if (TREE_LEAVES.has(blk[x]) && !modelled[x]) leaves = true;
   }
   // each crown in its species' colour: broadleaf green, conifer needles darker, palm fronds lighter
   const crownColour = (m, up, u, v, h) => {
@@ -267,7 +301,7 @@ export function meshChunk(face, cu, cv, ch, edits, boxes, lod) {
   // ---- trunks: every log cell is a round segment (octagonal, tapering as it rises) -----------------------------------
   for (let k = 0; k < CHUNK; k++) for (let j = 0; j < CHUNK; j++) for (let i = 0; i < CHUNK; i++) {
     const wood = at(i, j, k);
-    if (!TREE_WOOD.has(wood)) continue;
+    if (!TREE_WOOD.has(wood) || modelled[((k + 1) * N + (j + 1)) * N + (i + 1)]) continue;
     const slim = wood === B.birchlog ? 0.7 : 1, bark = wood === B.birchlog ? C.birch : C.bark;
     const below = at(i, j, k - 1) === wood, r0 = (below ? 0.30 : 0.36) * slim, r1 = (at(i, j, k + 1) === wood ? 0.30 : 0.26) * slim;
     const cu0 = u0 + i + 0.5, cv0 = v0 + j + 0.5, hb = h0 + k - (below ? 0 : 0.4), ht = h0 + k + 1;
@@ -331,8 +365,43 @@ export function meshChunk(face, cu, cv, ch, edits, boxes, lod) {
   const grass = lod ? null : scatterGrass(smooth);
   const pieces = mk(), glassy = mk();
   if (boxes && boxes.length) meshBoxes(boxes, u0, v0, h0, place, pieces, glassy, lod);
-  if (!smooth.idx.length && !trees.idx.length && !solid.n && !clear.n && !pieces.n && !glassy.n) return { empty: true };
-  return { anchor, smooth: pack(smooth), trees: pack(trees), solid: pack(solid), clear: pack(clear), pieces: pack(pieces), glassy: pack(glassy), grass };
+  if (!smooth.idx.length && !trees.idx.length && !solid.n && !clear.n && !pieces.n && !glassy.n && !bark.n && !foliage.n) return { empty: true };
+  return { anchor, smooth: pack(smooth), trees: pack(trees), solid: pack(solid), clear: pack(clear), pieces: pack(pieces), glassy: pack(glassy),
+           bark: pack(bark), foliage: pack(foliage), grass };
+}
+
+// ---- tree models: one per (kind, height, variant, detail), turned and placed per tree --------------------------------
+const VARIANTS = 6;
+const models = new Map();
+/** Copy tree `t`'s model into `bark` / `foliage`, its root at grid (gu + .5, gv + .5) on the ground at `ground`. The model
+ *  is laid out in GRID units (x along u, y along v, z up), so it bends with the planet exactly as the cells it replaces. */
+function placeTree(t, face, gu, gv, ground, lod, place, bark, foliage) {
+  const far = lod >= 2 ? 2 : 0, variant = Math.floor(hash3(gu, gv, face * 7 + 1) * VARIANTS);
+  const key = t.kind + ":" + t.height + ":" + variant + ":" + far;
+  let m = models.get(key);
+  if (!m) { m = treeModel(t.kind, t.height, (variant + 1) * 7919 + t.height * 131 + t.kind.length, far); models.set(key, m); }
+  const rot = hash3(gv, face, gu) * Math.PI * 2, cr = Math.cos(rot), sr = Math.sin(rot);
+  const sc = 0.9 + 0.1 * hash3(gu + 3, gv, face), phase = hash3(gu, gv + 5, face) * 6.283;
+  const fr = frameOf(face, gu + 0.5, gv + 0.5), cu = gu + 0.5, cv = gv + 0.5;
+  for (const [src, out] of [[m.bark, bark], [m.leaves, foliage]]) {
+    const base = out.n;
+    for (let i = 0; i < src.n; i++) {
+      const x = src.pos[i * 3], y = src.pos[i * 3 + 1], z = src.pos[i * 3 + 2];
+      const rx = (x * cr - y * sr) * sc, ry = (x * sr + y * cr) * sc;
+      const p = place(cu + rx, cv + ry, ground + z * sc);
+      out.pos.push(p[0], p[1], p[2]);
+      const nx = src.nor[i * 3], ny = src.nor[i * 3 + 1], nz = src.nor[i * 3 + 2], ex = nx * cr - ny * sr, ey = nx * sr + ny * cr;
+      out.nor.push(ex * fr.east[0] + ey * fr.north[0] + nz * fr.up[0], ex * fr.east[1] + ey * fr.north[1] + nz * fr.up[1], ex * fr.east[2] + ey * fr.north[2] + nz * fr.up[2]);
+      out.uv.push(src.uv[i * 2], src.uv[i * 2 + 1]);
+      out.tile.push(src.tile[i]);
+      out.col.push(src.col[i * 3], src.col[i * 3 + 1], src.col[i * 3 + 2]);
+      // the wind blows along the local east; its strength is the vertex's weight, its rhythm the tree's own phase
+      const w = src.wind[i * 4];
+      out.wind.push(fr.east[0] * w, fr.east[1] * w, fr.east[2] * w, phase);
+      out.n++;
+    }
+    for (const ix of src.idx) out.idx.push(base + ix);
+  }
 }
 
 const GRASS_DENSITY = 6;                                   // clumps per m² of meadow
@@ -356,14 +425,14 @@ function scatterGrass(g) {
   return out.length ? { inst: new Float32Array(out), kind: new Uint8Array(kinds) } : null;
 }
 
-function mk() { return { pos: [], nor: [], uv: [], col: [], tile: [], uvw: [], gn: [], w1: [], w2: [], idx: [], n: 0 }; }
+function mk() { return { pos: [], nor: [], uv: [], col: [], tile: [], uvw: [], gn: [], w1: [], w2: [], wind: [], idx: [], n: 0 }; }
 function pack(b) {
   if (!b.n || !b.idx.length) return null;
   const out = { pos: new Float32Array(b.pos), nor: new Float32Array(b.nor), col: new Float32Array(b.col),
                 idx: b.n > 65535 ? new Uint32Array(b.idx) : new Uint16Array(b.idx) };
   if (b.uv.length) out.uv = new Float32Array(b.uv);
   if (b.tile.length) out.tile = new Float32Array(b.tile);
-  for (const k of ["uvw", "gn", "w1", "w2"]) if (b[k].length) out[k] = new Float32Array(b[k]);
+  for (const k of ["uvw", "gn", "w1", "w2", "wind"]) if (b[k].length) out[k] = new Float32Array(b[k]);
   return out;
 }
 
@@ -376,7 +445,7 @@ if (typeof self !== "undefined" && typeof window === "undefined" && typeof self.
     catch (err) { res = { error: String(err && err.message || err) }; }
     const tr = [];
     if (res.grass) tr.push(res.grass.inst.buffer, res.grass.kind.buffer);
-    for (const part of [res.smooth, res.trees, res.solid, res.clear, res.pieces, res.glassy]) if (part) for (const a of [part.pos, part.nor, part.col, part.idx, part.uv, part.tile, part.uvw, part.gn, part.w1, part.w2]) if (a) tr.push(a.buffer);
+    for (const part of [res.smooth, res.trees, res.solid, res.clear, res.pieces, res.glassy, res.bark, res.foliage]) if (part) for (const a of [part.pos, part.nor, part.col, part.idx, part.uv, part.tile, part.uvw, part.gn, part.w1, part.w2, part.wind]) if (a) tr.push(a.buffer);
     self.postMessage(Object.assign({ id: m.id }, res), tr);
   };
 }

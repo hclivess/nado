@@ -237,8 +237,9 @@ export function treeAt(face, u, v, col) {
   if (col.biome === "beach" && col.top >= SEA && hh % 60 === 0) return { kind: "palm", height: 6 + (size >> 1) };
   return null;
 }
-/** What tree `t` rooted at (du, dv) from this column puts at `dh` layers above its root's ground (or air). */
-function treeCell(t, du, dv, dh) {
+/** What tree `t` rooted at (du, dv) from this column puts at `dh` layers above its root's ground (or air). The mesher
+ *  reads it too: a tree whose cells are all untouched is drawn as a model (land-trees.js) in their place. */
+export function treeCell(t, du, dv, dh) {
   const r = Math.abs(du) + Math.abs(dv), H0 = t.height;
   switch (t.kind) {
     case "broadleaf":

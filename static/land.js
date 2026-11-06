@@ -69,7 +69,7 @@ const SNAPS = [1, 5, 10, 25, 50, 100];
 let piece = { w: 100, d: 100, h: 100, snap: 10 };
 const plotBoxes = new Map();          // plot -> { list, idx: Map(1 m bucket -> [box]) }
 let pipeline = null;                  // the post-processed render (or null: the plain render on a weak device)
-let renderer, scene, camera, sun, hemi, atlasTex, matSolid, matClear, matGround, matTrees, matPieces, matGlassy, ghost, farMesh = null, farAt = null;
+let renderer, scene, camera, sun, hemi, atlasTex, matSolid, matClear, matGround, matTrees, matPieces, matGlassy, matBark, matLeaves, ghost, farMesh = null, farAt = null;
 let highlight, lastT = 0, locked = false, keys = new Set(), touch = null, viewDist = 6;
 const LS = "nado_land_v1";
 
@@ -430,6 +430,7 @@ function geom(part) {
   if (part.gn) g.setAttribute("gn", new THREE.BufferAttribute(part.gn, 3));
   if (part.w1) g.setAttribute("w1", new THREE.BufferAttribute(part.w1, 4));
   if (part.w2) g.setAttribute("w2", new THREE.BufferAttribute(part.w2, 2));
+  if (part.wind) g.setAttribute("wind", new THREE.BufferAttribute(part.wind, 4));
   g.setIndex(new THREE.BufferAttribute(part.idx, 1));
   g.computeBoundingSphere();
   return g;
@@ -445,6 +446,8 @@ function done(m) {
     c.anchor = m.anchor;
     if (m.smooth) c.meshes.push(new THREE.Mesh(geom(m.smooth), matGround));
     if (m.trees) c.meshes.push(new THREE.Mesh(geom(m.trees), matTrees));
+    if (m.bark) c.meshes.push(new THREE.Mesh(geom(m.bark), matBark));
+    if (m.foliage) c.meshes.push(new THREE.Mesh(geom(m.foliage), matLeaves));
     if (m.pieces) c.meshes.push(new THREE.Mesh(geom(m.pieces), matPieces));
     if (m.glassy) { const me = new THREE.Mesh(geom(m.glassy), matGlassy); me.renderOrder = 1; c.meshes.push(me); }
     if (m.grass) c.meshes.push(...grassMeshes(m.grass));
@@ -1070,6 +1073,93 @@ function grassMeshes(gr) {
   return fi ? [grass, flowers] : [grass];
 }
 
+// ---- the forest's materials (static/land-trees.js builds the models in the mesher worker) -----------------------------
+// LEAVES: a painted atlas, 2 x 2 tiles — broadleaf cluster, birch cluster, needle spray, palm frond (land-trees.js
+// LEAF_TILE). Colour and coverage are painted on two separate opaque canvases and joined into one RGBA texture: a canvas
+// stores colour PREMULTIPLIED, so its transparent pixels are black, and every mip level would blend black into the leaf
+// edges (dark-rimmed cards at a distance). Here the space between leaves carries the leaves' own mean green.
+function paintLeaves() {
+  const S = 1024, T = 512;
+  const mk = () => { const c = document.createElement("canvas"); c.width = c.height = S; return c; };
+  const colC = mk(), mskC = mk(), col = colC.getContext("2d"), msk = mskC.getContext("2d");
+  const bg = ["#3d5a24", "#5a7330", "#22402a", "#5b7a2c"];
+  for (let t = 0; t < 4; t++) { col.fillStyle = bg[t]; col.fillRect((t & 1) * T, (t >> 1) * T, T, T); }
+  msk.fillStyle = "#000"; msk.fillRect(0, 0, S, S);
+  let seed = 11;
+  const R = () => { seed = (seed * 16807) % 2147483647; return seed / 2147483647; };
+  // one shape onto both canvases: its colour on one, white coverage on the other
+  const both = (draw, fill, stroke) => {
+    for (const [g, f] of [[col, fill], [msk, "#fff"]]) { g.save(); g.fillStyle = f; g.strokeStyle = stroke === undefined ? f : (g === msk ? "#fff" : stroke); draw(g); g.restore(); }
+  };
+  const leaf = (x, y, ang, len, wid, fill, rib) => {
+    both((g) => {
+      g.translate(x, y); g.rotate(ang); g.beginPath(); g.moveTo(0, 0);
+      g.quadraticCurveTo(wid, len * 0.45, 0, len); g.quadraticCurveTo(-wid, len * 0.45, 0, 0); g.fill();
+    }, fill);
+    col.save(); col.translate(x, y); col.rotate(ang); col.strokeStyle = rib; col.lineWidth = 1.5;     // the midrib, colour only
+    col.beginPath(); col.moveTo(0, len * 0.05); col.lineTo(0, len * 0.9); col.stroke(); col.restore();
+  };
+  const line = (x0, y0, x1, y1, w, c) => both((g) => { g.lineWidth = w; g.lineCap = "round"; g.beginPath(); g.moveTo(x0, y0); g.lineTo(x1, y1); g.stroke(); }, c, c);
+  const hsl = (h, s, l) => `hsl(${h},${s}%,${l}%)`;
+  // 0: broadleaf — twigs from the middle, then leaves, densest at the heart
+  for (let k = 0; k < 7; k++) { const a = R() * 6.28; line(256, 256, 256 + Math.cos(a) * 190, 256 + Math.sin(a) * 190, 4, "#4a3826"); }
+  for (let k = 0; k < 120; k++) {
+    const a = R() * 6.28, r = Math.sqrt(R()) * 200, l = 30 + R() * 14;
+    leaf(256 + Math.cos(a) * r, 256 + Math.sin(a) * r, R() * 6.28, 50 + R() * 34, 16 + R() * 10, hsl(95 + R() * 25, 42 + R() * 18, l), hsl(90, 40, l + 12));
+  }
+  // 1: birch — smaller, rounder, lighter leaves on fine twigs
+  for (let k = 0; k < 9; k++) { const a = R() * 6.28; line(768, 256, 768 + Math.cos(a) * 200, 256 + Math.sin(a) * 200, 2, "#5a4a3a"); }
+  for (let k = 0; k < 170; k++) {
+    const a = R() * 6.28, r = Math.sqrt(R()) * 210, l = 34 + R() * 14;
+    leaf(768 + Math.cos(a) * r, 256 + Math.sin(a) * r, R() * 6.28, 30 + R() * 16, 15 + R() * 6, hsl(80 + R() * 20, 50 + R() * 15, l), hsl(75, 45, l + 10));
+  }
+  // 2: needle spray — a twig down the middle (base at the top: v = 0 is the branch's base), needles toward the tip
+  line(256, 520, 256, 1010, 7, "#4a3626");
+  for (let y = 525; y < 1010; y += 3) {
+    const f = (y - 520) / 490, env = Math.pow(Math.sin(Math.PI * Math.min(1, f * 1.1 + 0.08)), 0.5);
+    for (const sg of [-1, 1]) {
+      const a = (0.75 + R() * 0.3) * sg, ln = (55 + R() * 55) * env, l = 14 + R() * 12;
+      line(256, y, 256 + Math.sin(a) * ln, y + Math.cos(a) * ln * 0.75, 2.6, hsl(140 + R() * 25, 32 + R() * 16, l));
+    }
+  }
+  // 3: palm frond — the rachis down the middle, long tapering leaflets swept toward the tip
+  line(768, 512, 768, 1024, 7, "#8a8a4a");
+  for (let y = 520; y < 1020; y += 8) {
+    const f = (y - 512) / 512, env = Math.pow(Math.sin(Math.PI * Math.min(1, f + 0.04)), 0.55);
+    for (const sg of [-1, 1]) {
+      const ln = 245 * env, a = (1.05 + R() * 0.15) * sg, ex = 768 + Math.sin(a) * ln, ey = y + Math.cos(a) * ln * 0.55, l = 30 + R() * 12;
+      both((g) => { g.beginPath(); g.moveTo(768, y - 4); g.quadraticCurveTo((768 + ex) / 2, (y + ey) / 2 - 10, ex, ey); g.quadraticCurveTo((768 + ex) / 2, (y + ey) / 2 + 6, 768, y + 5); g.fill(); }, hsl(78 + R() * 18, 52 + R() * 14, l));
+    }
+  }
+  const c = col.getImageData(0, 0, S, S).data, m = msk.getImageData(0, 0, S, S).data, out = new Uint8Array(S * S * 4);
+  for (let i = 0; i < S * S; i++) { out[i * 4] = c[i * 4]; out[i * 4 + 1] = c[i * 4 + 1]; out[i * 4 + 2] = c[i * 4 + 2]; out[i * 4 + 3] = m[i * 4]; }
+  const tex = new THREE.DataTexture(out, S, S, THREE.RGBAFormat);   // row 0 = v 0: canvas top is each tile's v = 0
+  tex.colorSpace = THREE.SRGBColorSpace; tex.generateMipmaps = true;
+  tex.minFilter = THREE.LinearMipmapLinearFilter; tex.magFilter = THREE.LinearFilter; tex.anisotropy = 4;
+  tex.needsUpdate = true;
+  return tex;
+}
+function treeMaterials() {
+  const wind = TSL.attribute("wind", "vec4"), t = TSL.time, ph = wind.w;
+  // a slow sway with a gusting second rhythm, biased downwind; each tree on its own phase
+  const gust = TSL.sin(t.mul(1.3).add(ph)).mul(0.55).add(TSL.sin(t.mul(2.7).add(ph.mul(1.7))).mul(0.25)).add(0.35);
+  const sway = TSL.positionLocal.add(wind.xyz.mul(gust));
+  const lin = (name) => { const x = loadTex(name); x.colorSpace = THREE.NoColorSpace; return x; };
+  const uv = TSL.uv(), birch = TSL.attribute("tile", "float");
+  const bark = new THREE.MeshStandardNodeMaterial({ roughness: 0.92, metalness: 0 });
+  bark.colorNode = TSL.mix(TSL.texture(loadTex("bark_col"), uv).rgb, TSL.texture(loadTex("birch_col"), uv).rgb, birch).mul(TSL.attribute("color", "vec3"));
+  bark.normalNode = TSL.normalMap(TSL.mix(TSL.texture(lin("bark_nor"), uv), TSL.texture(lin("birch_nor"), uv), birch));
+  bark.positionNode = sway;
+  const leafTex = paintLeaves(), s = TSL.texture(leafTex, uv);
+  const leaves = new THREE.MeshStandardNodeMaterial({ roughness: 0.7, metalness: 0, side: THREE.DoubleSide, alphaTest: 0.42 });
+  leaves.colorNode = s.rgb.mul(TSL.attribute("color", "vec3"));
+  leaves.opacityNode = s.a;
+  // leaves flutter on top of the sway: a quick small motion along each card's normal
+  const flutter = TSL.sin(t.mul(9).add(ph.mul(3)).add(TSL.positionLocal.x.mul(4)).add(TSL.positionLocal.z.mul(3))).mul(wind.xyz.length().mul(0.22));
+  leaves.positionNode = sway.add(TSL.attribute("normal", "vec3").mul(flutter));
+  return [bark, leaves];
+}
+
 // ---- the picture: ambient occlusion, bloom, anti-aliasing ("overall not impressive", operator 2026-11-06) ---------------
 // GTAO from a depth + normal pre-pass darkens what the sky cannot reach — the foot of a wall, the inside of a doorway, the
 // ground under a tree — through builtinAOContext, i.e. on INDIRECT light only (the sun's own shadow map handles direct);
@@ -1278,6 +1368,7 @@ async function start() {
   matClear = new THREE.MeshStandardMaterial({ map: atlasTex, vertexColors: true, transparent: true, depthWrite: false, roughness: 0.15, metalness: 0 });
   matGround = groundMaterial();
   matTrees = new THREE.MeshStandardMaterial({ vertexColors: true, roughness: 0.9, metalness: 0 });
+  [matBark, matLeaves] = treeMaterials();
   // pieces: the material's atlas tile, repeated once per METRE of the piece (uv is in metres; fract() keeps it inside
   // the tile, half a texel in from its edge), so any size shows its material at true scale
   // the tile number is ROUNDED: interpolated across a triangle, 16 arrives as 15.9999 and its row rounds down to the
