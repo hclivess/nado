@@ -17,13 +17,13 @@
 // Cells are generated with a one-cell border (wrapped across face seams by land-world.wrap). A surface edge is drawn by
 // the chunk that holds its LOWER cell, so every edge of the world belongs to exactly one chunk (no gaps, no doubles).
 // Positions are metres RELATIVE TO THE CHUNK'S ANCHOR; the page places each mesh at anchor - camera in doubles.
-import { CHUNK, H, R0, B, BLOCKS, ATLAS_TILES, NATURAL, CM, opaque, dirOf, frameOf, wrap, column, terrainBlock, fieldOf } from "./land-world.js";
+import { CHUNK, H, R0, B, BLOCKS, ATLAS_TILES, NATURAL, CM, TREE_WOOD, TREE_LEAVES, isTree, opaque, dirOf, frameOf, wrap, column, terrainBlock, fieldOf } from "./land-world.js";
 
 const N = CHUNK + 2;                                     // cells with the border: real index r in -1..16 is r + 1
 const TILE_COLS = 8;                                      // the atlas is TILE_COLS tiles across (static/land.js paints it)
 const TILE_ROWS = Math.ceil(ATLAS_TILES / TILE_COLS);
 const EU = 0.5 / (16 * TILE_COLS), EV = 0.5 / (16 * TILE_ROWS);   // half a texel of the 16 px tiles
-const crisp = (b) => b !== B.air && !NATURAL.has(b) && b !== B.leaves && b !== B.log && !BLOCKS[b].liquid;
+const crisp = (b) => b !== B.air && !NATURAL.has(b) && !isTree(b) && !BLOCKS[b].liquid;
 
 // crisp-cube faces: neighbour offset, the quad's corners as (u, v, h) offsets, a light factor, the atlas tile (0 top, 1 side, 2 bottom)
 const DIRS = [
@@ -41,6 +41,8 @@ const C = {
   grass: [0.30, 0.52, 0.18], grass2: [0.40, 0.58, 0.20], dirt: [0.42, 0.30, 0.19], stone: [0.47, 0.46, 0.45],
   sand: [0.82, 0.74, 0.50], snow: [0.93, 0.95, 0.97], gravel: [0.52, 0.50, 0.47], basalt: [0.22, 0.22, 0.25],
   bedrock: [0.15, 0.15, 0.15], leaves: [0.20, 0.42, 0.14], leaves2: [0.28, 0.50, 0.16], bark: [0.36, 0.25, 0.15],
+  needles: [0.12, 0.30, 0.14], needles2: [0.16, 0.36, 0.17], fronds: [0.40, 0.62, 0.22], fronds2: [0.50, 0.68, 0.26],
+  birch: [0.88, 0.86, 0.80],
 };
 for (const k in C) C[k] = C[k].map((x) => Math.pow(x, 2.2));
 const mix = (a, b, t) => [a[0] + (b[0] - a[0]) * t, a[1] + (b[1] - a[1]) * t, a[2] + (b[2] - a[2]) * t];
@@ -163,7 +165,7 @@ export function meshChunk(face, cu, cv, ch, edits, boxes, lod) {
   const smooth = mk(), trees = mk(), solid = mk(), clear = mk();
 
   // ---- the smooth surfaces: Surface Nets over a field sampled at cell centres -----------------------------------
-  function nets(F, colourOf, out) {
+  function nets(F, colourOf, out, isMat = (b) => NATURAL.has(b)) {
     // cubes are indexed by their min-corner cell, real -1..15 (padded 0..16); a cube's vertex sits where F crosses 0
     const S = N - 1, vid = new Int32Array(S * S * S).fill(-1);
     const f = (pi, pj, pk) => F[(pk * N + pj) * N + pi];
@@ -197,7 +199,7 @@ export function meshChunk(face, cu, cv, ch, edits, boxes, lod) {
       let mat = B.stone, best = -1;
       for (let c = 0; c < 8; c++) {
         const ci = pi + (c & 1), cj = pj + ((c >> 1) & 1), ck = pk + (c >> 2), b = blk[(ck * N + cj) * N + ci];
-        if (NATURAL.has(b) && ck > best) { best = ck; mat = b; }
+        if (isMat(b) && ck > best) { best = ck; mat = b; }
       }
       const p = place(gu, gv, gh), col = colourOf(mat, nh, Math.floor(gu), Math.floor(gv), Math.floor(gh));
       vid[(pk * S + pj) * S + pi] = out.n;
@@ -229,18 +231,26 @@ export function meshChunk(face, cu, cv, ch, edits, boxes, lod) {
   const leafF = new Float32Array(N * N * N);
   // a log cell INSIDE the crown (a leaf beside it) counts as canopy here: a leaf surface with a trunk-shaped shaft through
   // it showed as black caps on every tree top. The trunk below the crown stays bare.
-  const leafAt = (x) => x >= 0 && x < blk.length && blk[x] === B.leaves;
+  const leafAt = (x) => x >= 0 && x < blk.length && TREE_LEAVES.has(blk[x]);
   for (let x = 0; x < blk.length; x++) {
-    const crown = blk[x] === B.log && (leafAt(x + 1) || leafAt(x - 1) || leafAt(x + N) || leafAt(x - N));
-    leafF[x] = blk[x] === B.leaves || crown ? 1 : -1;
-    if (blk[x] === B.leaves) leaves = true;
+    const crown = TREE_WOOD.has(blk[x]) && (leafAt(x + 1) || leafAt(x - 1) || leafAt(x + N) || leafAt(x - N));
+    leafF[x] = TREE_LEAVES.has(blk[x]) || crown ? 1 : -1;
+    if (TREE_LEAVES.has(blk[x])) leaves = true;
   }
-  if (leaves) nets(leafF, (m, up, u, v, h) => { const c = mix(C.leaves, C.leaves2, hash3(u, h, v)); const j = 0.85 + 0.25 * hash3(u, v, h); return [c[0] * j, c[1] * j, c[2] * j]; }, trees);
+  // each crown in its species' colour: broadleaf green, conifer needles darker, palm fronds lighter
+  const crownColour = (m, up, u, v, h) => {
+    const k = m === B.needles ? "needles" : m === B.fronds ? "fronds" : "leaves";
+    const c = mix(C[k], C[k + "2"], hash3(u, h, v)), j = 0.85 + 0.25 * hash3(u, v, h);
+    return [c[0] * j, c[1] * j, c[2] * j];
+  };
+  if (leaves) nets(leafF, crownColour, trees, (b) => TREE_LEAVES.has(b));
 
   // ---- trunks: every log cell is a round segment (octagonal, tapering as it rises) -----------------------------------
   for (let k = 0; k < CHUNK; k++) for (let j = 0; j < CHUNK; j++) for (let i = 0; i < CHUNK; i++) {
-    if (at(i, j, k) !== B.log) continue;
-    const below = at(i, j, k - 1) === B.log, r0 = below ? 0.30 : 0.36, r1 = at(i, j, k + 1) === B.log ? 0.30 : 0.26;
+    const wood = at(i, j, k);
+    if (!TREE_WOOD.has(wood)) continue;
+    const slim = wood === B.birchlog ? 0.7 : 1, bark = wood === B.birchlog ? C.birch : C.bark;
+    const below = at(i, j, k - 1) === wood, r0 = (below ? 0.30 : 0.36) * slim, r1 = (at(i, j, k + 1) === wood ? 0.30 : 0.26) * slim;
     const cu0 = u0 + i + 0.5, cv0 = v0 + j + 0.5, hb = h0 + k - (below ? 0 : 0.4), ht = h0 + k + 1;
     const base = trees.n;
     for (let s = 0; s < 8; s++) {
@@ -250,7 +260,7 @@ export function meshChunk(face, cu, cv, ch, edits, boxes, lod) {
         trees.pos.push(p[0], p[1], p[2]);
         trees.nor.push(...[0, 1, 2].map((x) => ca * fr.east[x] + sa * fr.north[x]));
         const g = 0.85 + 0.2 * hash3(s, k, i * 31 + j);
-        trees.col.push(C.bark[0] * g, C.bark[1] * g, C.bark[2] * g);
+        trees.col.push(bark[0] * g, bark[1] * g, bark[2] * g);
         trees.n++;
       }
     }

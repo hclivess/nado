@@ -83,6 +83,12 @@ for (let u = 0; u < 400; u++) for (let v = 0; v < 400; v++) {
   if (Wd.treeAt(sp.face, U, V, c)) { trees++; if (Wd.plotOf(sp.face, U - 2, V - 2) !== Wd.plotOf(sp.face, U + 2, V + 2)) straddle++; }
 }
 ok(trees > 0 && straddle === 0, `${trees} trees near the landing site, none within 2 columns of a plot edge`);
+// "single tree type?" (operator, 2026-11-06): the forest is several species, each with its own wood and crown
+const kinds = new Set();
+for (let u = -400; u < 400; u += 1) for (let v = -400; v < 400; v += 3) { const U = sp.u0 + u, V = sp.v0 + v, t = Wd.treeAt(sp.face, U, V, Wd.column(sp.face, U, V)); if (t) kinds.add(t.kind); }
+ok(["broadleaf", "birch", "conifer", "bush"].every((k) => kinds.has(k)), "the forest has several species: " + [...kinds].join(", "));
+const srvBlocks = Number((readFileSync(join(ROOT, "scripts", "land_server.py"), "utf8").match(/^N_BLOCKS = (\d+)/m) || [])[1]);
+ok(srvBlocks === Wd.BLOCKS.length, `the world server knows every block the planet has (${srvBlocks} = ${Wd.BLOCKS.length})`);
 
 // 5. the commitment
 const salt = new Uint8Array(32).fill(7), salt2 = new Uint8Array(32).fill(8);

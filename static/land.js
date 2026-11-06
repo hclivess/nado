@@ -71,7 +71,7 @@ const PAINT = {
   18: ["#5a3a22", 0.08, "planks"], 19: ["#8a8a8a", 0.1, "brick"], 20: ["#8d8a85", 0.22], 21: ["#3a3a40", 0.12], 22: ["#a8d8f0", 0.05],
   23: ["#ffd98a", 0.06, "lamp"], 24: ["#c0392b", 0.06], 25: ["#e67e22", 0.06], 26: ["#f1c40f", 0.06], 27: ["#27ae60", 0.06],
   28: ["#2e6fd8", 0.06], 29: ["#8e44ad", 0.06], 30: ["#262626", 0.06], 31: ["#f4f4f4", 0.05], 32: ["#e9e6df", 0.05, "marble"],
-  33: ["#2a2a2a", 0.3],
+  33: ["#2a2a2a", 0.3], 34: ["#e8e4da", 0.06, "birch"], 35: ["#24502a", 0.22, "leaves"], 36: ["#6aa83a", 0.2, "leaves"],
 };
 function paintAtlas() {
   const cv = document.createElement("canvas");
@@ -92,6 +92,7 @@ function paintAtlas() {
       if (kind === "tiles" && (y % 4 === 0 || (x + (Math.floor(y / 4) % 2) * 2) % 4 === 0)) k *= 0.72;
       if (kind === "rings") { const r = Math.hypot(x - 7.5, y - 7.5); k *= Math.floor(r) % 3 === 0 ? 0.8 : 1; }
       if (kind === "bark" && x % 4 === 0) k *= 0.75;
+      if (kind === "birch" && (y * 5 + x * 3) % 13 < 2) k = 0.25;              // the dark marks on white bark
       if (kind === "glass" && (x === 0 || y === 0 || x === TILE - 1 || y === TILE - 1)) k = 0.75;
       if (kind === "lamp" && (x < 2 || y < 2 || x > TILE - 3 || y > TILE - 3)) k = 0.6;
       if (kind === "marble" && Math.abs(Math.sin(x * 0.7 + y * 0.35)) < 0.12) k *= 0.85;
@@ -125,7 +126,7 @@ function blockAt(f, u, v, h) {
 // THE SMOOTH GROUND, as the player touches it: land-world.fieldOf at cell centres, interpolated — the same field the mesher
 // draws (static/land-mesher.js nets), so the foot lands where the surface is drawn, not on a hidden cube. What people
 // build stays a crisp cell, and a log is a solid cell inside its round trunk; leaves can be walked through.
-const crispB = (b) => b !== B.air && !Wd.NATURAL.has(b) && b !== B.leaves && !BLOCKS[b].liquid;
+const crispB = (b) => b !== B.air && !Wd.NATURAL.has(b) && !Wd.isTree(b) && !BLOCKS[b].liquid;
 function fieldCell(f, u, v, h) {
   if (h < 0) return 1;
   if (h >= H) return -1;
@@ -257,7 +258,7 @@ function aim() {
     if (Math.round(t / 0.02) % 3) continue;               // pieces need a 2 cm step; cells and the ground do not
     const b = blockAt(P.face, c[0], c[1], c[2]);
     let hit = null;
-    if (crispB(b) || b === B.log || b === B.leaves) hit = c;
+    if (crispB(b) || Wd.isTree(b)) hit = c;
     else if (fieldAt(P.face, p[0], p[1], p[2]) > 0) {
       // the cell the surface was hit in, when it is solid ground; only when the hit lands on the air side of a cell
       // centre does a neighbour (the most solid one) stand in — never a deeper cell under a solid one

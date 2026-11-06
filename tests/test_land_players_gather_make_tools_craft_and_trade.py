@@ -49,13 +49,14 @@ const W = await import(%s);
 const q = W.plotCoords(%d); let out = null;
 for (let du = 32; du < 600 && !out; du++) for (let dv = 0; dv < 16 && !out; dv++) {
   const u = q.u0 + du, v = q.v0 + dv, c = W.column(q.face, u, v);
-  if (W.treeAt(q.face, u, v, c)) out = { face: q.face, u, v, top: c.top };
+  const t = W.treeAt(q.face, u, v, c);
+  if (t && t.kind === "broadleaf") out = { face: q.face, u, v, top: c.top, height: t.height };
 }
 const g = { u: out.u + 3, v: out.v };
 const gc = W.column(out.face, g.u, g.v);
 console.log(JSON.stringify({ tree: out, grass: [out.face, g.u, g.v, gc.top], grassBlock: W.terrainBlock(out.face, g.u, g.v, gc.top),
   rock: [out.face, g.u, g.v, gc.top - 5], rockBlock: W.terrainBlock(out.face, g.u, g.v, gc.top - 5),
-  leaves: [out.face, out.u + 1, out.v, out.top + 5], leavesBlock: W.terrainBlock(out.face, out.u + 1, out.v, out.top + 5),
+  leaves: [out.face, out.u + 1, out.v, out.top + out.height], leavesBlock: W.terrainBlock(out.face, out.u + 1, out.v, out.top + out.height),
   log: [out.face, out.u, out.v, out.top + 2], logBlock: W.terrainBlock(out.face, out.u, out.v, out.top + 2) }));
 """ % (json.dumps(os.path.join(ROOT, "static", "land-world.js")), PA)
 CELLS = json.loads(subprocess.run(["node", "--input-type=module", "-e", js], capture_output=True, text=True, timeout=120).stdout)
@@ -154,7 +155,7 @@ async def main():
 
     # ---- the commons, and building --------------------------------------------------------------------------------
     rest()
-    wild_cell = CELLS["leaves"][:3] + [CELLS["leaves"][3] + 4]          # open air above the crown
+    wild_cell = CELLS["leaves"][:3] + [CELLS["leaves"][3] + 6]          # open air above the crown
     r = await setc([wild_cell + [10]], ha)                               # cobblestone (the planks are traded below)
     # "you can build anywhere unless it is owned" (operator, 2026-11-06)
     check("anyone signed in builds on unowned land", r["applied"] == 1, r)

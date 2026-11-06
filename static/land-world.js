@@ -174,9 +174,13 @@ export const BLOCKS = [
   { key: "white", solid: true, tex: [31, 31, 31] },
   { key: "marble", solid: true, tex: [32, 32, 32] },
   { key: "bedrock", solid: true, tex: [33, 33, 33] },
+  // the forest's other species (appended: every id above keeps its meaning) — static/land-mesher.js draws them organic
+  { key: "birchlog", solid: true, tex: [10, 34, 10] },
+  { key: "needles", solid: true, see: true, tex: [35, 35, 35] },
+  { key: "fronds", solid: true, see: true, tex: [36, 36, 36] },
 ];
 export const B = Object.fromEntries(BLOCKS.map((b, i) => [b.key, i]));
-export const ATLAS_TILES = 34;              // tiles 0..33 (0 unused)
+export const ATLAS_TILES = 37;              // tiles 0..36 (0 unused)
 export const opaque = (id) => BLOCKS[id].solid && !BLOCKS[id].see;
 
 // ---- terrain ---------------------------------------------------------------------------------------------------
@@ -203,16 +207,66 @@ function hash32(a, b, c) {
   return h >>> 0;
 }
 
-/** Is there a tree trunk rooted at column (face, u, v)? (one per ~70 grass columns, never on a plot's edge ring, so a
- *  tree's canopy stays inside the plot it grows on and a neighbour's edit never cuts it.) */
-export function treeAt(face, u, v, col) {
-  if (col.biome !== "grass" || col.top <= SEA + 1) return false;
-  const lu = u % PLOT, lv = v % PLOT;
-  if (lu < 2 || lu > PLOT - 3 || lv < 2 || lv > PLOT - 3) return false;
-  return hash32(face, u, v) % 70 === 0;
-}
 
-const TREE_REACH = 10;
+const TREE_REACH = 12;                       // the tallest conifer's crown, above its root's ground
+
+// ---- the forest ("single tree type?", operator 2026-11-06) -------------------------------------------------------
+// A tree's species and size are a function of its root's place and climate, so every browser and the server grow the
+// same forest: broadleaf (round crowns), birch (slim, white bark), conifers (cones of needles; more of them uphill, the
+// only trees in snow), palms on beaches (a crown of fronds) and bushes in meadows. Every crown stays within 2 columns of
+// its root and roots keep 2 columns from a plot edge, so no tree straddles two plots.
+export const TREE_WOOD = new Set([B.log, B.birchlog]);
+export const TREE_LEAVES = new Set([B.leaves, B.needles, B.fronds]);
+export const isTree = (b) => TREE_WOOD.has(b) || TREE_LEAVES.has(b);
+/** The tree rooted at column (face, u, v): { kind, height } or null. */
+export function treeAt(face, u, v, col) {
+  const lu = u % PLOT, lv = v % PLOT;
+  if (lu < 2 || lu > PLOT - 3 || lv < 2 || lv > PLOT - 3) return null;
+  const hh = hash32(face, u, v), r = (hh >>> 8) % 100, size = (hh >>> 16) % 4;
+  if (col.biome === "grass" && col.top > SEA + 1) {
+    if (hh % 70 === 0) {
+      const alt = col.top - SEA;
+      if (r < Math.min(70, 12 + alt)) return { kind: "conifer", height: 7 + size };
+      if (r < Math.min(70, 12 + alt) + 22) return { kind: "birch", height: 6 + (size >> 1) };
+      return { kind: "broadleaf", height: 4 + (size >> 1) };
+    }
+    if (hh % 37 === 3) return { kind: "bush", height: 1 };
+    return null;
+  }
+  if (col.biome === "snow" && col.top > SEA && hh % 90 === 0) return { kind: "conifer", height: 6 + size };
+  if (col.biome === "beach" && col.top >= SEA && hh % 60 === 0) return { kind: "palm", height: 6 + (size >> 1) };
+  return null;
+}
+/** What tree `t` rooted at (du, dv) from this column puts at `dh` layers above its root's ground (or air). */
+function treeCell(t, du, dv, dh) {
+  const r = Math.abs(du) + Math.abs(dv), H0 = t.height;
+  switch (t.kind) {
+    case "broadleaf":
+      if (r === 0 && dh >= 1 && dh <= H0) return B.log;
+      if (dh >= H0 - 1 && dh <= H0 + 1 && r <= (dh === H0 + 1 ? 1 : 3)) return B.leaves;
+      return 0;
+    case "birch":
+      if (r === 0 && dh >= 1 && dh <= H0) return B.birchlog;
+      if (dh >= H0 - 2 && dh <= H0 + 1 && r <= (dh >= H0 ? 1 : 2) && !(r === 2 && Math.abs(du) === 1)) return B.leaves;
+      return 0;
+    case "conifer": {
+      if (r === 0 && dh >= 1 && dh <= H0) return B.log;
+      if (dh < 3 || dh > H0 + 1) return 0;
+      const rad = Math.round(((H0 + 1 - dh) * 2.6) / (H0 - 1));       // a cone, widest at the bottom of the crown
+      return r <= Math.min(2, rad) ? B.needles : 0;
+    }
+    case "palm":
+      if (r === 0 && dh >= 1 && dh <= H0) return B.log;
+      if (dh === H0 + 1 && r <= 2) return B.fronds;
+      if (dh === H0 && r === 1) return B.fronds;
+      return 0;
+    case "bush":
+      if (dh === 1 && r <= 1) return B.leaves;
+      if (dh === 2 && r === 0) return B.leaves;
+      return 0;
+  }
+  return 0;
+}
 
 /** The untouched block at (face, u, v, h) — u, v integers on the face. */
 export function terrainBlock(face, u, v, h, colCache) {
@@ -227,21 +281,21 @@ export function terrainBlock(face, u, v, h, colCache) {
     return B.dirt;
   }
   if (h <= SEA) return col.biome === "snow" && h === SEA ? B.ice : B.water;
-  // trees: a 5-high trunk and a canopy of radius 2, from roots within 2 columns. Nothing grows more than TREE_REACH
-  // layers above a column's own ground — part of the world's definition (every client applies it), and what lets the
-  // mesher skip the root search for the open air above every hill.
+  // trees, from roots within 2 columns (treeCell). Nothing grows more than TREE_REACH layers above a column's own
+  // ground — part of the world's definition (every client applies it), and what lets the mesher skip the root search
+  // for the open air above every hill. A trunk wins over a neighbour's crown in its own column.
   if (h > col.top + TREE_REACH) return B.air;
+  let found = B.air;
   for (let du = -2; du <= 2; du++) for (let dv = -2; dv <= 2; dv++) {
-    const ru = u + du, rv = v + dv;
+    const ru = u - du, rv = v - dv;
     if (ru < 0 || rv < 0 || ru >= W || rv >= W) continue;
-    const rc = colCache ? colCache(face, ru, rv) : column(face, ru, rv);
-    if (!treeAt(face, ru, rv, rc)) continue;
-    const dh = h - rc.top;
-    if (du === 0 && dv === 0 && dh >= 1 && dh <= 5) return B.log;
-    const r = Math.abs(du) + Math.abs(dv);
-    if (dh >= 4 && dh <= 6 && r <= (dh === 6 ? 1 : 3) && !(du === 0 && dv === 0 && dh <= 5)) return B.leaves;
+    const rc = colCache ? colCache(face, ru, rv) : column(face, ru, rv), t = treeAt(face, ru, rv, rc);
+    if (!t) continue;
+    const b = treeCell(t, du, dv, h - rc.top);
+    if (TREE_WOOD.has(b)) return b;
+    if (b && !found) found = b;
   }
-  return B.air;
+  return found;
 }
 
 // ---- the smooth ground ---------------------------------------------------------------------------------------------
