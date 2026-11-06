@@ -29,6 +29,7 @@ import { fxaa } from "three/addons/tsl/display/FXAANode.js";
 import * as Wd from "./land-world.js";
 import * as Cosmos from "./land-cosmos.js";
 import { walk } from "./land-walk.js";
+import { groundWeights } from "./land-mesher.js";
 import { NadoDapp, wireWallet, renderWallet, alertBar, notify, uiConfirm, uiPrompt, isAddress, esc, base, disp, $ } from "./nadodapp.js";
 
 const CID = "0000000000000000000000000000000c";      // set by execnode/games/redeploy.py wire() at deploy
@@ -71,7 +72,7 @@ const SNAPS = [1, 5, 10, 25, 50, 100];
 let piece = { w: 100, d: 100, h: 100, snap: 10 };
 const plotBoxes = new Map();          // plot -> { list, idx: Map(1 m bucket -> [box]) }
 let pipeline = null;                  // the post-processed render (or null: the plain render on a weak device)
-let renderer, scene, camera, sun, hemi, atlasTex, matSolid, matClear, matGround, matTrees, matPieces, matGlassy, matBark, matLeaves, ghost, farMesh = null, farAt = null;
+let renderer, scene, camera, sun, hemi, atlasTex, matSolid, matClear, matGround, matTrees, matPieces, matGlassy, matBark, matLeaves, matWater, ghost, farMesh = null, farAt = null;
 let highlight, lastT = 0, locked = false, keys = new Set(), touch = null, viewDist = 6;
 const LS = "nado_land_v1";
 
@@ -379,7 +380,7 @@ function request(k) {
   const pb = plotBoxes.get(Wd.plotId(face, cv, cu));        // a chunk column IS a plot (CHUNK == PLOT)
   const dist = Math.max(Math.abs(cu - Math.floor(P.u / CHUNK)), Math.abs(cv - Math.floor(P.v / CHUNK)));
   c.lod = dist <= 2 ? (touch ? 1 : 0) : dist <= 3 ? 1 : 2;        // 0: grass too (not on a phone); 2: small pieces skipped
-  queue.push({ id: ++reqId, k, face, cu, cv, ch, edits: editsFor(face, cu, cv), boxes: pb ? pb.list : null, lod: c.lod });
+  queue.push({ id: ++reqId, k, face, cu, cv, ch, edits: editsFor(face, cu, cv), boxes: pb ? pb.list : null, lod: c.lod, grass: !touch });   // no blades on a phone
   pump();
 }
 function pump() {
@@ -425,12 +426,13 @@ function done(m) {
     if (m.bark) c.meshes.push(new THREE.Mesh(geom(m.bark), matBark));
     if (m.foliage) c.meshes.push(new THREE.Mesh(geom(m.foliage), matLeaves));
     if (m.stones) c.meshes.push(new THREE.Mesh(geom(m.stones), matGround));
+    if (m.water) { const me = new THREE.Mesh(geom(m.water), matWater); me.renderOrder = 1; c.meshes.push(me); }
     if (m.pieces) c.meshes.push(new THREE.Mesh(geom(m.pieces), matPieces));
     if (m.glassy) { const me = new THREE.Mesh(geom(m.glassy), matGlassy); me.renderOrder = 1; c.meshes.push(me); }
     if (m.grass) c.meshes.push(...grassMeshes(m.grass));
     if (m.solid) c.meshes.push(new THREE.Mesh(geom(m.solid), matSolid));
     if (m.clear) { const me = new THREE.Mesh(geom(m.clear), matClear); me.renderOrder = 1; c.meshes.push(me); }
-    for (const me of c.meshes) { me.castShadow = me.material !== matClear && !me.isInstancedMesh; me.receiveShadow = true; scene.add(me); }
+    for (const me of c.meshes) { me.castShadow = me.material !== matClear && me.material !== matWater && !me.isInstancedMesh; me.receiveShadow = true; scene.add(me); }
   }
   if (c.dirty) request(k);
 }
@@ -473,7 +475,7 @@ function updateChunks() {
     for (let ch = lo; ch <= hi; ch++) {
       const k = face + ":" + cu + ":" + cv + ":" + ch, c = chunks.get(k);
       want.add(k);
-      if (c && c.lod !== undefined && c.lod !== lodNow && (pb || c.lod === 0 || lodNow === 0)) request(k);   // grass and small pieces follow the player
+      if (c && c.lod !== undefined && c.lod !== lodNow && (pb || c.lod < 2 || lodNow < 2)) request(k);   // grass (lod 0 and 1) and small pieces follow the player
     }
   }
   for (const k of want) if (!chunks.has(k)) { chunks.set(k, { meshes: [], anchor: null, busy: false, dirty: false }); request(k); }
@@ -485,30 +487,57 @@ function updateChunks() {
 }
 
 // ---- the far land: a coarse ring of the planet beyond the chunks, out to the horizon -------------------------------
+// In the ground's own material ("did you fix the bland untextured marches?", operator 2026-11-06: it was flat vertex
+// colour, a green that read as painted cardboard past the near land): every vertex carries the six texture weights the
+// mesher gives the near ground, from the surface's block and slope, and the sea is the near water's own surface over
+// the seabed instead of a blue tint on the ground. Both are tucked under the near chunks they overlap.
+let farSea = null;
 function buildFar() {
-  const N = 72, STEP = 48, pos = [], col = [], idx = [];
-  const fu = Math.round(P.u / STEP) * STEP, fv = Math.round(P.v / STEP) * STEP, face = P.face;
-  const anchor = Wd.posOf(face, fu, fv, 0);
-  const tint = (c) => c.top <= Wd.SEA ? [0.17, 0.4, 0.66] : c.biome === "snow" ? [0.93, 0.95, 0.97] : c.biome === "beach" ? [0.84, 0.78, 0.55] : c.biome === "rock" ? [0.5, 0.5, 0.52] : [0.36, 0.58, 0.24];
+  const N = 72, STEP = 48, face = P.face;
+  const fu = Math.round(P.u / STEP) * STEP, fv = Math.round(P.v / STEP) * STEP;
+  const anchor = Wd.posOf(face, fu, fv, 0), fr = Wd.frameOf(face, fu, fv);
+  const pos = [], sea = [], uvw = [], suvw = [], w1 = [], w2 = [], col = [], mats = [], idx = [];
   for (let j = 0; j <= N; j++) for (let i = 0; i <= N; i++) {
     const u = fu + (i - N / 2) * STEP, v = fv + (j - N / 2) * STEP;
     const w = Wd.wrap(face, Math.round(u), Math.round(v)), c = Wd.column(w.face, w.u, w.v);
     const near = Math.abs(i - N / 2) * STEP < viewDist * CHUNK && Math.abs(j - N / 2) * STEP < viewDist * CHUNK;
-    const h = Math.max(c.height, Wd.SEA + 0.88) - (near ? 6 : 0);       // tucked under the chunks it overlaps
-    const p = Wd.posOf(face, u, v, h);
+    const p = Wd.posOf(face, u, v, c.height - (near ? 6 : 0)), q = Wd.posOf(face, u, v, Wd.SEA + 0.88 - (near ? 6 : 0));
     pos.push(p[0] - anchor[0], p[1] - anchor[1], p[2] - anchor[2]);
-    col.push(...tint(c));
+    sea.push(q[0] - anchor[0], q[1] - anchor[1], q[2] - anchor[2]);
+    uvw.push(((u % 4096) + 4096) % 4096, ((v % 4096) + 4096) % 4096, c.height);
+    suvw.push(((u % 4096) + 4096) % 4096, ((v % 4096) + 4096) % 4096, Wd.SEA + 1);
+    mats.push(Wd.terrainBlock(w.face, w.u, w.v, Math.max(1, c.top)));
+    col.push(1, 1, 1);
   }
   for (let j = 0; j < N; j++) for (let i = 0; i < N; i++) { const a = j * (N + 1) + i; idx.push(a, a + 1, a + N + 2, a, a + N + 2, a + N + 1); }
   const g = new THREE.BufferGeometry();
   g.setAttribute("position", new THREE.Float32BufferAttribute(pos, 3));
-  g.setAttribute("color", new THREE.Float32BufferAttribute(col, 3));
   g.setIndex(idx); g.computeVertexNormals();
-  if (farMesh) { scene.remove(farMesh); farMesh.geometry.dispose(); }
-  farMesh = new THREE.Mesh(g, new THREE.MeshStandardMaterial({ vertexColors: true, roughness: 1, metalness: 0 }));
+  // the weights need the slope, and rock's three-way projection a grid-space normal: the world normals in the frame here
+  const nw = g.getAttribute("normal"), gn = [];
+  for (let k = 0; k < nw.count; k++) {
+    const x = nw.getX(k), y = nw.getY(k), z = nw.getZ(k);
+    const ne = x * fr.east[0] + y * fr.east[1] + z * fr.east[2], nn = x * fr.north[0] + y * fr.north[1] + z * fr.north[2], nu = x * fr.up[0] + y * fr.up[1] + z * fr.up[2];
+    gn.push(ne, nn, nu);
+    const wt = groundWeights(mats[k], nu);
+    w1.push(wt[0], wt[1], wt[2], wt[3]); w2.push(wt[4], wt[5]);
+  }
+  g.setAttribute("uvw", new THREE.Float32BufferAttribute(uvw, 3));
+  g.setAttribute("gn", new THREE.Float32BufferAttribute(gn, 3));
+  g.setAttribute("w1", new THREE.Float32BufferAttribute(w1, 4));
+  g.setAttribute("w2", new THREE.Float32BufferAttribute(w2, 2));
+  g.setAttribute("color", new THREE.Float32BufferAttribute(col, 3));
+  const gs = new THREE.BufferGeometry();
+  gs.setAttribute("position", new THREE.Float32BufferAttribute(sea, 3));
+  gs.setAttribute("uvw", new THREE.Float32BufferAttribute(suvw, 3));
+  gs.setIndex(idx); gs.computeVertexNormals();
+  for (const m of [farMesh, farSea]) if (m) { scene.remove(m); m.geometry.dispose(); }
+  farMesh = new THREE.Mesh(g, matGround);
   farMesh.receiveShadow = true;
-  farMesh.userData.anchor = anchor;
-  scene.add(farMesh);
+  farSea = new THREE.Mesh(gs, matWater);
+  farSea.renderOrder = 1;
+  farMesh.userData.anchor = farSea.userData.anchor = anchor;
+  scene.add(farMesh, farSea);
   farAt = { face, u: fu, v: fv };
 }
 
@@ -896,6 +925,11 @@ function act(place, mouse) {
     if (!id || !(haveCm3(id) > 0)) return notify(T("noItem", "You have none of that — gather or make some first."));
     if (NATURAL_ITEMS.has(id)) {
       if (!a.prev) return;
+      // never into the player: a natural cell raises the smooth ground half a cell around it, so it is refused when that
+      // reach touches the body ("sadly it is possible to build oneself into the terrain", operator 2026-11-06)
+      const [cu, cv, ch] = a.prev;
+      if (cu + 1.5 > P.u - HALF && cu - 0.5 < P.u + HALF && cv + 1.5 > P.v - HALF && cv - 0.5 < P.v + HALF && ch + 1.5 > P.h && ch - 0.5 < P.h + TALL)
+        return notify(T("noRoomYou", "You are standing there."));
       return setBlock(P.face, a.prev[0], a.prev[1], a.prev[2], RULES.items[id].places);
     }
     const pl = placement(a);
@@ -996,7 +1030,11 @@ function groundMaterial() {
     .add(TSL.texture(tex[2], TSL.vec2(uvw.x, uvw.z).div(4.5)).rgb.mul(tw.y))
     .add(TSL.texture(tex[2], near.mul(3.2 / 4.5)).rgb.mul(tw.z)).div(tws);
   // the scanned grass is a forest floor (brown-green); under the blades it is tinted to a living meadow's green
-  const color = two(tex[0]).mul(TSL.vec3(0.72, 1.0, 0.55)).mul(w1.x).add(two(tex[1]).mul(w1.y)).add(rock.mul(w1.z)).add(two(tex[3]).mul(w1.w))
+  // the meadow's own colour, varying over tens of metres — lusher, drier, darker patches — so from above it reads as a
+  // living field, not one pale wash ("bland untextured marches", operator 2026-11-06)
+  const patch = TSL.mx_noise_float(uvw.xy.mul(0.021)).mul(0.5).add(TSL.mx_noise_float(uvw.xy.mul(0.083)).mul(0.25)).add(0.5).clamp(0, 1);
+  const meadow = TSL.mix(TSL.vec3(0.46, 0.78, 0.30), TSL.vec3(0.80, 0.86, 0.38), patch).mul(TSL.float(0.82).add(TSL.mx_noise_float(uvw.xy.mul(0.31)).mul(0.12)));
+  const color = two(tex[0]).mul(meadow).mul(w1.x).add(two(tex[1]).mul(w1.y)).add(rock.mul(w1.z)).add(two(tex[3]).mul(w1.w))
     .add(two(tex[4]).mul(w2.x)).add(two(tex[5]).mul(w2.y));
   const m = new THREE.MeshStandardNodeMaterial({ metalness: 0 });
   m.colorNode = color.mul(TSL.attribute("color", "vec3"));
@@ -1136,6 +1174,23 @@ function paintLeaves() {
   tex.needsUpdate = true;
   return tex;
 }
+// WATER: lakes and the sea ("bland untextured marches", operator 2026-11-06 — they were a flat 16-px atlas tile). Ripples
+// from two scrolling noise fields bend the normal (the sun glints in them), and the colour runs from a deep green-blue
+// looking down to the sky's horizon colour at a glancing angle (fresnel), so a lake mirrors the time of day.
+const waterSky = new THREE.Color(0xb7d6ef);            // sky() keeps it on the horizon's colour
+function waterMaterial() {
+  const uvw = TSL.attribute("uvw", "vec3"), t = TSL.time;
+  const a = TSL.mx_noise_vec3(TSL.vec3(uvw.x.mul(0.45).add(t.mul(0.18)), uvw.y.mul(0.45), t.mul(0.21)));
+  const b = TSL.mx_noise_vec3(TSL.vec3(uvw.x.mul(1.7), uvw.y.mul(1.7).sub(t.mul(0.31)), t.mul(0.37)));
+  const n = TSL.normalView.add(a.mul(0.14).add(b.mul(0.07))).normalize();
+  const view = TSL.positionView.normalize().negate();
+  const fres = TSL.float(1).sub(n.dot(view).clamp(0, 1)).pow(4).mul(0.85).add(0.06);
+  const m = new THREE.MeshStandardNodeMaterial({ roughness: 0.05, metalness: 0, transparent: true, depthWrite: false });
+  m.normalNode = n;
+  m.colorNode = TSL.mix(TSL.color(0x0f3b3f), TSL.uniform(waterSky), fres);
+  m.opacityNode = TSL.float(0.78).add(fres.mul(0.2));
+  return m;
+}
 function treeMaterials() {
   const wind = TSL.attribute("wind", "vec4"), t = TSL.time, ph = wind.w;
   // a slow sway with a gusting second rhythm, biased downwind; each tree on its own phase
@@ -1244,7 +1299,7 @@ function sky(fr) {
   hemi.color.copy(SKY.nightH).lerp(SKY.horizon, day);
   const zen = SKY.nightZ.clone().lerp(SKY.zenith, day).lerp(SKY.duskZ, dusk * 0.5);
   const hor = SKY.nightH.clone().lerp(SKY.horizon, day).lerp(SKY.dusk, dusk * 0.6);
-  scene.fog.color.copy(hor);
+  scene.fog.color.copy(hor); waterSky.copy(hor);
   scene.background = hor;
   dome.quaternion.setFromUnitVectors(new THREE.Vector3(0, 1, 0), up);
   sunDisc.position.copy(sd).multiplyScalar(SKY_R);
@@ -1286,7 +1341,7 @@ function frame(now) {
   camera.lookAt(fw[0], fw[1], fw[2]);
   hemi.position.set(fr.up[0], fr.up[1], fr.up[2]);     // "up" is radial on a planet: three's hemisphere light assumes +Y
   for (const c of chunks.values()) if (c.anchor) for (const me of c.meshes) me.position.set(c.anchor[0] - cam[0], c.anchor[1] - cam[1], c.anchor[2] - cam[2]);
-  if (farMesh) { const a = farMesh.userData.anchor; farMesh.position.set(a[0] - cam[0], a[1] - cam[1], a[2] - cam[2]); }
+  for (const m of [farMesh, farSea]) if (m) { const a = m.userData.anchor; m.position.set(a[0] - cam[0], a[1] - cam[1], a[2] - cam[2]); }
   for (const r of others.values()) {
     if (!r.p) continue;
     const [f, u, v, h, yaw] = r.p, q = Wd.posOf(f, u, v, h), ofr = Wd.frameOf(f, u, v);
@@ -1366,6 +1421,7 @@ async function start() {
   matGround = groundMaterial();
   matTrees = new THREE.MeshStandardMaterial({ vertexColors: true, roughness: 0.9, metalness: 0 });
   [matBark, matLeaves] = treeMaterials();
+  matWater = waterMaterial();
   // pieces: the material's atlas tile, repeated once per METRE of the piece (uv is in metres; fract() keeps it inside
   // the tile, half a texel in from its edge), so any size shows its material at true scale
   // the tile number is ROUNDED: interpolated across a triangle, 16 arrives as 15.9999 and its row rounds down to the

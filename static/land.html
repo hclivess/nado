@@ -31,6 +31,9 @@
   header .hub{margin-left:auto;font-size:12px;font-weight:700;color:var(--dim);text-decoration:none;border:1px solid var(--border);border-radius:999px;padding:6px 12px;background:var(--elev)}
   #hudInfo{position:fixed;top:52px;left:14px;font-size:12.5px;line-height:1.55;z-index:4;text-shadow:0 1px 2px #000;max-width:min(560px,calc(100vw - 28px))}
   #hudInfo .dim{color:#c9d4de}
+  /* the plot line as a wrapping row with even gaps: inline, a long translation wrapped its button onto a line jammed
+     against the text above (Czech, 2026-11-06) */
+  #hudPlot{display:flex;flex-wrap:wrap;align-items:center;gap:6px 8px;margin-top:4px}
   .pill{display:inline-block;font-size:11px;font-weight:800;border-radius:999px;padding:3px 9px;background:rgba(19,26,35,.85);border:1px solid var(--border)}
   .pill.ok{border-color:var(--accent2);color:var(--accent2)}
   .btn,button.ghost{font:inherit;font-size:12px;font-weight:700;color:var(--txt);background:rgba(19,26,35,.88);border:1px solid var(--border);border-radius:8px;padding:5px 10px;cursor:pointer;text-decoration:none}

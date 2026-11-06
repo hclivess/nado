@@ -116,7 +116,8 @@
   "land.pieces": "{n} {n|one:piece|other:pieces}",
   "land.signInBuild2": "Sign in to gather and build.",
   "land.wildOpen": "Unowned: anyone may gather and build here. Own a plot to protect what you build.",
-  "land.bagHint": "Click a block to put it on your hotbar. Tools work as soon as you have them."
+  "land.bagHint": "Click a block to put it on your hotbar. Tools work as soon as you have them.",
+  "land.noRoomYou": "You are standing there."
  },
  "cs": {
   "land.notYours": "Pozemek {p} patří někomu jinému. Kupte si pozemek, nebo požádejte jeho vlastníka o pozvání.",
@@ -235,7 +236,8 @@
   "land.pieces": "{n} {n|one:díl|few:díly|many:dílu|other:dílů}",
   "land.signInBuild2": "Přihlaste se a sbírejte a stavějte.",
   "land.wildOpen": "Bez vlastníka: sbírat a stavět tu smí kdokoli. Svou stavbu ochráníte vlastnictvím pozemku.",
-  "land.bagHint": "Klepnutím na blok ho dáš na lištu. Nástroje fungují, jakmile je máš."
+  "land.bagHint": "Klepnutím na blok ho dáš na lištu. Nástroje fungují, jakmile je máš.",
+  "land.noRoomYou": "Tam stojíš ty."
  },
  "es": {
   "land.notYours": "La parcela {p} pertenece a otra persona. Compra una parcela o pide a su dueño que te invite.",
@@ -354,7 +356,8 @@
   "land.pieces": "{n} {n|one:pieza|other:piezas}",
   "land.signInBuild2": "Inicia sesión para recolectar y construir.",
   "land.wildOpen": "Sin dueño: aquí cualquiera puede recolectar y construir. Ten una parcela para proteger lo que construyas.",
-  "land.bagHint": "Haz clic en un bloque para ponerlo en tu barra. Las herramientas funcionan en cuanto las tienes."
+  "land.bagHint": "Haz clic en un bloque para ponerlo en tu barra. Las herramientas funcionan en cuanto las tienes.",
+  "land.noRoomYou": "Ahí estás tú."
  },
  "pt": {
   "land.notYours": "O lote {p} pertence a outra pessoa. Compre um lote ou peça ao dono que convide você.",
@@ -473,7 +476,8 @@
   "land.pieces": "{n} {n|one:peça|other:peças}",
   "land.signInBuild2": "Entra para recolher e construir.",
   "land.wildOpen": "Sem dono: qualquer pessoa pode recolher e construir aqui. Tem um lote para proteger o que constróis.",
-  "land.bagHint": "Clique num bloco para o pôr na sua barra. As ferramentas funcionam assim que as tiver."
+  "land.bagHint": "Clique num bloco para o pôr na sua barra. As ferramentas funcionam assim que as tiver.",
+  "land.noRoomYou": "Está aí você."
  },
  "fr": {
   "land.notYours": "La parcelle {p} appartient à quelqu'un d'autre. Achetez une parcelle ou demandez à son propriétaire de vous inviter.",
@@ -592,7 +596,8 @@
   "land.pieces": "{n} {n|one:pièce|other:pièces}",
   "land.signInBuild2": "Connectez-vous pour récolter et construire.",
   "land.wildOpen": "Sans propriétaire : chacun peut récolter et construire ici. Possédez une parcelle pour protéger vos constructions.",
-  "land.bagHint": "Cliquez sur un bloc pour le mettre dans votre barre. Les outils servent dès que vous les avez."
+  "land.bagHint": "Cliquez sur un bloc pour le mettre dans votre barre. Les outils servent dès que vous les avez.",
+  "land.noRoomYou": "Vous vous tenez là."
  },
  "de": {
   "land.notYours": "Grundstück {p} gehört jemand anderem. Kauf dir ein Grundstück oder bitte den Besitzer um eine Einladung.",
@@ -711,7 +716,8 @@
   "land.pieces": "{n} {n|one:Teil|other:Teile}",
   "land.signInBuild2": "Melde dich an, um zu sammeln und zu bauen.",
   "land.wildOpen": "Herrenlos: Hier darf jeder sammeln und bauen. Besitze ein Grundstück, um deine Bauten zu schützen.",
-  "land.bagHint": "Klicke auf einen Block, um ihn in deine Leiste zu legen. Werkzeuge wirken, sobald du sie hast."
+  "land.bagHint": "Klicke auf einen Block, um ihn in deine Leiste zu legen. Werkzeuge wirken, sobald du sie hast.",
+  "land.noRoomYou": "Da stehst du."
  },
  "it": {
   "land.notYours": "Il lotto {p} appartiene a qualcun altro. Compra un lotto o chiedi al proprietario di invitarti.",
@@ -830,7 +836,8 @@
   "land.pieces": "{n} {n|one:pezzo|other:pezzi}",
   "land.signInBuild2": "Accedi per raccogliere e costruire.",
   "land.wildOpen": "Senza proprietario: chiunque può raccogliere e costruire qui. Possiedi un lotto per proteggere ciò che costruisci.",
-  "land.bagHint": "Fai clic su un blocco per metterlo nella barra. Gli attrezzi funzionano appena li hai."
+  "land.bagHint": "Fai clic su un blocco per metterlo nella barra. Gli attrezzi funzionano appena li hai.",
+  "land.noRoomYou": "Lì ci sei tu."
  },
  "ru": {
   "land.notYours": "Участок {p} принадлежит другому игроку. Купите участок или попросите владельца пригласить вас.",
@@ -949,7 +956,8 @@
   "land.pieces": "{n} {n|one:деталь|few:детали|many:деталей|other:детали}",
   "land.signInBuild2": "Войдите, чтобы собирать и строить.",
   "land.wildOpen": "Ничья земля: здесь любой может собирать и строить. Владейте участком, чтобы защитить свои постройки.",
-  "land.bagHint": "Нажмите на блок, чтобы положить его на панель. Инструменты работают, как только они у вас есть."
+  "land.bagHint": "Нажмите на блок, чтобы положить его на панель. Инструменты работают, как только они у вас есть.",
+  "land.noRoomYou": "Там стоите вы."
  },
  "zh": {
   "land.notYours": "地块 {p} 属于别人。购买一块地，或请它的所有者邀请你。",
@@ -1068,7 +1076,8 @@
   "land.pieces": "{n} 个构件",
   "land.signInBuild2": "登录后即可采集和建造。",
   "land.wildOpen": "无主之地：任何人都可在此采集和建造。拥有地块才能保护你的建筑。",
-  "land.bagHint": "点击方块即可放到快捷栏。工具一到手就能用。"
+  "land.bagHint": "点击方块即可放到快捷栏。工具一到手就能用。",
+  "land.noRoomYou": "你正站在那里。"
  },
  "ja": {
   "land.notYours": "区画 {p} は他の人のものです。区画を購入するか、所有者に招待してもらいましょう。",
@@ -1187,7 +1196,8 @@
   "land.pieces": "部材 {n} 個",
   "land.signInBuild2": "サインインして採集と建築を。",
   "land.wildOpen": "所有者なし：誰でもここで採集・建築できます。建てた物を守るには区画を所有しましょう。",
-  "land.bagHint": "ブロックをクリックするとホットバーに入ります。道具は手に入れた時点で使えます。"
+  "land.bagHint": "ブロックをクリックするとホットバーに入ります。道具は手に入れた時点で使えます。",
+  "land.noRoomYou": "そこにはあなたが立っています。"
  },
  "ko": {
   "land.notYours": "구역 {p}은(는) 다른 사람의 땅입니다. 구역을 사거나 소유자에게 초대를 요청하세요.",
@@ -1306,7 +1316,8 @@
   "land.pieces": "조각 {n}개",
   "land.signInBuild2": "로그인하고 채집과 건설을 하세요.",
   "land.wildOpen": "주인 없음: 누구나 여기서 채집하고 건설할 수 있습니다. 지은 것을 지키려면 구획을 소유하세요.",
-  "land.bagHint": "블록을 클릭하면 단축바에 올라갑니다. 도구는 갖는 즉시 쓰입니다."
+  "land.bagHint": "블록을 클릭하면 단축바에 올라갑니다. 도구는 갖는 즉시 쓰입니다.",
+  "land.noRoomYou": "거기에 당신이 서 있습니다."
  },
  "ar": {
   "land.notYours": "القطعة {p} ملك لشخص آخر. اشترِ قطعة، أو اطلب من مالكها أن يدعوك.",
@@ -1425,7 +1436,8 @@
   "land.pieces": "{n} {n|zero:قطعة|one:قطعة|two:قطعتان|few:قطع|many:قطعة|other:قطعة}",
   "land.signInBuild2": "سجّل الدخول لتجمع وتبني.",
   "land.wildOpen": "بلا مالك: يمكن لأي شخص الجمع والبناء هنا. امتلك قطعة أرض لتحمي ما تبنيه.",
-  "land.bagHint": "انقر على كتلة لتضعها في شريطك. تعمل الأدوات بمجرد أن تمتلكها."
+  "land.bagHint": "انقر على كتلة لتضعها في شريطك. تعمل الأدوات بمجرد أن تمتلكها.",
+  "land.noRoomYou": "أنت تقف هناك."
  },
  "hi": {
   "land.notYours": "प्लॉट {p} किसी और का है। कोई प्लॉट खरीदें, या उसके मालिक से आपको आमंत्रित करने को कहें।",
@@ -1544,7 +1556,8 @@
   "land.pieces": "{n} {n|one:टुकड़ा|other:टुकड़े}",
   "land.signInBuild2": "इकट्ठा करने और बनाने के लिए साइन इन करें।",
   "land.wildOpen": "बिना मालिक: यहाँ कोई भी इकट्ठा कर सकता है और बना सकता है। अपनी बनाई चीज़ें बचाने के लिए प्लॉट के मालिक बनें।",
-  "land.bagHint": "किसी ब्लॉक पर क्लिक करें, वह आपकी हॉटबार में आ जाएगा। औज़ार मिलते ही काम करने लगते हैं।"
+  "land.bagHint": "किसी ब्लॉक पर क्लिक करें, वह आपकी हॉटबार में आ जाएगा। औज़ार मिलते ही काम करने लगते हैं।",
+  "land.noRoomYou": "वहाँ आप खड़े हैं।"
  },
  "tr": {
   "land.notYours": "{p} arsası başkasına ait. Bir arsa satın al ya da sahibinden seni davet etmesini iste.",
@@ -1663,7 +1676,8 @@
   "land.pieces": "{n} parça",
   "land.signInBuild2": "Toplamak ve inşa etmek için giriş yap.",
   "land.wildOpen": "Sahipsiz: Burada herkes toplayıp inşa edebilir. Yaptıklarını korumak için bir arsaya sahip ol.",
-  "land.bagHint": "Bir bloğu hızlı çubuğa koymak için tıkla. Aletler eline geçer geçmez işe yarar."
+  "land.bagHint": "Bir bloğu hızlı çubuğa koymak için tıkla. Aletler eline geçer geçmez işe yarar.",
+  "land.noRoomYou": "Orada sen duruyorsun."
  },
  "id": {
   "land.notYours": "Petak {p} milik orang lain. Beli sebuah petak, atau minta pemiliknya mengundangmu.",
@@ -1782,7 +1796,8 @@
   "land.pieces": "{n} potongan",
   "land.signInBuild2": "Masuk untuk mengumpulkan dan membangun.",
   "land.wildOpen": "Tanpa pemilik: siapa pun boleh mengumpulkan dan membangun di sini. Miliki petak untuk melindungi bangunanmu.",
-  "land.bagHint": "Klik sebuah blok untuk menaruhnya di bilah cepat. Alat langsung berfungsi begitu kamu memilikinya."
+  "land.bagHint": "Klik sebuah blok untuk menaruhnya di bilah cepat. Alat langsung berfungsi begitu kamu memilikinya.",
+  "land.noRoomYou": "Kamu sedang berdiri di situ."
  },
  "vi": {
   "land.notYours": "Mảnh đất {p} thuộc về người khác. Hãy mua một mảnh, hoặc nhờ chủ của nó mời bạn.",
@@ -1901,7 +1916,8 @@
   "land.pieces": "{n} khối",
   "land.signInBuild2": "Đăng nhập để thu thập và xây dựng.",
   "land.wildOpen": "Vô chủ: ai cũng có thể thu thập và xây dựng ở đây. Hãy sở hữu một lô đất để bảo vệ công trình của bạn.",
-  "land.bagHint": "Nhấp vào một khối để đặt nó lên thanh công cụ. Công cụ dùng được ngay khi bạn có."
+  "land.bagHint": "Nhấp vào một khối để đặt nó lên thanh công cụ. Công cụ dùng được ngay khi bạn có.",
+  "land.noRoomYou": "Bạn đang đứng ở đó."
  },
  "pl": {
   "land.notYours": "Działka {p} należy do kogoś innego. Kup działkę albo poproś jej właściciela o zaproszenie.",
@@ -2020,6 +2036,7 @@
   "land.pieces": "{n} {n|one:element|few:elementy|many:elementów|other:elementu}",
   "land.signInBuild2": "Zaloguj się, aby zbierać i budować.",
   "land.wildOpen": "Bez właściciela: każdy może tu zbierać i budować. Miej działkę, aby chronić to, co zbudujesz.",
-  "land.bagHint": "Kliknij blok, aby położyć go na pasku. Narzędzia działają, gdy tylko je masz."
+  "land.bagHint": "Kliknij blok, aby położyć go na pasku. Narzędzia działają, gdy tylko je masz.",
+  "land.noRoomYou": "Tam stoisz ty."
  }
 }

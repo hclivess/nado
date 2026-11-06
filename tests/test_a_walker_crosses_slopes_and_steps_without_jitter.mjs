@@ -8,7 +8,8 @@
  *   2. downhill: on the ground every frame (no fall-and-land), height never rises;
  *   3. it stands ON the surface, never inside it and never more than a millimetre above it;
  *   4. a 50 cm step is climbed, and the eye glides up it over several frames (none moves it 15 cm; the old step: 50 cm in one);
- *   5. a 2 m ledge is a real fall (airborne, then landed); a jump leaves the ground and lands again.
+ *   5. a 2 m ledge is a real fall (airborne, then landed); a jump leaves the ground and lands again;
+ *   6. a walker buried by ground or a block placed into them comes up onto it ("build oneself into the terrain").
  *
  * Run: node tests/test_a_walker_crosses_slopes_and_steps_without_jitter.mjs
  */
@@ -68,6 +69,12 @@ ok(L.some((x) => !x.ground) && P.ground && onSurface(P, ledgeG) && P.h < 0.1, "a
 const flat = () => 0;
 P = start(flat, 0); L = run(flat, P, 90, [0, 0], 5);
 ok(L.some((x) => !x.ground && x.h > 1) && P.ground && onSurface(P, flat), "a jump leaves the ground (over a metre) and lands again");
+
+// 6. buried: ground (or a block) rises into the body — the walker comes up onto it rather than staying stuck inside
+const raised = (u, v) => 1.2;
+P = { u: 0, v: 0, h: 0, vu: 0, vv: 0, vh: 0, ground: true, fly: false };
+L = run(raised, P, 3, [0, 0]);
+ok(onSurface(P, raised), `a walker buried 1.2 m deep comes up onto the surface (h ${P.h.toFixed(3)})`);
 
 if (fails) { console.log(`${fails} FAILURES`); process.exit(1); }
 console.log("ALL PASS");

@@ -48,7 +48,7 @@ function hash3(a, b, c) { let h = Math.imul(a, 374761393) ^ Math.imul(b, 6682652
 // the flat gives way to earth and then rock as it steepens, snow slides off cliffs — and static/land.js's ground node
 // material mixes them. The vertex colour is only a faint per-place grain on top.
 const smoothstep = (a, b, x) => { const t = Math.max(0, Math.min(1, (x - a) / (b - a))); return t * t * (3 - 2 * t); };
-function groundWeights(b, up) {
+export function groundWeights(b, up) {          // (static/land.js weighs the far land by it too)
   const w = [0, 0, 0, 0, 0, 0];                          // grass, dirt, rock, sand, snow, gravel
   const steep = smoothstep(0.62, 0.38, up);              // 1 on a cliff, 0 on the flat
   if (b === B.grass) { const g = smoothstep(0.62, 0.85, up); w[0] = g; w[1] = 1 - g; }
@@ -151,10 +151,11 @@ function meshBoxes(boxes, u0, v0, h0, place, solid, clear, lod) {
   }
 }
 
-/** Mesh one chunk: { anchor, smooth (the ground), trees, solid, clear, pieces, glassy, grass } or { empty }. `boxes`:
+/** Mesh one chunk: { anchor, smooth (the ground), trees, bark, foliage, stones, solid, clear, water, pieces, glassy, grass }
+ *  or { empty }. `boxes`:
  *  the plot's built pieces (land-world BOXES); `lod`: 0 near (grass and every piece), 1 middle (every piece), 2 far
  *  (pieces under LOD_SKIP_CM skipped). */
-export function meshChunk(face, cu, cv, ch, edits, boxes, lod) {
+export function meshChunk(face, cu, cv, ch, edits, boxes, lod, grassOn = true) {
   const h0 = ch * CHUNK;
   if ((!edits || edits.size === 0) && !(boxes && boxes.length)) {   // wholly above the ground, the trees and the sea: air
     let hi = 0;
@@ -170,7 +171,7 @@ export function meshChunk(face, cu, cv, ch, edits, boxes, lod) {
   const anchor = dirOf(face, u0, v0).map((x) => x * (R0 + h0));
   const fr = frameOf(face, u0 + CHUNK / 2, v0 + CHUNK / 2);   // the chunk's local frame: gradients become world normals
   const place = (gu, gv, gh) => { const d = dirOf(face, gu, gv), r = R0 + gh; return [d[0] * r - anchor[0], d[1] * r - anchor[1], d[2] * r - anchor[2]]; };
-  const smooth = mk(), trees = mk(), solid = mk(), clear = mk();
+  const smooth = mk(), trees = mk(), solid = mk(), clear = mk(), water = mk();
 
   // ---- the smooth surfaces: Surface Nets over a field sampled at cell centres -----------------------------------
   function nets(F, colourOf, out, isMat = (b) => NATURAL.has(b), extra = null) {
@@ -336,7 +337,9 @@ export function meshChunk(face, cu, cv, ch, edits, boxes, lod) {
         if (n === b && (b === B.glass || b === B.ice)) continue;
         if (fAt(ni, nj, nk) > 0.25) continue;             // buried in the ground
       }
-      const buf = isClear ? clear : solid, tile = info.tex[D.t];
+      // the sea is its own part: the page draws it as water (moving ripples, fresnel to the sky), not an atlas tile — the
+      // tile read as "bland untextured marches" from above (operator, 2026-11-06)
+      const buf = info.liquid ? water : isClear ? clear : solid, tile = info.tex[D.t];
       const tu = (tile % TILE_COLS) / TILE_COLS, tv = 1 - (Math.floor(tile / TILE_COLS) + 1) / TILE_ROWS;
       const base = buf.n;
       for (let c = 0; c < 4; c++) {
@@ -347,6 +350,7 @@ export function meshChunk(face, cu, cv, ch, edits, boxes, lod) {
         buf.uv.push(tu + ((c === 1 || c === 2) ? 1 / TILE_COLS - EU : EU), tv + ((c >= 2) ? 1 / TILE_ROWS - EV : EV));
         const s = D.shade * (info.glow ? 1.6 : 1);
         buf.col.push(s, s, s);
+        if (info.liquid) buf.uvw.push(((u0 + i + ci) % 4096 + 4096) % 4096, ((v0 + j + cj) % 4096 + 4096) % 4096, h0 + k + ck);
       }
       const p = buf.pos, q = base * 3;
       const e1 = [p[q + 3] - p[q], p[q + 4] - p[q + 1], p[q + 5] - p[q + 2]], e2 = [p[q + 9] - p[q], p[q + 10] - p[q + 1], p[q + 11] - p[q + 2]];
@@ -360,12 +364,14 @@ export function meshChunk(face, cu, cv, ch, edits, boxes, lod) {
   // GRASS ("your fidelity reference": a meadow of dense, waving grass with wildflowers): clumps scattered over every
   // ground triangle that is mostly grass and gentle, about GRASS_DENSITY per m², each at a point chosen from the
   // triangle's place (the same meadow on every screen). The page draws them instanced, near the player only.
-  const grass = lod ? null : scatterGrass(smooth);
+  // the middle distance (lod 1) gets a third of the blades: a meadow that stopped 40 m away left a pale wash beyond it
+  // (operator, 2026-11-06). Far chunks (lod 2) none.
+  const grass = lod >= 2 || !grassOn ? null : scatterGrass(smooth, lod ? GRASS_DENSITY / 3 : GRASS_DENSITY);
   const pieces = mk(), glassy = mk();
   if (boxes && boxes.length) meshBoxes(boxes, u0, v0, h0, place, pieces, glassy, lod);
-  if (!smooth.idx.length && !trees.idx.length && !solid.n && !clear.n && !pieces.n && !glassy.n && !bark.n && !foliage.n && !stones.n) return { empty: true };
+  if (!smooth.idx.length && !trees.idx.length && !solid.n && !clear.n && !pieces.n && !glassy.n && !bark.n && !foliage.n && !stones.n && !water.n) return { empty: true };
   return { anchor, smooth: pack(smooth), trees: pack(trees), solid: pack(solid), clear: pack(clear), pieces: pack(pieces), glassy: pack(glassy),
-           bark: pack(bark), foliage: pack(foliage), stones: pack(stones), grass };
+           bark: pack(bark), foliage: pack(foliage), stones: pack(stones), water: pack(water), grass };
 }
 
 // ---- a loose stone: a once-subdivided icosahedron, flattened, its corners pushed in and out by the place's hash --------
@@ -453,7 +459,7 @@ function placeModel(m, face, cu, cv, base, rot, sc, phase, place, bark, foliage,
 }
 
 const GRASS_DENSITY = 6;                                   // clumps per m² of meadow
-function scatterGrass(g) {
+function scatterGrass(g, density) {
   const P = g.pos, N = g.nor, I = g.idx, W1 = g.w1, out = [], kinds = [];
   for (let t = 0; t < I.length; t += 3) {
     const a = I[t], b = I[t + 1], c = I[t + 2];
@@ -462,7 +468,7 @@ function scatterGrass(g) {
     const ax = P[a * 3], ay = P[a * 3 + 1], az = P[a * 3 + 2];
     const ex = P[b * 3] - ax, ey = P[b * 3 + 1] - ay, ez = P[b * 3 + 2] - az, fx = P[c * 3] - ax, fy = P[c * 3 + 1] - ay, fz = P[c * 3 + 2] - az;
     const cx = ey * fz - ez * fy, cy = ez * fx - ex * fz, cz = ex * fy - ey * fx, area = Math.hypot(cx, cy, cz) / 2;
-    const n = Math.floor(area * GRASS_DENSITY * gw + hash3(a, b, c));
+    const n = Math.floor(area * density * gw + hash3(a, b, c));
     for (let k = 0; k < n; k++) {
       let r1 = hash3(a + k, b, c * 3 + 1), r2 = hash3(a, b + k, c * 7 + 2);
       if (r1 + r2 > 1) { r1 = 1 - r1; r2 = 1 - r2; }
@@ -489,11 +495,11 @@ if (typeof self !== "undefined" && typeof window === "undefined" && typeof self.
   self.onmessage = (e) => {
     const m = e.data;
     let res;
-    try { res = meshChunk(m.face, m.cu, m.cv, m.ch, m.edits && m.edits.length ? new Map(m.edits) : null, m.boxes, m.lod); }
+    try { res = meshChunk(m.face, m.cu, m.cv, m.ch, m.edits && m.edits.length ? new Map(m.edits) : null, m.boxes, m.lod, m.grass !== false); }
     catch (err) { res = { error: String(err && err.message || err) }; }
     const tr = [];
     if (res.grass) tr.push(res.grass.inst.buffer, res.grass.kind.buffer);
-    for (const part of [res.smooth, res.trees, res.solid, res.clear, res.pieces, res.glassy, res.bark, res.foliage, res.stones]) if (part) for (const a of [part.pos, part.nor, part.col, part.idx, part.uv, part.tile, part.uvw, part.gn, part.w1, part.w2, part.wind]) if (a) tr.push(a.buffer);
+    for (const part of [res.smooth, res.trees, res.solid, res.clear, res.pieces, res.glassy, res.bark, res.foliage, res.stones, res.water]) if (part) for (const a of [part.pos, part.nor, part.col, part.idx, part.uv, part.tile, part.uvw, part.gn, part.w1, part.w2, part.wind]) if (a) tr.push(a.buffer);
     self.postMessage(Object.assign({ id: m.id }, res), tr);
   };
 }

@@ -9,7 +9,8 @@
 //   * a grounded walker stays on the ground going downhill (snapped down up to SNAP), so only a real drop is a fall;
 //   * the eye follows the body through a short smoothing (eyeH), so a step onto a block glides instead of snapping.
 export const SNAP = 0.6;              // how far below a grounded walker the ground may fall away and still be walked on
-const BISECT = 14;                    // 2^-14 of a step: well under a millimetre
+const BISECT = 14;
+const UNBURY = 4;                     // how far up a buried walker is lifted to find free room                    // 2^-14 of a step: well under a millimetre
 
 /** Lowest free height in (lo, hi] at (u, v) — `lo` is blocked, `hi` free. */
 function surface(collides, u, v, lo, hi) {
@@ -19,6 +20,11 @@ function surface(collides, u, v, lo, hi) {
 
 /** Advance walker P by dt. wish: [du, dv] wished velocity (grid units/s); jump: pressed; C: { GRAV, JUMP, STEP }. */
 export function walk(P, wish, jump, dt, collides, C) {
+  // buried (a block placed into the body — by this player before that was refused, or by anyone else; ground that rose
+  // under them): rise to the nearest free height rather than stay stuck inside ("build oneself into the terrain")
+  if (!P.fly && collides(P.u, P.v, P.h)) {
+    for (let lift = 0.05; lift <= UNBURY; lift += 0.05) if (!collides(P.u, P.v, P.h + lift)) { P.h = surface(collides, P.u, P.v, P.h + lift - 0.05, P.h + lift); P.vh = 0; P.ground = true; break; }
+  }
   if (P.fly) {
     P.vu = wish[0]; P.vv = wish[1];
   } else {
