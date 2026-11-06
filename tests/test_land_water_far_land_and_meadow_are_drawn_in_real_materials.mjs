@@ -44,6 +44,11 @@ ok(/mx_noise_float\(uvw\.xy\.mul\(0\.021\)\)/.test(gm) && /meadow/.test(gm), "th
 const act = land.slice(land.indexOf("function act("), land.indexOf("function wireInput"));
 ok(/NATURAL_ITEMS\.has\(id\)[\s\S]{0,700}noRoomYou[\s\S]{0,200}setBlock/.test(act), "a natural block is refused where it would raise the ground into the player");
 
+// 6: the finished picture is colour-graded ("we need professional color grading too"): S-curve, saturation, split toning,
+// a vignette — after tone mapping, before anti-aliasing
+const gr = land.slice(land.indexOf("function grade("), land.indexOf("function buildPipeline"));
+ok(/sat:/.test(land) && /S-curve/.test(gr) && /GRADE\.cool/.test(gr) && /GRADE\.warm/.test(gr) && /vignette/.test(gr) && /fxaa\(grade\(TSL\.renderOutput\(lit\)\)\)/.test(land),
+   "the picture is graded after tone mapping: an S-curve, saturation, cool shadows and warm highlights, a vignette");
 // 5
 ok(/#hudPlot\{display:flex;flex-wrap:wrap;align-items:center;gap:/.test(html), "the plot line is a wrapping row with gaps");
 

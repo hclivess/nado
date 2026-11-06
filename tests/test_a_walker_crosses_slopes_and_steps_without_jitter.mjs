@@ -17,7 +17,7 @@
 import { join, dirname } from "node:path";
 import { fileURLToPath } from "node:url";
 const ROOT = join(dirname(fileURLToPath(import.meta.url)), "..");
-const { walk, trunkAt } = await import(join(ROOT, "static", "land-walk.js"));
+const { walk, trunkAt, restorePlace } = await import(join(ROOT, "static", "land-walk.js"));
 let fails = 0;
 const ok = (c, m) => { console.log((c ? "ok   " : "FAIL ") + m); if (!c) fails++; };
 
@@ -88,6 +88,18 @@ P = { u: 1, v: 1.2, h: 0, vu: 0, vv: 0, vh: 0, ground: true, fly: false };
 for (let f = 0; f < 120; f++) walk(P, [WALK, 0], false, dt, treeBody, C);
 ok(P.u > 8, "a walker passing beside it walks by");
 ok(trunkAt(5.5, 0.5, 0, HALF, TALL, isLog) && !body(() => 0)(5.5, 0.5, 0.5), "a body centred on a trunk is caught (its corner points alone miss it)");
+
+// 8. a saved place restored on ground that has changed: one now underground goes up onto the surface; one in the open
+// stays; one that is no place on the planet is refused ("i spawned inside earth", after the world was regenerated)
+{
+  const surf = 130, coll = (f, u, v, h) => h < surf, height = () => surf, ground = () => surf + 0.05, Wn = 131072;
+  const deep = restorePlace([0, 100, 100, 101, 0.5], Wn, coll, height, ground);
+  ok(deep && deep[3] === surf + 0.05 && deep[4] === 0.5, `a place saved 29 m under today's ground is restored on the surface (h ${deep && deep[3]})`);
+  const open = restorePlace([0, 100, 100, 140, 0, 0.1], Wn, coll, height, ground);
+  ok(open && open[3] === 140 && open[5] === 0.1, "a place in the open stays where it was");
+  ok(restorePlace([7, 1, 1, 1, 0], Wn, coll, height, ground) === null && restorePlace([0, NaN, 1, 1, 0], Wn, coll, height, ground) === null
+     && restorePlace("x", Wn, coll, height, ground) === null, "a saved place that is no place on the planet is refused");
+}
 
 if (fails) { console.log(`${fails} FAILURES`); process.exit(1); }
 console.log("ALL PASS");

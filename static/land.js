@@ -28,7 +28,7 @@ import { bloom } from "three/addons/tsl/display/BloomNode.js";
 import { fxaa } from "three/addons/tsl/display/FXAANode.js";
 import * as Wd from "./land-world.js";
 import * as Cosmos from "./land-cosmos.js";
-import { walk, trunkAt, TRUNK_R } from "./land-walk.js";
+import { walk, trunkAt, TRUNK_R, restorePlace } from "./land-walk.js";
 import { snapBox, piecesFor } from "./land-snap.js";
 import { levelOps, earthNeeded, trunkIn } from "./land-level.js";
 import { groundWeights } from "./land-mesher.js";
@@ -353,7 +353,9 @@ function load() {
   try { d = JSON.parse(localStorage.getItem(LS) || "null"); } catch (e) {}
   if (d && Array.isArray(d.hot)) hot = d.hot.filter((x) => typeof x === "string").slice(0, 9);
   if (d && d.piece && [d.piece.w, d.piece.d, d.piece.h].every((x) => Number.isInteger(x) && x >= 1 && x <= Wd.PLOT_CM) && SNAPS.includes(d.piece.snap)) piece = d.piece;
-  if (d && Array.isArray(d.p)) { [P.face, P.u, P.v, P.h, P.yaw] = d.p; if (typeof d.p[5] === "number") P.pitch = d.p[5]; return; }
+  const at = d && restorePlace(d.p, W, (f, u, v, h) => { const pf = P.face; P.face = f; const c = collides(u, v, h); P.face = pf; return c; },
+    (f, u, v) => colAt(f, Math.floor(u), Math.floor(v)).height, (f, u, v) => { const pf = P.face; P.face = f; const g = groundAt(f, u, v); P.face = pf; return g; });
+  if (at) { [P.face, P.u, P.v, P.h, P.yaw, P.pitch] = at; return; }
   const sp = Wd.plotCoords(Wd.plotId(Wd.SPAWN_FACE, Wd.SPAWN_PLOT_ROW + 5, Wd.SPAWN_PLOT_COL + 5));
   P.face = sp.face; P.u = sp.u0 + 0.5; P.v = sp.v0 - 6.5;            // amid the first wave of plots
   P.h = groundAt(P.face, P.u, P.v);
@@ -1365,6 +1367,19 @@ function thatchTexture() {
 // ground under a tree — through builtinAOContext, i.e. on INDIRECT light only (the sun's own shadow map handles direct);
 // a soft bloom lets the sun and lit glass glow; FXAA smooths edges after tone mapping. A touch device gets the plain
 // render: two scene passes are more than a phone's GPU should pay for its first impression.
+// COLOUR GRADING ("we need professional color grading too", operator 2026-11-07): a filmic grade on the finished,
+// tone-mapped image — a gentle S-curve for contrast, a touch more saturation, split toning (shadows a little cool,
+// highlights a little warm, as film and most graded games read daylight) and a soft vignette that draws the eye in.
+const GRADE = { sat: 1.12, curve: 0.22, cool: [0.965, 0.99, 1.05], warm: [1.05, 1.0, 0.93], vignette: 0.42 };
+function grade(img) {
+  const c0 = img.rgb, luma = c0.dot(TSL.vec3(0.2126, 0.7152, 0.0722));
+  let c = TSL.mix(TSL.vec3(luma), c0, GRADE.sat);
+  const s = c.clamp(0, 1);
+  c = TSL.mix(c, s.mul(s).mul(TSL.float(3).sub(s.mul(2))), GRADE.curve);              // the S-curve (smoothstep), blended
+  c = c.mul(TSL.mix(TSL.vec3(...GRADE.cool), TSL.vec3(...GRADE.warm), TSL.smoothstep(0.15, 0.85, luma)));
+  const d = TSL.screenUV.sub(0.5), vig = TSL.float(1).sub(d.dot(d).mul(GRADE.vignette));
+  return TSL.vec4(c.mul(vig), img.a);
+}
 function buildPipeline() {
   if (touch || new URLSearchParams(location.search).has("plain")) return null;
   try {
@@ -1377,8 +1392,8 @@ function buildPipeline() {
     const main = TSL.pass(scene, camera);
     main.contextNode = TSL.builtinAOContext(aoPass.getTextureNode().sample(TSL.screenUV).r);
     const lit = main.add(bloom(main, 0.18, 0.35, 0.92));
-    pl.outputColorTransform = false;                       // tone map + sRGB first, then anti-alias the finished image
-    pl.outputNode = fxaa(TSL.renderOutput(lit));
+    pl.outputColorTransform = false;                       // tone map + sRGB first, grade, then anti-alias the finished image
+    pl.outputNode = fxaa(grade(TSL.renderOutput(lit)));
     return pl;
   } catch (e) { return null; }                             // an older backend without these nodes: the plain render
 }

@@ -75,3 +75,15 @@ export function trunkAt(u, v, h, half, tall, isLog) {
     }
   return false;
 }
+
+/** A saved place [face, u, v, h, yaw, pitch?] made safe to stand at, or null if it is no place on this planet. One saved on
+ *  ground that has since changed (the world was regenerated, 2026-11-07: "i spawned inside earth") or that is now
+ *  underground goes up onto the surface above it — the walker lifts a buried player only UNBURY metres.
+ *  collides(f, u, v, h), height(f, u, v): the terrain's surface there, ground(f, u, v): a free standing height. */
+export function restorePlace(p, W, collides, height, ground) {
+  if (!Array.isArray(p) || !p.slice(0, 5).every(Number.isFinite) || !(p[0] >= 0 && p[0] < 6 && Number.isInteger(p[0]))
+      || !(p[1] >= 0 && p[1] < W && p[2] >= 0 && p[2] < W)) return null;
+  const [f, u, v, h0, yaw] = p, pitch = Number.isFinite(p[5]) ? p[5] : -0.15;
+  const h = collides(f, u, v, h0) || h0 < height(f, u, v) - 1 ? ground(f, u, v) : h0;
+  return [f, u, v, h, yaw, pitch];
+}
