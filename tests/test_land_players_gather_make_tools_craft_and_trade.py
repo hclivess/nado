@@ -42,7 +42,7 @@ _report = _harness.Report()
 check = _report.check
 
 A, Bk = generate_keydict(), generate_keydict()
-ROW, COL = 4924, 4662
+ROW, COL = 4995, 3435                                              # static/land-world.js SPAWN_PLOT_ROW/COL
 PA = ROW * L.FACE_N + COL                                          # A's titled plot (face 0)
 
 # real cells from the generator: a wilderness tree (log + leaves), a grass top and the rock under it, near the landing

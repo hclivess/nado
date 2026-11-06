@@ -37,7 +37,7 @@ export function titleOf(seed) {
 // two sides, near face 0's centre (squarest blocks), chosen by scanning the equator band for 100 dry grass plots of
 // little relief with the sea close by (2026-11-06). Fixed for good once its titles are minted.
 export const SPAWN_FACE = 0;
-export const SPAWN_PLOT_ROW = 4924, SPAWN_PLOT_COL = 4662;
+export const SPAWN_PLOT_ROW = 4995, SPAWN_PLOT_COL = 3435;   // a temperate meadow at a forest's edge (regenerated world, 2026-11-06)
 
 export const plotId = (face, prow, pcol) => (face * FACE_N + prow) * FACE_N + pcol;
 export function plotOf(face, u, v) { return plotId(face, Math.floor(v / PLOT), Math.floor(u / PLOT)); }
@@ -131,7 +131,7 @@ function noise3(P, x, y, z) {
   return lerp(lerp(lerp(grad(P[AA], x, y, z), grad(P[BA], x - 1, y, z), u), lerp(grad(P[AB], x, y - 1, z), grad(P[BB], x - 1, y - 1, z), u), v),
     lerp(lerp(grad(P[AA + 1], x, y, z - 1), grad(P[BA + 1], x - 1, y, z - 1), u), lerp(grad(P[AB + 1], x, y - 1, z - 1), grad(P[BB + 1], x - 1, y - 1, z - 1), u), v), w);
 }
-const PERM = [0, 1, 2, 3, 4].map((i) => makePerm(WORLD_SEED + i * 7919));
+const PERM = [0, 1, 2, 3, 4, 5, 6].map((i) => makePerm(WORLD_SEED + i * 7919));
 function fbm(P, x, y, z, oct, lac = 2, gain = 0.5) {
   let s = 0, a = 1, f = 1, n = 0;
   for (let i = 0; i < oct; i++) { s += a * noise3(P, x * f, y * f, z * f); n += a; a *= gain; f *= lac; }
@@ -192,19 +192,32 @@ export function column(face, u, v) {
   const d = dirOf(face, u + 0.5, v + 0.5);
   const x = d[0] * R0, y = d[1] * R0, z = d[2] * R0;            // noise is sampled in METRES on the sphere
   const at = (P, len, oct) => fbm(P, x / len, y / len, z / len, oct);
+  // RELIEF ("the land is basically flat", operator 2026-11-06: hills were ±14 m over 400 m, so a walk saw a plain).
   const cont = at(PERM[0], 30000, 5);                            // continents and seas, ~30 km
-  const hills = at(PERM[1], 400, 4);                             // rolling ground, ~400 m
-  const detail = at(PERM[2], 45, 2);                             // the ground's grain, ~45 m
+  const hills = at(PERM[1], 900, 4);                             // hills and dales, ~900 m, ±30 m
+  const vales = at(PERM[5], 220, 3);                             // the ground's folds, ~220 m
+  const detail = at(PERM[2], 45, 2);                             // its grain, ~45 m
   const rid = 1 - Math.abs(at(PERM[3], 2500, 5));                // mountain ridges, ~2.5 km
-  const mtn = Math.max(0, at(PERM[4], 12000, 3) * 2.2 - 0.15);   // where the ranges are, ~12 km
-  const height = Math.max(8, Math.min(H - 8, SEA + 4 + cont * 90 + hills * 14 + detail * 2.5 + rid * rid * rid * mtn * 110));
+  const mtn = Math.max(0, at(PERM[4], 9000, 3) * 2.4 - 0.05);    // where the ranges are, ~9 km (more of them)
+  let height = SEA + 5 + cont * 80 + hills * 30 + vales * 8 + detail * 2.5 + rid * rid * rid * mtn * 130;
+  if (height > SEA + 110) height = SEA + 110 + (height - SEA - 110) * 0.35;   // high peaks compressed, never cut flat
+  height = Math.max(8, Math.min(H - 8, height));
   const top = Math.floor(height);
-  const temp = at(PERM[4], 20000, 3) * 0.6 + at(PERM[0], 7000, 2) * 0.4 - Math.abs(d[1]) * 0.55 - Math.max(0, top - SEA) * 0.004;
-  const biome = top < SEA + 2 && top >= SEA - 3 ? "beach" : temp < -0.32 ? "snow" : top > SEA + 70 ? "rock" : "grass";
+  // CLIMATE: temperature (latitude, altitude, broad noise) and moisture; the biome follows both ("there are no biomes")
+  const temp = at(PERM[4], 20000, 3) * 0.6 + at(PERM[0], 7000, 2) * 0.4 - Math.max(0, Math.abs(d[1]) - 0.55) * 1.1 - Math.max(0, top - SEA) * 0.0025;
+  const wet = at(PERM[6], 8000, 3) * 0.8 + at(PERM[6], 1500, 2) * 0.3;
+  // FORESTS GROW IN PATCHES ("trees should generate the way normal trees generate? in patches called forests"): a forest
+  // field over ~1 km, wetter ground more wooded
+  const woods = at(PERM[5], 1100, 3) + wet * 0.35;
+  const biome = top < SEA + 2 && top >= SEA - 3 ? "beach"
+    : top > SEA + 95 ? "rock"
+    : temp < -0.28 ? "snow"
+    : temp > 0.0 && wet < -0.04 ? "desert"
+    : woods > 0.12 ? "forest" : "grass";
   // the soil's depth before rock, varying over ~60 m — measured 5 to 8 layers ("there is barely any digging depth",
   // operator 2026-11-06: it was 3 everywhere, so a spade met rock almost at once)
   const soil = 4 + Math.min(5, Math.max(0, Math.floor((at(PERM[3], 60, 2) * 0.5 + 0.5) * 6)));
-  return { top, height, biome, soil };
+  return { top, height, biome, soil, temp, wet, woods };
 }
 
 function hash32(a, b, c) {
@@ -227,20 +240,33 @@ export const isTree = (b) => TREE_WOOD.has(b) || TREE_LEAVES.has(b);
 /** The tree rooted at column (face, u, v): { kind, height } or null. */
 export function treeAt(face, u, v, col) {
   const lu = u % PLOT, lv = v % PLOT;
-  if (lu < 2 || lu > PLOT - 3 || lv < 2 || lv > PLOT - 3) return null;
-  const hh = hash32(face, u, v), r = (hh >>> 8) % 100, size = (hh >>> 16) % 4;
-  if (col.biome === "grass" && col.top > SEA + 1) {
-    if (hh % 70 === 0) {
-      const alt = col.top - SEA;
-      if (r < Math.min(70, 12 + alt)) return { kind: "conifer", height: 7 + size };
-      if (r < Math.min(70, 12 + alt) + 22) return { kind: "birch", height: 6 + (size >> 1) };
-      return { kind: "broadleaf", height: 4 + (size >> 1) };
+  if (lu < 2 || lu > PLOT - 3 || lv < 2 || lv > PLOT - 3 || col.top <= SEA) return null;
+  const hh = hash32(face, u, v), r = (hh >>> 8) % 100, size = (hh >>> 16) % 4, roll = (hh % 100003) / 100003;
+  // the climate picks the species: conifers where it is cold or high, birch in the cool and wet, broadleaf in the mild
+  const cold = col.temp < -0.12 || col.top > SEA + 60, cool = col.temp < 0.05;
+  const species = () => cold ? (r < 80 ? { kind: "conifer", height: 7 + size } : { kind: "birch", height: 6 + (size >> 1) })
+    : cool ? (r < 30 ? { kind: "conifer", height: 7 + size } : r < 60 ? { kind: "birch", height: 6 + (size >> 1) } : { kind: "broadleaf", height: 4 + (size >> 1) })
+    : (r < 18 ? { kind: "birch", height: 6 + (size >> 1) } : { kind: "broadleaf", height: 4 + (size >> 1) });
+  switch (col.biome) {
+    case "forest": {
+      // dense inside, thinning toward its edge (the forest field), an understorey of bushes
+      const inside = Math.min(1, Math.max(0, (col.woods - 0.12) / 0.25));
+      if (roll < 0.035 + 0.055 * inside) return species();
+      if (roll > 0.97) return { kind: "bush", height: 1 };
+      return null;
     }
-    if (hh % 37 === 3) return { kind: "bush", height: 1 };
-    return null;
+    case "grass":
+      if (roll < 0.004) return species();                     // a lone tree in the meadow
+      if (roll > 0.975) return { kind: "bush", height: 1 };
+      return null;
+    case "snow":
+      if (roll < (col.wet > 0 ? 0.03 : 0.006)) return { kind: "conifer", height: 6 + size };   // taiga where it is wet
+      return null;
+    case "beach":
+      return col.temp > 0 && hh % 60 === 0 ? { kind: "palm", height: 6 + (size >> 1) } : null;
+    case "desert":
+      return roll > 0.996 ? { kind: "bush", height: 1 } : null;
   }
-  if (col.biome === "snow" && col.top > SEA && hh % 90 === 0) return { kind: "conifer", height: 6 + size };
-  if (col.biome === "beach" && col.top >= SEA && hh % 60 === 0) return { kind: "palm", height: 6 + (size >> 1) };
   return null;
 }
 /** What tree `t` rooted at (du, dv) from this column puts at `dh` layers above its root's ground (or air). The mesher
@@ -287,6 +313,8 @@ export function litterAt(face, u, v, col) {
   const hh = hash32(face + 17, v, u);
   switch (col.biome) {
     case "grass": return hh % 17 === 4 ? B.pebble : hh % 19 === 9 ? B.twigs : 0;
+    case "forest": return hh % 23 === 4 ? B.pebble : hh % 9 === 2 ? B.twigs : 0;       // a forest floor is strewn with sticks
+    case "desert": return hh % 13 === 6 ? B.pebble : 0;
     case "rock": return hh % 6 === 1 ? B.pebble : 0;
     case "beach": return hh % 23 === 5 ? B.pebble : hh % 41 === 7 ? B.twigs : 0;
     case "snow": return hh % 29 === 2 ? B.pebble : 0;
@@ -300,7 +328,7 @@ export function terrainBlock(face, u, v, h, colCache) {
   const col = colCache ? colCache(face, u, v) : column(face, u, v);
   if (h <= col.top) {
     if (h < col.top - col.soil + 1) return h < 4 ? B.bedrock : B.stone;
-    if (col.biome === "beach") return B.sand;
+    if (col.biome === "beach" || col.biome === "desert") return B.sand;
     if (col.biome === "rock") return h === col.top && col.top > SEA + 95 ? B.snow : B.stone;
     if (col.top < SEA) return h === col.top ? B.gravel : B.dirt;
     if (h === col.top) return col.biome === "snow" ? B.snow : B.grass;

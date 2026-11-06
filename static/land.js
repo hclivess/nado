@@ -930,10 +930,11 @@ function act(place, mouse) {
     if (!id || !(haveCm3(id) > 0)) return notify(T("noItem", "You have none of that — gather or make some first."));
     if (NATURAL_ITEMS.has(id)) {
       if (!a.prev) return;
-      // never into the player: a natural cell raises the smooth ground half a cell around it, so it is refused when that
-      // reach touches the body ("sadly it is possible to build oneself into the terrain", operator 2026-11-06)
+      // never into the player ("sadly it is possible to build oneself into the terrain", operator 2026-11-06): a cell that
+      // overlaps the body is refused. The half-cell bulge it adds to the smooth ground around it is not — that refused
+      // earth on the very next cell, and the walker steps up onto a bulge (land-walk.js: a buried walker rises).
       const [cu, cv, ch] = a.prev;
-      if (cu + 1.5 > P.u - HALF && cu - 0.5 < P.u + HALF && cv + 1.5 > P.v - HALF && cv - 0.5 < P.v + HALF && ch + 1.5 > P.h && ch - 0.5 < P.h + TALL)
+      if (cu + 1 > P.u - HALF && cu < P.u + HALF && cv + 1 > P.v - HALF && cv < P.v + HALF && ch + 1 > P.h && ch < P.h + TALL)
         return notify(T("noRoomYou", "You are standing there."));
       return setBlock(P.face, a.prev[0], a.prev[1], a.prev[2], RULES.items[id].places);
     }

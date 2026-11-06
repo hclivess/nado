@@ -35,7 +35,19 @@ const chs = [ch - 1, ch, ch + 1];
 // 1. watertight across chunks: count every smooth edge in world space (mm keys)
 const edgeUse = new Map();
 let smoothTris = 0, solidAny = false, onLayer = 0, verts = 0;
-const keyOf = (x, y, z) => `${Math.round(x * 1000)},${Math.round(y * 1000)},${Math.round(z * 1000)}`;
+// a vertex two chunks both build is the same point to float32 (measured 0.0008 mm apart); keying by a rounded millimetre
+// split such a pair whenever a coordinate sat on a half-millimetre (a false "open edge", regenerated world 2026-11-06),
+// so a vertex joins any point already seen within 0.01 mm
+const seenPts = new Map();
+const keyOf = (x, y, z) => {
+  const i = Math.floor(x * 1000), j = Math.floor(y * 1000), k = Math.floor(z * 1000);
+  for (let a = -1; a <= 1; a++) for (let b = -1; b <= 1; b++) for (let c = -1; c <= 1; c++)
+    for (const q of seenPts.get(`${i + a},${j + b},${k + c}`) || []) if (Math.hypot(q[0] - x, q[1] - y, q[2] - z) < 1e-5) return q[3];
+  const id = `${x.toFixed(4)},${y.toFixed(4)},${z.toFixed(4)}`, cell = `${i},${j},${k}`;
+  if (!seenPts.has(cell)) seenPts.set(cell, []);
+  seenPts.get(cell).push([x, y, z, id]);
+  return id;
+};
 for (let dx = 0; dx < 3; dx++) for (let dy = 0; dy < 3; dy++) for (const c of chs) {
   const r = M.meshChunk(q.face, cu0 + dx, cv0 + dy, c, null);
   if (r.empty || !r.smooth) continue;
@@ -56,7 +68,7 @@ for (let dx = 0; dx < 3; dx++) for (let dy = 0; dy < 3; dy++) for (const c of ch
 }
 // rim: any edge with a vertex outside the inner ring of the 3x3 block (the outer chunks' far halves) may be open
 const inner = (key) => key.split("|").every((p) => {
-  const [x, y, z] = p.split(",").map((w) => Number(w) / 1000), g = Wd.gridOf([x, y, z].map((w) => w / Math.hypot(x, y, z)));
+  const [x, y, z] = p.split(",").map(Number), g = Wd.gridOf([x, y, z].map((w) => w / Math.hypot(x, y, z)));
   return g.u > q.u0 + 4 && g.u < q.u0 + 44 && g.v > q.v0 + 4 && g.v < q.v0 + 44;
 });
 let open = 0, doubled = 0;
@@ -142,6 +154,26 @@ ok(/Wd\.fieldOf\(colAt\(/.test(land) && /fieldOf/.test(readFileSync(join(ROOT, "
     }
   }
   ok(floor > 0 && grassyFloor === 0, `a dug hole's floor is earth, not the rim's grass (${grassyFloor} of ${floor} floor vertices grassy)`);
+  // a single cell dug out: no vertex touching it is grass, and no blade grows in it ("collecting grass somehow
+  // regenerates it" — the hole's points are shared with the turf around it and took its grass)
+  {
+    const su = q.u0 + 11, sv = q.v0 + 11, st = Wd.column(q.face, su, sv).top, one = new Map([[q.face + ":" + su + ":" + sv + ":" + st, 0]]);
+    let near = 0, green = 0, blades = 0;
+    for (const c of new Set([Math.floor((st - 1) / 16), Math.floor(st / 16)])) {
+      const r = M.meshChunk(q.face, cu0, cv0, c, one, null, 0);
+      if (r.empty || !r.smooth) continue;
+      const U = r.smooth.uvw, W1 = r.smooth.w1;
+      for (let i = 0; i < U.length / 3; i++) {
+        const gu = U[i * 3] - (q.u0 % 4096), gv = U[i * 3 + 1] - (q.v0 % 4096);
+        if (Math.abs(gu - 11.5) < 0.6 && Math.abs(gv - 11.5) < 0.6) { near++; if (W1[i * 4] > 0.2) green++; }
+      }
+      if (r.grass) for (let i = 0; i < r.grass.inst.length; i += 7) {
+        const x = r.anchor[0] + r.grass.inst[i], y = r.anchor[1] + r.grass.inst[i + 1], z = r.anchor[2] + r.grass.inst[i + 2], rr = Math.hypot(x, y, z), g = Wd.gridOf([x / rr, y / rr, z / rr]);
+        if (Math.abs(g.u - su - 0.5) < 0.4 && Math.abs(g.v - sv - 0.5) < 0.4) blades++;
+      }
+    }
+    ok(near > 0 && green === 0 && blades === 0, `one dug cell shows earth: ${green} of ${near} of its points grassy, ${blades} blades in it`);
+  }
   let shallow = 0, n = 0;
   for (let i = 0; i < 48; i += 3) for (let j = 0; j < 48; j += 3) {
     const c = Wd.column(q.face, q.u0 + i, q.v0 + j); n++;

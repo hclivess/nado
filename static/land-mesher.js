@@ -69,7 +69,7 @@ function cells(face, cu, cv, ch, edits) {
   const u0 = cu * CHUNK - 1, v0 = cv * CHUNK - 1, h0 = ch * CHUNK - 1;
   const cols = new Map();                                 // numeric keys: a string key per lookup cost more than the noise
   const colCache = (f, u, v) => { const k = (f * 131072 + u) * 131072 + v; let c = cols.get(k); if (!c) { c = column(f, u, v); cols.set(k, c); } return c; };
-  const blk = new Uint8Array(N * N * N), fld = new Float32Array(N * N * N);
+  const blk = new Uint8Array(N * N * N), fld = new Float32Array(N * N * N), dug = new Uint8Array(N * N * N);
   for (let j = 0; j < N; j++) for (let i = 0; i < N; i++) {
     const w = wrap(face, u0 + i, v0 + j), col = colCache(w.face, w.u, w.v);
     for (let k = 0; k < N; k++) {
@@ -77,9 +77,10 @@ function cells(face, cu, cv, ch, edits) {
       const e = edits ? edits.get(w.face + ":" + w.u + ":" + w.v + ":" + h) : undefined;
       blk[x] = e !== undefined ? e : h < 0 ? B.bedrock : h >= H ? B.air : terrainBlock(w.face, w.u, w.v, h, colCache);
       fld[x] = h < 0 ? 1 : h >= H ? -1 : fieldOf(col, h, e);
+      if (e === B.air && h <= col.top) dug[x] = 1;          // ground someone dug out (not a tree or litter above it)
     }
   }
-  return { blk, fld, colCache };
+  return { blk, fld, dug, colCache };
 }
 
 // ---- built pieces: boxes at 1 cm (land-world.js BOXES) ------------------------------------------------------------
@@ -165,7 +166,7 @@ export function meshChunk(face, cu, cv, ch, edits, boxes, lod, grassOn = true) {
     }
     if (h0 > hi + 16 && h0 > 100) return { empty: true };
   }
-  const { blk, fld, colCache } = cells(face, cu, cv, ch, edits);
+  const { blk, fld, dug, colCache } = cells(face, cu, cv, ch, edits);
   const at = (i, j, k) => blk[((k + 1) * N + (j + 1)) * N + (i + 1)];
   const u0 = cu * CHUNK, v0 = cv * CHUNK;
   const anchor = dirOf(face, u0, v0).map((x) => x * (R0 + h0));
@@ -210,6 +211,10 @@ export function meshChunk(face, cu, cv, ch, edits, boxes, lod, grassOn = true) {
         const ci = pi + (c & 1), cj = pj + ((c >> 1) & 1), ck = pk + (c >> 2), b = blk[(ck * N + cj) * N + ci];
         if (isMat(b) && ck > best) { best = ck; mat = b; }
       }
+      // DUG GROUND SHOWS EARTH: a vertex touching a dug cell is shared with the untouched turf around the hole, and took
+      // its grass — the hole stayed green and grew blades, which read as grass growing straight back ("collecting grass
+      // somehow regenerates it", "and at the bottom theres grass?", operator 2026-11-06). Turned turf is earth.
+      if (mat === B.grass) for (let c = 0; c < 8; c++) if (dug[((pk + (c >> 2)) * N + pj + ((c >> 1) & 1)) * N + pi + (c & 1)]) { mat = B.dirt; break; }
       const p = place(gu, gv, gh), col = colourOf(mat, nh, Math.floor(gu), Math.floor(gv), Math.floor(gh));
       vid[(pk * S + pj) * S + pi] = out.n;
       out.pos.push(p[0], p[1], p[2]); out.nor.push(nw[0], nw[1], nw[2]); out.col.push(col[0], col[1], col[2]);
@@ -269,12 +274,20 @@ export function meshChunk(face, cu, cv, ch, edits, boxes, lod, grassOn = true) {
     }
     if (i < 0 || j < 0 || i >= CHUNK || j >= CHUNK || col.top < h0 || col.top >= h0 + CHUNK) continue;
     // a part of the model is left out when the cell it stands in was one of this tree's and an edit has taken it
+    // FELLED: a trunk cell taken brings everything of the model above it down with it — the cards that overhang the
+    // tree's own cells were left hanging in the air otherwise ("the trees arent felled they stay in the air")
+    let cutAt = Infinity;
+    if (edits) for (let dh = 1; dh <= t.height; dh++) {
+      const b = treeCell(t, 0, 0, dh), e = b && edits.get(face + ":" + gu + ":" + gv + ":" + (col.top + dh));
+      if (TREE_WOOD.has(b) && e !== undefined && e !== b) { cutAt = col.top + dh; break; }
+    }
     const gone = (cu, cv, ch) => {
       const b = treeCell(t, cu - gu, cv - gv, ch - col.top);
       if (!b || !edits) return false;
       const e = edits.get(face + ":" + cu + ":" + cv + ":" + ch);
       return e !== undefined && e !== b;
     };
+    gone.cut = cutAt;
     placeTree(t, face, gu, gv, col.height, lod, place, bark, foliage, gone);
   }
   // litter: a loose stone is a small rough rock in its own part, drawn with the ground's material (its weights all rock);
@@ -449,9 +462,11 @@ function placeModel(m, face, cu, cv, base, rot, sc, phase, place, bark, foliage,
     for (let q = 0; q < I.length; q += 6) {
       if (gone) {
         const vs = new Set(I.slice(q, q + 6));
-        let x = 0, y = 0, z = 0;
-        for (const v of vs) { x += g[v * 3]; y += g[v * 3 + 1]; z += g[v * 3 + 2]; }
-        if (gone(Math.floor(x / vs.size), Math.floor(y / vs.size), Math.floor(z / vs.size))) continue;
+        let x = 0, y = 0, z = 0, zTop = -Infinity;
+        for (const v of vs) { x += g[v * 3]; y += g[v * 3 + 1]; z += g[v * 3 + 2]; zTop = Math.max(zTop, g[v * 3 + 2]); }
+        // the quad's top corner decides a felling (gone.cut: no part of a felled tree reaches above its cut), its centre
+        // the cell it stands in
+        if (zTop >= gone.cut || gone(Math.floor(x / vs.size), Math.floor(y / vs.size), Math.floor(z / vs.size))) continue;
       }
       for (let k = 0; k < 6; k++) out.idx.push(put(I[q + k]));
     }

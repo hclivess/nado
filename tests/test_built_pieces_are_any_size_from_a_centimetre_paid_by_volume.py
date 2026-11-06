@@ -37,7 +37,7 @@ _report = _harness.Report()
 check = _report.check
 
 A, Bk = generate_keydict(), generate_keydict()
-PA = 4924 * L.FACE_N + 4662
+PA = 4995 * L.FACE_N + 3435                          # the landing site (static/land-world.js SPAWN_PLOT_ROW/COL)
 PLANKS, GLASS = 9, 12
 
 

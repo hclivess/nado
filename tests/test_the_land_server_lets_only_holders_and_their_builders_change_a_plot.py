@@ -40,7 +40,8 @@ check = _report.check
 ISSUER = L.ISSUER
 OWNER, BUILDER, STRANGER, BUYER = generate_keydict(), generate_keydict(), generate_keydict(), generate_keydict()
 AGENT_SLH = generate_keydict("slhdsa128s")
-SPAWN_FACE, ROW, COL = 0, 4924, 4662
+SPAWN_FACE, ROW, COL = 0, 4995, 3435                 # static/land-world.js SPAWN_PLOT_ROW/COL
+AIR = 200                     # a layer of open air over the landing plots (ground ~136, trees reach 12 above it)
 PA = (SPAWN_FACE * L.FACE_N + ROW) * L.FACE_N + COL            # the owner's plot
 PB = PA + 1                                                     # a plot nobody here holds
 UA, VA = COL * L.PLOT, ROW * L.PLOT                             # its first column
@@ -126,26 +127,26 @@ async def main():
         world.player(kd["address"])["items"].update({"brick": 50, "planks": 50, "glass": 50, "dirt": 9000})
     st, stranger, _ = await agent_login(c, STRANGER)
     st, builder, _ = await agent_login(c, BUILDER)
-    cell = [SPAWN_FACE, UA + 3, VA + 4, 120, 11]
+    cell = [SPAWN_FACE, UA + 3, VA + 4, AIR, 11]
     r = await (await c.post("/land/api/set", json={"cells": [cell]}, headers=auth(owner["token"]))).json()
     check("the holder builds on their plot", r["applied"] == 1 and not r["refused"], r)
-    r = await (await c.post("/land/api/set", json={"cells": [[SPAWN_FACE, UA + 5, VA, 120, 11]]}, headers=auth(stranger["token"]))).json()
+    r = await (await c.post("/land/api/set", json={"cells": [[SPAWN_FACE, UA + 5, VA, AIR, 11]]}, headers=auth(stranger["token"]))).json()
     check("a stranger cannot", r["applied"] == 0 and "not your plot" in r["refused"][0][1], r)
-    r = await (await c.post("/land/api/set", json={"cells": [[SPAWN_FACE, UA + 16, VA, 120, 11]]}, headers=auth(owner["token"]))).json()
+    r = await (await c.post("/land/api/set", json={"cells": [[SPAWN_FACE, UA + 16, VA, AIR, 11]]}, headers=auth(owner["token"]))).json()
     check("the holder cannot build on the next plot (someone else's)", r["applied"] == 0, r)
-    r = await (await c.post("/land/api/set", json={"cells": [[SPAWN_FACE, UA + 6, VA, 120, 11]]}, headers=auth(builder["token"]))).json()
+    r = await (await c.post("/land/api/set", json={"cells": [[SPAWN_FACE, UA + 6, VA, AIR, 11]]}, headers=auth(builder["token"]))).json()
     check("an uninvited builder cannot", r["applied"] == 0, r)
     grants[(PA, BUILDER["address"])] = OWNER["address"]
     world.grants.clear()
-    r = await (await c.post("/land/api/set", json={"cells": [[SPAWN_FACE, UA + 6, VA, 120, 9]]}, headers=auth(builder["token"]))).json()
+    r = await (await c.post("/land/api/set", json={"cells": [[SPAWN_FACE, UA + 6, VA, AIR, 9]]}, headers=auth(builder["token"]))).json()
     check("a builder the holder invited can", r["applied"] == 1, r)
     holders[PA] = BUYER["address"]; world.holders.clear(); world.grants.clear()          # the title is sold
-    r = await (await c.post("/land/api/set", json={"cells": [[SPAWN_FACE, UA + 7, VA, 120, 9]]}, headers=auth(builder["token"]))).json()
+    r = await (await c.post("/land/api/set", json={"cells": [[SPAWN_FACE, UA + 7, VA, AIR, 9]]}, headers=auth(builder["token"]))).json()
     check("once the title moves, the old owner's grant is void", r["applied"] == 0, r)
-    r = await (await c.post("/land/api/set", json={"cells": [[SPAWN_FACE, UA + 7, VA, 120, 9]]}, headers=auth(owner["token"]))).json()
+    r = await (await c.post("/land/api/set", json={"cells": [[SPAWN_FACE, UA + 7, VA, AIR, 9]]}, headers=auth(owner["token"]))).json()
     check("…and the old owner cannot build either", r["applied"] == 0, r)
     grants[(PA, BUILDER["address"])] = BUYER["address"]; world.grants.clear()
-    r = await (await c.post("/land/api/set", json={"cells": [[SPAWN_FACE, UA + 7, VA, 120, 9]]}, headers=auth(builder["token"]))).json()
+    r = await (await c.post("/land/api/set", json={"cells": [[SPAWN_FACE, UA + 7, VA, AIR, 9]]}, headers=auth(builder["token"]))).json()
     check("the new holder's own grant works", r["applied"] == 1, r)
     holders[PA] = OWNER["address"]; world.holders.clear(); world.grants.clear()
     bad = [[SPAWN_FACE, UA, VA, 120, 5], [SPAWN_FACE, UA, VA, 120, 30], [SPAWN_FACE, UA, VA, 0, 3], [6, 0, 0, 100, 3], [SPAWN_FACE, UA, VA, 256, 3]]
@@ -181,15 +182,15 @@ async def main():
     first = await next_of(w2, "plot")
     check("watching a plot sends its edits", first["plot"] == PA and len(first["edits"]) >= 2 and "salt" not in first, first)
     await w1.send_json({"t": "watch", "plots": [PA]}); await next_of(w1, "plot")
-    await w1.send_json({"t": "set", "cells": [[SPAWN_FACE, UA + 9, VA + 9, 121, 12]], "req": 7})
+    await w1.send_json({"t": "set", "cells": [[SPAWN_FACE, UA + 9, VA + 9, AIR + 1, 12]], "req": 7})
     ok1 = await next_of(w1, "set_ok")
     check("the sender is told what applied", ok1["applied"] == 1 and ok1["req"] == 7, ok1)
     e1, e2 = await next_of(w1, "edit"), await next_of(w2, "edit")
     check("every watcher gets the edit, the sender's included",
-          e1["cells"] == [[SPAWN_FACE, UA + 9, VA + 9, 121, 12]] and e2["cells"] == e1["cells"] and e2["by"] == OWNER["address"], (e1, e2))
+          e1["cells"] == [[SPAWN_FACE, UA + 9, VA + 9, AIR + 1, 12]] and e2["cells"] == e1["cells"] and e2["by"] == OWNER["address"], (e1, e2))
     inv2 = await next_of(w1, "inv")
     check("placing spends one item, and the player's socket is told", inv2["items"].get("glass") == 49, inv2)
-    await w1.send_json({"t": "pos", "p": [SPAWN_FACE, UA + 1.5, VA + 1.5, 120, 0]})
+    await w1.send_json({"t": "pos", "p": [SPAWN_FACE, UA + 1.5, VA + 1.5, AIR, 0]})
     await w2.send_json({"t": "pos", "p": [SPAWN_FACE, UA + 30.5, VA + 2.5, 121, 1]})
     seen = None
     for _ in range(20):

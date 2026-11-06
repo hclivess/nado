@@ -10,7 +10,8 @@
  *      keeps the model and leaves out that length of trunk, chopping a bush's leaf cell leaves out those leaves, and
  *      neither draws any cell surface; a leaf block placed in the open is a cluster of leaf cards, not a surface;
  *   5. the same chunk meshes to the same bytes twice (every screen grows the same forest), and wind weights are present;
- *   6. a ray at a trunk's foot cuts the trunk, not the grass it stands in.
+ *   6. a ray at a trunk's foot cuts the trunk, not the grass it stands in;
+ *   7. a felled tree leaves nothing standing above its cut, overhanging leaves included.
  *
  * Run: node tests/test_trees_are_drawn_as_models_and_taking_one_apart_never_makes_a_blob.mjs
  */
@@ -93,6 +94,22 @@ const a1 = M.meshChunk(q.face, cu, cv, ch, null, null, 0), a2 = M.meshChunk(q.fa
 const same = (x, y) => x && y && x.length === y.length && x.every((w, i) => w === y[i]);
 ok(same(a1.foliage.pos, a2.foliage.pos) && same(a1.bark.pos, a2.bark.pos), "the same chunk meshes to the same forest twice");
 ok(a1.foliage.wind && a1.foliage.wind.some((w, i) => i % 4 !== 3 && w !== 0), "leaves carry wind weights");
+
+// 7: a felled tree leaves nothing standing above its cut — the cards that overhang its cells included ("the trees arent
+// felled they stay in the air", operator 2026-11-06)
+{
+  const cutH = col.top + 2, cut = new Map([[q.face + ":" + u + ":" + v + ":" + cutH, Wd.B.air]]);
+  let above = 0, below = 0;
+  for (const c of new Set([ch, ch + 1])) {
+    const r2 = M.meshChunk(q.face, cu, cv, c, cut, null, 0);
+    if (r2.empty) continue;
+    for (const part of [r2.bark, r2.foliage]) if (part) for (let i = 0; i < part.pos.length; i += 3) {
+      const x = r2.anchor[0] + part.pos[i], y = r2.anchor[1] + part.pos[i + 1], z = r2.anchor[2] + part.pos[i + 2], rr = Math.hypot(x, y, z), g = Wd.gridOf([x / rr, y / rr, z / rr]);
+      if (Math.abs(g.u - u - 0.5) < 2.6 && Math.abs(g.v - v - 0.5) < 2.6 && part.wind[i / 3 * 4 + 3] !== 0) (rr - Wd.R0 >= cutH + 0.5 ? above++ : below++);
+    }
+  }
+  ok(above === 0 && below > 0, `a felled ${t.kind} leaves nothing standing above its cut (${above} vertices above, its stump ${below})`);
+}
 
 // 6: aiming at a trunk's foot cuts the trunk: the drawn trunk stands on the smooth surface, inside the grass cell below
 // its first log, and a ray at it dug the grass under the tree ("it goes through it and digs grass", 2026-11-06)

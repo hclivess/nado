@@ -37,8 +37,13 @@ import (or mirror) it.
   a plot edge, so no tree straddles two plots.
 - **Plots.** plot = (face · FACE_N + row) · FACE_N + col, below PLOT_MAX = 402,653,184 < 2³². A plot is exactly one
   16 × 16 column of chunks.
-- **The landing site** is face 0, plot rows 4924–4933, columns 4662–4671: temperate grassland ~5 m above a sea in sight,
-  near the face centre — chosen by scanning the equator band. The first wave is those 100 plots. **Fixed once minted.**
+- **The landing site** is face 0, plot rows 4995–5004, columns 3435–3444: a temperate meadow ~40 m above the sea at a
+  forest's edge, with ~37 m of relief within 160 m — chosen by scanning face 0 after the world was regenerated with relief,
+  biomes and forests in patches (2026-11-06; the old site, rows 4924–, was a flat plain). The first wave is those 100
+  plots. **Fixed once minted** — no title has been minted yet.
+- **Biomes** come from temperature (latitude, altitude, broad noise) and moisture: meadow, forest (a ~1 km forest field,
+  wetter ground more wooded), desert (hot and dry: sand), snow and taiga (cold; conifers where wet), beach, alpine rock.
+  Measured over 30 000 columns: meadow 32 %, ocean 21 %, snow 19 %, forest 12 %, beach 9 %, desert 6 %, rock 1 %.
 
 ## Smooth ground, crisp buildings
 
