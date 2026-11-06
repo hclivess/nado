@@ -64,7 +64,8 @@ for (let du = 0; du < 200 && !(lit.pebble && lit.twigs); du++) for (let dv = 0; 
 }
 const gc = W.column(out.face, g.u, g.v);
 console.log(JSON.stringify({ tree: out, grass: [out.face, g.u, g.v, gc.top], grassBlock: W.terrainBlock(out.face, g.u, g.v, gc.top),
-  rock: [out.face, g.u, g.v, gc.top - 5], rockBlock: W.terrainBlock(out.face, g.u, g.v, gc.top - 5),
+  // rock: under the soil, whose depth varies by place (land-world column().soil)
+  rock: [out.face, g.u, g.v, gc.top - gc.soil - 1], rockBlock: W.terrainBlock(out.face, g.u, g.v, gc.top - gc.soil - 1),
   leaves: [out.face, out.u + 1, out.v, out.top + out.height], leavesBlock: W.terrainBlock(out.face, out.u + 1, out.v, out.top + out.height),
   log: [out.face, out.u, out.v, out.top + 2], logBlock: W.terrainBlock(out.face, out.u, out.v, out.top + 2),
   pebble: lit.pebble, twigs: lit.twigs,
