@@ -46,7 +46,7 @@ AGENT_ORIGIN = "land-agent"       # the origin an agent's challenge names (a bro
 CHALLENGE_TTL = 300
 SESSION_TTL = 7 * 86400
 FACE_N, PLOT, W, H = L.FACE_N, L.PLOT, L.FACE_N * L.PLOT, 256
-N_BLOCKS = 52                     # static/land-world.js BLOCKS.length (tests/test_the_land_planet_… checks the two agree)
+N_BLOCKS = 53                     # static/land-world.js BLOCKS.length (tests/test_the_land_planet_… checks the two agree)
 DOOR = 37                         # static/land-world.js B.door: a piece that swings open and shut ("door" op)
 TREE_WOOD = {7, 31}                # static/land-world.js TREE_WOOD (log, birchlog): cutting one fells its tree above
 UNBUILDABLE = {5, 30}             # water, bedrock: never placed (no item in land-recipes.json places them either)
@@ -56,6 +56,13 @@ UNBUILDABLE = {5, 30}             # water, bedrock: never placed (no item in lan
 FALLS = {4, 17, 6}
 PASSABLE = {0, 5}
 FALL_REACH = 48                   # cells a column is settled over, below and above the change (bounds one call's work)
+# ECOLOGY ("trees should have a process of reproduction as well as the grass", operator 2026-11-06): a SAPLING (leaves
+# sometimes give one) planted in soil grows into a young tree of its climate after GROW_S; on an owned plot, bare earth
+# with open air above it turns to grass when grass grows next to it (a fair chance each SPREAD_S). The commons needs no
+# spreading: its gathered cells grow back whole (regrow). Both write ordinary edits, broadcast like any other.
+SAPLING, GRASS, DIRT = 52, 1, 2   # static/land-world.js B
+GROW_S = 1200                     # a sapling's twenty minutes
+SPREAD_S = 60
 MAX_CELLS = 4096                  # per /set call or ws "set"
 RATE = 400                        # cells per second per caller, refilling a bucket that holds one full call (MAX_CELLS)
 PLANET = 0
@@ -205,6 +212,7 @@ class World:
                     self.plots[int(f[:-5])] = {"edits": {tuple(map(int, k.split(":"))): b for k, b in d["edits"].items()},
                                                "salt": bytes.fromhex(d["salt"]), "ver": int(d.get("ver", 0)),
                                                "exp": {tuple(map(int, k.split(":"))): t for k, t in d.get("exp", {}).items()},
+                                               "grow": {tuple(map(int, k.split(":"))): t for k, t in d.get("grow", {}).items()},
                                                "boxes": [list(b) for b in d.get("boxes", [])]}
                 except Exception:
                     pass
@@ -220,7 +228,8 @@ class World:
         for p in list(self.dirty):
             rec = self.plots[p]
             body = {"edits": {f"{x}:{z}:{y}": b for (x, z, y), b in rec["edits"].items()}, "salt": rec["salt"].hex(), "ver": rec["ver"],
-                    "exp": {f"{x}:{z}:{y}": t for (x, z, y), t in (rec.get("exp") or {}).items()}, "boxes": rec.get("boxes", [])}
+                    "exp": {f"{x}:{z}:{y}": t for (x, z, y), t in (rec.get("exp") or {}).items()},
+                    "grow": {f"{x}:{z}:{y}": t for (x, z, y), t in (rec.get("grow") or {}).items()}, "boxes": rec.get("boxes", [])}
             self._write(f"{p}.json", body)
             self.dirty.discard(p)
         for a in list(self.pdirty):
@@ -325,6 +334,32 @@ class World:
         if "error" in r:
             raise RuntimeError("terrain oracle: " + r["error"])
         return r["cells"]
+
+    async def grow_cells(self, face, u, v, h):
+        """The young tree a sapling at [face, u, v, h] grows into (land_terrain.mjs grow): [[face, u, v, h, id], ...]."""
+        async with self.oracle_lock:
+            self.oracle.stdin.write((json.dumps({"grow": [face, u, v, h]}) + "\n").encode())
+            await self.oracle.stdin.drain()
+            r = json.loads(await self.oracle.stdout.readline())
+        if "error" in r:
+            raise RuntimeError("terrain oracle: " + r["error"])
+        return r["cells"]
+
+    async def blocks_at(self, cells):
+        """What each [face, u, v, h] holds now — its plot's edit, else the untouched planet (one oracle round trip)."""
+        out, need = {}, []
+        for c in cells:
+            f, u, v, h = c
+            p = plot_of(f, u, v)
+            rec = self.plots.get(p)
+            k = (u - (p % FACE_N) * PLOT, v - ((p // FACE_N) % FACE_N) * PLOT, h)
+            if rec and k in rec["edits"]:
+                out[tuple(c)] = rec["edits"][k]
+            else:
+                need.append(list(c))
+        for c, b in zip(need, await self.terrain(need)):
+            out[tuple(c)] = b
+        return out
 
     async def terrain(self, cells):
         """Block ids of the untouched planet at [face, u, v, h] cells (one round trip for the lot)."""
@@ -471,6 +506,7 @@ class World:
                 changed = True
                 rec = self.plot(p)
                 rec["edits"][k] = 0
+                (rec.get("grow") or {}).pop(k, None)               # a sapling pulled up grows no more
                 if not titled:                                     # the commons regrows: the cell comes back later
                     rec.setdefault("exp", {})[k] = time.time() + RULES["wilderness_regrow_s"]
                 if cur in TREE_WOOD:
@@ -494,6 +530,8 @@ class World:
                     refused.append([c, "not your plot — only its owner and the builders they invite build here"]); continue
                 if cur not in (0, 5):
                     refused.append([c, "something is already there"]); continue
+                if b == SAPLING and (await self.blocks_at([[face, u, v, h - 1]]))[(face, u, v, h - 1)] not in (GRASS, DIRT):
+                    refused.append([c, "a sapling is planted in earth or grass"]); continue
                 item = places.get(b)
                 if not item or pl["items"].get(item, 0) < 1:
                     refused.append([c, f"you have no {RULES['items'][item]['name'].lower() if item else 'such block'} to place"]); continue
@@ -502,6 +540,8 @@ class World:
                 rec = self.plot(p)
                 rec["edits"][k] = b
                 rec.get("exp", {}).pop(k, None)
+                if b == SAPLING:
+                    rec.setdefault("grow", {})[k] = time.time() + GROW_S
             rec["ver"] += 1
             self.dirty.add(p)
             self.pdirty.add(who)
@@ -511,6 +551,64 @@ class World:
             if b in FALLS or b == 0:
                 await self.settle(p, rec, face, u, v, h, titled, applied)
         return applied, refused, changed
+
+    async def grow(self, now=None):
+        """ECOLOGY: every sapling whose time is up becomes its young tree — written into the cells that are still air (a
+        tree never overwrites a build) and only on its own plot; the planted cells stay (no regrow timer) like anything
+        planted. Returns {plot: [[face, u, v, h, block], ...]} for the broadcast."""
+        now = time.time() if now is None else now
+        out = {}
+        for p, rec in list(self.plots.items()):
+            due = [k for k, t in (rec.get("grow") or {}).items() if t <= now]
+            for k in due:
+                rec["grow"].pop(k, None)
+                if rec["edits"].get(k) != SAPLING:
+                    continue
+                face, row, col = plot_coords(p)
+                u, v = col * PLOT + k[0], row * PLOT + k[1]
+                cells = [c for c in await self.grow_cells(face, u, v, k[2]) if plot_of(c[0], c[1], c[2]) == p]
+                here = await self.blocks_at([c[:4] for c in cells])
+                for f, cu, cv, ch, b in cells:
+                    ck = (cu - col * PLOT, cv - row * PLOT, ch)
+                    if here[(f, cu, cv, ch)] not in (0, SAPLING):
+                        continue
+                    rec["edits"][ck] = b
+                    rec.get("exp", {}).pop(ck, None)
+                    out.setdefault(p, []).append([f, cu, cv, ch, b])
+                rec["ver"] += 1
+                self.dirty.add(p)
+        return out
+
+    async def spread(self, now=None):
+        """ECOLOGY: on an OWNED plot, bare earth with open air above it turns to grass when grass grows beside it (the four
+        neighbours at its height, or one up or down a step), each such cell with a fair chance per SPREAD_S tick — the
+        same answer on a restart (a hash of the cell and the tick, no RNG). Returns the broadcast like grow()."""
+        now = time.time() if now is None else now
+        tick, out = int(now // SPREAD_S), {}
+        for p, rec in list(self.plots.items()):
+            if not rec["edits"] or (await self.holder(p)) is None:
+                continue
+            face, row, col = plot_coords(p)
+            cand = {(x, z, y if b == DIRT else y - 1) for (x, z, y), b in rec["edits"].items() if b in (DIRT, 0) and y > 1}
+            cand = [c for c in cand if int(hashlib.blake2b(f"{p}:{c}:{tick}".encode(), digest_size=4).hexdigest(), 16) % 3 == 0]
+            if not cand:
+                continue
+            g = lambda x, z, y: [face, col * PLOT + x, row * PLOT + z, y]
+            look = []
+            for x, z, y in cand:
+                look += [g(x, z, y), g(x, z, y + 1)] + [g(x + dx, z + dz, y + dy) for dx, dz in ((1, 0), (-1, 0), (0, 1), (0, -1)) for dy in (-1, 0, 1)]
+            look = [c for c in look if 0 <= c[1] < W and 0 <= c[2] < W and 1 <= c[3] < H]
+            at = await self.blocks_at(look)
+            for x, z, y in cand:
+                if at.get(tuple(g(x, z, y))) != DIRT or at.get(tuple(g(x, z, y + 1))) != 0:
+                    continue
+                if not any(at.get(tuple(g(x + dx, z + dz, y + dy))) == GRASS for dx, dz in ((1, 0), (-1, 0), (0, 1), (0, -1)) for dy in (-1, 0, 1)):
+                    continue
+                rec["edits"][(x, z, y)] = GRASS
+                rec["ver"] += 1
+                self.dirty.add(p)
+                out.setdefault(p, []).append(g(x, z, y) + [GRASS])
+        return out
 
     def regrow(self):
         """Wilderness cells whose time is up go back to the untouched planet: {plot: [[face, u, v, h], ...]}."""
@@ -850,7 +948,8 @@ def make_app(world, hub, site_origin, wallet_url, secure_cookies=True):
     async def on_start(app):
         world.http = ClientSession(timeout=ClientTimeout(total=10))
         await world.start_oracle()
-        app["bg"] = [asyncio.ensure_future(_flusher()), asyncio.ensure_future(_mover()), asyncio.ensure_future(_regrower())]
+        app["bg"] = [asyncio.ensure_future(_flusher()), asyncio.ensure_future(_mover()), asyncio.ensure_future(_regrower()),
+                     asyncio.ensure_future(_ecology())]
 
     async def on_stop(app):
         for t in app.get("bg", []):
@@ -868,6 +967,22 @@ def make_app(world, hub, site_origin, wallet_url, secure_cookies=True):
                 back = world.regrow()
                 if back:
                     await hub.reverts(back)
+            except Exception:
+                pass
+
+    async def _ecology():
+        n = 0
+        while True:
+            await asyncio.sleep(10)
+            n += 1
+            try:
+                grown = await world.grow()
+                if grown:
+                    await hub.edits(grown, "planet")
+                if n % (SPREAD_S // 10) == 0:
+                    spread = await world.spread()
+                    if spread:
+                        await hub.edits(spread, "planet")
             except Exception:
                 pass
 

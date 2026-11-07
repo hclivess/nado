@@ -184,7 +184,8 @@
   "land.cSetReload": "{k} = {v} — reload the page to apply it.",
   "land.cUnknown": "Unknown command — /help lists them.",
   "land.cSignIn": "Sign in to chat.",
-  "land.cPlaceholder": "/help — or say something"
+  "land.cPlaceholder": "/help — or say something",
+  "land.i.sapling": "Sapling"
  },
  "cs": {
   "land.notYours": "Pozemek {p} patří někomu jinému. Kupte si pozemek, nebo požádejte jeho vlastníka o pozvání.",
@@ -371,7 +372,8 @@
   "land.cSetReload": "{k} = {v} — obnovte stránku, aby se projevilo.",
   "land.cUnknown": "Neznámý příkaz — /help je vypíše.",
   "land.cSignIn": "Pro chat se přihlaste.",
-  "land.cPlaceholder": "/help — nebo něco napište"
+  "land.cPlaceholder": "/help — nebo něco napište",
+  "land.i.sapling": "Sazenice"
  },
  "es": {
   "land.notYours": "La parcela {p} pertenece a otra persona. Compra una parcela o pide a su dueño que te invite.",
@@ -558,7 +560,8 @@
   "land.cSetReload": "{k} = {v}: recarga la página para aplicarlo.",
   "land.cUnknown": "Comando desconocido: /help los lista.",
   "land.cSignIn": "Inicia sesión para chatear.",
-  "land.cPlaceholder": "/help — o di algo"
+  "land.cPlaceholder": "/help — o di algo",
+  "land.i.sapling": "Plantón"
  },
  "pt": {
   "land.notYours": "O lote {p} pertence a outra pessoa. Compre um lote ou peça ao dono que convide você.",
@@ -745,7 +748,8 @@
   "land.cSetReload": "{k} = {v} — recarregue a página para aplicar.",
   "land.cUnknown": "Comando desconhecido — /help lista todos.",
   "land.cSignIn": "Entre para conversar.",
-  "land.cPlaceholder": "/help — ou diga algo"
+  "land.cPlaceholder": "/help — ou diga algo",
+  "land.i.sapling": "Muda"
  },
  "fr": {
   "land.notYours": "La parcelle {p} appartient à quelqu'un d'autre. Achetez une parcelle ou demandez à son propriétaire de vous inviter.",
@@ -932,7 +936,8 @@
   "land.cSetReload": "{k} = {v} — rechargez la page pour l'appliquer.",
   "land.cUnknown": "Commande inconnue — /help les liste.",
   "land.cSignIn": "Connectez-vous pour discuter.",
-  "land.cPlaceholder": "/help — ou dites quelque chose"
+  "land.cPlaceholder": "/help — ou dites quelque chose",
+  "land.i.sapling": "Jeune plant"
  },
  "de": {
   "land.notYours": "Grundstück {p} gehört jemand anderem. Kauf dir ein Grundstück oder bitte den Besitzer um eine Einladung.",
@@ -1119,7 +1124,8 @@
   "land.cSetReload": "{k} = {v} — lade die Seite neu, damit es gilt.",
   "land.cUnknown": "Unbekannter Befehl — /help listet sie auf.",
   "land.cSignIn": "Melde dich an, um zu chatten.",
-  "land.cPlaceholder": "/help — oder sag etwas"
+  "land.cPlaceholder": "/help — oder sag etwas",
+  "land.i.sapling": "Setzling"
  },
  "it": {
   "land.notYours": "Il lotto {p} appartiene a qualcun altro. Compra un lotto o chiedi al proprietario di invitarti.",
@@ -1306,7 +1312,8 @@
   "land.cSetReload": "{k} = {v}: ricarica la pagina per applicarlo.",
   "land.cUnknown": "Comando sconosciuto: /help li elenca.",
   "land.cSignIn": "Accedi per chattare.",
-  "land.cPlaceholder": "/help — o di' qualcosa"
+  "land.cPlaceholder": "/help — o di' qualcosa",
+  "land.i.sapling": "Alberello"
  },
  "ru": {
   "land.notYours": "Участок {p} принадлежит другому игроку. Купите участок или попросите владельца пригласить вас.",
@@ -1493,7 +1500,8 @@
   "land.cSetReload": "{k} = {v} — перезагрузите страницу, чтобы применить.",
   "land.cUnknown": "Неизвестная команда — /help покажет все.",
   "land.cSignIn": "Войдите, чтобы писать в чат.",
-  "land.cPlaceholder": "/help — или напишите что-нибудь"
+  "land.cPlaceholder": "/help — или напишите что-нибудь",
+  "land.i.sapling": "Саженец"
  },
  "zh": {
   "land.notYours": "地块 {p} 属于别人。购买一块地，或请它的所有者邀请你。",
@@ -1680,7 +1688,8 @@
   "land.cSetReload": "{k} = {v}——刷新页面后生效。",
   "land.cUnknown": "未知命令——/help 会列出全部。",
   "land.cSignIn": "登录后才能聊天。",
-  "land.cPlaceholder": "/help —— 或说点什么"
+  "land.cPlaceholder": "/help —— 或说点什么",
+  "land.i.sapling": "树苗"
  },
  "ja": {
   "land.notYours": "区画 {p} は他の人のものです。区画を購入するか、所有者に招待してもらいましょう。",
@@ -1867,7 +1876,8 @@
   "land.cSetReload": "{k} = {v} — ページを再読み込みすると反映されます。",
   "land.cUnknown": "不明なコマンドです。/help で一覧できます。",
   "land.cSignIn": "チャットするにはサインインしてください。",
-  "land.cPlaceholder": "/help — または何か話す"
+  "land.cPlaceholder": "/help — または何か話す",
+  "land.i.sapling": "苗木"
  },
  "ko": {
   "land.notYours": "구역 {p}은(는) 다른 사람의 땅입니다. 구역을 사거나 소유자에게 초대를 요청하세요.",
@@ -2054,7 +2064,8 @@
   "land.cSetReload": "{k} = {v} — 페이지를 새로 고치면 적용됩니다.",
   "land.cUnknown": "알 수 없는 명령 — /help로 목록을 보세요.",
   "land.cSignIn": "채팅하려면 로그인하세요.",
-  "land.cPlaceholder": "/help — 또는 무언가 말하기"
+  "land.cPlaceholder": "/help — 또는 무언가 말하기",
+  "land.i.sapling": "묘목"
  },
  "ar": {
   "land.notYours": "القطعة {p} ملك لشخص آخر. اشترِ قطعة، أو اطلب من مالكها أن يدعوك.",
@@ -2241,7 +2252,8 @@
   "land.cSetReload": "{k} = {v} — أعد تحميل الصفحة لتطبيقه.",
   "land.cUnknown": "أمر غير معروف — /help يعرضها.",
   "land.cSignIn": "سجّل الدخول للدردشة.",
-  "land.cPlaceholder": "/help — أو قل شيئًا"
+  "land.cPlaceholder": "/help — أو قل شيئًا",
+  "land.i.sapling": "شتلة"
  },
  "hi": {
   "land.notYours": "प्लॉट {p} किसी और का है। कोई प्लॉट खरीदें, या उसके मालिक से आपको आमंत्रित करने को कहें।",
@@ -2428,7 +2440,8 @@
   "land.cSetReload": "{k} = {v} — लागू करने के लिए पेज फिर से लोड करें।",
   "land.cUnknown": "अज्ञात आदेश — /help सूची दिखाता है।",
   "land.cSignIn": "चैट के लिए साइन इन करें।",
-  "land.cPlaceholder": "/help — या कुछ कहें"
+  "land.cPlaceholder": "/help — या कुछ कहें",
+  "land.i.sapling": "पौधा"
  },
  "tr": {
   "land.notYours": "{p} arsası başkasına ait. Bir arsa satın al ya da sahibinden seni davet etmesini iste.",
@@ -2615,7 +2628,8 @@
   "land.cSetReload": "{k} = {v} — uygulamak için sayfayı yenileyin.",
   "land.cUnknown": "Bilinmeyen komut — /help listeler.",
   "land.cSignIn": "Sohbet için giriş yapın.",
-  "land.cPlaceholder": "/help — ya da bir şey söyleyin"
+  "land.cPlaceholder": "/help — ya da bir şey söyleyin",
+  "land.i.sapling": "Fidan"
  },
  "id": {
   "land.notYours": "Petak {p} milik orang lain. Beli sebuah petak, atau minta pemiliknya mengundangmu.",
@@ -2802,7 +2816,8 @@
   "land.cSetReload": "{k} = {v} — muat ulang halaman untuk menerapkannya.",
   "land.cUnknown": "Perintah tak dikenal — /help menampilkannya.",
   "land.cSignIn": "Masuk untuk mengobrol.",
-  "land.cPlaceholder": "/help — atau katakan sesuatu"
+  "land.cPlaceholder": "/help — atau katakan sesuatu",
+  "land.i.sapling": "Bibit pohon"
  },
  "vi": {
   "land.notYours": "Mảnh đất {p} thuộc về người khác. Hãy mua một mảnh, hoặc nhờ chủ của nó mời bạn.",
@@ -2989,7 +3004,8 @@
   "land.cSetReload": "{k} = {v} — tải lại trang để áp dụng.",
   "land.cUnknown": "Lệnh không rõ — /help liệt kê chúng.",
   "land.cSignIn": "Đăng nhập để trò chuyện.",
-  "land.cPlaceholder": "/help — hoặc nói gì đó"
+  "land.cPlaceholder": "/help — hoặc nói gì đó",
+  "land.i.sapling": "Cây non"
  },
  "pl": {
   "land.notYours": "Działka {p} należy do kogoś innego. Kup działkę albo poproś jej właściciela o zaproszenie.",
@@ -3176,6 +3192,7 @@
   "land.cSetReload": "{k} = {v} — przeładuj stronę, aby zastosować.",
   "land.cUnknown": "Nieznane polecenie — /help je wypisze.",
   "land.cSignIn": "Zaloguj się, aby czatować.",
-  "land.cPlaceholder": "/help — albo coś powiedz"
+  "land.cPlaceholder": "/help — albo coś powiedz",
+  "land.i.sapling": "Sadzonka"
  }
 }

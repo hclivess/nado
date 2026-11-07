@@ -206,6 +206,8 @@ export const BLOCKS = [
   { key: "torch", solid: true, tex: [18, 18, 18] },
   // flax: it grows in stands on the meadows, a litter plant pulled up by hand (land-trees.js flaxModel)
   { key: "flax", solid: false, see: true, tex: [11, 11, 11] },
+  // a sapling: planted in soil, it grows into a young tree of its climate (scripts/land_server.py ECOLOGY)
+  { key: "sapling", solid: false, see: true, tex: [11, 11, 11] },
 ];
 export const B = Object.fromEntries(BLOCKS.map((b, i) => [b.key, i]));
 export const ATLAS_TILES = 46;              // tiles 0..45 (0 unused)
@@ -263,6 +265,12 @@ export const TREE_WOOD = new Set([B.log, B.birchlog]);
 export const TREE_LEAVES = new Set([B.leaves, B.needles, B.fronds]);
 export const isTree = (b) => TREE_WOOD.has(b) || TREE_LEAVES.has(b);
 /** The tree rooted at column (face, u, v): { kind, height } or null. */
+/** The young tree a sapling at column (face, u, v) grows into (scripts/land_server.py ECOLOGY): its climate's species, as
+ *  treeAt picks them, at a young height — a conifer where it is cold or high, a birch in the cool, else a broadleaf. */
+export function saplingTree(face, u, v, col) {
+  const cold = col.temp < -0.12 || col.top > SEA + 60, cool = col.temp < 0.05;
+  return cold ? { kind: "conifer", height: 6 } : cool && hash32(face + 7, u, v) % 2 ? { kind: "birch", height: 5 } : { kind: "broadleaf", height: 4 };
+}
 export function treeAt(face, u, v, col) {
   const lu = u % PLOT, lv = v % PLOT;
   if (lu < 2 || lu > PLOT - 3 || lv < 2 || lv > PLOT - 3 || col.top <= SEA) return null;
@@ -331,7 +339,7 @@ export function treeCell(t, du, dv, dh) {
 // the whole web of tools. Before this, stone was a hidden bonus in every 4th clod of turf and sticks came only from
 // leaves, which nobody could find without reading the source. A litter cell is the air cell just above the ground; it is
 // a function of place like everything else, and like every gathered cell in the commons it lies there again later.
-export const LITTER = new Set([B.pebble, B.twigs, B.flax]);
+export const LITTER = new Set([B.pebble, B.twigs, B.flax, B.sapling]);   // drawn as models, walked through
 /** The litter on column (face, u, v): B.pebble, B.twigs, B.flax or 0. */
 export function litterAt(face, u, v, col) {
   if (col.top <= SEA) return 0;

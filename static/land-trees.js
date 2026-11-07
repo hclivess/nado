@@ -223,6 +223,16 @@ export function flaxModel(seed) {
   }
   return { bark, leaves };
 }
+/** A sapling (land-world B.sapling): a thin whip of a stem, half a metre, with a few young leaves near its top. */
+export function saplingModel(seed) {
+  const R = rng(seed), bark = part(), leaves = part(), h = 0.4 + R() * 0.15;
+  tube(bark, [[0, 0, 0], [0.01, 0, h * 0.5], [(R() - 0.5) * 0.03, (R() - 0.5) * 0.03, h]], [0.012, 0.009, 0.005], 4, (i) => i * 0.3, 0, [1, 1, 1]);
+  for (let k = 0; k < 7; k++) {
+    const a = R() * Math.PI * 2, z = h * (0.45 + R() * 0.55), d = 0.04 + R() * 0.05;
+    cluster(leaves, R, [Math.cos(a) * d, Math.sin(a) * d, z], 0.11 + R() * 0.05, 0, [0, 0, z], 0.5, [1, 1, 1]);
+  }
+  return { bark, leaves };
+}
 export function twigModel(seed) {
   const R = rng(seed), bark = part(), leaves = part(), ln = 0.55 + R() * 0.3;
   const pts = [0, 1, 2, 3].map((k) => [(k / 3 - 0.5) * ln, (R() - 0.5) * 0.08, 0.025 + (k === 1 || k === 2 ? 0.01 : 0)]);

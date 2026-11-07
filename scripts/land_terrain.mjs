@@ -9,6 +9,9 @@
 //   {"fell": [face, u, v, h]}          ->  {"cells": [[face, u, v, h, id], ...]}  — the untouched cells of the tree whose
 //       trunk is cut at that cell that stand above the cut (its logs above, its crown), each truly that tree's in the
 //       untouched planet. Empty when the cell is no tree's trunk. ("can we add some basic gravity", operator 2026-11-06)
+//   {"grow": [face, u, v, h]}          ->  {"cells": [[face, u, v, h, id], ...]}  — the young tree a sapling planted at
+//       that cell grows into (land-world saplingTree): its trunk from that cell up, its crown, as land-world treeCell
+//       draws a tree. The server writes only the cells that are still air. (ECOLOGY, scripts/land_server.py)
 import { createInterface } from "node:readline";
 import { fileURLToPath } from "node:url";
 import { dirname, join } from "node:path";
@@ -36,12 +39,22 @@ function fell(f, u, v, h) {
   }
   return out;
 }
+function grow(f, u, v, h) {
+  if (!(f >= 0 && f < 6 && u >= 0 && u < W.W && v >= 0 && v < W.W && Number.isInteger(h))) return [];
+  const t = W.saplingTree(f, u, v, col(f, u, v)), out = [];
+  for (let du = -2; du <= 2; du++) for (let dv = -2; dv <= 2; dv++) for (let dh = 1; dh <= t.height + 2; dh++) {
+    const b = W.treeCell(t, du, dv, dh);
+    if (b) out.push([f, u + du, v + dv, h - 1 + dh, b]);
+  }
+  return out;
+}
 const rl = createInterface({ input: process.stdin });
 rl.on("line", (line) => {
   let out;
   try {
     const req = JSON.parse(line);
     if (req.fell) out = { cells: fell(...req.fell) };
+    else if (req.grow) out = { cells: grow(...req.grow) };
     else out = { blocks: req.cells.map(([f, u, v, h]) => {
       if (!(f >= 0 && f < 6 && u >= 0 && u < W.W && v >= 0 && v < W.W && Number.isInteger(h))) return -1;
       return h < 0 ? W.B.bedrock : h >= W.H ? W.B.air : W.terrainBlock(f, u, v, h, col);

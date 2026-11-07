@@ -971,7 +971,7 @@ function breakTick(dt) {
     else setBlock(P.face, j.cell[0], j.cell[1], j.cell[2], B.air);
   }
 }
-const NATURAL_ITEMS = new Set(["dirt", "sand", "gravel", "snow"]);   // these fill the ground's cells; the rest are pieces
+const NATURAL_ITEMS = new Set(["dirt", "sand", "gravel", "snow", "sapling"]);   // these fill the ground's cells; the rest are pieces
 
 // ---- LEVELLING ("it is currently not possible to level ground ... to have a nice clean structure", operator 2026-11-06;
 // Enshrouded and Valheim level a site with a hoe first). L with a shovel flattens the 5 x 5 columns around the aimed cell
