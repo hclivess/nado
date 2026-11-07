@@ -194,7 +194,14 @@
   "land.chestBag": "In your bag",
   "land.chestEmpty": "empty",
   "land.forSale": "For sale · {p} NADO",
-  "land.buyMarket": "Buy on the market"
+  "land.buyMarket": "Buy on the market",
+  "land.t.bow_drill": "Bow drill",
+  "land.t.flint_steel": "Flint and steel",
+  "land.noFireTool": "You need something to make fire with — a bow drill (sticks and cordage) or flint and steel.",
+  "land.igniteAim": "Aim at something that burns: grass, wood, leaves, thatch, planks.",
+  "land.kFire": "make fire",
+  "land.kConsole": "console",
+  "land.kChat": "chat"
  },
  "cs": {
   "land.notYours": "Pozemek {p} patří někomu jinému. Kupte si pozemek, nebo požádejte jeho vlastníka o pozvání.",
@@ -391,7 +398,14 @@
   "land.chestBag": "Ve vaku",
   "land.chestEmpty": "prázdné",
   "land.forSale": "Na prodej · {p} NADO",
-  "land.buyMarket": "Koupit na trhu"
+  "land.buyMarket": "Koupit na trhu",
+  "land.t.bow_drill": "Ohňový luk",
+  "land.t.flint_steel": "Křesadlo",
+  "land.noFireTool": "Potřebujete něco na rozdělání ohně — ohňový luk (klacky a provaz) nebo křesadlo.",
+  "land.igniteAim": "Zamiřte na něco, co hoří: trávu, dřevo, listí, došky, prkna.",
+  "land.kFire": "rozdělat oheň",
+  "land.kConsole": "konzole",
+  "land.kChat": "chat"
  },
  "es": {
   "land.notYours": "La parcela {p} pertenece a otra persona. Compra una parcela o pide a su dueño que te invite.",
@@ -588,7 +602,14 @@
   "land.chestBag": "En tu bolsa",
   "land.chestEmpty": "vacío",
   "land.forSale": "En venta · {p} NADO",
-  "land.buyMarket": "Comprar en el mercado"
+  "land.buyMarket": "Comprar en el mercado",
+  "land.t.bow_drill": "Arco de fuego",
+  "land.t.flint_steel": "Pedernal y eslabón",
+  "land.noFireTool": "Necesitas algo para hacer fuego: un arco de fuego (palos y cuerda) o pedernal y eslabón.",
+  "land.igniteAim": "Apunta a algo que arda: hierba, madera, hojas, paja, tablas.",
+  "land.kFire": "hacer fuego",
+  "land.kConsole": "consola",
+  "land.kChat": "chat"
  },
  "pt": {
   "land.notYours": "O lote {p} pertence a outra pessoa. Compre um lote ou peça ao dono que convide você.",
@@ -785,7 +806,14 @@
   "land.chestBag": "Na sua bolsa",
   "land.chestEmpty": "vazio",
   "land.forSale": "À venda · {p} NADO",
-  "land.buyMarket": "Comprar no mercado"
+  "land.buyMarket": "Comprar no mercado",
+  "land.t.bow_drill": "Arco de fogo",
+  "land.t.flint_steel": "Pederneira e fuzil",
+  "land.noFireTool": "Você precisa de algo para fazer fogo — um arco de fogo (gravetos e corda) ou pederneira e fuzil.",
+  "land.igniteAim": "Mire em algo que queime: grama, madeira, folhas, palha, tábuas.",
+  "land.kFire": "fazer fogo",
+  "land.kConsole": "console",
+  "land.kChat": "chat"
  },
  "fr": {
   "land.notYours": "La parcelle {p} appartient à quelqu'un d'autre. Achetez une parcelle ou demandez à son propriétaire de vous inviter.",
@@ -982,7 +1010,14 @@
   "land.chestBag": "Dans votre sac",
   "land.chestEmpty": "vide",
   "land.forSale": "À vendre · {p} NADO",
-  "land.buyMarket": "Acheter sur le marché"
+  "land.buyMarket": "Acheter sur le marché",
+  "land.t.bow_drill": "Archet à feu",
+  "land.t.flint_steel": "Silex et briquet",
+  "land.noFireTool": "Il vous faut de quoi faire du feu — un archet à feu (bâtons et corde) ou un silex et un briquet.",
+  "land.igniteAim": "Visez quelque chose qui brûle : herbe, bois, feuilles, chaume, planches.",
+  "land.kFire": "faire du feu",
+  "land.kConsole": "console",
+  "land.kChat": "discussion"
  },
  "de": {
   "land.notYours": "Grundstück {p} gehört jemand anderem. Kauf dir ein Grundstück oder bitte den Besitzer um eine Einladung.",
@@ -1179,7 +1214,14 @@
   "land.chestBag": "In deiner Tasche",
   "land.chestEmpty": "leer",
   "land.forSale": "Zu verkaufen · {p} NADO",
-  "land.buyMarket": "Auf dem Markt kaufen"
+  "land.buyMarket": "Auf dem Markt kaufen",
+  "land.t.bow_drill": "Feuerbohrer",
+  "land.t.flint_steel": "Feuerstein und Stahl",
+  "land.noFireTool": "Du brauchst etwas zum Feuermachen — einen Feuerbohrer (Stöcke und Schnur) oder Feuerstein und Stahl.",
+  "land.igniteAim": "Ziele auf etwas, das brennt: Gras, Holz, Laub, Stroh, Bretter.",
+  "land.kFire": "Feuer machen",
+  "land.kConsole": "Konsole",
+  "land.kChat": "Chat"
  },
  "it": {
   "land.notYours": "Il lotto {p} appartiene a qualcun altro. Compra un lotto o chiedi al proprietario di invitarti.",
@@ -1376,7 +1418,14 @@
   "land.chestBag": "Nella tua borsa",
   "land.chestEmpty": "vuoto",
   "land.forSale": "In vendita · {p} NADO",
-  "land.buyMarket": "Compra sul mercato"
+  "land.buyMarket": "Compra sul mercato",
+  "land.t.bow_drill": "Archetto da fuoco",
+  "land.t.flint_steel": "Acciarino e pietra focaia",
+  "land.noFireTool": "Ti serve qualcosa per accendere il fuoco: un archetto (bastoncini e corda) o acciarino e pietra focaia.",
+  "land.igniteAim": "Mira a qualcosa che brucia: erba, legno, foglie, paglia, assi.",
+  "land.kFire": "accendere il fuoco",
+  "land.kConsole": "console",
+  "land.kChat": "chat"
  },
  "ru": {
   "land.notYours": "Участок {p} принадлежит другому игроку. Купите участок или попросите владельца пригласить вас.",
@@ -1573,7 +1622,14 @@
   "land.chestBag": "В сумке",
   "land.chestEmpty": "пусто",
   "land.forSale": "Продаётся · {p} NADO",
-  "land.buyMarket": "Купить на рынке"
+  "land.buyMarket": "Купить на рынке",
+  "land.t.bow_drill": "Лучковое сверло",
+  "land.t.flint_steel": "Огниво и кремень",
+  "land.noFireTool": "Нужно чем развести огонь — лучковое сверло (палки и верёвка) или огниво с кремнём.",
+  "land.igniteAim": "Наведите на то, что горит: траву, дерево, листья, солому, доски.",
+  "land.kFire": "развести огонь",
+  "land.kConsole": "консоль",
+  "land.kChat": "чат"
  },
  "zh": {
   "land.notYours": "地块 {p} 属于别人。购买一块地，或请它的所有者邀请你。",
@@ -1770,7 +1826,14 @@
   "land.chestBag": "你的背包里",
   "land.chestEmpty": "空",
   "land.forSale": "出售中 · {p} NADO",
-  "land.buyMarket": "在市场购买"
+  "land.buyMarket": "在市场购买",
+  "land.t.bow_drill": "弓钻",
+  "land.t.flint_steel": "燧石和火镰",
+  "land.noFireTool": "你需要生火工具——弓钻（木棍和绳子）或燧石和火镰。",
+  "land.igniteAim": "对准能燃烧的东西：草、木头、树叶、茅草、木板。",
+  "land.kFire": "生火",
+  "land.kConsole": "控制台",
+  "land.kChat": "聊天"
  },
  "ja": {
   "land.notYours": "区画 {p} は他の人のものです。区画を購入するか、所有者に招待してもらいましょう。",
@@ -1967,7 +2030,14 @@
   "land.chestBag": "バッグの中",
   "land.chestEmpty": "空",
   "land.forSale": "販売中 · {p} NADO",
-  "land.buyMarket": "マーケットで購入"
+  "land.buyMarket": "マーケットで購入",
+  "land.t.bow_drill": "弓きり式火おこし",
+  "land.t.flint_steel": "火打ち石と火打ち金",
+  "land.noFireTool": "火をおこす道具が必要です — 弓きり（枝と紐）か火打ち石と火打ち金。",
+  "land.igniteAim": "燃えるものに狙いを合わせてください：草、木、葉、茅、板。",
+  "land.kFire": "火をおこす",
+  "land.kConsole": "コンソール",
+  "land.kChat": "チャット"
  },
  "ko": {
   "land.notYours": "구역 {p}은(는) 다른 사람의 땅입니다. 구역을 사거나 소유자에게 초대를 요청하세요.",
@@ -2164,7 +2234,14 @@
   "land.chestBag": "가방 안",
   "land.chestEmpty": "비어 있음",
   "land.forSale": "판매 중 · {p} NADO",
-  "land.buyMarket": "마켓에서 구매"
+  "land.buyMarket": "마켓에서 구매",
+  "land.t.bow_drill": "활비비",
+  "land.t.flint_steel": "부싯돌과 부시",
+  "land.noFireTool": "불을 피울 도구가 필요합니다 — 활비비(막대와 끈) 또는 부싯돌과 부시.",
+  "land.igniteAim": "타는 것을 겨냥하세요: 풀, 나무, 잎, 짚, 판자.",
+  "land.kFire": "불 피우기",
+  "land.kConsole": "콘솔",
+  "land.kChat": "채팅"
  },
  "ar": {
   "land.notYours": "القطعة {p} ملك لشخص آخر. اشترِ قطعة، أو اطلب من مالكها أن يدعوك.",
@@ -2361,7 +2438,14 @@
   "land.chestBag": "في حقيبتك",
   "land.chestEmpty": "فارغ",
   "land.forSale": "للبيع · {p} NADO",
-  "land.buyMarket": "اشترِ من السوق"
+  "land.buyMarket": "اشترِ من السوق",
+  "land.t.bow_drill": "مِثقاب القوس",
+  "land.t.flint_steel": "الصوان والزناد",
+  "land.noFireTool": "تحتاج إلى أداة لإشعال النار — مِثقاب قوس (عيدان وحبل) أو صوان وزناد.",
+  "land.igniteAim": "صوّب نحو شيء يحترق: عشب، خشب، أوراق، قش، ألواح.",
+  "land.kFire": "إشعال النار",
+  "land.kConsole": "وحدة التحكم",
+  "land.kChat": "دردشة"
  },
  "hi": {
   "land.notYours": "प्लॉट {p} किसी और का है। कोई प्लॉट खरीदें, या उसके मालिक से आपको आमंत्रित करने को कहें।",
@@ -2558,7 +2642,14 @@
   "land.chestBag": "आपके थैले में",
   "land.chestEmpty": "खाली",
   "land.forSale": "बिक्री के लिए · {p} NADO",
-  "land.buyMarket": "बाज़ार में ख़रीदें"
+  "land.buyMarket": "बाज़ार में ख़रीदें",
+  "land.t.bow_drill": "धनुष-बरमा",
+  "land.t.flint_steel": "चकमक और इस्पात",
+  "land.noFireTool": "आग जलाने के लिए कुछ चाहिए — धनुष-बरमा (डंडियाँ और रस्सी) या चकमक और इस्पात।",
+  "land.igniteAim": "किसी जलने वाली चीज़ पर निशाना लगाएँ: घास, लकड़ी, पत्ते, फूस, तख़्ते।",
+  "land.kFire": "आग जलाएँ",
+  "land.kConsole": "कंसोल",
+  "land.kChat": "चैट"
  },
  "tr": {
   "land.notYours": "{p} arsası başkasına ait. Bir arsa satın al ya da sahibinden seni davet etmesini iste.",
@@ -2755,7 +2846,14 @@
   "land.chestBag": "Çantanda",
   "land.chestEmpty": "boş",
   "land.forSale": "Satılık · {p} NADO",
-  "land.buyMarket": "Pazarda satın al"
+  "land.buyMarket": "Pazarda satın al",
+  "land.t.bow_drill": "Yay matkabı",
+  "land.t.flint_steel": "Çakmaktaşı ve çelik",
+  "land.noFireTool": "Ateş yakacak bir şey gerekiyor — yay matkabı (çubuk ve ip) ya da çakmaktaşı ve çelik.",
+  "land.igniteAim": "Yanan bir şeye nişan alın: çimen, odun, yaprak, saman, tahta.",
+  "land.kFire": "ateş yak",
+  "land.kConsole": "konsol",
+  "land.kChat": "sohbet"
  },
  "id": {
   "land.notYours": "Petak {p} milik orang lain. Beli sebuah petak, atau minta pemiliknya mengundangmu.",
@@ -2952,7 +3050,14 @@
   "land.chestBag": "Di tas Anda",
   "land.chestEmpty": "kosong",
   "land.forSale": "Dijual · {p} NADO",
-  "land.buyMarket": "Beli di pasar"
+  "land.buyMarket": "Beli di pasar",
+  "land.t.bow_drill": "Bor busur",
+  "land.t.flint_steel": "Batu api dan baja",
+  "land.noFireTool": "Anda perlu alat untuk membuat api — bor busur (ranting dan tali) atau batu api dan baja.",
+  "land.igniteAim": "Arahkan ke sesuatu yang bisa terbakar: rumput, kayu, daun, jerami, papan.",
+  "land.kFire": "buat api",
+  "land.kConsole": "konsol",
+  "land.kChat": "obrolan"
  },
  "vi": {
   "land.notYours": "Mảnh đất {p} thuộc về người khác. Hãy mua một mảnh, hoặc nhờ chủ của nó mời bạn.",
@@ -3149,7 +3254,14 @@
   "land.chestBag": "Trong túi của bạn",
   "land.chestEmpty": "trống",
   "land.forSale": "Đang bán · {p} NADO",
-  "land.buyMarket": "Mua trên chợ"
+  "land.buyMarket": "Mua trên chợ",
+  "land.t.bow_drill": "Cung tạo lửa",
+  "land.t.flint_steel": "Đá lửa và thép",
+  "land.noFireTool": "Bạn cần thứ gì đó để tạo lửa — cung tạo lửa (que và dây) hoặc đá lửa và thép.",
+  "land.igniteAim": "Nhắm vào thứ cháy được: cỏ, gỗ, lá, rơm, ván.",
+  "land.kFire": "nhóm lửa",
+  "land.kConsole": "bảng lệnh",
+  "land.kChat": "trò chuyện"
  },
  "pl": {
   "land.notYours": "Działka {p} należy do kogoś innego. Kup działkę albo poproś jej właściciela o zaproszenie.",
@@ -3346,6 +3458,13 @@
   "land.chestBag": "W twojej torbie",
   "land.chestEmpty": "pusto",
   "land.forSale": "Na sprzedaż · {p} NADO",
-  "land.buyMarket": "Kup na rynku"
+  "land.buyMarket": "Kup na rynku",
+  "land.t.bow_drill": "Świder łukowy",
+  "land.t.flint_steel": "Krzesiwo i krzemień",
+  "land.noFireTool": "Potrzebujesz czegoś do rozpalenia ognia — świdra łukowego (patyki i sznurek) albo krzesiwa i krzemienia.",
+  "land.igniteAim": "Wyceluj w coś, co się pali: trawę, drewno, liście, strzechę, deski.",
+  "land.kFire": "rozpal ogień",
+  "land.kConsole": "konsola",
+  "land.kChat": "czat"
  }
 }

@@ -212,6 +212,9 @@ export const BLOCKS = [
   // its plot (scripts/land_server.py chest) — unit pieces drawn as their models (land-mesher.js MODELS)
   { key: "ladder", solid: true, tex: [12, 12, 12] },
   { key: "chest", solid: true, tex: [12, 12, 12] },
+  // FIRE (#124): a burning cell — flames in the air beside something that burns (scripts/land_server.py FIRE); it glows,
+  // lights the night and is walked through (and hurts nothing yet)
+  { key: "fire", solid: false, see: true, glow: true, tex: [23, 23, 23] },
 ];
 export const B = Object.fromEntries(BLOCKS.map((b, i) => [b.key, i]));
 export const ATLAS_TILES = 46;              // tiles 0..45 (0 unused)
@@ -344,6 +347,13 @@ export function treeCell(t, du, dv, dh) {
 // leaves, which nobody could find without reading the source. A litter cell is the air cell just above the ground; it is
 // a function of place like everything else, and like every gathered cell in the commons it lies there again later.
 export const LITTER = new Set([B.pebble, B.twigs, B.flax, B.sapling]);   // drawn as models, walked through
+// WHAT BURNS (#124), and what it leaves: a cell of grass burns to bare earth, wood, leaves, litter and plants to air; a
+// built piece of these materials burns down whole (scripts/land_server.py FIRE). Stone, earth, sand, brick, metal,
+// glass and water do not burn — they are what stops a fire.
+export const BURNS = new Map([[B.grass, B.dirt], [B.log, 0], [B.birchlog, 0], [B.leaves, 0], [B.needles, 0], [B.fronds, 0],
+  [B.twigs, 0], [B.flax, 0], [B.sapling, 0]]);
+export const PIECE_BURNS = new Set([B.planks, B.darkwood, B.thatch, B.beam, B.door, B.window, B.table, B.chair, B.bench,
+  B.bed, B.fence, B.torch, B.ladder, B.chest]);
 /** The litter on column (face, u, v): B.pebble, B.twigs, B.flax or 0. */
 export function litterAt(face, u, v, col) {
   if (col.top <= SEA) return 0;

@@ -31,7 +31,7 @@ import os, sys, tempfile
 os.environ["HOME"] = tempfile.mkdtemp(prefix="nado-land-")   # BEFORE any node import (CLAUDE.md rule 4); data is --data
 REPO = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 sys.path.insert(0, REPO)
-import argparse, asyncio, hashlib, json, secrets, time, urllib.parse
+import argparse, asyncio, hashlib, json, random, secrets, time, urllib.parse
 
 from aiohttp import web, ClientSession, ClientTimeout, WSMsgType
 
@@ -46,7 +46,7 @@ AGENT_ORIGIN = "land-agent"       # the origin an agent's challenge names (a bro
 CHALLENGE_TTL = 300
 SESSION_TTL = 7 * 86400
 FACE_N, PLOT, W, H = L.FACE_N, L.PLOT, L.FACE_N * L.PLOT, 256
-N_BLOCKS = 55                     # static/land-world.js BLOCKS.length (tests/test_the_land_planet_… checks the two agree)
+N_BLOCKS = 56                     # static/land-world.js BLOCKS.length (tests/test_the_land_planet_… checks the two agree)
 DOOR = 37                         # static/land-world.js B.door: a piece that swings open and shut ("door" op)
 CHEST = 54                        # static/land-world.js B.chest: a piece that keeps items on its plot ("chest" op, #114)
 CHEST_MAX = 2000                  # items one chest holds
@@ -68,6 +68,22 @@ SPREAD_S = 60
 MAX_CELLS = 4096                  # per /set call or ws "set"
 RATE = 400                        # cells per second per caller, refilling a bucket that holds one full call (MAX_CELLS)
 PLANET = 0
+# FIRE (#124, "invent fire and tools to generate it, spreading dynamics, destruction mechanics"). A fire is a FIRE cell in
+# the air beside something that burns. Each tick it burns what is beside it — a cell turns into what it leaves
+# (static/land-world.js BURNS: grass to earth, wood, leaves, litter and plants to air) after its burn time, a built piece of
+# a burning material (PIECE_BURNS) burns down whole — and it catches the air beside what it burns, upward more readily;
+# with nothing left to burn it dies. It spreads ONLY where its starter may build (the commons, their own plot, a plot
+# they are invited to): nobody can burn another's plot. Fires are transient: a restart puts them out.
+FIRE = 55
+BURNS = {1: 2, 7: 0, 31: 0, 8: 0, 32: 0, 33: 0, 35: 0, 51: 0, 52: 0}   # land-world BURNS (the test checks they agree)
+PIECE_BURNS = {9, 15, 39, 38, 37, 40, 45, 46, 47, 48, 49, 50, 53, 54}  # land-world PIECE_BURNS
+BURN_TICKS = {7: 8, 31: 8, 1: 3}  # ticks a cell takes to burn through (default 3: leaves, litter, plants)
+PIECE_TICKS = 6                   # ticks a built piece takes to burn down
+FIRE_TICK = 2.0                   # seconds per fire tick
+FIRE_LIFE = 45                    # ticks before a fire burns out even with fuel left (it has moved on by then)
+FIRE_MAX = 1500                   # fires burning on the planet at once (a cap on what one spark can start)
+SPREAD_SIDE, SPREAD_UP = 0.18, 0.45   # per tick, the chance a fire catches an air cell beside / above what it burns
+NEIGH6 = ((1, 0, 0), (-1, 0, 0), (0, 1, 0), (0, -1, 0), (0, 0, 1), (0, 0, -1))
 WORK_CAP = 10.0                   # seconds of breaking work a caller can bank (refills at 1 s/s)
 RULES = json.load(open(os.path.join(REPO, "static", "land-recipes.json")))   # the page reads the same file
 
@@ -212,6 +228,8 @@ class World:
             self.offers = {}
         self.odirty = False
         self.http = self.oracle = None
+        self.fires = {}                # (face, u, v, h) -> {"by", "age"}: the fires burning now (FIRE)
+        self.burning = {}              # (face, u, v, h) of a cell, or (plot, box key) of a piece -> ticks it has burned
         for f in os.listdir(self.dir):
             if f.endswith(".json") and f[:-5].isdigit():
                 try:
@@ -222,6 +240,9 @@ class World:
                                                "grow": {tuple(map(int, k.split(":"))): t for k, t in d.get("grow", {}).items()},
                                                "chests": {k: {i: int(n) for i, n in v.items()} for k, v in d.get("chests", {}).items()},
                                                "boxes": [list(b) for b in d.get("boxes", [])]}
+                    rec = self.plots[int(f[:-5])]
+                    for k in [k for k, b in rec["edits"].items() if b == FIRE]:      # a restart puts every fire out
+                        rec["edits"].pop(k)
                 except Exception:
                     pass
 
@@ -497,6 +518,14 @@ class World:
             if p not in titled_ok:
                 titled_ok[p] = (await self.holder(p)) is not None, await self.may_build(p, who)
             titled, may = titled_ok[p]
+            if b == 0 and cur == FIRE:                              # ---- beat out a fire: it goes, nothing is gathered
+                self.fires.pop((face, u, v, h), None)
+                rec = self.plot(p)
+                rec["edits"].pop(k, None)
+                rec["ver"] += 1
+                self.dirty.add(p)
+                applied.setdefault(p, []).append([face, u, v, h, 0])
+                continue
             if b == 0:                                              # ---- break: gather
                 rule = RULES["breaking"].get(str(cur))
                 if not rule:
@@ -537,7 +566,9 @@ class World:
                 # "you can build anywhere unless it is owned" (operator, 2026-11-06): unowned land is open to everyone
                 if titled and not may:
                     refused.append([c, "not your plot — only its owner and the builders they invite build here"]); continue
-                if cur not in (0, 5):
+                if cur == FIRE:                                     # earth, sand or a block put on a fire smothers it
+                    self.fires.pop((face, u, v, h), None)
+                elif cur not in (0, 5):
                     refused.append([c, "something is already there"]); continue
                 if b == SAPLING and (await self.blocks_at([[face, u, v, h - 1]]))[(face, u, v, h - 1)] not in (GRASS, DIRT):
                     refused.append([c, "a sapling is planted in earth or grass"]); continue
@@ -631,6 +662,141 @@ class World:
                 exp.pop(k); rec["edits"].pop(k, None); rec["ver"] += 1; self.dirty.add(p)
                 out.setdefault(p, []).append([face, col * PLOT + k[0], row * PLOT + k[1], k[2]])
         return out
+
+    # -- FIRE ------------------------------------------------------------------------------------------------------------
+    def _cell_key(self, face, u, v, h):
+        p = plot_of(face, u, v)
+        return p, (u - (p % FACE_N) * PLOT, v - ((p // FACE_N) % FACE_N) * PLOT, h)
+
+    async def _may_burn(self, p, who, cache):
+        if p not in cache:
+            cache[p] = (await self.holder(p)) is None or await self.may_build(p, who)
+        return cache[p]
+
+    def _set(self, face, u, v, h, b, out, natural=None):
+        """Write cell (face, u, v, h) = b as an edit; back to the untouched planet when b is what the planet holds there
+        (a burnt-out fire cell in open air), so fire leaves no stray edits behind."""
+        p, k = self._cell_key(face, u, v, h)
+        rec = self.plot(p)
+        if natural is not None and b == natural:
+            rec["edits"].pop(k, None)
+            rec.get("exp", {}).pop(k, None)
+        else:
+            rec["edits"][k] = b
+            if p not in self.titles:                       # the commons heals: what burnt there grows back like any edit
+                rec.setdefault("exp", {})[k] = time.time() + RULES["wilderness_regrow_s"]
+        rec["ver"] += 1
+        self.dirty.add(p)
+        out.setdefault(p, []).append([face, u, v, h, b])
+
+    def _pieces_near(self, p, face, u, v, h):
+        """The burning-material pieces on plot p within reach of the cell (face, u, v, h): its cube grown by half a metre."""
+        rec = self.plots.get(p)
+        if not rec or not rec.get("boxes"):
+            return []
+        fc, fr = p % FACE_N, (p // FACE_N) % FACE_N
+        x0, z0, y0 = (u - fc * PLOT) * 100 - 50, (v - fr * PLOT) * 100 - 50, h * 100 - 50
+        return [b for b in rec["boxes"] if b[6] in PIECE_BURNS and b[0] < x0 + 200 and b[0] + b[3] > x0
+                and b[1] < z0 + 200 and b[1] + b[4] > z0 and b[2] < y0 + 200 and b[2] + b[5] > y0]
+
+    async def ignite(self, who, cell):
+        """Light a fire in air cell `cell` beside something that burns, with a fire-making tool (class "fire"), where the
+        caller may build. Returns (applied, error)."""
+        try:
+            face, u, v, h = (int(x) for x in cell)
+        except Exception:
+            return {}, "a cell is [face, u, v, h]"
+        if not (0 <= face < 6 and 0 <= u < W and 0 <= v < W and 1 <= h < H):
+            return {}, "out of the world"
+        pl = self.player(who)
+        if not self._has_class(pl, "fire"):
+            return {}, "you need something to make fire with — a bow drill (sticks and cordage) or flint and steel"
+        p, _ = self._cell_key(face, u, v, h)
+        if not await self._may_burn(p, who, {}):
+            return {}, "not your plot — you can light a fire only where you may build"
+        if len(self.fires) >= FIRE_MAX:
+            return {}, "too many fires burn already"
+        near = [[face, u + du, v + dv, h + dh] for du, dv, dh in NEIGH6]
+        at = await self.blocks_at([[face, u, v, h]] + near)
+        if at[(face, u, v, h)] != 0:
+            return {}, "a fire needs air to burn in"
+        if not any(at[tuple(c)] in BURNS for c in near) and not self._pieces_near(p, face, u, v, h):
+            return {}, "nothing here burns — light it beside grass, wood, leaves, thatch or planks"
+        if not self.work(who, 2.0 / self._speed(pl, "fire")):
+            return {}, "too fast — making fire takes time"
+        out = {}
+        self._set(face, u, v, h, FIRE, out)
+        self.fires[(face, u, v, h)] = {"by": who, "age": 0}
+        return out, None
+
+    async def fire_tick(self):
+        """One FIRE tick. Returns (cell edits {plot: [[face, u, v, h, block]]}, pieces burnt {plot: [box]})."""
+        out, burnt, cache = {}, {}, {}
+        fires = list(self.fires.items())
+        if not fires:
+            return out, burnt
+        look = set()
+        for (face, u, v, h), _ in fires:
+            for du, dv, dh in NEIGH6:
+                look.add((face, u + du, v + dv, h + dh))
+        at = await self.blocks_at([list(c) for c in look])
+        for (face, u, v, h), f in fires:
+            if (face, u, v, h) not in self.fires:
+                continue
+            f["age"] += 1
+            p, _ = self._cell_key(face, u, v, h)
+            fuel = [(face, u + du, v + dv, h + dh) for du, dv, dh in NEIGH6 if at.get((face, u + du, v + dv, h + dh)) in BURNS]
+            fuel = [c for c in fuel if await self._may_burn(self._cell_key(*c)[0], f["by"], cache)]
+            pieces = self._pieces_near(p, face, u, v, h) if await self._may_burn(p, f["by"], cache) else []
+            if (not fuel and not pieces) or f["age"] > FIRE_LIFE:
+                self.fires.pop((face, u, v, h), None)
+                self._set(face, u, v, h, 0, out, natural=0)       # it goes out: open air again
+                continue
+            for c in fuel:                                         # burn what is beside it
+                self.burning[c] = self.burning.get(c, 0) + 1
+                if self.burning[c] >= BURN_TICKS.get(at[c], 3):
+                    self.burning.pop(c, None)
+                    self._set(*c, BURNS[at[c]], out)
+                    at[c] = BURNS[at[c]]
+            # it catches the air around it — upward more readily — where something beside that air burns (checked
+            # below): so flames run along a meadow (the air over the next grass) and lick up a trunk (the air beside it)
+            for du, dv, dh in NEIGH6:
+                q = (face, u + du, v + dv, h + dh)
+                if q in self.fires or len(self.fires) >= FIRE_MAX:
+                    continue
+                if random.random() < (SPREAD_UP if dh > 0 else SPREAD_SIDE):
+                    self.fires[q] = {"by": f["by"], "age": 0, "pending": True}
+            for b in pieces:                                       # a built piece burns down whole
+                key = (p, chest_key(b))
+                self.burning[key] = self.burning.get(key, 0) + 1
+                if self.burning[key] >= PIECE_TICKS:
+                    self.burning.pop(key, None)
+                    rec = self.plots[p]
+                    if b in rec["boxes"]:
+                        rec["boxes"].remove(b)
+                        if "index" in rec:
+                            rec["index"].remove(b)
+                        (rec.get("chests") or {}).pop(chest_key(b), None)  # what a burnt chest held burns with it
+                        rec["ver"] += 1
+                        self.dirty.add(p)
+                        burnt.setdefault(p, []).append(b)
+        # the cells the fires caught: only where open air is, and only where the starter may build
+        pend = [c for c, f in self.fires.items() if f.get("pending") and 0 <= c[1] < W and 0 <= c[2] < W and 1 <= c[3] < H]
+        for c in [c for c, f in self.fires.items() if f.get("pending") and c not in pend]:
+            self.fires.pop(c, None)
+        if pend:
+            near = {c: [(c[0], c[1] + du, c[2] + dv, c[3] + dh) for du, dv, dh in NEIGH6] for c in pend}
+            now_at = await self.blocks_at([list(c) for c in pend] + [list(q) for qs in near.values() for q in qs])
+            for c in pend:
+                f = self.fires[c]
+                f.pop("pending", None)
+                fuel = any(now_at.get(q) in BURNS for q in near[c]) or self._pieces_near(self._cell_key(*c)[0], *c)
+                ok = (now_at.get(c) == 0 and fuel and await self._may_burn(self._cell_key(*c)[0], f["by"], cache))
+                if ok:
+                    self._set(*c, FIRE, out)
+                else:
+                    self.fires.pop(c, None)
+        return out, burnt
 
     # -- built pieces: boxes at 1 cm, paid for by volume
     def _spend(self, pl, item, cm3):
@@ -991,7 +1157,7 @@ def make_app(world, hub, site_origin, wallet_url, secure_cookies=True):
         world.http = ClientSession(timeout=ClientTimeout(total=10))
         await world.start_oracle()
         app["bg"] = [asyncio.ensure_future(_flusher()), asyncio.ensure_future(_mover()), asyncio.ensure_future(_regrower()),
-                     asyncio.ensure_future(_ecology())]
+                     asyncio.ensure_future(_ecology()), asyncio.ensure_future(_fire())]
 
     async def on_stop(app):
         for t in app.get("bg", []):
@@ -1025,6 +1191,18 @@ def make_app(world, hub, site_origin, wallet_url, secure_cookies=True):
                     spread = await world.spread()
                     if spread:
                         await hub.edits(spread, "planet")
+            except Exception:
+                pass
+
+    async def _fire():
+        while True:
+            await asyncio.sleep(FIRE_TICK)
+            try:
+                out, burnt = await world.fire_tick()
+                if out:
+                    await hub.edits(out, "fire")
+                for p, bs in burnt.items():
+                    await hub.boxes(p, [], bs, "fire")
             except Exception:
                 pass
 
@@ -1254,6 +1432,14 @@ def make_app(world, hub, site_origin, wallet_url, secure_cookies=True):
                     await ws.send_json({"t": "done", "req": m.get("req"), "error": err})
                     if not err:
                         await hub.boxes(m.get("plot"), [nb], [ob], addr)
+                elif t == "ignite":
+                    if not addr:
+                        await ws.send_json({"t": "ignite", "req": m.get("req"), "error": "sign in first"})
+                        continue
+                    applied, err = await world.ignite(addr, m.get("cell") or [])
+                    await ws.send_json({"t": "ignite", "req": m.get("req"), "error": err})
+                    if applied:
+                        await hub.edits(applied, addr)
                 elif t == "chest":
                     if not addr:
                         await ws.send_json({"t": "chest", "req": m.get("req"), "error": "sign in first"})

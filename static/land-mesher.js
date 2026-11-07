@@ -26,7 +26,8 @@ const N = CHUNK + 2;                                     // cells with the borde
 const TILE_COLS = 8;                                      // the atlas is TILE_COLS tiles across (static/land.js paints it)
 const TILE_ROWS = Math.ceil(ATLAS_TILES / TILE_COLS);
 const EU = 0.5 / (16 * TILE_COLS), EV = 0.5 / (16 * TILE_ROWS);   // half a texel of the 16 px tiles
-const crisp = (b) => b !== B.air && !NATURAL.has(b) && !isTree(b) && !BLOCKS[b].liquid && !LITTER.has(b);
+// a fire cell is flames only (the FIRE loop below), never a cube — the first fire render drew lamp-tiled boxes round them
+const crisp = (b) => b !== B.air && b !== B.fire && !NATURAL.has(b) && !isTree(b) && !BLOCKS[b].liquid && !LITTER.has(b);
 
 // crisp-cube faces: neighbour offset, the quad's corners as (u, v, h) offsets, a light factor, the atlas tile (0 top, 1 side, 2 bottom)
 const DIRS = [
@@ -281,7 +282,7 @@ export function meshChunk(face, cu, cv, ch, edits, boxes, lod, grassOn = true) {
   // plot, so every tree lies within its own chunk column; each chunk it spans masks its own cells (still the tree's), and
   // the chunk holding its root's ground layer draws the model — once.
   const modelled = new Uint8Array(N * N * N);
-  const bark = mk(), foliage = mk(), stones = mk();
+  const bark = mk(), foliage = mk(), stones = mk(), flames = mk();
   // roots up to 3 columns outside the chunk too: their crowns reach the one-cell border the cells are read over, and an
   // unmasked border cell was drawn a second time beside every neighbour's model (the first model render)
   for (let j = -3; j < CHUNK + 3; j++) for (let i = -3; i < CHUNK + 3; i++) {
@@ -329,6 +330,21 @@ export function meshChunk(face, cu, cv, ch, edits, boxes, lod, grassOn = true) {
     else if (b === B.flax) placeModel(flaxModel(1 + Math.floor(hash3(gu, gv, 13) * 997)), face, gu + 0.5, gv + 0.5, col.height - 0.02, rot, 1,
                                       0.001 + hash3(gv, gu, 21) * 6.28, place, bark, foliage, null);
     else pebble(stones, face, gu + ou, gv + ov, col.height, 0.11 + 0.1 * hash3(gv, gh, gu), hash3(gu, gv, 11), rot, place);
+  }
+  // FIRE (#124): three crossed flame quads in a burning cell, its texture drawn by the page's flame material from uv
+  // (0 at the base, 1 at the tips) and a per-cell phase in the colour, so no two fires flicker together
+  for (let k = 0; k < CHUNK; k++) for (let j = 0; j < CHUNK; j++) for (let i = 0; i < CHUNK; i++) {
+    if (blk[((k + 1) * N + (j + 1)) * N + (i + 1)] !== B.fire) continue;
+    const gu = u0 + i, gv = v0 + j, gh = h0 + k, ph = hash3(gu, gv, gh), col = colCache(face, gu, gv);
+    const base0 = gh === col.top + 1 ? col.height - 0.05 : gh;          // on the ground: from the drawn surface
+    for (let q = 0; q < 3; q++) {
+      const a = (q / 3) * Math.PI + ph, ca = Math.cos(a) * 0.45, sa = Math.sin(a) * 0.45, n = flames.n;
+      for (const [s, t] of [[-1, 0], [1, 0], [1, 1], [-1, 1]]) {
+        const p = place(gu + 0.5 + ca * s, gv + 0.5 + sa * s, base0 + t * 1.05);
+        flames.pos.push(p[0], p[1], p[2]); flames.nor.push(0, 0, 1); flames.uv.push((s + 1) / 2, t); flames.col.push(ph, 0, 0); flames.n++;
+      }
+      flames.idx.push(n, n + 1, n + 2, n, n + 2, n + 3);
+    }
   }
   // leaves a player PLACED (or a tree's leaf cell put back into another spot): a small cluster of leaf cards in the cell,
   // in its species' tile — never a surface (the blob)
@@ -420,8 +436,8 @@ export function meshChunk(face, cu, cv, ch, edits, boxes, lod, grassOn = true) {
   const grass = lod >= 2 || !grassOn ? null : scatterGrass(smooth, lod ? GRASS_DENSITY / 3 : GRASS_DENSITY, under);
   const pieces = mk(), glassy = mk();
   if (boxes && boxes.length) meshBoxes(boxes, u0, v0, h0, place, pieces, glassy, lod);
-  if (!smooth.idx.length && !trees.idx.length && !solid.n && !clear.n && !pieces.n && !glassy.n && !bark.n && !foliage.n && !stones.n && !water.n) return { empty: true };
-  return { anchor, smooth: pack(smooth), trees: pack(trees), solid: pack(solid), clear: pack(clear), pieces: pack(pieces), glassy: pack(glassy),
+  if (!smooth.idx.length && !trees.idx.length && !solid.n && !clear.n && !pieces.n && !glassy.n && !bark.n && !foliage.n && !stones.n && !water.n && !flames.n) return { empty: true };
+  return { anchor, flames: pack(flames), smooth: pack(smooth), trees: pack(trees), solid: pack(solid), clear: pack(clear), pieces: pack(pieces), glassy: pack(glassy),
            bark: pack(bark), foliage: pack(foliage), stones: pack(stones), water: pack(water), grass };
 }
 

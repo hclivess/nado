@@ -1,6 +1,6 @@
 {
  "about": "Land's gathering and crafting web (doc/land.md 'Gathering, tools, crafting'). ONE file read by the page (static/land.js) and the world server (scripts/land_server.py), so both apply the same rules: 'you must gather resources to make tools to make tools to collect more resources' (operator, 2026-11-06). No eras: every recipe names exactly what it needs. Block ids are static/land-world.js BLOCKS.",
- "version": 7,
+ "version": 8,
  "items": {
   "fiber": {
    "name": "Plant fiber"
@@ -269,6 +269,16 @@
    "name": "Drop spindle",
    "class": "spindle",
    "speed": 1
+  },
+  "bow_drill": {
+   "name": "Bow drill",
+   "class": "fire",
+   "speed": 1
+  },
+  "flint_steel": {
+   "name": "Flint and steel",
+   "class": "fire",
+   "speed": 3
   }
  },
  "stations": {
@@ -729,6 +739,10 @@
      1
     ]
    ]
+  },
+  "55": {
+   "hard": 0.1,
+   "yields": []
   }
  },
  "recipes": [
@@ -1530,6 +1544,47 @@
    ],
    "with": [
     "kiln"
+   ]
+  },
+  {
+   "id": "bow_drill",
+   "makes": [
+    [
+     "bow_drill",
+     1
+    ]
+   ],
+   "uses": [
+    [
+     "sticks",
+     3
+    ],
+    [
+     "cordage",
+     1
+    ]
+   ]
+  },
+  {
+   "id": "flint_steel",
+   "makes": [
+    [
+     "flint_steel",
+     1
+    ]
+   ],
+   "uses": [
+    [
+     "iron",
+     1
+    ],
+    [
+     "stone",
+     1
+    ]
+   ],
+   "with": [
+    "anvil"
    ]
   },
   {

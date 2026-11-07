@@ -74,7 +74,7 @@ const SNAPS = [1, 5, 10, 25, 50, 100];
 let piece = { w: 100, d: 100, h: 100, snap: 10, shape: 0, rot: 0 };   // shape: 0 box, 1 slope, 2 stairs (G cycles; T turns)
 const plotBoxes = new Map();          // plot -> { list, idx: Map(1 m bucket -> [box]) }
 let pipeline = null;                  // the post-processed render (or null: the plain render on a weak device)
-let renderer, scene, camera, sun, hemi, atlasTex, matSolid, matClear, matGround, matTrees, matPieces, matGlassy, matBark, matLeaves, matWater, ghost, farMesh = null, farAt = null;
+let renderer, scene, camera, sun, hemi, atlasTex, matSolid, matClear, matGround, matTrees, matPieces, matGlassy, matBark, matLeaves, matWater, matFlame, ghost, farMesh = null, farAt = null;
 let highlight, lastT = 0, locked = false, keys = new Set(), touch = null, viewDist = 6;
 const LS = "nado_land_v1";
 
@@ -467,6 +467,7 @@ function done(m) {
     if (m.bark) c.meshes.push(new THREE.Mesh(geom(m.bark), matBark));
     if (m.foliage) c.meshes.push(new THREE.Mesh(geom(m.foliage), matLeaves));
     if (m.stones) c.meshes.push(new THREE.Mesh(geom(m.stones), matGround));
+    if (m.flames) { const me = new THREE.Mesh(geom(m.flames), matFlame); me.renderOrder = 2; c.meshes.push(me); }
     if (m.water) { const me = new THREE.Mesh(geom(m.water), matWater); me.renderOrder = 1; c.meshes.push(me); }
     if (m.pieces) {
       // one draw group per material (the mesher sorted them), each in its real texture where it has one
@@ -478,7 +479,7 @@ function done(m) {
     if (m.grass) c.meshes.push(...grassMeshes(m.grass));
     if (m.solid) c.meshes.push(new THREE.Mesh(geom(m.solid), matSolid));
     if (m.clear) { const me = new THREE.Mesh(geom(m.clear), matClear); me.renderOrder = 1; c.meshes.push(me); }
-    for (const me of c.meshes) { me.castShadow = me.material !== matClear && me.material !== matWater && !me.isInstancedMesh; me.receiveShadow = true; scene.add(me); }
+    for (const me of c.meshes) { me.castShadow = me.material !== matClear && me.material !== matWater && me.material !== matFlame && !me.isInstancedMesh; me.receiveShadow = me.material !== matFlame; scene.add(me); }
   }
   if (c.dirty) request(k);
 }
@@ -714,6 +715,8 @@ function connect() {
       setPlotBoxes(m.plot, list);                       // re-meshes the old and new pieces' heights alike
     } else if (m.t === "boxes_ok") {
       if (m.refused && m.refused.length) { notify(String(m.refused[0][1])); if (m.plot !== undefined) resync(m.plot); }
+    } else if (m.t === "ignite") {
+      if (m.error) notify(m.error);
     } else if (m.t === "chest") {
       if (chest && m.plot === chest.plot && String(m.box) === String(chest.box)) { chest.items = m.items || {}; renderChest(); }
       if (m.error) notify(m.error);
@@ -991,6 +994,20 @@ function startBreak(c, mouse) {
   job = { cell: c, need: rule.hard / speed, done: 0, mouse };
 }
 /** Open or close the door aimed at (Q, or the touch button): it swings a quarter turn on its hinge (land_server.py door). */
+// ---- FIRE (#124): X with a fire-making tool lights the air cell in front of what you aim at, if something beside it
+// burns; the world server decides and runs the fire (it spreads only where you may build, and burns what it reaches)
+function ignite() {
+  if (!net.online || !net.me) return notify(T("signInFirst", "Sign in first."));
+  if (!hasClass("fire")) return notify(T("noFireTool", "You need something to make fire with — a bow drill (sticks and cordage) or flint and steel."));
+  const a = aim();
+  if (!a) return notify(T("igniteAim", "Aim at something that burns: grass, wood, leaves, thatch, planks."));
+  let c;
+  if (a.box) { const q = a.before; c = [Math.floor(q[0]), Math.floor(q[1]), Math.floor(q[2])]; }
+  else if (a.prev) c = a.prev;
+  else return notify(T("igniteAim", "Aim at something that burns: grass, wood, leaves, thatch, planks."));
+  const w = Wd.wrap(P.face, c[0], c[1]);
+  net.send({ t: "ignite", cell: [w.face, w.u, w.v, c[2]], req: ++net.req });
+}
 function useDoor() {
   const a = aim();
   if (a && a.box && a.box.b[6] === B.chest) return openChest(a.box);           // Q uses what you aim at: a door or a chest
@@ -1243,6 +1260,7 @@ function wireInput(canvas) {
     if (e.code === "KeyR") { const i = PRESETS.findIndex((x) => x[0] === piece.w && x[1] === piece.d && x[2] === piece.h); [piece.w, piece.d, piece.h] = PRESETS[(i + 1) % PRESETS.length]; pieceInfo(); }
     if (e.code === "KeyT") { [piece.w, piece.d] = [piece.d, piece.w]; piece.turned = !piece.turned; pieceInfo(); }
     if (e.code === "KeyQ") useDoor();
+    if (e.code === "KeyX") ignite();
     if (e.code === "KeyL") startLevel();
     if (e.code === "KeyG") { piece.shape = ((piece.shape || 0) + 1) % 3; pieceInfo(); }
     if (e.code === "KeyT" && piece.shape) piece.rot = ((piece.rot || 0) + 1) % 4;
@@ -1692,6 +1710,13 @@ function torchTick(now, cam) {
         all.push([Math.hypot(w[0] - cam[0], w[1] - cam[1], w[2] - cam[2]), w]);
       }
     }
+    // a burning cell lights its surroundings as a torch does (#124), from the edits the world server sent
+    for (const [k, b] of edits) if (b === Wd.B.fire) {
+      const [f, u, v, h] = k.split(":").map(Number);
+      if (f !== P.face) continue;
+      const w = Wd.posOf(f, u + 0.5, v + 0.5, h + 0.6);
+      all.push([Math.hypot(w[0] - cam[0], w[1] - cam[1], w[2] - cam[2]), w]);
+    }
     torchNear = all.filter((t) => t[0] < 40).sort((a, b) => a[0] - b[0]).slice(0, TORCH_LIGHTS).map((t) => t[1]);
   }
   torchLights.forEach((l, i) => {
@@ -1809,6 +1834,21 @@ async function start() {
   matPieces.colorNode = sample.rgb.mul(shade);
   // GLASS ("windows on the house look weird": a flat blue tile with its frame lines): clear, faintly green-grey, and more
   // of a mirror the more glancing the view (fresnel), so a pane shows the room behind it head-on and the sky at an angle
+  // FIRE (#124): flames are light, not lit — additive, both sides, fading from a white-yellow base to red tips, flickering
+  // at each cell's own phase (the colour's red channel, land-mesher.js) and licking sideways as they rise
+  matFlame = new THREE.MeshBasicNodeMaterial({ transparent: true, depthWrite: false, side: THREE.DoubleSide, blending: THREE.AdditiveBlending });
+  {
+    const uv = TSL.uv(), ph = TSL.attribute("color", "vec3").x.mul(6.283), t = TSL.time;
+    const flick = TSL.sin(t.mul(13).add(ph)).mul(0.25).add(TSL.sin(t.mul(7.3).add(ph.mul(1.7))).mul(0.2)).add(0.75);
+    // tongues: the flame's width wavers up its height, so it reads as licking flames rather than a smooth cone; the
+    // colour is a saturated orange (a white-hot additive washed out under the bloom — the first fire render)
+    const tongue = TSL.sin(uv.y.mul(9).sub(t.mul(7)).add(ph)).mul(0.18).add(TSL.sin(uv.y.mul(17).sub(t.mul(11)).add(ph.mul(2.3))).mul(0.08));
+    const tip = TSL.float(1).sub(uv.y), body = TSL.float(1).sub(uv.x.sub(0.5).add(tongue.mul(uv.y)).abs().mul(2.2).pow(1.4)).clamp(0, 1);
+    const a = tip.pow(1.5).mul(body).mul(flick);
+    matFlame.colorNode = TSL.mix(TSL.vec3(1.0, 0.62, 0.16), TSL.vec3(0.85, 0.16, 0.02), uv.y.pow(0.6)).mul(a.mul(0.9));
+    matFlame.opacityNode = a;
+    matFlame.positionNode = TSL.positionLocal.add(TSL.vec3(TSL.sin(t.mul(5).add(ph).add(uv.y.mul(4))).mul(uv.y.mul(0.08)), 0, 0));
+  }
   matGlassy = new THREE.MeshStandardNodeMaterial({ roughness: 0.04, metalness: 0, transparent: true, depthWrite: false });
   const glassView = TSL.positionView.normalize().negate(), glassFres = TSL.float(1).sub(TSL.normalView.dot(glassView).abs()).pow(3);
   matGlassy.colorNode = TSL.mix(TSL.vec3(0.70, 0.78, 0.80), TSL.uniform(waterSky), glassFres.mul(0.8)).mul(shade);
