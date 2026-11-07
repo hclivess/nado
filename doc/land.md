@@ -323,3 +323,5 @@ nado-land.service and documented with a reference client:
 1. ~~Minting the first 100 titles, registering the 5 % royalty, and listing them at 5 NADO~~ — done 2026-11-07.
 2. The lobby entry. (~~Deployment of the land contract~~ — done 2026-11-07.)
 3. Private interiors (encrypted plot data for the owner and their builders) and, later, a provable server.
+4. Digging to the core: designed in [land-core.md](land-core.md) (shells that halve the grid, the deep as commons,
+   drill, lift and heat, the six hearts), to be built in four phases.
