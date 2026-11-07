@@ -94,13 +94,16 @@ async def main():
         at = await w.blocks_at([[f, cu, cv, h] for h in hs])
         return max((h for h in hs if at[(f, cu, cv, h)] == S.GRASS), default=None)
     spot = None
-    for ox, oz in ((8, 8), (4, 12), (12, 4), (4, 4), (12, 12), (8, 4), (4, 8)):
+    for ox, oz in [(x, z) for x in range(3, 13) for z in range(3, 13)]:
         gu, gv = col * S.PLOT + ox, row * S.PLOT + oz
         tops = [await grass_top(gu + dx, gv + dz) for dx in range(-3, 4) for dz in range(-3, 4)]
         if None not in tops and max(tops) - min(tops) <= 1 and not any(max(abs(a - gu), abs(b - gv)) <= 4 for a, b, _ in saps):
             spot, top = (gu, gv), await grass_top(gu, gv)
             break
     check("a flat open spot on the plot to dig", spot is not None)
+    if spot is None:
+        w.oracle.kill(); await w.oracle.wait()
+        return
     w.work = lambda who, s: True
     pl = w.player("ndoOWNER"); pl["tools"] += ["shovel"]
 

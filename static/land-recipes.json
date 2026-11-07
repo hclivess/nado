@@ -212,6 +212,22 @@
     50,
     55
    ]
+  },
+  "linen_shirt": {
+   "name": "Linen shirt",
+   "wear": "body"
+  },
+  "linen_trousers": {
+   "name": "Linen trousers",
+   "wear": "legs"
+  },
+  "linen_cap": {
+   "name": "Linen cap",
+   "wear": "head"
+  },
+  "linen_cloak": {
+   "name": "Linen cloak",
+   "wear": "back"
   }
  },
  "tools": {
@@ -279,6 +295,11 @@
    "name": "Flint and steel",
    "class": "fire",
    "speed": 3
+  },
+  "needle": {
+   "name": "Needle",
+   "class": "needle",
+   "speed": 1
   }
  },
  "stations": {
@@ -1888,6 +1909,116 @@
    "with": [
     "workbench",
     "hammer"
+   ]
+  },
+  {
+   "id": "needle",
+   "makes": [
+    [
+     "needle",
+     1
+    ]
+   ],
+   "uses": [
+    [
+     "sticks",
+     1
+    ]
+   ],
+   "with": [
+    "axe"
+   ]
+  },
+  {
+   "id": "linen_shirt",
+   "makes": [
+    [
+     "linen_shirt",
+     1
+    ]
+   ],
+   "uses": [
+    [
+     "linen",
+     2
+    ],
+    [
+     "thread",
+     2
+    ]
+   ],
+   "with": [
+    "needle"
+   ]
+  },
+  {
+   "id": "linen_trousers",
+   "makes": [
+    [
+     "linen_trousers",
+     1
+    ]
+   ],
+   "uses": [
+    [
+     "linen",
+     2
+    ],
+    [
+     "thread",
+     2
+    ]
+   ],
+   "with": [
+    "needle"
+   ]
+  },
+  {
+   "id": "linen_cap",
+   "makes": [
+    [
+     "linen_cap",
+     1
+    ]
+   ],
+   "uses": [
+    [
+     "linen",
+     1
+    ],
+    [
+     "thread",
+     1
+    ]
+   ],
+   "with": [
+    "needle"
+   ]
+  },
+  {
+   "id": "linen_cloak",
+   "makes": [
+    [
+     "linen_cloak",
+     1
+    ]
+   ],
+   "uses": [
+    [
+     "linen",
+     4
+    ],
+    [
+     "thread",
+     3
+    ],
+    [
+     "cordage",
+     1
+    ]
+   ],
+   "with": [
+    "needle"
    ]
   }
  ],

@@ -80,8 +80,13 @@ FALL_REACH = 48                   # cells a column is settled over, below and ab
 SAPLING, GRASS, DIRT = 52, 1, 2   # static/land-world.js B
 GROW_S = 1200                     # a sapling's twenty minutes
 SPREAD_S = 60
-SEED_S, SEED_ODDS, TREE_CAP = 600, 6, 10
+SEED_S, SEED_ODDS, TREE_CAP = 600, 36, 10       # a tree seeds about once in six hours: a meadow does not become a grove in a day
 LONE_ODDS = 40
+# CLOTHES (#111, "the crafted items should be what changes how you look"): a garment sewn from linen (land-recipes.json
+# items with "wear": its slot) is put ON from the bag and taken off back into it — one per slot, kept with the player and
+# shown to everyone near them. The look's other half is chosen, not made: skin and hair, a palette index each.
+WEAR_SLOTS = ("head", "body", "legs", "back")
+LOOK_SKIN, LOOK_HAIR = 6, 6       # static/land.js SKIN / HAIR palettes
 MAX_CELLS = 4096                  # per /set call or ws "set"
 RATE = 400                        # cells per second per caller, refilling a bucket that holds one full call (MAX_CELLS)
 PLANET = 0
@@ -550,13 +555,48 @@ class World:
             except Exception:
                 pl = {"items": {}, "tools": [], "stations": []}
             pl.setdefault("items", {}); pl.setdefault("tools", []); pl.setdefault("stations", []); pl.setdefault("vol", {})
+            pl.setdefault("worn", {}); pl.setdefault("look", {"skin": 0, "hair": 0})
             self.players[addr] = pl
         return pl
 
     def inv_json(self, addr):
         pl = self.player(addr)
         return {"items": {k: n for k, n in sorted(pl["items"].items()) if n > 0}, "tools": sorted(pl["tools"]),
-                "stations": sorted(pl["stations"]), "vol": {k: v for k, v in sorted(pl["vol"].items()) if v > 0}}
+                "stations": sorted(pl["stations"]), "vol": {k: v for k, v in sorted(pl["vol"].items()) if v > 0},
+                "worn": dict(sorted(pl["worn"].items())), "look": dict(pl["look"])}
+
+    def look_of(self, addr):
+        """What others see of a player: what they wear and their skin and hair."""
+        pl = self.player(addr)
+        return {"worn": dict(sorted(pl["worn"].items())), "skin": pl["look"].get("skin", 0), "hair": pl["look"].get("hair", 0)}
+
+    def wear(self, addr, slot, item):
+        """Put `item` on (from the bag) in `slot`, or take off what is there (item None) back into the bag. One per slot:
+        what was worn goes back into the bag first. Returns an error or None."""
+        if slot not in WEAR_SLOTS:
+            return "no such place to wear something"
+        pl = self.player(addr)
+        if item is not None:
+            spec = RULES["items"].get(item) if isinstance(item, str) else None
+            if not spec or spec.get("wear") != slot:
+                return "that is not worn there"
+            if pl["items"].get(item, 0) < 1:
+                return "you have none in your bag"
+            pl["items"][item] -= 1
+        old = pl["worn"].pop(slot, None)
+        if old:
+            pl["items"][old] = pl["items"].get(old, 0) + 1
+        if item is not None:
+            pl["worn"][slot] = item
+        self.pdirty.add(addr)
+        return None
+
+    def set_look(self, addr, skin, hair):
+        if not all(isinstance(x, int) and not isinstance(x, bool) for x in (skin, hair)) or not (0 <= skin < LOOK_SKIN and 0 <= hair < LOOK_HAIR):
+            return "no such look"
+        self.player(addr)["look"] = {"skin": skin, "hair": hair}
+        self.pdirty.add(addr)
+        return None
 
     def _has(self, pl, need):
         """A station by id; a tool by id OR by class — a recipe "with an axe" takes an iron axe as well as a stone one."""
@@ -1304,13 +1344,15 @@ class Hub:
             except Exception:
                 pass
 
-    async def positions(self):
+    async def positions(self, world=None):
         socks = list(self.socks.items())
         for ws, st in socks:
             me = st["pos"]
             if not me:
                 continue
-            near = [{"id": o["id"], "who": o["who"], "p": o["pos"]} for w2, o in socks
+            # each player near comes with their look (CLOTHES): what they wear, their skin and hair
+            near = [{"id": o["id"], "who": o["who"], "p": o["pos"], **({"look": world.look_of(o["who"])} if world and o["who"] else {})}
+                    for w2, o in socks
                     if w2 is not ws and o["pos"] and o["pos"][0] == me[0]
                     and abs(o["pos"][1] - me[1]) < self.NEAR and abs(o["pos"][2] - me[2]) < self.NEAR]
             try:
@@ -1407,7 +1449,7 @@ def make_app(world, hub, site_origin, wallet_url, secure_cookies=True, shot_page
     async def _mover():
         while True:
             await asyncio.sleep(0.2)
-            await hub.positions()
+            await hub.positions(world)
 
     def plot_json(p, addr, may):
         rec = world.plots.get(p) or {"edits": {}, "ver": 0}
@@ -1657,6 +1699,14 @@ def make_app(world, hub, site_origin, wallet_url, secure_cookies=True, shot_page
                     await ws.send_json({"t": "ignite", "req": m.get("req"), "error": err})
                     if applied:
                         await hub.edits(applied, addr)
+                elif t in ("wear", "look"):
+                    if not addr:
+                        await ws.send_json({"t": "done", "req": m.get("req"), "error": "sign in first"})
+                        continue
+                    err = world.wear(addr, m.get("slot"), m.get("item")) if t == "wear" else world.set_look(addr, m.get("skin"), m.get("hair"))
+                    await ws.send_json({"t": "done", "req": m.get("req"), "error": err})
+                    if not err:
+                        await hub.inv(world, addr)
                 elif t == "chest":
                     if not addr:
                         await ws.send_json({"t": "chest", "req": m.get("req"), "error": "sign in first"})

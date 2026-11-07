@@ -60,7 +60,7 @@ const builds = new Set();             // plots the world server says the signed-
 // resources". The rules are static/land-recipes.json, the same file the world server judges by; the inventory is the
 // server's (it arrives as "inv" messages) — the page never decides what anyone owns.
 let RULES = null;
-const inv = { items: {}, tools: [], stations: [] };
+const inv = { items: {}, tools: [], stations: [], worn: {}, look: { skin: 0, hair: 0 } };
 let invSeen = false;                  // the first "inv" after connecting is what the player HAS, not what they just got
 let offers = [];
 let hot = [], slot = 0;               // the hotbar: placeable item ids
@@ -790,7 +790,8 @@ function connect() {
       if (invSeen) pickup(inv.items, m.items || {}, inv.tools, m.tools || [], inv.stations, m.stations || []);
       invSeen = true;
       inv.items = m.items || {}; inv.tools = m.tools || []; inv.stations = m.stations || [];
-      fillHot(); hotbar(); if (bagOpen()) renderBag();
+      inv.worn = m.worn || {}; inv.look = m.look || { skin: 0, hair: 0 };
+      fillHot(); hotbar(); if (bagOpen()) renderBag(); if (!$("wardPanel").classList.contains("hidden")) renderWard();
     } else if (m.t === "offers") {
       offers = m.offers || []; if (bagOpen()) renderBag();
     } else if (m.t === "done") {
@@ -803,7 +804,14 @@ function connect() {
       }
     } else if (m.t === "players") {
       const seen = new Set();
-      for (const o of m.list || []) { seen.add(o.id); let r = others.get(o.id); if (!r) { r = { mesh: avatar(o.who || o.id), who: o.who }; scene.add(r.mesh); others.set(o.id, r); } r.p = o.p; }
+      for (const o of m.list || []) {
+        seen.add(o.id);
+        let r = others.get(o.id);
+        const sig = JSON.stringify(o.look || null);
+        if (r && r.sig !== sig) { scene.remove(r.mesh); r = null; }      // they changed clothes: dress them again
+        if (!r) { r = { mesh: avatar(o.who || o.id, o.look), who: o.who, sig }; scene.add(r.mesh); others.set(o.id, r); }
+        r.p = o.p;
+      }
       for (const [id, r] of others) if (!seen.has(id)) { scene.remove(r.mesh); others.delete(id); }
     }
   };
@@ -827,14 +835,31 @@ function applyPlot(plot, list) {
 async function resync(plot) {
   try { const r = await (await fetch("/land/api/plot?plot=" + plot, { cache: "no-store", credentials: "same-origin" })).json(); applyPlot(plot, r.edits || []); setPlotBoxes(plot, r.boxes || []); } catch (e) {}
 }
-function avatar(seed) {
+// THE LOOK (#111, "the crafted items should be what changes how you look"): a body of boxes — legs, torso, arms, head,
+// hair — in the player's chosen skin and hair, dressed in what they wear (scripts/land_server.py look_of). What is not
+// covered shows a plain undershirt, tinted per player so two strangers are told apart, and dark breeches. Front is +Z
+// (lookAt), so hair and a cloak hang at -Z.
+const SKIN = [0xf1d2b6, 0xe0b48f, 0xc68c62, 0x9b6440, 0x6e4229, 0x4a2c1b];   // land_server.py LOOK_SKIN = 6
+const HAIR = [0x2a1d14, 0x5a3a22, 0x9c6b3a, 0xd9b26a, 0x8e2f1c, 0xb9b4ad];   // land_server.py LOOK_HAIR = 6
+const WEAR = { linen_shirt: 0xe6dcc3, linen_trousers: 0xcabd98, linen_cap: 0xeee5cf, linen_cloak: 0xb9a57c };
+const WEAR_SLOTS = ["head", "body", "legs", "back"];
+function lookColours(seed, look) {
   let h = 0; for (const ch of String(seed)) h = (h * 31 + ch.charCodeAt(0)) >>> 0;
-  const g = new THREE.Group(), col = new THREE.Color().setHSL((h % 360) / 360, 0.55, 0.5);
-  const body = new THREE.Mesh(new THREE.BoxGeometry(0.6, 1.2, 0.35), new THREE.MeshLambertMaterial({ color: col }));
-  body.position.y = 0.6;
-  const head = new THREE.Mesh(new THREE.BoxGeometry(0.5, 0.5, 0.5), new THREE.MeshLambertMaterial({ color: 0xe9c9a8 }));
-  head.position.y = 1.45;
-  g.add(body, head);
+  look = look || {}; const worn = look.worn || {};
+  const under = new THREE.Color().setHSL((h % 360) / 360, 0.35, 0.42).getHex();
+  return { skin: SKIN[look.skin] ?? SKIN[0], hair: HAIR[look.hair] ?? HAIR[0], top: WEAR[worn.body] ?? under,
+           legs: WEAR[worn.legs] ?? 0x3b3f46, cap: WEAR[worn.head] ?? null, cloak: WEAR[worn.back] ?? null };
+}
+function avatar(seed, look) {
+  const c = lookColours(seed, look), g = new THREE.Group();
+  const box = (w, h, d, x, y, z, col) => { const m = new THREE.Mesh(new THREE.BoxGeometry(w, h, d), new THREE.MeshLambertMaterial({ color: col })); m.position.set(x, y, z); g.add(m); };
+  box(0.22, 0.8, 0.24, -0.13, 0.4, 0, c.legs); box(0.22, 0.8, 0.24, 0.13, 0.4, 0, c.legs);          // legs
+  box(0.56, 0.7, 0.3, 0, 1.15, 0, c.top);                                                           // torso
+  box(0.16, 0.66, 0.2, -0.37, 1.13, 0, c.top); box(0.16, 0.66, 0.2, 0.37, 1.13, 0, c.top);          // arms
+  box(0.38, 0.38, 0.38, 0, 1.69, 0, c.skin);                                                        // head
+  box(0.4, 0.24, 0.07, 0, 1.75, -0.19, c.hair);                                                     // hair, behind
+  if (c.cap != null) box(0.42, 0.14, 0.42, 0, 1.92, 0, c.cap); else box(0.4, 0.1, 0.4, 0, 1.92, 0, c.hair);
+  if (c.cloak != null) box(0.62, 1.15, 0.05, 0, 1.0, -0.19, c.cloak);                              // a cloak hangs behind
   return g;
 }
 function netTick() {
@@ -1100,6 +1125,42 @@ function renderChest() {
   box.querySelectorAll("[data-take]").forEach((b) => { b.onclick = (e) => { const id = b.dataset.take; chestSend({}, { [id]: e.shiftKey ? chest.items[id] : 1 }); }; });
   box.querySelectorAll("[data-put]").forEach((b) => { b.onclick = (e) => { const id = b.dataset.put; chestSend({ [id]: e.shiftKey ? inv.items[id] : 1 }, {}); }; });
 }
+// ---- the wardrobe (#111): what you wear, and your skin and hair — V, or from the bag. Garments are sewn in the bag with a
+// needle; putting one on takes it out of the bag (the world server's "wear"), and everyone near you sees it.
+function wardrobe(open) {
+  $("wardPanel").classList.toggle("hidden", !open);
+  if (!open) return;
+  if (!net.online || !net.me) { $("wardPanel").classList.add("hidden"); return notify(T("signInFirst", "Sign in first.")); }
+  if (document.pointerLockElement) document.exitPointerLock();
+  renderWard();
+}
+function renderWard() {
+  const box = $("wardGrid");
+  if (!box) return;
+  const look = Object.assign({ skin: 0, hair: 0 }, inv.look, { worn: inv.worn || {} }), c = lookColours(net.me || "", look);
+  const hex = (n) => "#" + n.toString(16).padStart(6, "0");
+  const part = (x, y, w, h, col, z = 1) => `<i style="left:${x}px;top:${y}px;width:${w}px;height:${h}px;background:${hex(col)};z-index:${z}"></i>`;
+  // the figure, front on, drawn from the same colours as the 3D body (lookColours)
+  const fig = part(37, 0, 46, 10, c.cap ?? c.hair, 3) + part(41, 8, 38, 36, c.skin, 2) + part(31, 44, 58, 70, c.top, 2)
+    + part(15, 46, 16, 64, c.top, 2) + part(89, 46, 16, 64, c.top, 2) + part(33, 114, 24, 80, c.legs, 2) + part(63, 114, 24, 80, c.legs, 2)
+    + (c.cloak != null ? part(25, 40, 70, 120, c.cloak, 1) : "");
+  const sw = (list, key) => list.map((col, i) => `<button class="sw${look[key] === i ? " on" : ""}" data-${key}="${i}" style="background:${hex(col)}" aria-label="${i + 1}"></button>`).join("");
+  const slots = WEAR_SLOTS.map((slot) => {
+    const on = look.worn[slot], have = Object.entries(inv.items || {}).filter(([id, n]) => n > 0 && RULES.items[id] && RULES.items[id].wear === slot);
+    return `<div class="wslot"><b>${esc(T("slot." + slot, slot))}</b> ${on ? `${esc(nameOf(on))} <button class="ghost" data-off="${slot}">${esc(T("wTakeOff", "Take off"))}</button>` : `<span class="dim">${esc(T("wNothing", "nothing"))}</span>`}
+      ${have.map(([id]) => `<button data-wear="${esc(id)}" data-slot="${slot}">${esc(T("wWear", "Wear {i}", { i: nameOf(id) }))}</button>`).join(" ")}</div>`;
+  }).join("");
+  box.innerHTML = `<div class="ward"><div class="fig">${fig}</div><div>
+    <h3>${esc(T("wSkin", "Skin"))}</h3><div class="sws">${sw(SKIN, "skin")}</div>
+    <h3>${esc(T("wHair", "Hair"))}</h3><div class="sws">${sw(HAIR, "hair")}</div>
+    <h3>${esc(T("wClothes", "Clothes"))}</h3>${slots}</div></div>
+    <p class="small dim">${esc(T("wHint", "Sew clothes from linen with a needle — make them in the bag (E). What you wear is what others see."))}</p>`;
+  const send = (m) => net.send(Object.assign(m, { req: ++net.req }));
+  box.querySelectorAll("[data-skin]").forEach((b) => { b.onclick = () => send({ t: "look", skin: Number(b.dataset.skin), hair: look.hair }); });
+  box.querySelectorAll("[data-hair]").forEach((b) => { b.onclick = () => send({ t: "look", skin: look.skin, hair: Number(b.dataset.hair) }); });
+  box.querySelectorAll("[data-wear]").forEach((b) => { b.onclick = () => send({ t: "wear", slot: b.dataset.slot, item: b.dataset.wear }); });
+  box.querySelectorAll("[data-off]").forEach((b) => { b.onclick = () => send({ t: "wear", slot: b.dataset.off, item: null }); });
+}
 function startTakeDown(bx, mouse) {
   const rule = RULES.breaking[bx.b[6]] || { hard: 1 };
   if (rule.needs && !hasClass(rule.needs)) return notify(T("needsTool", "That needs a {t}.", { t: nameOf(rule.needs) }));
@@ -1324,6 +1385,7 @@ function wireInput(canvas) {
     if (e.code === "KeyT") { [piece.w, piece.d] = [piece.d, piece.w]; piece.turned = !piece.turned; pieceInfo(); }
     if (e.code === "KeyQ") useDoor();
     if (e.code === "KeyX") ignite();
+    if (e.code === "KeyV") wardrobe($("wardPanel").classList.contains("hidden"));
     if (e.code === "KeyL") startLevel();
     if (e.code === "KeyG") { piece.shape = ((piece.shape || 0) + 1) % 3; pieceInfo(); }
     if (e.code === "KeyT" && piece.shape) piece.rot = ((piece.rot || 0) + 1) % 4;
@@ -1366,6 +1428,8 @@ function wireInput(canvas) {
   }
   $("palClose").onclick = () => palette(false);
   $("chestClose").onclick = () => { $("chestPanel").classList.add("hidden"); chest = null; };
+  $("wardClose").onclick = () => wardrobe(false);
+  $("wardOpen").onclick = () => { palette(false); wardrobe(true); };
 }
 
 // ---- frame -----------------------------------------------------------------------------------------------------

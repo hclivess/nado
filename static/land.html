@@ -90,11 +90,18 @@
   #help .go{margin-top:12px;font-weight:800;color:var(--accent2)}
   #palette{position:fixed;inset:0;z-index:8;display:grid;place-items:center;background:rgba(0,0,0,.45)}
   #palette .card{max-width:min(620px,calc(100vw - 32px));max-height:80vh;overflow:auto;background:var(--elev);border:1px solid var(--border);border-radius:14px;padding:16px}
-  #palette h2{margin:0 0 10px;font-size:16px;display:flex;align-items:center}#palette h2 button{margin-left:auto}
+  #palette h2{margin:0 0 10px;font-size:16px;display:flex;align-items:center}#palette h2 button:first-of-type{margin-left:auto}#palette h2{gap:6px}
   #palGrid{font-size:13px}
   #chestPanel{position:fixed;inset:0;z-index:8;display:grid;place-items:center;background:rgba(0,0,0,.45)}
   #chestPanel .card{max-width:min(560px,calc(100vw - 32px));max-height:80vh;overflow:auto;background:var(--elev);border:1px solid var(--border);border-radius:14px;padding:16px;font-size:13px}
   #chestPanel h2{margin:0 0 10px;font-size:16px;display:flex;align-items:center}#chestPanel h2 button{margin-left:auto}
+  #wardPanel{position:fixed;inset:0;z-index:8;display:grid;place-items:center;background:rgba(0,0,0,.45)}
+  #wardPanel .card{max-width:min(560px,calc(100vw - 32px));max-height:80vh;overflow:auto;background:var(--elev);border:1px solid var(--border);border-radius:14px;padding:16px;font-size:13px}
+  #wardPanel h2{margin:0 0 10px;font-size:16px;display:flex;align-items:center;gap:6px}#wardPanel h2 button:first-of-type{margin-left:auto}
+  #wardPanel h3{margin:10px 0 6px;font-size:12px;color:var(--dim)}
+  .ward{display:flex;gap:18px;align-items:flex-start;flex-wrap:wrap}.fig{position:relative;width:120px;height:196px;flex:none}.fig i{position:absolute;border-radius:3px}
+  .sws{display:flex;gap:6px;flex-wrap:wrap}.sw{width:26px;height:26px;border-radius:50%;border:2px solid var(--border);cursor:pointer;padding:0}.sw.on{border-color:var(--accent2)}
+  .wslot{margin:6px 0;display:flex;gap:6px;align-items:center;flex-wrap:wrap}.wslot b{min-width:52px}
   #chestPanel h3{margin:10px 0 6px;font-size:12px;color:var(--dim)}.chestRow{display:flex;flex-wrap:wrap;gap:6px}.chestRow .pb{padding:6px 9px;display:block}
   .pb{font:inherit;font-size:11px;color:var(--txt);background:#0b0f14;border:1px solid var(--border);border-radius:9px;padding:8px 4px;cursor:pointer;display:grid;justify-items:center;gap:5px}
   .pb:hover{border-color:var(--accent2)}.pb canvas{width:40px;height:40px;image-rendering:pixelated}
@@ -129,19 +136,23 @@
   <div data-i18n="land.helpBody2">Gather from the wilderness with your hands, make tools, and with them gather what your hands could not. Every plot is a title you can own: build on yours, and trade what you gather.</div>
   <div class="keys">
     <div><kbd>W A S D</kbd> <span data-i18n="land.kMove">walk</span> · <kbd>Space</kbd> <span data-i18n="land.kJump">jump</span> · <kbd>Shift</kbd> <span data-i18n="land.kRun">run</span> · <kbd>F</kbd> <span data-i18n="land.kFly">fly</span></div>
-    <div><kbd>X</kbd> <span data-i18n="land.kFire">make fire</span> · <kbd>/</kbd> <span data-i18n="land.kConsole">console</span> · <kbd>Enter</kbd> <span data-i18n="land.kChat">chat</span></div>
+    <div><kbd>X</kbd> <span data-i18n="land.kFire">make fire</span> · <kbd>V</kbd> <span data-i18n="land.kWard">wardrobe</span> · <kbd>/</kbd> <span data-i18n="land.kConsole">console</span> · <kbd>Enter</kbd> <span data-i18n="land.kChat">chat</span></div>
     <div><kbd>R</kbd> <span data-i18n="land.kSize">piece size</span> · <kbd>T</kbd> <span data-i18n="land.kTurn">turn it</span> · <kbd>[ ]</kbd> <span data-i18n="land.kSnap">snap</span> · <kbd>Q</kbd> <span data-i18n="land.kDoor">open or close a door</span> · <kbd>G</kbd> <span data-i18n="land.kShape">box, slope or stairs</span> · <kbd>L</kbd> <span data-i18n="land.kLevel">level the ground (shovel)</span></div>
     <div><kbd data-i18n="land.kLeft">left click</kbd> <span data-i18n="land.kGather">hold to gather</span> · <kbd data-i18n="land.kRight">right click</kbd> <span data-i18n="land.kPlace">place</span> · <kbd>1–9</kbd> <span data-i18n="land.kPick">pick a block</span> · <kbd>E</kbd> <span data-i18n="land.kBag">bag: make and trade</span></div>
   </div>
   <div class="go" data-i18n="land.clickToPlay">Click the world to play</div>
 </div></div>
 <div id="palette" class="hidden"><div class="card">
-  <h2><span data-i18n="land.bagTitle">Bag</span><button id="palClose" class="ghost" data-i18n="land.close">Close</button></h2>
+  <h2><span data-i18n="land.bagTitle">Bag</span><button id="wardOpen" class="ghost" data-i18n="land.wardTitle">Wardrobe</button><button id="palClose" class="ghost" data-i18n="land.close">Close</button></h2>
   <div id="palGrid"></div>
 </div></div>
 <div id="chestPanel" class="hidden"><div class="card">
   <h2><span data-i18n="land.i.chest">Chest</span><button id="chestClose" class="ghost" data-i18n="land.close">Close</button></h2>
   <div id="chestGrid"></div>
+</div></div>
+<div id="wardPanel" class="hidden"><div class="card">
+  <h2><span data-i18n="land.wardTitle">Wardrobe</span><button id="wardClose" class="ghost" data-i18n="land.close">Close</button></h2>
+  <div id="wardGrid"></div>
 </div></div>
 <div id="touchUi">
   <button id="tJump" data-i18n="land.tJump">Jump</button><button id="tDown" data-i18n="land.tDown">Down</button>

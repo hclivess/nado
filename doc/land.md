@@ -195,13 +195,24 @@ Plants reproduce, on the world server (scripts/land_server.py, ECOLOGY and FORES
 - **Saplings.** Leaves sometimes give one. Planted in earth or grass, it grows after 20 minutes into a young tree of its
   climate: only into air and only on its own plot.
 - **Forests spread.** On an owned plot, each standing tree (the planet's or a grown one; a bush is not a tree) now and
-  then drops a sapling on open grass 2–3 m from its trunk. That is about one chance in six every ten minutes, never within
-  2 m of another trunk and never past ten trees on a plot.
+  then drops a sapling on open grass 2–3 m from its trunk. About once in six hours per tree, never within 2 m of another
+  trunk and never past ten trees on a plot.
 - **Grass returns.** On an owned plot, bare earth under open air turns to grass: within minutes beside grass, and within
   about forty minutes on its own.
 - **The commons** needs none of this. Its gathered cells grow back whole.
 
 Every roll is a hash of the cell and the tick, so a restart gives the same answers.
+
+## Clothes and the look (#111)
+
+- **Sewing.** Garments are sewn from linen with a needle (sticks, carved with an axe): a shirt, trousers, a cap and a
+  cloak. Each has one place it is worn: head, body, legs or back.
+- **Wearing.** Putting one on takes it out of the bag; taking it off puts it back. One garment per place. While worn it
+  cannot be given, traded or put in a chest.
+- **Skin and hair** are chosen from six of each, not crafted.
+- **Where it shows.** The world server keeps what you wear and your look with the player, and sends it to everyone near
+  you with your position. The page draws you in it.
+- **The wardrobe** opens with V or from the bag. It shows a figure in the same colours as the 3D body.
 
 ## Selling a plot: the listing and its photo (#125, #126)
 
