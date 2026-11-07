@@ -188,6 +188,21 @@ holds the title. A sale voids the old owner's invitations with no cleanup call; 
 **Upgrades.** The contract is upgradable by its deployer and keeps its cid and storage across an upgrade. The field
 numbers and K_B are a live storage layout: add fields, never renumber or reuse one.
 
+## Living ground (#110)
+
+Plants reproduce, on the world server (scripts/land_server.py, ECOLOGY and FORESTS SPREAD):
+
+- **Saplings.** Leaves sometimes give one. Planted in earth or grass, it grows after 20 minutes into a young tree of its
+  climate: only into air and only on its own plot.
+- **Forests spread.** On an owned plot, each standing tree (the planet's or a grown one; a bush is not a tree) now and
+  then drops a sapling on open grass 2–3 m from its trunk. That is about one chance in six every ten minutes, never within
+  2 m of another trunk and never past ten trees on a plot.
+- **Grass returns.** On an owned plot, bare earth under open air turns to grass: within minutes beside grass, and within
+  about forty minutes on its own.
+- **The commons** needs none of this. Its gathered cells grow back whole.
+
+Every roll is a hash of the cell and the tick, so a restart gives the same answers.
+
 ## Selling a plot: the listing and its photo (#125, #126)
 
 A title is sold on the NFT market (static/nft.js, execnode/games/nft.py) like any other asset, and its listing reads

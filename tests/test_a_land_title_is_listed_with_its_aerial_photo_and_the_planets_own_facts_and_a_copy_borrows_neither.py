@@ -49,7 +49,7 @@ for (const p of %s) {
   for (let du = 0; du < 16; du++) for (let dv = 0; dv < 16; dv++) {
     const c = W.column(q.face, q.u0 + du, q.v0 + dv), e = c.top - W.SEA;
     b[c.biome] = (b[c.biome] || 0) + 1; lo = Math.min(lo, e); hi = Math.max(hi, e); sum += e; if (c.top < W.SEA) under++;
-    if (W.treeAt(q.face, q.u0 + du, q.v0 + dv, c)) trees++;
+    { const t = W.treeAt(q.face, q.u0 + du, q.v0 + dv, c); if (t && W.TREE_WOOD.has(W.treeCell(t, 0, 0, 1))) trees++; }   // a bush is no tree
     if (W.litterAt(q.face, q.u0 + du, q.v0 + dv, c) === W.B.flax) flax++;
   }
   out[p] = { b, lo, hi, mean: Math.round(sum / 256), under, trees, flax };

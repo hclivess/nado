@@ -72,9 +72,16 @@ FALL_REACH = 48                   # cells a column is settled over, below and ab
 # sometimes give one) planted in soil grows into a young tree of its climate after GROW_S; on an owned plot, bare earth
 # with open air above it turns to grass when grass grows next to it (a fair chance each SPREAD_S). The commons needs no
 # spreading: its gathered cells grow back whole (regrow). Both write ordinary edits, broadcast like any other.
+# FORESTS SPREAD (#110): on an owned plot each standing tree — the planet's or one grown from a sapling — now and then
+# drops a sapling on open grass two or three metres from its trunk (SEED_ODDS per SEED_S), never closer than two metres
+# to another trunk or sapling and never past TREE_CAP trees on the plot; the sapling then grows like a planted one. Bare
+# earth greens over on its own too, slowly (LONE_ODDS per SPREAD_S), and fast beside grass. The same hash-of-the-cell-
+# and-tick answers as spread(): a restart changes nothing.
 SAPLING, GRASS, DIRT = 52, 1, 2   # static/land-world.js B
 GROW_S = 1200                     # a sapling's twenty minutes
 SPREAD_S = 60
+SEED_S, SEED_ODDS, TREE_CAP = 600, 6, 10
+LONE_ODDS = 40
 MAX_CELLS = 4096                  # per /set call or ws "set"
 RATE = 400                        # cells per second per caller, refilling a bucket that holds one full call (MAX_CELLS)
 PLANET = 0
@@ -720,7 +727,10 @@ class World:
                 continue
             face, row, col = plot_coords(p)
             cand = {(x, z, y if b == DIRT else y - 1) for (x, z, y), b in rec["edits"].items() if b in (DIRT, 0) and y > 1}
-            cand = [c for c in cand if int(hashlib.blake2b(f"{p}:{c}:{tick}".encode(), digest_size=4).hexdigest(), 16) % 3 == 0]
+            roll = lambda c, salt: int(hashlib.blake2b(f"{p}:{c}:{tick}{salt}".encode(), digest_size=4).hexdigest(), 16)
+            near = {c for c in cand if roll(c, "") % 3 == 0}                     # beside grass: a fair chance a tick
+            lone = {c for c in cand if roll(c, ":lone") % LONE_ODDS == 0}        # on its own: a slow one (#110)
+            cand = list(near | lone)
             if not cand:
                 continue
             g = lambda x, z, y: [face, col * PLOT + x, row * PLOT + z, y]
@@ -732,12 +742,79 @@ class World:
             for x, z, y in cand:
                 if at.get(tuple(g(x, z, y))) != DIRT or at.get(tuple(g(x, z, y + 1))) != 0:
                     continue
-                if not any(at.get(tuple(g(x + dx, z + dz, y + dy))) == GRASS for dx, dz in ((1, 0), (-1, 0), (0, 1), (0, -1)) for dy in (-1, 0, 1)):
+                if (x, z, y) not in lone and not any(at.get(tuple(g(x + dx, z + dz, y + dy))) == GRASS
+                                                     for dx, dz in ((1, 0), (-1, 0), (0, 1), (0, -1)) for dy in (-1, 0, 1)):
                     continue
                 rec["edits"][(x, z, y)] = GRASS
                 rec["ver"] += 1
                 self.dirty.add(p)
                 out.setdefault(p, []).append(g(x, z, y) + [GRASS])
+        return out
+
+    async def tree_roots(self, p):
+        """The trees standing on plot p: [(u, v, ground)] — the planet's own (land_terrain.mjs trees) whose trunk is still
+        there, and every trunk grown or built from wood that stands on soil (a trunk's lowest log)."""
+        face, row, col = plot_coords(p)
+        if not hasattr(self, "_roots"):
+            self._roots = {}
+        if p not in self._roots:
+            async with self.oracle_lock:
+                self.oracle.stdin.write((json.dumps({"trees": p}) + "\n").encode())
+                await self.oracle.stdin.drain()
+                r = json.loads(await self.oracle.stdout.readline())
+            if "error" in r:
+                raise RuntimeError("terrain oracle: " + r["error"])
+            self._roots[p] = [tuple(x[1:]) for x in r["roots"]]
+        rec = self.plots.get(p) or {"edits": {}}
+        logs = [(col * PLOT + x, row * PLOT + z, y) for (x, z, y), b in rec["edits"].items() if b in TREE_WOOD]
+        look = [[face, u, v, t + 1] for u, v, t in self._roots[p]] + [[face, u, v, y - 1] for u, v, y in logs]
+        at = await self.blocks_at(look)
+        out = [(u, v, t) for u, v, t in self._roots[p] if at[(face, u, v, t + 1)] in TREE_WOOD]
+        out += [(u, v, y - 1) for u, v, y in logs if at[(face, u, v, y - 1)] in (GRASS, DIRT)]
+        return out
+
+    async def seed(self, now=None):
+        """FORESTS SPREAD (#110): on each owned plot, a tree now and then drops a sapling on open grass 2-3 m from its trunk
+        (see SEED_S). Returns the broadcast like grow()."""
+        now = time.time() if now is None else now
+        tick, out = int(now // SEED_S), {}
+        for p, rec in list(self.plots.items()) + [(q, None) for q in list(self.titles) if q not in self.plots]:
+            if (await self.holder(p)) is None:
+                continue
+            roots = await self.tree_roots(p)
+            if not roots:
+                continue
+            face, row, col = plot_coords(p)
+            rec = self.plot(p)
+            sap = [(col * PLOT + x, row * PLOT + z) for (x, z, y), b in rec["edits"].items() if b == SAPLING]
+            for u, v, t in sorted(roots):
+                if len(roots) + len(sap) >= TREE_CAP:
+                    break
+                hsh = int(hashlib.blake2b(f"seed:{p}:{u}:{v}:{tick}".encode(), digest_size=8).hexdigest(), 16)
+                if hsh % SEED_ODDS:
+                    continue
+                ring = [(dx, dz) for dx in range(-3, 4) for dz in range(-3, 4) if 2 <= max(abs(dx), abs(dz)) <= 3]
+                dx, dz = ring[(hsh // SEED_ODDS) % len(ring)]
+                tu, tv = u + dx, v + dz
+                if plot_of(face, tu, tv) != p:
+                    continue
+                trunks = [(a, b) for a, b, _ in roots] + sap
+                if any(max(abs(a - tu), abs(b - tv)) < 2 for a, b in trunks):
+                    continue                                              # never crowding another tree
+                cells = [[face, tu, tv, y] for y in range(t - 3, t + 5)]
+                at = await self.blocks_at(cells)
+                ground = next((y for y in range(t - 3, t + 3) if at[(face, tu, tv, y)] == GRASS
+                               and at[(face, tu, tv, y + 1)] == 0 and at[(face, tu, tv, y + 2)] == 0), None)
+                if ground is None:
+                    continue                                              # only on open grass
+                k = (tu - col * PLOT, tv - row * PLOT, ground + 1)
+                rec["edits"][k] = SAPLING
+                rec.get("exp", {}).pop(k, None)
+                rec.setdefault("grow", {})[k] = now + GROW_S
+                rec["ver"] += 1
+                self.dirty.add(p)
+                sap.append((tu, tv))
+                out.setdefault(p, []).append([face, tu, tv, ground + 1, SAPLING])
         return out
 
     def regrow(self):
@@ -1300,6 +1377,10 @@ def make_app(world, hub, site_origin, wallet_url, secure_cookies=True, shot_page
                     spread = await world.spread()
                     if spread:
                         await hub.edits(spread, "planet")
+                if n % (SEED_S // 10) == 0:
+                    seeded = await world.seed()
+                    if seeded:
+                        await hub.edits(seeded, "planet")
             except Exception:
                 pass
 
