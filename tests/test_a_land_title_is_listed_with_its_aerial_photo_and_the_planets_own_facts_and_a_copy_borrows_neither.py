@@ -113,7 +113,11 @@ async def main():
             world.plot(FLAXY)["ver"] = 3
             check("a changed plot keeps a photo younger than SHOT_STALE", not world.shot_due(FLAXY))
             check("…and is retaken once the photo is SHOT_STALE old", world.shot_due(FLAXY, time.time() + S.SHOT_STALE + 1))
-            check("an unchanged plot is never retaken, however old its photo", not world.shot_due(HALL, time.time() + 10 * S.SHOT_STALE))
+            check("an unchanged plot is not retaken within the day", not world.shot_due(HALL, time.time() + 10 * S.SHOT_STALE))
+            check("…and every title's photo is retaken once a day, changed or not", world.shot_due(HALL, time.time() + S.SHOT_DAILY + 1))
+            world._write(os.path.join("shots", f"{HALL}.json"), {"ver": 0, "at": int(time.time()) - S.SHOT_DAILY - 50})
+            world._write(os.path.join("shots", f"{FLAXY}.json"), {"ver": 3, "at": int(time.time()) - S.SHOT_DAILY - 10})
+            check("…the oldest photo first", world.next_shot() == HALL)
             # a capture that fails or writes nothing never replaces the photo: shoot() through a page nothing serves
             S.SHOT_TIMEOUT = 60
             ok = await world.shoot(FLAXY, "http://127.0.0.1:1")

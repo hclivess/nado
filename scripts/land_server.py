@@ -74,6 +74,8 @@ PASSABLE = {0, 5}
 # software on the relay's CPU — re-taken only once a plot has changed AND its photo is SHOT_STALE old.
 TOWN_HALL_PLOT = 40963440         # scripts/land_town.py: the hall stands on plot (5000, 3440) of face 0
 SHOT_STALE = 1800
+SHOT_DAILY = 86400                # and every title's photo is retaken once a day, changed or not: the market shows the plot
+                                  # as it is ("plot pics on the nft bazar should be updated daily", operator 2026-11-07)
 SHOT_TIMEOUT = 900
 FALL_REACH = 48                   # cells a column is settled over, below and above the change (bounds one call's work)
 # ECOLOGY ("trees should have a process of reproduction as well as the grass", operator 2026-11-06): a SAPLING (leaves
@@ -430,12 +432,13 @@ class World:
             return None
 
     def shot_due(self, p, now=None):
-        """Whether plot p needs a (new) photo: none yet, or it changed since and the photo is SHOT_STALE old."""
+        """Whether plot p needs a (new) photo: none yet, it changed since and the photo is SHOT_STALE old, or the photo is
+        a day old (SHOT_DAILY)."""
         m = self.shot_meta(p)
         if not m:
             return True
-        rec = self.plots.get(p)
-        return bool(rec) and rec["ver"] != m.get("ver") and (now or time.time()) - m.get("at", 0) >= SHOT_STALE
+        age, rec = (now or time.time()) - m.get("at", 0), self.plots.get(p)
+        return age >= SHOT_DAILY or (bool(rec) and rec["ver"] != m.get("ver") and age >= SHOT_STALE)
 
     def next_shot(self):
         """The next plot to photograph: one asked for, else a title of the issuer's without a current photo."""
@@ -443,7 +446,8 @@ class World:
             p = self.shot_want.pop(0)
             if self.shot_due(p):
                 return p
-        return next((p for p in sorted(self.titles) if self.shot_due(p)), None)
+        due = [p for p in sorted(self.titles) if self.shot_due(p)]
+        return min(due, key=lambda p: (self.shot_meta(p) or {}).get("at", 0)) if due else None   # the oldest photo first
 
     async def shoot(self, p, page):
         """Photograph plot p (scripts/land_shot.mjs) into shots/<p>.jpg; the photo is swapped in whole or not at all."""

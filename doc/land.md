@@ -242,8 +242,8 @@ the chain holds for it and its holder.
 corner 16 m up at the plot's noon, nothing drawn until the world has meshed and settled, then the title "shot-ready"),
 captured by scripts/land_shot.mjs in a headless browser ($LAND_SHOT_BROWSER, else Brave, else Chrome). The world server's
 photographer takes one at a time, niced, into `<data>/shots/<plot>.jpg`: plots asked for first (a card request queues
-its plot), then every title without a current photo. A photo is retaken only once its plot has changed and the photo is
-30 minutes old; a failed capture never replaces one. `GET /land/api/shot?plot=` serves it (any origin). On this host a
+its plot), then every title without a current photo. A photo is retaken once a day, oldest first, and sooner once its plot has
+changed and the photo is 30 minutes old; a failed capture never replaces one. `GET /land/api/shot?plot=` serves it (any origin). On this host a
 photo takes about three minutes of software rendering.
 
 **The market shows them only for the real title.** Anyone can mint an asset whose uri points at a plot. nft.js shows a
