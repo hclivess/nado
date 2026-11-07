@@ -208,6 +208,21 @@ export function leafCellModel(tile) {
 }
 
 /** A fallen stick on the ground (land-world LITTER): a crooked length of branch with a fork, lying flat. */
+/** A clump of flax (land-world B.flax): thin upright stems, 55-85 cm, each topped with a small sky-blue flower — it grows
+ *  in stands on the meadows and is pulled up by hand for its fibre ("adding additional recipes and materials ... in a
+ *  sensible, realistic yet engaging manner", operator 2026-11-07). Stems in the bark part, tinted green; flowers too. */
+export function flaxModel(seed) {
+  const R = rng(seed), bark = part(), leaves = part(), n = 6 + Math.floor(R() * 4);
+  for (let k = 0; k < n; k++) {
+    const a = R() * Math.PI * 2, r = 0.05 + R() * 0.13, h = 0.55 + R() * 0.3, lean = (R() - 0.5) * 0.12;
+    const b0 = [Math.cos(a) * r, Math.sin(a) * r, 0], top = [b0[0] + Math.cos(a) * lean, b0[1] + Math.sin(a) * lean, h];
+    const mid = [(b0[0] + top[0]) / 2, (b0[1] + top[1]) / 2, h * 0.5];
+    // the tints LIFT the bark texture (a dark brown) to a fresh green stem and a sky-blue flower — at 1x they drew black
+    tube(bark, [b0, mid, top], [0.009, 0.007, 0.005], 3, (i) => i * 0.35, 0, [1.3, 2.9, 1.1]);
+    tube(bark, [add(top, [0, 0, -0.01]), add(top, [0, 0, 0.035])], [0.03, 0.016], 6, () => 0.7, 0, [1.7, 2.7, 6.2]);   // the flower
+  }
+  return { bark, leaves };
+}
 export function twigModel(seed) {
   const R = rng(seed), bark = part(), leaves = part(), ln = 0.55 + R() * 0.3;
   const pts = [0, 1, 2, 3].map((k) => [(k / 3 - 0.5) * ln, (R() - 0.5) * 0.08, 0.025 + (k === 1 || k === 2 ? 0.01 : 0)]);

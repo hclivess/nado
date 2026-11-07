@@ -161,7 +161,12 @@
   "land.i.bench": "Bench",
   "land.i.bed": "Bed",
   "land.i.fence": "Fence",
-  "land.i.torch": "Torch"
+  "land.i.torch": "Torch",
+  "land.i.flax": "Flax",
+  "land.i.thread": "Linen thread",
+  "land.i.linen": "Linen cloth",
+  "land.t.spindle": "Drop spindle",
+  "land.s.loom": "Loom"
  },
  "cs": {
   "land.notYours": "Pozemek {p} patří někomu jinému. Kupte si pozemek, nebo požádejte jeho vlastníka o pozvání.",
@@ -325,7 +330,12 @@
   "land.i.bench": "Lavice",
   "land.i.bed": "Postel",
   "land.i.fence": "Plot",
-  "land.i.torch": "Pochodeň"
+  "land.i.torch": "Pochodeň",
+  "land.i.flax": "Len",
+  "land.i.thread": "Lněná nit",
+  "land.i.linen": "Lněné plátno",
+  "land.t.spindle": "Vřeteno",
+  "land.s.loom": "Tkalcovský stav"
  },
  "es": {
   "land.notYours": "La parcela {p} pertenece a otra persona. Compra una parcela o pide a su dueño que te invite.",
@@ -489,7 +499,12 @@
   "land.i.bench": "Banco",
   "land.i.bed": "Cama",
   "land.i.fence": "Valla",
-  "land.i.torch": "Antorcha"
+  "land.i.torch": "Antorcha",
+  "land.i.flax": "Lino",
+  "land.i.thread": "Hilo de lino",
+  "land.i.linen": "Tela de lino",
+  "land.t.spindle": "Huso",
+  "land.s.loom": "Telar"
  },
  "pt": {
   "land.notYours": "O lote {p} pertence a outra pessoa. Compre um lote ou peça ao dono que convide você.",
@@ -653,7 +668,12 @@
   "land.i.bench": "Banco",
   "land.i.bed": "Cama",
   "land.i.fence": "Cerca",
-  "land.i.torch": "Tocha"
+  "land.i.torch": "Tocha",
+  "land.i.flax": "Linho",
+  "land.i.thread": "Fio de linho",
+  "land.i.linen": "Pano de linho",
+  "land.t.spindle": "Fuso",
+  "land.s.loom": "Tear"
  },
  "fr": {
   "land.notYours": "La parcelle {p} appartient à quelqu'un d'autre. Achetez une parcelle ou demandez à son propriétaire de vous inviter.",
@@ -817,7 +837,12 @@
   "land.i.bench": "Banc",
   "land.i.bed": "Lit",
   "land.i.fence": "Clôture",
-  "land.i.torch": "Torche"
+  "land.i.torch": "Torche",
+  "land.i.flax": "Lin",
+  "land.i.thread": "Fil de lin",
+  "land.i.linen": "Toile de lin",
+  "land.t.spindle": "Fuseau",
+  "land.s.loom": "Métier à tisser"
  },
  "de": {
   "land.notYours": "Grundstück {p} gehört jemand anderem. Kauf dir ein Grundstück oder bitte den Besitzer um eine Einladung.",
@@ -981,7 +1006,12 @@
   "land.i.bench": "Bank",
   "land.i.bed": "Bett",
   "land.i.fence": "Zaun",
-  "land.i.torch": "Fackel"
+  "land.i.torch": "Fackel",
+  "land.i.flax": "Flachs",
+  "land.i.thread": "Leinengarn",
+  "land.i.linen": "Leinenstoff",
+  "land.t.spindle": "Handspindel",
+  "land.s.loom": "Webstuhl"
  },
  "it": {
   "land.notYours": "Il lotto {p} appartiene a qualcun altro. Compra un lotto o chiedi al proprietario di invitarti.",
@@ -1145,7 +1175,12 @@
   "land.i.bench": "Panca",
   "land.i.bed": "Letto",
   "land.i.fence": "Recinto",
-  "land.i.torch": "Torcia"
+  "land.i.torch": "Torcia",
+  "land.i.flax": "Lino",
+  "land.i.thread": "Filo di lino",
+  "land.i.linen": "Tela di lino",
+  "land.t.spindle": "Fuso",
+  "land.s.loom": "Telaio"
  },
  "ru": {
   "land.notYours": "Участок {p} принадлежит другому игроку. Купите участок или попросите владельца пригласить вас.",
@@ -1309,7 +1344,12 @@
   "land.i.bench": "Скамья",
   "land.i.bed": "Кровать",
   "land.i.fence": "Забор",
-  "land.i.torch": "Факел"
+  "land.i.torch": "Факел",
+  "land.i.flax": "Лён",
+  "land.i.thread": "Льняная нить",
+  "land.i.linen": "Льняное полотно",
+  "land.t.spindle": "Веретено",
+  "land.s.loom": "Ткацкий станок"
  },
  "zh": {
   "land.notYours": "地块 {p} 属于别人。购买一块地，或请它的所有者邀请你。",
@@ -1473,7 +1513,12 @@
   "land.i.bench": "长凳",
   "land.i.bed": "床",
   "land.i.fence": "栅栏",
-  "land.i.torch": "火把"
+  "land.i.torch": "火把",
+  "land.i.flax": "亚麻",
+  "land.i.thread": "亚麻线",
+  "land.i.linen": "亚麻布",
+  "land.t.spindle": "纺锤",
+  "land.s.loom": "织布机"
  },
  "ja": {
   "land.notYours": "区画 {p} は他の人のものです。区画を購入するか、所有者に招待してもらいましょう。",
@@ -1637,7 +1682,12 @@
   "land.i.bench": "ベンチ",
   "land.i.bed": "ベッド",
   "land.i.fence": "柵",
-  "land.i.torch": "松明"
+  "land.i.torch": "松明",
+  "land.i.flax": "亜麻",
+  "land.i.thread": "亜麻糸",
+  "land.i.linen": "亜麻布",
+  "land.t.spindle": "紡錘",
+  "land.s.loom": "機織り機"
  },
  "ko": {
   "land.notYours": "구역 {p}은(는) 다른 사람의 땅입니다. 구역을 사거나 소유자에게 초대를 요청하세요.",
@@ -1801,7 +1851,12 @@
   "land.i.bench": "벤치",
   "land.i.bed": "침대",
   "land.i.fence": "울타리",
-  "land.i.torch": "횃불"
+  "land.i.torch": "횃불",
+  "land.i.flax": "아마",
+  "land.i.thread": "아마실",
+  "land.i.linen": "아마포",
+  "land.t.spindle": "물레가락",
+  "land.s.loom": "베틀"
  },
  "ar": {
   "land.notYours": "القطعة {p} ملك لشخص آخر. اشترِ قطعة، أو اطلب من مالكها أن يدعوك.",
@@ -1965,7 +2020,12 @@
   "land.i.bench": "مقعد خشبي",
   "land.i.bed": "سرير",
   "land.i.fence": "سياج",
-  "land.i.torch": "شعلة"
+  "land.i.torch": "شعلة",
+  "land.i.flax": "كتان",
+  "land.i.thread": "خيط كتان",
+  "land.i.linen": "قماش كتان",
+  "land.t.spindle": "مغزل",
+  "land.s.loom": "نول"
  },
  "hi": {
   "land.notYours": "प्लॉट {p} किसी और का है। कोई प्लॉट खरीदें, या उसके मालिक से आपको आमंत्रित करने को कहें।",
@@ -2129,7 +2189,12 @@
   "land.i.bench": "बेंच",
   "land.i.bed": "पलंग",
   "land.i.fence": "बाड़",
-  "land.i.torch": "मशाल"
+  "land.i.torch": "मशाल",
+  "land.i.flax": "अलसी",
+  "land.i.thread": "लिनन धागा",
+  "land.i.linen": "लिनन कपड़ा",
+  "land.t.spindle": "तकली",
+  "land.s.loom": "करघा"
  },
  "tr": {
   "land.notYours": "{p} arsası başkasına ait. Bir arsa satın al ya da sahibinden seni davet etmesini iste.",
@@ -2293,7 +2358,12 @@
   "land.i.bench": "Bank",
   "land.i.bed": "Yatak",
   "land.i.fence": "Çit",
-  "land.i.torch": "Meşale"
+  "land.i.torch": "Meşale",
+  "land.i.flax": "Keten",
+  "land.i.thread": "Keten ipliği",
+  "land.i.linen": "Keten kumaş",
+  "land.t.spindle": "İğ",
+  "land.s.loom": "Dokuma tezgâhı"
  },
  "id": {
   "land.notYours": "Petak {p} milik orang lain. Beli sebuah petak, atau minta pemiliknya mengundangmu.",
@@ -2457,7 +2527,12 @@
   "land.i.bench": "Bangku",
   "land.i.bed": "Ranjang",
   "land.i.fence": "Pagar",
-  "land.i.torch": "Obor"
+  "land.i.torch": "Obor",
+  "land.i.flax": "Rami",
+  "land.i.thread": "Benang linen",
+  "land.i.linen": "Kain linen",
+  "land.t.spindle": "Pintal",
+  "land.s.loom": "Alat tenun"
  },
  "vi": {
   "land.notYours": "Mảnh đất {p} thuộc về người khác. Hãy mua một mảnh, hoặc nhờ chủ của nó mời bạn.",
@@ -2621,7 +2696,12 @@
   "land.i.bench": "Ghế dài",
   "land.i.bed": "Giường",
   "land.i.fence": "Hàng rào",
-  "land.i.torch": "Đuốc"
+  "land.i.torch": "Đuốc",
+  "land.i.flax": "Lanh",
+  "land.i.thread": "Sợi lanh",
+  "land.i.linen": "Vải lanh",
+  "land.t.spindle": "Con suốt",
+  "land.s.loom": "Khung cửi"
  },
  "pl": {
   "land.notYours": "Działka {p} należy do kogoś innego. Kup działkę albo poproś jej właściciela o zaproszenie.",
@@ -2785,6 +2865,11 @@
   "land.i.bench": "Ława",
   "land.i.bed": "Łóżko",
   "land.i.fence": "Płot",
-  "land.i.torch": "Pochodnia"
+  "land.i.torch": "Pochodnia",
+  "land.i.flax": "Len",
+  "land.i.thread": "Nić lniana",
+  "land.i.linen": "Płótno lniane",
+  "land.t.spindle": "Wrzeciono",
+  "land.s.loom": "Krosno"
  }
 }

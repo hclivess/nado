@@ -29,7 +29,7 @@ const ok = (c, m) => { console.log((c ? "ok   " : "FAIL ") + m); if (!c) fails++
 
 const q = Wd.plotCoords(Wd.firstWave()[44]), cu0 = q.u0 / 16, cv0 = q.v0 / 16;
 // 1 + 2: a 3 x 3 block of plots, every layer that holds ground or trees
-let cellParts = 0, roots = 0, modelled = 0, chunkOf = null;
+let cellParts = 0, roots = 0, modelled = 0, chunkOf = null, plants = 0;
 for (let dx = 0; dx < 3; dx++) for (let dy = 0; dy < 3; dy++) {
   const cu = cu0 + dx, cv = cv0 + dy;
   let lo = 99, hi = 0;
@@ -37,6 +37,8 @@ for (let dx = 0; dx < 3; dx++) for (let dy = 0; dy < 3; dy++) {
     const col = Wd.column(q.face, cu * 16 + i, cv * 16 + j), t = Wd.treeAt(q.face, cu * 16 + i, cv * 16 + j, col);
     lo = Math.min(lo, col.top); hi = Math.max(hi, col.top);
     if (t) { roots++; if (!chunkOf && t.kind !== "bush") chunkOf = { cu, cv, u: cu * 16 + i, v: cv * 16 + j, col, t }; }
+    // a clump of flax sways in the wind too (land-trees.js flaxModel): one swaying model per plant, counted beside the trees
+    if (Wd.terrainBlock(q.face, cu * 16 + i, cv * 16 + j, col.top + 1) === Wd.B.flax) plants++;
   }
   for (let ch = Math.floor(lo / 16); ch <= Math.floor((hi + 12) / 16); ch++) {
     const r = M.meshChunk(q.face, cu, cv, ch, null, null, 0);
@@ -47,7 +49,7 @@ for (let dx = 0; dx < 3; dx++) for (let dy = 0; dy < 3; dy++) {
 }
 ok(roots > 10, `the block grows a forest (${roots} trees)`);
 ok(cellParts === 0, `no tree cell is drawn where the trees are untouched (${cellParts} chunks with cell canopy)`);
-ok(modelled === roots, `one model per tree: ${modelled} models for ${roots} roots`);
+ok(modelled === roots + plants, `one model per tree: ${modelled} swaying models for ${roots} roots and ${plants} flax plants`);
 
 // 3: every species, both details
 for (const kind of ["broadleaf", "birch", "conifer", "palm", "bush"]) for (const lod of [0, 2]) {

@@ -204,6 +204,8 @@ export const BLOCKS = [
   { key: "bed", solid: true, tex: [12, 12, 12] },
   { key: "fence", solid: true, tex: [39, 39, 39] },
   { key: "torch", solid: true, tex: [18, 18, 18] },
+  // flax: it grows in stands on the meadows, a litter plant pulled up by hand (land-trees.js flaxModel)
+  { key: "flax", solid: false, see: true, tex: [11, 11, 11] },
 ];
 export const B = Object.fromEntries(BLOCKS.map((b, i) => [b.key, i]));
 export const ATLAS_TILES = 46;              // tiles 0..45 (0 unused)
@@ -329,13 +331,16 @@ export function treeCell(t, du, dv, dh) {
 // the whole web of tools. Before this, stone was a hidden bonus in every 4th clod of turf and sticks came only from
 // leaves, which nobody could find without reading the source. A litter cell is the air cell just above the ground; it is
 // a function of place like everything else, and like every gathered cell in the commons it lies there again later.
-export const LITTER = new Set([B.pebble, B.twigs]);
-/** The litter on column (face, u, v): B.pebble, B.twigs or 0. */
+export const LITTER = new Set([B.pebble, B.twigs, B.flax]);
+/** The litter on column (face, u, v): B.pebble, B.twigs, B.flax or 0. */
 export function litterAt(face, u, v, col) {
   if (col.top <= SEA) return 0;
   const hh = hash32(face + 17, v, u);
   switch (col.biome) {
-    case "grass": return hh % 17 === 4 ? B.pebble : hh % 19 === 9 ? B.twigs : 0;
+    // FLAX grows in STANDS, as a sown or wild crop does — a patch of meadow (one 8 m region in nine) thick with it, then
+    // none for a while — so a player who finds one finds plenty (2026-11-07)
+    case "grass": return hh % 17 === 4 ? B.pebble : hh % 19 === 9 ? B.twigs
+      : hash32(face + 53, v >> 3, u >> 3) % 9 === 0 && hh % 5 < 3 ? B.flax : 0;
     case "forest": return hh % 23 === 4 ? B.pebble : hh % 9 === 2 ? B.twigs : 0;       // a forest floor is strewn with sticks
     case "desert": return hh % 13 === 6 ? B.pebble : 0;
     case "rock": return hh % 6 === 1 ? B.pebble : 0;

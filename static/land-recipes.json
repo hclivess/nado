@@ -1,6 +1,6 @@
 {
  "about": "Land's gathering and crafting web (doc/land.md 'Gathering, tools, crafting'). ONE file read by the page (static/land.js) and the world server (scripts/land_server.py), so both apply the same rules: 'you must gather resources to make tools to make tools to collect more resources' (operator, 2026-11-06). No eras: every recipe names exactly what it needs. Block ids are static/land-world.js BLOCKS.",
- "version": 4,
+ "version": 5,
  "items": {
   "fiber": {
    "name": "Plant fiber"
@@ -181,6 +181,15 @@
     10,
     120
    ]
+  },
+  "flax": {
+   "name": "Flax"
+  },
+  "thread": {
+   "name": "Linen thread"
+  },
+  "linen": {
+   "name": "Linen cloth"
   }
  },
  "tools": {
@@ -233,6 +242,11 @@
    "name": "Bronze shovel",
    "class": "shovel",
    "speed": 4.5
+  },
+  "spindle": {
+   "name": "Drop spindle",
+   "class": "spindle",
+   "speed": 1
   }
  },
  "stations": {
@@ -250,6 +264,9 @@
   },
   "anvil": {
    "name": "Anvil"
+  },
+  "loom": {
+   "name": "Loom"
   }
  },
  "breaking": {
@@ -642,6 +659,15 @@
     [
      "torch",
      1
+    ]
+   ]
+  },
+  "51": {
+   "hard": 0.3,
+   "yields": [
+    [
+     "flax",
+     2
     ]
    ]
   }
@@ -1448,6 +1474,105 @@
    ]
   },
   {
+   "id": "spindle",
+   "makes": [
+    [
+     "spindle",
+     1
+    ]
+   ],
+   "uses": [
+    [
+     "sticks",
+     1
+    ],
+    [
+     "stone",
+     1
+    ]
+   ]
+  },
+  {
+   "id": "thread",
+   "makes": [
+    [
+     "thread",
+     2
+    ]
+   ],
+   "uses": [
+    [
+     "flax",
+     3
+    ]
+   ],
+   "with": [
+    "spindle"
+   ]
+  },
+  {
+   "id": "cordage_flax",
+   "makes": [
+    [
+     "cordage",
+     2
+    ]
+   ],
+   "uses": [
+    [
+     "flax",
+     2
+    ]
+   ],
+   "with": [
+    "spindle"
+   ]
+  },
+  {
+   "id": "loom",
+   "makes": [
+    [
+     "loom",
+     1
+    ]
+   ],
+   "uses": [
+    [
+     "wood",
+     2
+    ],
+    [
+     "sticks",
+     8
+    ],
+    [
+     "cordage",
+     4
+    ]
+   ],
+   "with": [
+    "workbench"
+   ]
+  },
+  {
+   "id": "linen",
+   "makes": [
+    [
+     "linen",
+     1
+    ]
+   ],
+   "uses": [
+    [
+     "thread",
+     6
+    ]
+   ],
+   "with": [
+    "loom"
+   ]
+  },
+  {
    "id": "table",
    "makes": [
     [
@@ -1537,8 +1662,12 @@
      6
     ],
     [
+     "linen",
+     2
+    ],
+    [
      "fiber",
-     12
+     6
     ]
    ],
    "with": [

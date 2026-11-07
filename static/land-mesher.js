@@ -20,7 +20,7 @@
 // the chunk that holds its LOWER cell, so every edge of the world belongs to exactly one chunk (no gaps, no doubles).
 // Positions are metres RELATIVE TO THE CHUNK'S ANCHOR; the page places each mesh at anchor - camera in doubles.
 import { CHUNK, H, R0, W, B, BLOCKS, ATLAS_TILES, NATURAL, CM, TREE_WOOD, TREE_LEAVES, isTree, opaque, dirOf, frameOf, wrap, column, terrainBlock, fieldOf, treeAt, treeCell, LITTER, shapeOf } from "./land-world.js";
-import { treeModel, leafCellModel, twigModel } from "./land-trees.js";
+import { treeModel, leafCellModel, twigModel, flaxModel } from "./land-trees.js";
 
 const N = CHUNK + 2;                                     // cells with the border: real index r in -1..16 is r + 1
 const TILE_COLS = 8;                                      // the atlas is TILE_COLS tiles across (static/land.js paints it)
@@ -323,6 +323,9 @@ export function meshChunk(face, cu, cv, ch, edits, boxes, lod, grassOn = true) {
     const gu = u0 + i, gv = v0 + j, gh = h0 + k, col = colCache(face, gu, gv);
     const ou = 0.25 + 0.5 * hash3(gu, gv, 3), ov = 0.25 + 0.5 * hash3(gv, gu, 5), rot = hash3(gu, gh, gv) * 6.283;
     if (b === B.twigs) placeModel(twigModel(1 + Math.floor(hash3(gu, gv, 9) * 5)), face, gu + ou, gv + ov, col.height - 0.01, rot, 1, 0, place, bark, foliage, null);
+    // each clump its own wind phase: at one phase a whole stand swayed as a single sheet
+    else if (b === B.flax) placeModel(flaxModel(1 + Math.floor(hash3(gu, gv, 13) * 997)), face, gu + 0.5, gv + 0.5, col.height - 0.02, rot, 1,
+                                      0.001 + hash3(gv, gu, 21) * 6.28, place, bark, foliage, null);
     else pebble(stones, face, gu + ou, gv + ov, col.height, 0.11 + 0.1 * hash3(gv, gh, gu), hash3(gu, gv, 11), rot, place);
   }
   // leaves a player PLACED (or a tree's leaf cell put back into another spot): a small cluster of leaf cards in the cell,
