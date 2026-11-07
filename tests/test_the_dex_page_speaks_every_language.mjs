@@ -96,5 +96,10 @@ ok(retRows.length >= 15 && retRows.every((r) => /^\w+: LT\("/.test(r)), `every d
 const plain = [...code.matchAll(/new Error\(\s*(["'`])[^"'`]*[A-Za-z]{3,}/g)].map((m) => m[0]);
 ok(!plain.length, "no thrown error the page shows is literal English" + (plain.length ? ` — ${plain.slice(0, 4).join(" | ")}` : ""));
 
+// a plain data-i18n REPLACES its element's whole text — so it may sit only on an element with no child elements, or it
+// wipes them (a balance span, the 25 %/50 %/MAX buttons, a span the page fills by id: "You pay" showed beside its own
+// translation, 2026-11-07). Text with inline markup takes data-i18n-html; text beside live children gets its own span.
+const wrapped = [...html.matchAll(/<(\w+)\b[^>]*\sdata-i18n="([^"]+)"[^>]*>([\s\S]*?)<\/\1>/g)].filter((m) => /<\w/.test(m[3])).map((m) => m[2]);
+ok(!wrapped.length, "no plain data-i18n sits on an element with child elements" + (wrapped.length ? ` — ${wrapped.join(", ")}` : ""));
 if (fails) { console.log(`\n${fails} check(s) failed`); process.exit(1); }
 console.log("\nall checks passed");

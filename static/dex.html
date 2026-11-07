@@ -423,7 +423,7 @@
       <option value="t2n" data-i18n="dex.optT2n">token → NADO</option>
     </select>
     <div class="amtbox">
-      <div class="top" data-i18n="dex.swPay"><span>You pay</span>
+      <div class="top"><span data-i18n="dex.swPay">You pay</span>
         <span><span id="payBal">—</span> <span class="pcts" style="display:inline-flex;margin-left:6px">
           <button data-pct="25">25%</button><button data-pct="50">50%</button><button data-pct="100" data-i18n="dex.pctMax">MAX</button></span></span></div>
       <div class="row" style="align-items:center;gap:8px">
@@ -433,7 +433,7 @@
     </div>
     <div class="flip"><button class="ghost" id="btnFlip" title="Swap direction" aria-label="Swap direction"><svg viewBox="0 0 16 16" width="14" height="14" aria-hidden="true"><path d="M5 2v10M2 9l3 3 3-3M11 14V4M8 7l3-3 3 3" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/></svg></button></div>
     <div class="amtbox">
-      <div class="top" data-i18n="dex.swGet"><span>You receive</span><span id="getBal">—</span></div>
+      <div class="top"><span data-i18n="dex.swGet">You receive</span><span id="getBal">—</span></div>
       <div class="row" style="align-items:center;gap:8px">
         <input id="quoteAmt" placeholder="0.0" readonly tabindex="-1">
         <span class="mono" id="getSym" style="flex:0 0 auto;font-weight:700">—</span>
@@ -475,7 +475,7 @@
   <!-- LIQUIDITY -->
   <div class="card hidden" id="liqCard">
     <h2 data-i18n="dex.lqTitle">Liquidity</h2>
-    <p class="small dim lead" data-i18n="dex.lqLead">Deposit both sides, then confirm. <span id="liqPos" class="dim"></span></p>
+    <p class="small dim lead"><span data-i18n="dex.lqLead">Deposit both sides, then confirm.</span> <span id="liqPos" class="dim"></span></p>
     <details class="more"><summary data-i18n="dex.howWorks">How this works</summary><p class="small dim" data-i18n-html="dex.lqHowText">Each side is its own
     transaction because a transaction carries one currency. Anything deposited but not yet confirmed is
     <b>always refundable</b>. The first person to supply a market sets its opening price; after that both
@@ -578,7 +578,7 @@
         <div id="otcFAddrHint" class="hint" aria-live="polite"></div></div>
     </div>
     <div class="row mt">
-      <label class="small dim" for="otcExpiry" data-i18n="dex.otcExpiryLbl">NADO-side expiry, in blocks <span class="mono" id="otcExpiryHuman"></span></label>
+      <label class="small dim" for="otcExpiry"><span data-i18n="dex.otcExpiryLbl">NADO-side expiry, in blocks</span> <span class="mono" id="otcExpiryHuman"></span></label>
       <input id="otcExpiry" value="9000" inputmode="numeric" style="max-width:110px" autocomplete="off">
     </div>
     <div class="row mt"><button class="primary" id="btnOtcPost" data-i18n="dex.otcPostBtn">Post order</button></div>
@@ -612,7 +612,7 @@
       <input id="limWantAmt" aria-label="Amount you want" placeholder="amount you want" data-i18n-ph="dex.limWantPh" inputmode="decimal" autocomplete="off">
     </div>
     <div class="row mt">
-      <label class="small dim" for="limExpiry" data-i18n="dex.limExpiryLbl">Expiry, in blocks <span class="mono" id="limExpiryHuman"></span></label>
+      <label class="small dim" for="limExpiry"><span data-i18n="dex.limExpiryLbl">Expiry, in blocks</span> <span class="mono" id="limExpiryHuman"></span></label>
       <input id="limExpiry" value="3000" inputmode="numeric" style="max-width:110px" autocomplete="off">
       <button class="primary" id="btnLimPost" style="flex:0 0 auto" data-i18n="dex.otcPostBtn">Post order</button>
     </div>
