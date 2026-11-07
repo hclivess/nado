@@ -2138,7 +2138,8 @@ function marketRows() {
     const liq = open.reduce((a, x) => a + Number(x.od.namtRaw) / 1e10, 0);
     if (!open.length && !vol24(XKEY(m.key)) && m.token) continue;          // a token book nobody has used yet
     rows.push({ venue: "cross", key: m.key, name: `${m.coin} / NADO`, sub: m.label, env: envOf(m.net), blocked: !!xMarketBlocker(m),
-      price: b.mid || 0, age: null, txns: open.length || null, vol: vol24(XKEY(m.key)) || null, makers: null,
+      // txns are SETTLED swaps (the sampler counts each order once at SETTLED) — an open order is not a trade
+      price: b.mid || 0, age: null, txns: trades24(XKEY(m.key)) || null, vol: vol24(XKEY(m.key)) || null, makers: null,
       m5: null, h1: null, h6: null, h24: st && b.mid ? st.pct : null, liq, fdv: null });
   }
   return rows;

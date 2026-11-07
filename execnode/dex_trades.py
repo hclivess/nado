@@ -47,6 +47,9 @@ SCHEMA = (
     " pid INTEGER NOT NULL, oid INTEGER NOT NULL, batch INTEGER NOT NULL, side TEXT NOT NULL, amt INTEGER NOT NULL,"
     " trader TEXT, UNIQUE (ns, cid, oid))",
     "CREATE INDEX IF NOT EXISTS dex_orders_by_batch ON dex_orders (ns, cid, batch)",
+    # where the DEX capture began: the first block flushed with it (the asset history it shares a file with may be
+    # older — on 2026-11-07 the endpoint reported the asset history's start, a complete-history claim it did not have)
+    "CREATE TABLE IF NOT EXISTS dex_meta (ns TEXT PRIMARY KEY, start INTEGER NOT NULL)",
 )
 TABLES = ("dex_trades", "dex_orders")       # every table keyed by (ns, cursor): trimmed, reset and gap-restarted
 

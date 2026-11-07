@@ -3939,7 +3939,7 @@ async def h_dex_trades(request):
                                   "cursor": st.cursor, "enabled": False})
     rows, nb = await asyncio.get_running_loop().run_in_executor(
         None, store.dex_trades, ns, cid, pid, limit, before, request.query.get("trader") or None)
-    return web.json_response({"cid": cid, "trades": rows, "next_before": nb, "indexed_from": store.indexed_from(ns),
+    return web.json_response({"cid": cid, "trades": rows, "next_before": nb, "indexed_from": store.dex_indexed_from(ns),
                               "cursor": st.cursor, "enabled": True})
 
 
@@ -3956,7 +3956,7 @@ async def h_dex_candles(request):
     if store is None:
         return web.json_response({"cid": cid, "pid": pid, "tf": tf, "candles": [], "enabled": False})
     rows = await asyncio.get_running_loop().run_in_executor(None, store.dex_candles, ns, cid, pid, tf, limit)
-    return web.json_response({"cid": cid, "pid": pid, "tf": tf, "candles": rows, "indexed_from": store.indexed_from(ns),
+    return web.json_response({"cid": cid, "pid": pid, "tf": tf, "candles": rows, "indexed_from": store.dex_indexed_from(ns),
                               "enabled": True})
 
 
@@ -3971,7 +3971,7 @@ async def h_dex_stats(request):
         return web.json_response({"cid": cid, "pools": {}, "enabled": False})
     rows = await asyncio.get_running_loop().run_in_executor(None, store.dex_stats, ns, cid)
     return web.json_response({"cid": cid, "pools": {str(k): v for k, v in rows.items()}, "now": int(time.time()),
-                              "indexed_from": store.indexed_from(ns), "enabled": True})
+                              "indexed_from": store.dex_indexed_from(ns), "enabled": True})
 
 
 async def h_allowances(request):

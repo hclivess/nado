@@ -11,7 +11,9 @@ NO consensus value. It is what the DEX page's candles, recent trades, volume and
      every call give identical apply_blob strings, identical state roots after every block and identical snapshots;
      a clone never inherits the sink;
   3. rewind-exact: trimming the index to a mid cursor and applying the rest again onto a state at that cursor gives the
-     very same rows (a curve fill whose orders sit below the trim is re-derived, never lost or doubled);
+     very same rows (a curve fill whose orders sit below the trim is re-derived, never lost or doubled); and the index
+     claims a complete history only from where the DEX capture began — not from the older asset history it shares a
+     file with (the first deploy reported the asset history's start, 2026-11-07);
   4. reads: candles are OHLC of the spot with volume and buy/sell counts per bucket, and the stats count buys, sells,
      volume and makers per window;
   5. wiring: the exec node attaches the sink with the store, passes the block's timestamp, and serves /exec/dex_trades,
@@ -236,6 +238,24 @@ run(part, blocks, store, frm=mid)
 again, _ = store.dex_trades("default", CID, limit=1000)
 again.reverse()
 check("applying the rest again gives the very same rows (fills re-derived from orders below the trim)", again == rows)
+
+check("the index claims completeness from the first block it captured", store.dex_indexed_from("default") == H0,
+      store.dex_indexed_from("default"))
+# a file that predates the capture: asset history from H0, the DEX capture from a later block
+old = AssetHistoryStore(os.path.join(os.environ["HOME"], "old.sqlite"))
+pre = fresh("pre")
+pre.asset_sink = old.sink("default")
+run(pre, blocks, old, upto=H0 + 2)
+old._db.execute("DELETE FROM dex_meta"); old.close()            # the file as an exec node without the capture left it
+old = AssetHistoryStore(os.path.join(os.environ["HOME"], "old.sqlite"))
+pre.asset_sink = old.sink("default"); pre.call_sink = DexCallSink(old, "default", {CID})
+run(pre, blocks, old, frm=H0 + 2, upto=H0 + 4)
+check("…so a file whose asset history is older reports the DEX capture's start, not the asset history's",
+      old.indexed_from("default") == H0 and old.dex_indexed_from("default") == H0 + 3,
+      (old.indexed_from("default"), old.dex_indexed_from("default")))
+old.trim("default", H0 + 1)
+check("…and a trim below it lowers it to the first block that will be applied again (with the capture)",
+      old.dex_indexed_from("default") == H0 + 2, old.dex_indexed_from("default"))
 
 # ---- 4. reads ------------------------------------------------------------------------------------------------------
 import execnode.dex_trades as DX

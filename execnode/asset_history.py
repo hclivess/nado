@@ -60,6 +60,7 @@ class AssetHistoryStore:
         self._pending = {}             # ns -> [record, ...] buffered by the sinks until the block is flushed
         self._pending_dex = {}         # ns -> [DEX record, ...] (execnode/dex_trades.DexCallSink), likewise
         self._meta = {}                # ns -> (indexed_from, last), mirror of the meta table
+        self._dex_start = {}           # ns -> the first block the DEX capture flushed (mirror of dex_meta)
         self._db = None
         try:
             self._db = sqlite3.connect(path, check_same_thread=False, isolation_level=None)
@@ -70,6 +71,7 @@ class AssetHistoryStore:
             for q in _SCHEMA:
                 self._db.execute(q)
             self._meta = {ns: (int(f), int(la)) for ns, f, la in self._db.execute("SELECT ns, indexed_from, last FROM meta")}
+            self._dex_start = {ns: int(st) for ns, st in self._db.execute("SELECT ns, start FROM dex_meta")}
         except Exception as e:
             self._fail("open", e)
 
@@ -131,7 +133,7 @@ class AssetHistoryStore:
             try:
                 db = self._db
                 db.execute("BEGIN")
-                new_meta = dict(self._meta)
+                new_meta, new_dex = dict(self._meta), dict(self._dex_start)
                 for ns in namespaces:
                     recs = [r for r in pending.get(ns, ()) if int(r.get("cursor", -2)) == h]
                     stray = len(pending.get(ns, ())) - len(recs)
@@ -152,6 +154,7 @@ class AssetHistoryStore:
                         _log(f"ns={ns}: gap {m[1] + 1}..{h - 1} — history restarts at {h}")
                         for t in _NS_TABLES:
                             db.execute(f"DELETE FROM {t} WHERE ns=?", (ns,))
+                        new_dex.pop(ns, None)              # the DEX history restarts here too
                         frm = h
                     if recs:
                         db.executemany(
@@ -160,13 +163,17 @@ class AssetHistoryStore:
                             [(ns, h, i, r.get("txid", ""), r.get("sender", ""), r.get("op", ""), r.get("method", ""),
                               json.dumps(r.get("args") or []), r.get("value", "0"), r.get("call_asset", ""),
                               str(r["aid"]), str(r["holder"]), str(r["delta"])) for i, r in enumerate(recs)])
+                    # the DEX capture's start: this block if it has none, or lower if this block is a re-application
+                    if new_dex.get(ns) is None or h < new_dex[ns]:
+                        new_dex[ns] = h
+                        db.execute("INSERT OR REPLACE INTO dex_meta (ns, start) VALUES (?,?)", (ns, h))
                     drecs = [r for r in pending_dex.get(ns, ()) if int(r.get("cursor", -2)) == h]
                     if drecs:
                         DX.write_block(db, ns, h, ts, drecs)
                     db.execute("INSERT OR REPLACE INTO meta (ns, indexed_from, last) VALUES (?,?,?)", (ns, frm, h))
                     new_meta[ns] = (frm, h)
                 db.execute("COMMIT")
-                self._meta = new_meta
+                self._meta, self._dex_start = new_meta, new_dex
             except Exception as e:
                 try:
                     self._db.execute("ROLLBACK")
@@ -195,6 +202,9 @@ class AssetHistoryStore:
                 db.execute("BEGIN")
                 for t in _NS_TABLES:
                     db.execute(f"DELETE FROM {t} WHERE ns=? AND cursor>?", (ns, cursor))
+                ds = self._dex_start.get(ns)
+                if ds is not None and ds > cursor + 1:
+                    db.execute("UPDATE dex_meta SET start=? WHERE ns=?", (cursor + 1, ns))
                 m = self._meta.get(ns)
                 nm = m
                 if m is not None:
@@ -205,6 +215,8 @@ class AssetHistoryStore:
                         db.execute("UPDATE meta SET last=? WHERE ns=?", (cursor, ns))
                         nm = (m[0], cursor)
                 db.execute("COMMIT")
+                if ds is not None and ds > cursor + 1:
+                    self._dex_start[ns] = cursor + 1
                 if nm is None:
                     self._meta.pop(ns, None)
                 else:
@@ -238,8 +250,10 @@ class AssetHistoryStore:
                 for t in _NS_TABLES:
                     db.execute(f"DELETE FROM {t} WHERE ns=?", (ns,))
                 db.execute("DELETE FROM meta WHERE ns=?", (ns,))
+                db.execute("DELETE FROM dex_meta WHERE ns=?", (ns,))
                 db.execute("COMMIT")
                 self._meta.pop(ns, None)
+                self._dex_start.pop(ns, None)
             except Exception as e:
                 try:
                     self._db.execute("ROLLBACK")
@@ -251,6 +265,12 @@ class AssetHistoryStore:
     def indexed_from(self, ns):
         m = self._meta.get(ns)
         return None if m is None else m[0]
+
+    def dex_indexed_from(self, ns):
+        """The first cursor from which the DEX trade index is COMPLETE: the later of the asset history's start (gaps and
+        resets move it) and the DEX capture's own start (the file may predate the capture)."""
+        m, d = self._meta.get(ns), self._dex_start.get(ns)
+        return None if m is None or d is None else max(m[0], d)
 
     def events(self, ns, aid, limit=LIMIT_DEFAULT, before=None):
         """The asset's history newest first, one event per (cursor, txid): {cursor, txid, sender, op, method, args,

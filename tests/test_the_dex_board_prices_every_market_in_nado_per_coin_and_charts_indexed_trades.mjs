@@ -69,6 +69,8 @@ ok(/renderPairBoard\(p\.id, p\.asset, px, p\.kind, \{ tf: "mktTf", svg: "mktChar
    && /function boardFor\(amm\)/.test(js) && /boardFor\(false\);/.test(js) && /boardFor\(true\);/.test(js),
    "an AMM pool's card draws candles with timeframes and its trades; the cross-chain book keeps its line chart");
 ok(/renderPairBoard\(c\.id, c\.asset, lpSpot\(c\) \? lpPrice\(c\) : 0, c\.kind, \{ tf: "lpTf", svg: "lpChart"/.test(js), "the launch coin card has its chart and trades");
+ok(/txns: trades24\(XKEY\(m\.key\)\) \|\| null/.test(js) && !/txns: open\.length/.test(js),
+   "a cross-chain market's txns are its settled swaps — an open order is not a trade");
 ok(/\$\("mktPrice"\)\.textContent = live \? fmtShort\(px\) \+ " NADO"/.test(js) && /const price = live \? nadoPerTok\(p\) : 0;/.test(js),
    "the pair header and the pool list price in NADO per coin");
 
