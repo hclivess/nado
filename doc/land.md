@@ -44,6 +44,20 @@ import (or mirror) it.
   the four central plots (rows 4999–5000, cols 3439–3440, plot ids 40955247, 40955248, 40963439, 40963440) kept by the server
   wallet as **the town**: levelled, two crossing paved streets on the plot boundaries (the landing is on the main street),
   benches and lamps, and a town hall (scripts/land_town.py; the server wallet's endowment for it is in its output and #123).
+  **Exactly level** (2026-11-07): every town column has an edited ground cell at T and an edited air cell at T + 1, so the
+  drawn ground lies at T + 1 under every road slab. An untouched column draws its ground at its own fractional height,
+  and the first build left roads and a bench hanging over such columns; `--repair` fixed the standing town. **The
+  garden** (`--garden`) is made only of things any player gets:
+  - a flower garden round a pond;
+  - an orchard of nine saplings;
+  - a fountain plaza (a stone-brick basin of water with a lit pillar);
+  - flower beds round the hall.
+
+  The town then greens over by the game's own spreading rule. A newcomer arrives on the street before the hall's door
+  (land.js townSpawn), as does `/tp spawn`.
+- **Wild flowers** (poppy, cornflower, daisy, buttercup) grow in drifts on the meadows, are picked by hand and planted in
+  soil like a sapling. **Water** is carried in a wooden bucket (planks and cordage at a workbench). A bucket scoops a cell
+  of water, and a bucketful is placed only where something holds it. It does not flow.
   The title contract is e7dfe9aa3cbb4b0c9293caeaf992a041.
 - **Biomes** come from temperature (latitude, altitude, broad noise) and moisture: meadow, forest (a ~1 km forest field,
   wetter ground more wooded), desert (hot and dry: sand), snow and taiga (cold; conifers where wet), beach, alpine rock.

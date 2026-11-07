@@ -255,7 +255,13 @@
   "land.i.goldore": "Gold ore",
   "land.i.silver": "Silver",
   "land.i.gold": "Gold",
-  "land.t.drill": "Iron drill"
+  "land.t.drill": "Iron drill",
+  "land.i.poppy": "Poppy",
+  "land.i.cornflower": "Cornflower",
+  "land.i.daisy": "Daisy",
+  "land.i.buttercup": "Buttercup",
+  "land.i.water": "Water (a bucketful)",
+  "land.t.bucket": "Wooden bucket"
  },
  "cs": {
   "land.notYours": "Pozemek {p} patří někomu jinému. Kupte si pozemek, nebo požádejte jeho vlastníka o pozvání.",
@@ -513,7 +519,13 @@
   "land.i.goldore": "Zlatá ruda",
   "land.i.silver": "Stříbro",
   "land.i.gold": "Zlato",
-  "land.t.drill": "Železný vrták"
+  "land.t.drill": "Železný vrták",
+  "land.i.poppy": "Vlčí mák",
+  "land.i.cornflower": "Chrpa",
+  "land.i.daisy": "Sedmikráska",
+  "land.i.buttercup": "Pryskyřník",
+  "land.i.water": "Voda (plné vědro)",
+  "land.t.bucket": "Dřevěné vědro"
  },
  "es": {
   "land.notYours": "La parcela {p} pertenece a otra persona. Compra una parcela o pide a su dueño que te invite.",
@@ -771,7 +783,13 @@
   "land.i.goldore": "Mena de oro",
   "land.i.silver": "Plata",
   "land.i.gold": "Oro",
-  "land.t.drill": "Taladro de hierro"
+  "land.t.drill": "Taladro de hierro",
+  "land.i.poppy": "Amapola",
+  "land.i.cornflower": "Aciano",
+  "land.i.daisy": "Margarita",
+  "land.i.buttercup": "Botón de oro",
+  "land.i.water": "Agua (un cubo lleno)",
+  "land.t.bucket": "Cubo de madera"
  },
  "pt": {
   "land.notYours": "O lote {p} pertence a outra pessoa. Compre um lote ou peça ao dono que convide você.",
@@ -1029,7 +1047,13 @@
   "land.i.goldore": "Minério de ouro",
   "land.i.silver": "Prata",
   "land.i.gold": "Ouro",
-  "land.t.drill": "Broca de ferro"
+  "land.t.drill": "Broca de ferro",
+  "land.i.poppy": "Papoila",
+  "land.i.cornflower": "Centáurea",
+  "land.i.daisy": "Margarida",
+  "land.i.buttercup": "Botão-de-ouro",
+  "land.i.water": "Água (um balde cheio)",
+  "land.t.bucket": "Balde de madeira"
  },
  "fr": {
   "land.notYours": "La parcelle {p} appartient à quelqu'un d'autre. Achetez une parcelle ou demandez à son propriétaire de vous inviter.",
@@ -1287,7 +1311,13 @@
   "land.i.goldore": "Minerai d’or",
   "land.i.silver": "Argent",
   "land.i.gold": "Or",
-  "land.t.drill": "Foreuse en fer"
+  "land.t.drill": "Foreuse en fer",
+  "land.i.poppy": "Coquelicot",
+  "land.i.cornflower": "Bleuet",
+  "land.i.daisy": "Pâquerette",
+  "land.i.buttercup": "Bouton d’or",
+  "land.i.water": "Eau (un seau plein)",
+  "land.t.bucket": "Seau en bois"
  },
  "de": {
   "land.notYours": "Grundstück {p} gehört jemand anderem. Kauf dir ein Grundstück oder bitte den Besitzer um eine Einladung.",
@@ -1545,7 +1575,13 @@
   "land.i.goldore": "Golderz",
   "land.i.silver": "Silber",
   "land.i.gold": "Gold",
-  "land.t.drill": "Eisenbohrer"
+  "land.t.drill": "Eisenbohrer",
+  "land.i.poppy": "Mohnblume",
+  "land.i.cornflower": "Kornblume",
+  "land.i.daisy": "Gänseblümchen",
+  "land.i.buttercup": "Butterblume",
+  "land.i.water": "Wasser (ein voller Eimer)",
+  "land.t.bucket": "Holzeimer"
  },
  "it": {
   "land.notYours": "Il lotto {p} appartiene a qualcun altro. Compra un lotto o chiedi al proprietario di invitarti.",
@@ -1803,7 +1839,13 @@
   "land.i.goldore": "Minerale d’oro",
   "land.i.silver": "Argento",
   "land.i.gold": "Oro",
-  "land.t.drill": "Trapano di ferro"
+  "land.t.drill": "Trapano di ferro",
+  "land.i.poppy": "Papavero",
+  "land.i.cornflower": "Fiordaliso",
+  "land.i.daisy": "Margherita",
+  "land.i.buttercup": "Ranuncolo",
+  "land.i.water": "Acqua (un secchio pieno)",
+  "land.t.bucket": "Secchio di legno"
  },
  "ru": {
   "land.notYours": "Участок {p} принадлежит другому игроку. Купите участок или попросите владельца пригласить вас.",
@@ -2061,7 +2103,13 @@
   "land.i.goldore": "Золотая руда",
   "land.i.silver": "Серебро",
   "land.i.gold": "Золото",
-  "land.t.drill": "Железный бур"
+  "land.t.drill": "Железный бур",
+  "land.i.poppy": "Мак",
+  "land.i.cornflower": "Василёк",
+  "land.i.daisy": "Маргаритка",
+  "land.i.buttercup": "Лютик",
+  "land.i.water": "Вода (полное ведро)",
+  "land.t.bucket": "Деревянное ведро"
  },
  "zh": {
   "land.notYours": "地块 {p} 属于别人。购买一块地，或请它的所有者邀请你。",
@@ -2319,7 +2367,13 @@
   "land.i.goldore": "金矿石",
   "land.i.silver": "银",
   "land.i.gold": "金",
-  "land.t.drill": "铁钻"
+  "land.t.drill": "铁钻",
+  "land.i.poppy": "虞美人",
+  "land.i.cornflower": "矢车菊",
+  "land.i.daisy": "雏菊",
+  "land.i.buttercup": "毛茛",
+  "land.i.water": "水（一桶）",
+  "land.t.bucket": "木桶"
  },
  "ja": {
   "land.notYours": "区画 {p} は他の人のものです。区画を購入するか、所有者に招待してもらいましょう。",
@@ -2577,7 +2631,13 @@
   "land.i.goldore": "金鉱石",
   "land.i.silver": "銀",
   "land.i.gold": "金",
-  "land.t.drill": "鉄のドリル"
+  "land.t.drill": "鉄のドリル",
+  "land.i.poppy": "ヒナゲシ",
+  "land.i.cornflower": "ヤグルマギク",
+  "land.i.daisy": "ヒナギク",
+  "land.i.buttercup": "キンポウゲ",
+  "land.i.water": "水（バケツ一杯）",
+  "land.t.bucket": "木のバケツ"
  },
  "ko": {
   "land.notYours": "구역 {p}은(는) 다른 사람의 땅입니다. 구역을 사거나 소유자에게 초대를 요청하세요.",
@@ -2835,7 +2895,13 @@
   "land.i.goldore": "금광석",
   "land.i.silver": "은",
   "land.i.gold": "금",
-  "land.t.drill": "철 드릴"
+  "land.t.drill": "철 드릴",
+  "land.i.poppy": "양귀비",
+  "land.i.cornflower": "수레국화",
+  "land.i.daisy": "데이지",
+  "land.i.buttercup": "미나리아재비",
+  "land.i.water": "물 (한 양동이)",
+  "land.t.bucket": "나무 양동이"
  },
  "ar": {
   "land.notYours": "القطعة {p} ملك لشخص آخر. اشترِ قطعة، أو اطلب من مالكها أن يدعوك.",
@@ -3093,7 +3159,13 @@
   "land.i.goldore": "خام الذهب",
   "land.i.silver": "فضة",
   "land.i.gold": "ذهب",
-  "land.t.drill": "مثقاب حديدي"
+  "land.t.drill": "مثقاب حديدي",
+  "land.i.poppy": "خشخاش",
+  "land.i.cornflower": "قنطريون",
+  "land.i.daisy": "أقحوان",
+  "land.i.buttercup": "حوذان",
+  "land.i.water": "ماء (دلو ممتلئ)",
+  "land.t.bucket": "دلو خشبي"
  },
  "hi": {
   "land.notYours": "प्लॉट {p} किसी और का है। कोई प्लॉट खरीदें, या उसके मालिक से आपको आमंत्रित करने को कहें।",
@@ -3351,7 +3423,13 @@
   "land.i.goldore": "सोने का अयस्क",
   "land.i.silver": "चाँदी",
   "land.i.gold": "सोना",
-  "land.t.drill": "लोहे की ड्रिल"
+  "land.t.drill": "लोहे की ड्रिल",
+  "land.i.poppy": "पोस्त का फूल",
+  "land.i.cornflower": "नीलकुसुम",
+  "land.i.daisy": "गुलबहार",
+  "land.i.buttercup": "बटरकप",
+  "land.i.water": "पानी (भरी बाल्टी)",
+  "land.t.bucket": "लकड़ी की बाल्टी"
  },
  "tr": {
   "land.notYours": "{p} arsası başkasına ait. Bir arsa satın al ya da sahibinden seni davet etmesini iste.",
@@ -3609,7 +3687,13 @@
   "land.i.goldore": "Altın cevheri",
   "land.i.silver": "Gümüş",
   "land.i.gold": "Altın",
-  "land.t.drill": "Demir matkap"
+  "land.t.drill": "Demir matkap",
+  "land.i.poppy": "Gelincik",
+  "land.i.cornflower": "Peygamber çiçeği",
+  "land.i.daisy": "Papatya",
+  "land.i.buttercup": "Düğün çiçeği",
+  "land.i.water": "Su (dolu kova)",
+  "land.t.bucket": "Tahta kova"
  },
  "id": {
   "land.notYours": "Petak {p} milik orang lain. Beli sebuah petak, atau minta pemiliknya mengundangmu.",
@@ -3867,7 +3951,13 @@
   "land.i.goldore": "Bijih emas",
   "land.i.silver": "Perak",
   "land.i.gold": "Emas",
-  "land.t.drill": "Bor besi"
+  "land.t.drill": "Bor besi",
+  "land.i.poppy": "Bunga popi",
+  "land.i.cornflower": "Bunga jagung",
+  "land.i.daisy": "Bunga aster",
+  "land.i.buttercup": "Bunga mentega",
+  "land.i.water": "Air (seember penuh)",
+  "land.t.bucket": "Ember kayu"
  },
  "vi": {
   "land.notYours": "Mảnh đất {p} thuộc về người khác. Hãy mua một mảnh, hoặc nhờ chủ của nó mời bạn.",
@@ -4125,7 +4215,13 @@
   "land.i.goldore": "Quặng vàng",
   "land.i.silver": "Bạc",
   "land.i.gold": "Vàng",
-  "land.t.drill": "Máy khoan sắt"
+  "land.t.drill": "Máy khoan sắt",
+  "land.i.poppy": "Hoa anh túc",
+  "land.i.cornflower": "Hoa thanh cúc",
+  "land.i.daisy": "Hoa cúc dại",
+  "land.i.buttercup": "Hoa mao lương",
+  "land.i.water": "Nước (một xô đầy)",
+  "land.t.bucket": "Xô gỗ"
  },
  "pl": {
   "land.notYours": "Działka {p} należy do kogoś innego. Kup działkę albo poproś jej właściciela o zaproszenie.",
@@ -4383,6 +4479,12 @@
   "land.i.goldore": "Ruda złota",
   "land.i.silver": "Srebro",
   "land.i.gold": "Złoto",
-  "land.t.drill": "Żelazne wiertło"
+  "land.t.drill": "Żelazne wiertło",
+  "land.i.poppy": "Mak",
+  "land.i.cornflower": "Chaber",
+  "land.i.daisy": "Stokrotka",
+  "land.i.buttercup": "Jaskier",
+  "land.i.water": "Woda (pełne wiadro)",
+  "land.t.bucket": "Drewniane wiadro"
  }
 }

@@ -137,7 +137,8 @@ asyncio.run(main())
 
 # 5. the page
 js_page = open(os.path.join(ROOT, "static", "land.js"), encoding="utf-8").read()
-check("the page places a sapling as a cell, like earth", '"sapling"]);   // these fill the ground' in js_page)
+check("the page places a sapling as a cell, like earth",
+      any(l.startswith("const NATURAL_ITEMS = new Set([") and '"sapling"' in l and "these fill the ground" in l for l in js_page.splitlines()))
 r = subprocess.run(["node", "--input-type=module", "-e", """
 const W = await import(%s), M = await import(%s);
 const sp = W.plotCoords(W.plotId(0, W.SPAWN_PLOT_ROW, W.SPAWN_PLOT_COL)), u = sp.u0 + 8, v = sp.v0 + 8, c = W.column(0, u, v), h = c.top + 1;

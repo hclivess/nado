@@ -19,8 +19,8 @@
 // Cells are generated with a one-cell border (wrapped across face seams by land-world.wrap). A surface edge is drawn by
 // the chunk that holds its LOWER cell, so every edge of the world belongs to exactly one chunk (no gaps, no doubles).
 // Positions are metres RELATIVE TO THE CHUNK'S ANCHOR; the page places each mesh at anchor - camera in doubles.
-import { CHUNK, H, R0, W, B, BLOCKS, ATLAS_TILES, NATURAL, CM, DEEP_MIN, TREE_WOOD, TREE_LEAVES, isTree, opaque, dirOf, frameOf, wrap, column, terrainBlock, fieldOf, treeAt, treeCell, LITTER, shapeOf } from "./land-world.js";
-import { treeModel, leafCellModel, twigModel, flaxModel, saplingModel } from "./land-trees.js";
+import { CHUNK, H, R0, W, B, BLOCKS, ATLAS_TILES, NATURAL, CM, DEEP_MIN, TREE_WOOD, TREE_LEAVES, isTree, opaque, dirOf, frameOf, wrap, column, terrainBlock, fieldOf, treeAt, treeCell, LITTER, shapeOf, FLOWERS } from "./land-world.js";
+import { treeModel, leafCellModel, twigModel, flaxModel, saplingModel, flowerModel } from "./land-trees.js";
 
 const N = CHUNK + 2;                                     // cells with the border: real index r in -1..16 is r + 1
 const TILE_COLS = 8;                                      // the atlas is TILE_COLS tiles across (static/land.js paints it)
@@ -86,7 +86,9 @@ function cells(face, cu, cv, ch, edits) {
       // the deep (#129) is ground like any other down to DEEP_MIN; under it, solid bedrock
       blk[x] = e !== undefined ? e : h < DEEP_MIN ? B.bedrock : h >= H ? B.air : terrainBlock(w.face, w.u, w.v, h, colCache);
       fld[x] = h < DEEP_MIN ? 1 : h >= H ? -1 : fieldOf(col, h, e);
-      if (e === B.air && h <= col.top) dug[x] = 1;          // ground someone dug out (not a tree or litter above it)
+      // ground someone dug out (not a tree or litter above it) — unless grass has grown back on the earth under it: a
+      // levelled site greened over read as a bare brown patch for good (the town, 2026-11-07)
+      if (e === B.air && h <= col.top && !(edits && edits.get(w.face + ":" + w.u + ":" + w.v + ":" + (h - 1)) === B.grass)) dug[x] = 1;
     }
   }
   return { blk, fld, dug, colCache };
@@ -322,12 +324,19 @@ export function meshChunk(face, cu, cv, ch, edits, boxes, lod, grassOn = true) {
   for (let k = 0; k < CHUNK; k++) for (let j = 0; j < CHUNK; j++) for (let i = 0; i < CHUNK; i++) {
     const b = blk[((k + 1) * N + (j + 1)) * N + (i + 1)];
     if (!LITTER.has(b)) continue;
-    const gu = u0 + i, gv = v0 + j, gh = h0 + k, col = colCache(face, gu, gv);
+    const gu = u0 + i, gv = v0 + j, gh = h0 + k, col0 = colCache(face, gu, gv);
+    // what lies on the ground stands on the DRAWN ground: the column's own height where the ground under it is the
+    // planet's, but the cell's floor where that ground was edited or it is not the column's top (levelled earth — the
+    // town; a dug pit) — a planted sapling or flower stood inside the ground or above it there (2026-11-07)
+    const edited = edits && edits.get(face + ":" + gu + ":" + gv + ":" + (gh - 1)) !== undefined;
+    const col = edited || gh !== col0.top + 1 ? { height: gh } : col0;
     const ou = 0.25 + 0.5 * hash3(gu, gv, 3), ov = 0.25 + 0.5 * hash3(gv, gu, 5), rot = hash3(gu, gh, gv) * 6.283;
     if (b === B.twigs) placeModel(twigModel(1 + Math.floor(hash3(gu, gv, 9) * 5)), face, gu + ou, gv + ov, col.height - 0.01, rot, 1, 0, place, bark, foliage, null);
     else if (b === B.sapling) placeModel(saplingModel(1 + Math.floor(hash3(gu, gv, 17) * 997)), face, gu + 0.5, gv + 0.5, col.height - 0.02, rot, 1,
                                          0.001 + hash3(gu, gv, 23) * 6.28, place, bark, foliage, null);
     // each clump its own wind phase: at one phase a whole stand swayed as a single sheet
+    else if (FLOWERS.includes(b)) placeModel(flowerModel(1 + Math.floor(hash3(gu, gv, 29) * 997), FLOWERS.indexOf(b)), face, gu + 0.5, gv + 0.5,
+                                             col.height - 0.02, rot, 1, 0.001 + hash3(gv, gu, 31) * 6.28, place, bark, foliage, null);
     else if (b === B.flax) placeModel(flaxModel(1 + Math.floor(hash3(gu, gv, 13) * 997)), face, gu + 0.5, gv + 0.5, col.height - 0.02, rot, 1,
                                       0.001 + hash3(gv, gu, 21) * 6.28, place, bark, foliage, null);
     else pebble(stones, face, gu + ou, gv + ov, col.height, 0.11 + 0.1 * hash3(gv, gh, gu), hash3(gu, gv, 11), rot, place);

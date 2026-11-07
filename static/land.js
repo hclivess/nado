@@ -275,12 +275,14 @@ function aim() {
   const { fr, fw } = look();
   const d = [fr.east, fr.north, fr.up].map((ax) => fw[0] * ax[0] + fw[1] * ax[1] + fw[2] * ax[2]);   // in grid axes
   const o = [P.u, P.v, P.h + EYE], cellOf = (p) => p.map(Math.floor), same = (a, b) => a[0] === b[0] && a[1] === b[1] && a[2] === b[2];
+  let wet = null;                                          // the first water cell the ray crosses (a bucket scoops it)
   for (let t = 0; t <= REACH; t += 0.02) {
     const p = [o[0] + d[0] * t, o[1] + d[1] * t, o[2] + d[2] * t], c = cellOf(p);
     const bx = boxAt(P.face, p[0], p[1], p[2]);
     if (bx) return { box: bx, point: p, before: [p[0] - d[0] * 0.02, p[1] - d[1] * 0.02, p[2] - d[2] * 0.02], dir: d };
     if (Math.round(t / 0.02) % 3) continue;               // pieces need a 2 cm step; cells and the ground do not
     const b = blockAt(P.face, c[0], c[1], c[2]);
+    if (!wet && BLOCKS[b].liquid) wet = c;
     let hit = null;
     if (crispB(b) || Wd.isTree(b)) hit = c;
     // the foot of a trunk: the drawn trunk stands on the smooth surface, inside the grass cell below its first log, so a
@@ -312,7 +314,7 @@ function aim() {
       if (!same(pc, hit) && free(pc)) { prev = pc; break; }
     }
     for (let up = 1; !prev && up <= 3; up++) { const q = [hit[0], hit[1], hit[2] + up]; if (free(q)) prev = q; }
-    return { hit, prev, point: p, dir: d };
+    return { hit, prev, point: p, dir: d, water: wet };
   }
   return null;
 }
@@ -374,6 +376,22 @@ function pieceInfo() {
   el.textContent = id && RULES && !NATURAL_ITEMS.has(id) ? T("pieceInfo", "Piece {w} × {d} × {h} cm · snap {s} cm", { w, d, h, s: piece.snap }) + " · " + shapeName : "";
   save();
 }
+// A NEWCOMER ARRIVES BY THE TOWN HALL ("make people spawn by the town hall by default", operator 2026-11-07): on the
+// street in front of its door (scripts/land_town.py: the hall in the quarter of plot (5000, 3440), door in the middle of
+// its front wall facing the street), looking at it. /tp spawn goes there too.
+const TOWN_HALL_PLOT = 40963440;
+function takePlace(p) {
+  if (!Array.isArray(p) || p.length < 5 || !p.slice(0, 5).every(Number.isFinite) || !(p[0] >= 0 && p[0] < 6)) return;
+  const [f, u, v, h, yaw] = p;
+  if (f === P.face && Math.hypot(u - P.u, v - P.v) < 1 && Math.abs(h - P.h) < 2) return;     // already there
+  P.face = f; P.u = u; P.v = v; P.yaw = yaw; P.vu = P.vv = P.vh = 0;
+  if (collides(u, v, h)) { P.h = groundAt(f, u, v); pendingPlace = [f, u, v, h, yaw, P.pitch]; } else P.h = h;
+  save();
+}
+function townSpawn() {
+  const q = Wd.plotCoords(TOWN_HALL_PLOT);
+  return [q.face, q.u0 + 8.5, q.v0 + 1.5, 0];             // the door is 8.05-8.95 m in, the street 0-2 m; yaw 0 faces +v
+}
 function load() {
   let d = null;
   try { d = JSON.parse(localStorage.getItem(LS) || "null"); } catch (e) {}
@@ -389,8 +407,7 @@ function load() {
     if (at[3] !== d.p[3]) pendingPlace = d.p.slice(0, 6);
     return;
   }
-  const sp = Wd.plotCoords(Wd.plotId(Wd.SPAWN_FACE, Wd.SPAWN_PLOT_ROW + 5, Wd.SPAWN_PLOT_COL + 5));
-  P.face = sp.face; P.u = sp.u0 + 0.5; P.v = sp.v0 - 6.5;            // amid the first wave of plots
+  [P.face, P.u, P.v, P.yaw] = townSpawn();
   P.h = groundAt(P.face, P.u, P.v);
 }
 
@@ -615,7 +632,8 @@ async function refreshTitles() {
       if (!tt || tt.planet !== Wd.PLANET) continue;      // another planet's title, or another asset of the issuer
       const plot = tt.plot;
       if (!titles.has(plot)) titles.set(plot, { aid: a.id, holder: null, asked: false });
-      else titles.get(plot).asked = false;              // a title can change hands: ask again on the next look
+      else { const t = titles.get(plot); t.asked = false; t.checked = false; }   // a title can change hands, an invitation
+                                                          // come or go: ask again on the next look
     }
     mine.clear();
     const me = net.me || dapp.me;
@@ -759,6 +777,9 @@ function connect() {
     if (m.t === "hello") {
       const was = net.me;
       net.online = true; net.tries = 0; net.me = m.you || null; net.lastWatch = "";
+      // the world server keeps a signed-in player's last place: on this page's first connect, go back there — wherever
+      // (on whichever device) they last played. A place underground waits for its plot's edits (pendingPlace).
+      if (!net.placed) { net.placed = true; if (m.pos) takePlace(m.pos); }
       invSeen = false;                                       // a (re)connect re-sends the whole bag: not a pickup
       // the server is the record now: drop the plots this browser cached, the server sends each watched one back
       for (const [plot, pe] of plotEdit) { const q = Wd.plotCoords(plot); for (const lk of pe.keys()) { const [x, z, y] = lk.split(":").map(Number); edits.delete(key(q.face, q.u0 + x, q.v0 + z, y)); } }
@@ -893,8 +914,13 @@ function netTick() {
   net.send({ t: "pos", p: [P.face, P.u, P.v, P.h, P.yaw] });
 }
 async function builderCheck(plot) {
-  if (!net.online || !net.me || mine.has(plot) || builds.has(plot) || !titles.has(plot)) return;
-  try { const r = await (await fetch("/land/api/plot?plot=" + plot, { cache: "no-store", credentials: "same-origin" })).json(); if (r.may_build) { builds.add(plot); hud(); } } catch (e) {}
+  if (!net.online || !net.me || mine.has(plot) || !titles.has(plot)) return;
+  // asked again at every title refresh (t.checked is reset there): an invitation given while you play shows up, and one
+  // withdrawn — or ended by a sale — goes away, without a reload
+  try {
+    const r = await (await fetch("/land/api/plot?plot=" + plot, { cache: "no-store", credentials: "same-origin" })).json();
+    if (r.may_build !== builds.has(plot)) { if (r.may_build) builds.add(plot); else builds.delete(plot); hud(); }
+  } catch (e) {}
 }
 
 // ---- HUD -------------------------------------------------------------------------------------------------------
@@ -1190,7 +1216,8 @@ function breakTick(dt) {
   const bar = $("breakBar");
   if (!job) { bar.classList.add("hidden"); return; }
   const a = aim();
-  const same = job.box ? a && a.box && a.box.b === job.box.b : a && a.hit && a.hit.join() === job.cell.join();
+  const same = job.box ? a && a.box && a.box.b === job.box.b
+    : a && ((a.hit && a.hit.join() === job.cell.join()) || (a.water && a.water.join() === job.cell.join()));
   if ((job.mouse && !mouseHeld) || !same) { job = null; bar.classList.add("hidden"); return; }
   job.done += dt;
   bar.classList.remove("hidden");
@@ -1201,7 +1228,7 @@ function breakTick(dt) {
     else setBlock(P.face, j.cell[0], j.cell[1], j.cell[2], B.air);
   }
 }
-const NATURAL_ITEMS = new Set(["dirt", "sand", "gravel", "snow", "sapling"]);   // these fill the ground's cells; the rest are pieces
+const NATURAL_ITEMS = new Set(["dirt", "sand", "gravel", "snow", "sapling", "water", "poppy", "cornflower", "daisy", "buttercup"]);   // these fill the ground's cells; the rest are pieces
 
 // ---- LEVELLING ("it is currently not possible to level ground ... to have a nice clean structure", operator 2026-11-06;
 // Enshrouded and Valheim level a site with a hoe first). L with a shovel flattens the 5 x 5 columns around the aimed cell
@@ -1286,6 +1313,8 @@ function act(place, mouse) {
     net.send({ t: "boxes", plot: pl.plot, add, req: ++net.req });
   } else {
     if (a.box) return startTakeDown(a.box, mouse);
+    // WATER: with a bucket, the first water the view crosses is scooped (a bucketful into the bag) — not the pond's bed
+    if (a.water && hasClass("bucket")) return startBreak(a.water, mouse);
     const [u, v, h] = a.hit;
     // bedrock (the crust's floor, and under the deep) gives way only to a drill, and never under DEEP_MIN
     if (blockAt(P.face, u, v, h) === B.bedrock && (h < 0 || !hasClass("drill"))) return notify(T("needsDrill", "Bedrock — only a drill breaks it."));
@@ -1340,7 +1369,7 @@ const CMDS = {
   pos: () => conLine(`${T("cFace", "face")} ${P.face} · u ${Math.floor(P.u)} · v ${Math.floor(P.v)} · h ${P.h.toFixed(1)} · ${T("cPlot", "plot")} ${Wd.plotOf(P.face, Math.floor(P.u), Math.floor(P.v))}`),
   tp: (a) => {
     let u, v;
-    if (a[0] === "spawn") { const sp = Wd.plotCoords(Wd.plotId(Wd.SPAWN_FACE, Wd.SPAWN_PLOT_ROW + 5, Wd.SPAWN_PLOT_COL + 5)); P.face = sp.face; u = sp.u0; v = sp.v0 - 7; }
+    if (a[0] === "spawn") { const sp = townSpawn(); P.face = sp[0]; u = Math.floor(sp[1]); v = Math.floor(sp[2]); P.yaw = sp[3]; }
     else { u = Number(a[0]); v = Number(a[1]); }
     if (!(Number.isInteger(u) && Number.isInteger(v) && u >= 0 && v >= 0 && u < W && v < W)) return conLine(T("cTpBad", "Usage: /tp spawn, or /tp <u> <v> with whole numbers from 0 to {w}", { w: W - 1 }), "err");
     P.u = u + 0.5; P.v = v + 0.5; P.h = groundAt(P.face, P.u, P.v); P.vu = P.vv = P.vh = 0;

@@ -218,6 +218,12 @@ export const BLOCKS = [
   // THE DEEP (#129, doc/land-core.md): veins below 300 m of the deep crust hold silver and gold
   { key: "silverore", solid: true, tex: [46, 46, 46] },
   { key: "goldore", solid: true, tex: [47, 47, 47] },
+  // WILD FLOWERS (operator 2026-11-07: "make the town tile beautiful … if anything is amiss, add it"): they grow in drifts
+  // on the meadows, are picked by hand and planted like a sapling (land-trees.js flowerModel)
+  { key: "poppy", solid: false, see: true, tex: [11, 11, 11] },
+  { key: "cornflower", solid: false, see: true, tex: [11, 11, 11] },
+  { key: "daisy", solid: false, see: true, tex: [11, 11, 11] },
+  { key: "buttercup", solid: false, see: true, tex: [11, 11, 11] },
 ];
 export const B = Object.fromEntries(BLOCKS.map((b, i) => [b.key, i]));
 export const ATLAS_TILES = 48;              // tiles 0..47 (0 unused)
@@ -349,12 +355,13 @@ export function treeCell(t, du, dv, dh) {
 // the whole web of tools. Before this, stone was a hidden bonus in every 4th clod of turf and sticks came only from
 // leaves, which nobody could find without reading the source. A litter cell is the air cell just above the ground; it is
 // a function of place like everything else, and like every gathered cell in the commons it lies there again later.
-export const LITTER = new Set([B.pebble, B.twigs, B.flax, B.sapling]);   // drawn as models, walked through
+export const FLOWERS = [B.poppy, B.cornflower, B.daisy, B.buttercup];
+export const LITTER = new Set([B.pebble, B.twigs, B.flax, B.sapling, ...FLOWERS]);   // drawn as models, walked through
 // WHAT BURNS (#124), and what it leaves: a cell of grass burns to bare earth, wood, leaves, litter and plants to air; a
 // built piece of these materials burns down whole (scripts/land_server.py FIRE). Stone, earth, sand, brick, metal,
 // glass and water do not burn — they are what stops a fire.
 export const BURNS = new Map([[B.grass, B.dirt], [B.log, 0], [B.birchlog, 0], [B.leaves, 0], [B.needles, 0], [B.fronds, 0],
-  [B.twigs, 0], [B.flax, 0], [B.sapling, 0]]);
+  [B.twigs, 0], [B.flax, 0], [B.sapling, 0], [B.poppy, 0], [B.cornflower, 0], [B.daisy, 0], [B.buttercup, 0]]);
 export const PIECE_BURNS = new Set([B.planks, B.darkwood, B.thatch, B.beam, B.door, B.window, B.table, B.chair, B.bench,
   B.bed, B.fence, B.torch, B.ladder, B.chest]);
 /** The litter on column (face, u, v): B.pebble, B.twigs, B.flax or 0. */
@@ -364,8 +371,11 @@ export function litterAt(face, u, v, col) {
   switch (col.biome) {
     // FLAX grows in STANDS, as a sown or wild crop does — a patch of meadow (one 8 m region in nine) thick with it, then
     // none for a while — so a player who finds one finds plenty (2026-11-07)
+    // WILD FLOWERS in drifts: one 8 m region in seven is a patch of one kind (the region's hash picks which), a cell in
+    // four of it in bloom — a walk across the meadow passes a red patch, then a white one
     case "grass": return hh % 17 === 4 ? B.pebble : hh % 19 === 9 ? B.twigs
-      : hash32(face + 53, v >> 3, u >> 3) % 9 === 0 && hh % 5 < 3 ? B.flax : 0;
+      : hash32(face + 53, v >> 3, u >> 3) % 9 === 0 && hh % 5 < 3 ? B.flax
+      : hash32(face + 61, v >> 3, u >> 3) % 7 === 0 && hh % 4 === 1 ? FLOWERS[hash32(face + 67, v >> 3, u >> 3) % 4] : 0;
     case "forest": return hh % 23 === 4 ? B.pebble : hh % 9 === 2 ? B.twigs : 0;       // a forest floor is strewn with sticks
     case "desert": return hh % 13 === 6 ? B.pebble : 0;
     case "rock": return hh % 6 === 1 ? B.pebble : 0;

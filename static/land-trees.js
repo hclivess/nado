@@ -223,6 +223,31 @@ export function flaxModel(seed) {
   }
   return { bark, leaves };
 }
+/** A wild flower (land-world FLOWERS): a few stems, 25-45 cm, each topped with its flower head — kind 0 a red poppy
+ *  (a wide cup), 1 a blue cornflower, 2 a white daisy (a flat disc), 3 a yellow buttercup (a small cup). The tints LIFT
+ *  the bark texture, as flax's do, so the colours read true. */
+const FLOWER_TINT = [[6.2, 0.9, 0.7], [1.2, 1.7, 6.4], [5.8, 5.8, 5.5], [6.0, 4.9, 0.8]];
+const EYE_TINT = [[0.6, 0.5, 0.5], [1.4, 1.6, 4.5], [6.0, 4.6, 0.7], [5.0, 3.6, 0.5]];
+export function flowerModel(seed, kind) {
+  const R = rng(seed), bark = part(), leaves = part(), n = 5 + Math.floor(R() * 4), tint = FLOWER_TINT[kind] || FLOWER_TINT[0];
+  // petals radiate from the head: a poppy's five broad ones cupped up, a cornflower's ragged ring, a daisy's many thin
+  // white rays laid flat round a yellow eye, a buttercup's five small cupped ones
+  const petals = [5, 8, 12, 5][kind] ?? 5, len = [0.055, 0.04, 0.05, 0.03][kind] ?? 0.04, rad = [0.022, 0.01, 0.008, 0.014][kind] ?? 0.01;
+  const lift = [0.03, 0.015, 0.004, 0.02][kind] ?? 0.01;
+  for (let k = 0; k < n; k++) {
+    const a = R() * Math.PI * 2, r = 0.04 + R() * 0.14, h = 0.3 + R() * 0.25, lean = (R() - 0.5) * 0.1;
+    const b0 = [Math.cos(a) * r, Math.sin(a) * r, 0], top = [b0[0] + Math.cos(a) * lean, b0[1] + Math.sin(a) * lean, h];
+    const mid = [(b0[0] + top[0]) / 2, (b0[1] + top[1]) / 2, h * 0.5];
+    tube(bark, [b0, mid, top], [0.009, 0.007, 0.005], 3, (i) => i * 0.35, 0, [1.3, 2.9, 1.1]);
+    const spin = R() * Math.PI * 2;
+    for (let q = 0; q < petals; q++) {
+      const pa = spin + (q / petals) * Math.PI * 2, tip = [top[0] + Math.cos(pa) * len, top[1] + Math.sin(pa) * len, top[2] + lift];
+      tube(bark, [top, tip], [rad, rad * 0.6], 4, () => 0.7, 0, tint);
+    }
+    tube(bark, [add(top, [0, 0, -0.004]), add(top, [0, 0, 0.012])], [0.012, 0.01], 6, () => 0.7, 0, EYE_TINT[kind] || tint);   // the eye
+  }
+  return { bark, leaves };
+}
 /** A sapling (land-world B.sapling): a thin whip of a stem, half a metre, with a few young leaves near its top. */
 export function saplingModel(seed) {
   const R = rng(seed), bark = part(), leaves = part(), h = 0.4 + R() * 0.15;

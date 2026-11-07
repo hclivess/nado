@@ -240,6 +240,26 @@
   },
   "gold": {
    "name": "Gold"
+  },
+  "poppy": {
+   "name": "Poppy",
+   "places": 58
+  },
+  "cornflower": {
+   "name": "Cornflower",
+   "places": 59
+  },
+  "daisy": {
+   "name": "Daisy",
+   "places": 60
+  },
+  "buttercup": {
+   "name": "Buttercup",
+   "places": 61
+  },
+  "water": {
+   "name": "Water (a bucketful)",
+   "places": 5
   }
  },
  "tools": {
@@ -317,6 +337,11 @@
    "name": "Iron drill",
    "class": "drill",
    "speed": 2
+  },
+  "bucket": {
+   "name": "Wooden bucket",
+   "class": "bucket",
+   "speed": 1
   }
  },
  "stations": {
@@ -806,6 +831,53 @@
    "yields": [
     [
      "goldore",
+     1
+    ]
+   ]
+  },
+  "58": {
+   "hard": 0.2,
+   "yields": [
+    [
+     "poppy",
+     1
+    ]
+   ]
+  },
+  "59": {
+   "hard": 0.2,
+   "yields": [
+    [
+     "cornflower",
+     1
+    ]
+   ]
+  },
+  "60": {
+   "hard": 0.2,
+   "yields": [
+    [
+     "daisy",
+     1
+    ]
+   ]
+  },
+  "61": {
+   "hard": 0.2,
+   "yields": [
+    [
+     "buttercup",
+     1
+    ]
+   ]
+  },
+  "5": {
+   "hard": 0.3,
+   "class": "bucket",
+   "needs": "bucket",
+   "yields": [
+    [
+     "water",
      1
     ]
    ]
@@ -2135,6 +2207,28 @@
    ],
    "with": [
     "bloomery"
+   ]
+  },
+  {
+   "id": "bucket",
+   "makes": [
+    [
+     "bucket",
+     1
+    ]
+   ],
+   "uses": [
+    [
+     "planks",
+     3
+    ],
+    [
+     "cordage",
+     1
+    ]
+   ],
+   "with": [
+    "workbench"
    ]
   }
  ],

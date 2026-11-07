@@ -49,12 +49,16 @@ AGENT_ORIGIN = "land-agent"       # the origin an agent's challenge names (a bro
 CHALLENGE_TTL = 300
 SESSION_TTL = 7 * 86400
 FACE_N, PLOT, W, H = L.FACE_N, L.PLOT, L.FACE_N * L.PLOT, 256
-N_BLOCKS = 58                     # static/land-world.js BLOCKS.length (tests/test_the_land_planet_… checks the two agree)
+N_BLOCKS = 62                     # static/land-world.js BLOCKS.length (tests/test_the_land_planet_… checks the two agree)
 DOOR = 37                         # static/land-world.js B.door: a piece that swings open and shut ("door" op)
 CHEST = 54                        # static/land-world.js B.chest: a piece that keeps items on its plot ("chest" op, #114)
 CHEST_MAX = 2000                  # items one chest holds
 TREE_WOOD = {7, 31}                # static/land-world.js TREE_WOOD (log, birchlog): cutting one fells its tree above
-UNBUILDABLE = {5, 30}             # water, bedrock: never placed (no item in land-recipes.json places them either)
+UNBUILDABLE = {30}                # bedrock: never placed (no item in land-recipes.json places it either)
+# WATER is carried in a bucket (land-recipes.json: a bucket scoops a cell of it, a bucketful places one) and placed only
+# where something holds it — on a block or on more water — so a pond, a basin or a fountain holds; it does not flow.
+WATER = 5
+FLOWERS = {58, 59, 60, 61}        # static/land-world.js FLOWERS: picked by hand, planted in soil like a sapling
 # THE DEEP (#129, doc/land-core.md): layers below 0, down to DEEP_MIN (static/land-world.js DEEP_MIN), are the deep crust.
 # Nobody owns them — anyone signed in digs and builds there, under an owned plot too — and a dug deep cell never grows
 # back: a mine stays a mine. The deep is kept with the plot above it but is never part of that plot's commitment.
@@ -91,6 +95,7 @@ LONE_ODDS = 40
 # shown to everyone near them. The look's other half is chosen, not made: skin and hair, a palette index each.
 WEAR_SLOTS = ("head", "body", "legs", "back")
 LOOK_SKIN, LOOK_HAIR = 6, 6       # static/land.js SKIN / HAIR palettes
+POS_SAVE_S = 10                   # a signed-in player's place is kept at most this often (and when they leave)
 MAX_CELLS = 4096                  # per /set call or ws "set"
 RATE = 400                        # cells per second per caller, refilling a bucket that holds one full call (MAX_CELLS)
 PLANET = 0
@@ -101,7 +106,7 @@ PLANET = 0
 # with nothing left to burn it dies. It spreads ONLY where its starter may build (the commons, their own plot, a plot
 # they are invited to): nobody can burn another's plot. Fires are transient: a restart puts them out.
 FIRE = 55
-BURNS = {1: 2, 7: 0, 31: 0, 8: 0, 32: 0, 33: 0, 35: 0, 51: 0, 52: 0}   # land-world BURNS (the test checks they agree)
+BURNS = {1: 2, 7: 0, 31: 0, 8: 0, 32: 0, 33: 0, 35: 0, 51: 0, 52: 0, 58: 0, 59: 0, 60: 0, 61: 0}   # land-world BURNS (the test checks they agree)
 PIECE_BURNS = {9, 15, 39, 38, 37, 40, 45, 46, 47, 48, 49, 50, 53, 54}  # land-world PIECE_BURNS
 BURN_TICKS = {7: 8, 31: 8, 1: 3}  # ticks a cell takes to burn through (default 3: leaves, litter, plants)
 PIECE_TICKS = 6                   # ticks a built piece takes to burn down
@@ -570,6 +575,11 @@ class World:
                 "stations": sorted(pl["stations"]), "vol": {k: v for k, v in sorted(pl["vol"].items()) if v > 0},
                 "worn": dict(sorted(pl["worn"].items())), "look": dict(pl["look"])}
 
+    def keep_place(self, addr, pos):
+        """Remember where a signed-in player stands ([face, u, v, h, yaw]), written with the player at the next flush."""
+        self.player(addr)["pos"] = [int(pos[0]), round(float(pos[1]), 2), round(float(pos[2]), 2), round(float(pos[3]), 2), round(float(pos[4]), 3)]
+        self.pdirty.add(addr)
+
     def look_of(self, addr):
         """What others see of a player: what they wear and their skin and hair."""
         pl = self.player(addr)
@@ -714,8 +724,10 @@ class World:
                     self.fires.pop((face, u, v, h), None)
                 elif cur not in (0, 5):
                     refused.append([c, "something is already there"]); continue
-                if b == SAPLING and (await self.blocks_at([[face, u, v, h - 1]]))[(face, u, v, h - 1)] not in (GRASS, DIRT):
-                    refused.append([c, "a sapling is planted in earth or grass"]); continue
+                if (b == SAPLING or b in FLOWERS) and (await self.blocks_at([[face, u, v, h - 1]]))[(face, u, v, h - 1)] not in (GRASS, DIRT):
+                    refused.append([c, "a plant is planted in earth or grass"]); continue
+                if b == WATER and (cur == WATER or (await self.blocks_at([[face, u, v, h - 1]]))[(face, u, v, h - 1)] in PASSABLE - {WATER}):
+                    refused.append([c, "water needs something under it to hold it"]); continue
                 item = places.get(b)
                 if not item or pl["items"].get(item, 0) < 1:
                     refused.append([c, f"you have no {RULES['items'][item]['name'].lower() if item else 'such block'} to place"]); continue
@@ -1638,7 +1650,9 @@ def make_app(world, hub, site_origin, wallet_url, secure_cookies=True, shot_page
         await ws.prepare(request)
         addr = world.who(request)
         st = hub.socks[ws] = {"who": addr, "watch": set(), "pos": None, "id": secrets.token_hex(4)}
-        await ws.send_json({"t": "hello", "you": addr, "id": st["id"]})
+        # A PLAYER'S LAST PLACE is kept with them (not only in one browser's storage): a signed-in player who comes back —
+        # on any device, in any browser — is put where they left off ("why did i respawn somewhere off again", 2026-11-07)
+        await ws.send_json({"t": "hello", "you": addr, "id": st["id"], **({"pos": world.player(addr).get("pos")} if addr else {})})
         if addr:
             await ws.send_json(dict(world.inv_json(addr), t="inv"))
         await ws.send_json({"t": "offers", "offers": sorted(world.offers.values(), key=lambda o: -o["at"])[:500]})
@@ -1659,8 +1673,11 @@ def make_app(world, hub, site_origin, wallet_url, secure_cookies=True, shot_page
                         await ws.send_json(dict(plot_json(p, None, False), t="plot"))
                 elif t == "pos":
                     p = m.get("p")
-                    if isinstance(p, list) and len(p) == 5 and all(isinstance(x, (int, float)) for x in p):
+                    if (isinstance(p, list) and len(p) == 5 and all(isinstance(x, (int, float)) and not isinstance(x, bool) for x in p)
+                            and 0 <= p[0] < 6 and 0 <= p[1] < W and 0 <= p[2] < W and DEEP_MIN <= p[3] < H + 400):
                         st["pos"] = [int(p[0]), float(p[1]), float(p[2]), float(p[3]), float(p[4])]
+                        if addr and time.time() - st.get("pos_at", 0) > POS_SAVE_S:
+                            world.keep_place(addr, st["pos"]); st["pos_at"] = time.time()
                 elif t == "set":
                     if not addr:
                         await ws.send_json({"t": "set_ok", "applied": 0, "refused": [[None, "sign in to build"]], "req": m.get("req")})
@@ -1741,6 +1758,8 @@ def make_app(world, hub, site_origin, wallet_url, secure_cookies=True, shot_page
                             await hub.offers(world)
         finally:
             hub.socks.pop(ws, None)
+            if addr and st.get("pos"):
+                world.keep_place(addr, st["pos"])               # where they stood when they left
         return ws
 
     app = web.Application(client_max_size=2 << 20)

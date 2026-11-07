@@ -77,6 +77,6 @@ check("the town builds through the world server's own rules, never around them",
 check("…only after the town's titles are the server wallet's",
       "if h != WHO and not DRY:" in town and "mint the first wave first" in town)
 check("…with its endowment stated, and never while the live service holds the world",
-      "ENDOW = {" in town and 'print("endowed the server wallet with", json.dumps(ENDOW))' in town
+      "ENDOW = {" in town and 'print("endowed the server wallet with", json.dumps(endow))' in town
       and "nado-land is running — stop it first" in town)
 _report.done()
