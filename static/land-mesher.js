@@ -118,7 +118,7 @@ function meshBoxes(boxes, u0, v0, h0, place, solid, clear, lod) {
     cell[ax] = Math.floor((s > 0 ? plane : plane - 1) / CM);
     cell[o[0]] = Math.floor(b[o[0]] / CM); cell[o[1]] = Math.floor(b[o[1]] / CM);
     for (const n of idx.get(bk(cell[0], cell[1], cell[2])) || []) {
-      if (n === b || !opaque(n[6]) || BLOCKS[n[6]].see || shapeOf(n)) continue;   // a slope's box is not solid: it hides nothing
+      if (n === b || !opaque(n[6]) || BLOCKS[n[6]].see || shapeOf(n) || MODELS[n[6]] || n[6] === B.window) continue;   // a slope's, a window's or a table's box is not solid: it hides nothing
       if ((s > 0 ? n[ax] : n[ax] + n[ax + 3]) !== plane) continue;
       if (n[o[0]] <= b[o[0]] && n[o[0]] + n[o[0] + 3] >= b[o[0]] + b[o[0] + 3] && n[o[1]] <= b[o[1]] && n[o[1]] + n[o[1] + 3] >= b[o[1]] + b[o[1] + 3]) return true;
     }
@@ -133,6 +133,15 @@ function meshBoxes(boxes, u0, v0, h0, place, solid, clear, lod) {
     if (opaque(b[6]) && b[6] !== runM) { close(); runM = b[6]; runAt = solid.idx.length; }
     if (shapeOf(b)) { meshSlope(b, u0, v0, place, !opaque(b[6]) ? clear : solid, lo, hi); continue; }
     if (b[6] === B.window) { meshWindow(b, u0, v0, place, solid, clear, lo, hi); continue; }
+    if (MODELS[b[6]]) {
+      // a part of another material (a bed's straw tick, a torch's flame) is its own draw group; the run of the piece's
+      // own material resumes after it, so the groups still cover every index exactly once
+      meshModel(b, u0, v0, place, solid, lo, hi, (m, draw) => {
+        if (m === runM) return draw();
+        const own = runM; close(); runM = m; runAt = solid.idx.length; draw(); close(); runM = own; runAt = solid.idx.length;
+      }, boxes);
+      continue;
+    }
     const info = BLOCKS[b[6]], buf = !opaque(b[6]) ? clear : solid;
     const y0 = Math.max(b[2], lo), y1 = Math.min(b[2] + b[5], hi);          // this chunk's slice of the piece
     const mn = [b[0], b[1], y0], mx = [b[0] + b[3], b[1] + b[4], y1];
@@ -421,6 +430,51 @@ function meshWindow(b, u0, v0, place, solid, clear, lo, hi) {
   sub(solid, W / 2 - BAR / 2, W / 2 + BAR / 2, D / 2 - 2, D / 2 + 2, FRAME, H - FRAME, tile);     // the mullion
   sub(solid, FRAME, W - FRAME, D / 2 - 2, D / 2 + 2, H / 2 - BAR / 2, H / 2 + BAR / 2, tile);     // the transom
   sub(clear, FRAME, W - FRAME, D / 2 - 0.5, D / 2 + 0.5, FRAME, H - FRAME, BLOCKS[B.glass].tex[1]);   // the pane
+}
+// ---- furniture and fittings (land-world: table .. torch): each a real model of cuboid parts — legs, a top, a back, rails —
+// inside its unit box, not the box itself ("start creating various structures ... realistic", operator 2026-11-07).
+// A part is [l0, l1, s0, s1, y0, y1, material?] in cm: l along the box's LONG side, s across it (a chair's back and a
+// bed's headboard are at their named ends, so turning the piece (T) turns the model), y up; material: the piece's own
+// unless named. Drawn whole by the chunk its bottom is in.
+const legs = (L, S, w, i, y1) => [[i, i + w], [L - i - w, L - i]].flatMap(([a, b]) => [[i, i + w], [S - i - w, S - i]].map(([c, d]) => [a, b, c, d, 0, y1]));
+export const MODELS = {
+  [B.table]: (L, S) => [[0, L, 0, S, 72, 76], ...legs(L, S, 6, 4, 72),
+    [10, L - 10, 5, 7, 62, 72], [10, L - 10, S - 7, S - 5, 62, 72], [5, 7, 10, S - 10, 62, 72], [L - 7, L - 5, 10, S - 10, 62, 72]],
+  [B.chair]: (L, S) => [[0, L, 0, S - 2, 42, 46],
+    [3, 7, 2, 6, 0, 42], [L - 7, L - 3, 2, 6, 0, 42], [3, 7, S - 6, S - 2, 0, 95], [L - 7, L - 3, S - 6, S - 2, 0, 95],
+    [7, L - 7, S - 5, S - 3, 58, 64], [7, L - 7, S - 5, S - 3, 76, 84], [7, L - 7, S - 6, S - 2, 89, 95]],
+  [B.bench]: (L, S) => [[0, L, 0, S, 41, 45], [15, 19, 3, S - 3, 0, 41], [L - 19, L - 15, 3, S - 3, 0, 41], [19, L - 19, S / 2 - 3, S / 2 + 3, 12, 18]],
+  // a rope bed: posts, rails, a head and foot board, a straw tick on the ropes, a wool blanket and a pillow
+  [B.bed]: (L, S) => [[0, 8, 0, 8, 0, 90], [0, 8, S - 8, S, 0, 90], [L - 8, L, 0, 8, 0, 55], [L - 8, L, S - 8, S, 0, 55],
+    [8, L - 8, 0, 5, 20, 35], [8, L - 8, S - 5, S, 20, 35], [2, 6, 8, S - 8, 40, 85], [L - 6, L - 2, 8, S - 8, 35, 50],
+    [8, L - 8, 5, S - 5, 35, 48, B.thatch], [70, L - 8, 4, S - 4, 48, 51, B.red], [12, 45, 20, S - 20, 48, 57, B.white]],
+  [B.fence]: (L, S) => [[0, 8, 0, S, 0, 100], [L - 8, L, 0, S, 0, 100], [8, L - 8, 2, S - 2, 38, 46], [8, L - 8, 2, S - 2, 76, 84]],
+  // a torch: a shaft, a head wrapped in fibre and pitch, and its flame (a lamp: it glows, and lights the night near it)
+  [B.torch]: (L, S) => [[L / 2 - 1.5, L / 2 + 1.5, S / 2 - 1.5, S / 2 + 1.5, 0, 100], [L / 2 - 2.5, L / 2 + 2.5, S / 2 - 2.5, S / 2 + 2.5, 96, 106, B.thatch],
+    [L / 2 - 2, L / 2 + 2, S / 2 - 2, S / 2 + 2, 106, 118, B.lamp]],
+};
+// a chair is pulled up to a table: its back is on the side AWAY from the nearest table within 1.5 m (a unit piece turns
+// only two ways, so its facing is read from where it stands, never a stored flag the world server would have to know)
+export function facesAway(b, boxes) {
+  const longX = b[3] >= b[4], sAx = longX ? 1 : 0, mid = b[sAx] + b[sAx + 3] / 2;
+  let best = null, bd = 150 * 150;
+  for (const t of boxes) if (t[6] === B.table && Math.abs(t[2] - b[2]) < 50) {
+    const dx = t[0] + t[3] / 2 - b[0] - b[3] / 2, dz = t[1] + t[4] / 2 - b[1] - b[4] / 2, d = dx * dx + dz * dz;
+    if (d < bd) { bd = d; best = t; }
+  }
+  return best ? best[sAx] + best[sAx + 3] / 2 > mid : false;       // true: the table is on the s = S side, so the back flips
+}
+function meshModel(b, u0, v0, place, buf, lo, hi, group, boxes) {
+  if (b[2] < lo || b[2] >= hi) return;
+  const longX = b[3] >= b[4], L = longX ? b[3] : b[4], S = longX ? b[4] : b[3];
+  const flip = b[6] === B.chair && facesAway(b, boxes);
+  for (const [l0, l1, s0f, s1f, y0, y1, m] of MODELS[b[6]](L, S)) {
+    const s0 = flip ? S - s1f : s0f, s1 = flip ? S - s0f : s1f;
+    const lo3 = longX ? [b[0] + l0, b[1] + s0, b[2] + y0] : [b[0] + s0, b[1] + l0, b[2] + y0];
+    const hi3 = longX ? [b[0] + l1, b[1] + s1, b[2] + y1] : [b[0] + s1, b[1] + l1, b[2] + y1];
+    const mat = m ?? b[6];
+    group(mat, () => cuboid(buf, lo3, hi3, u0, v0, place, BLOCKS[mat].tex[1]));
+  }
 }
 /** Six faces of the cuboid lo..hi (plot cm), each wound to face out, texture per metre. */
 function cuboid(buf, lo, hi, u0, v0, place, tile) {

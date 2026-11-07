@@ -1,6 +1,6 @@
 {
  "about": "Land's gathering and crafting web (doc/land.md 'Gathering, tools, crafting'). ONE file read by the page (static/land.js) and the world server (scripts/land_server.py), so both apply the same rules: 'you must gather resources to make tools to make tools to collect more resources' (operator, 2026-11-06). No eras: every recipe names exactly what it needs. Block ids are static/land-world.js BLOCKS.",
- "version": 3,
+ "version": 4,
  "items": {
   "fiber": {
    "name": "Plant fiber"
@@ -127,6 +127,60 @@
   },
   "bronze": {
    "name": "Bronze"
+  },
+  "table": {
+   "name": "Table",
+   "places": 45,
+   "unit": [
+    120,
+    80,
+    76
+   ]
+  },
+  "chair": {
+   "name": "Chair",
+   "places": 46,
+   "unit": [
+    50,
+    45,
+    95
+   ]
+  },
+  "bench": {
+   "name": "Bench",
+   "places": 47,
+   "unit": [
+    150,
+    35,
+    45
+   ]
+  },
+  "bed": {
+   "name": "Bed",
+   "places": 48,
+   "unit": [
+    200,
+    100,
+    90
+   ]
+  },
+  "fence": {
+   "name": "Fence",
+   "places": 49,
+   "unit": [
+    100,
+    8,
+    100
+   ]
+  },
+  "torch": {
+   "name": "Torch",
+   "places": 50,
+   "unit": [
+    10,
+    10,
+    120
+   ]
   }
  },
  "tools": {
@@ -527,6 +581,66 @@
    "yields": [
     [
      "clay",
+     1
+    ]
+   ]
+  },
+  "45": {
+   "hard": 1.0,
+   "class": "axe",
+   "yields": [
+    [
+     "table",
+     1
+    ]
+   ]
+  },
+  "46": {
+   "hard": 1.0,
+   "class": "axe",
+   "yields": [
+    [
+     "chair",
+     1
+    ]
+   ]
+  },
+  "47": {
+   "hard": 1.0,
+   "class": "axe",
+   "yields": [
+    [
+     "bench",
+     1
+    ]
+   ]
+  },
+  "48": {
+   "hard": 1.0,
+   "class": "axe",
+   "yields": [
+    [
+     "bed",
+     1
+    ]
+   ]
+  },
+  "49": {
+   "hard": 1.0,
+   "class": "axe",
+   "yields": [
+    [
+     "fence",
+     1
+    ]
+   ]
+  },
+  "50": {
+   "hard": 0.3,
+   "class": "axe",
+   "yields": [
+    [
+     "torch",
      1
     ]
    ]
@@ -1331,6 +1445,157 @@
    ],
    "with": [
     "kiln"
+   ]
+  },
+  {
+   "id": "table",
+   "makes": [
+    [
+     "table",
+     1
+    ]
+   ],
+   "uses": [
+    [
+     "planks",
+     6
+    ],
+    [
+     "nails",
+     8
+    ]
+   ],
+   "with": [
+    "workbench",
+    "hammer"
+   ]
+  },
+  {
+   "id": "chair",
+   "makes": [
+    [
+     "chair",
+     1
+    ]
+   ],
+   "uses": [
+    [
+     "planks",
+     3
+    ],
+    [
+     "nails",
+     4
+    ]
+   ],
+   "with": [
+    "workbench",
+    "hammer"
+   ]
+  },
+  {
+   "id": "bench",
+   "makes": [
+    [
+     "bench",
+     1
+    ]
+   ],
+   "uses": [
+    [
+     "planks",
+     2
+    ],
+    [
+     "sticks",
+     4
+    ]
+   ],
+   "with": [
+    "workbench"
+   ]
+  },
+  {
+   "id": "bed",
+   "makes": [
+    [
+     "bed",
+     1
+    ]
+   ],
+   "uses": [
+    [
+     "planks",
+     8
+    ],
+    [
+     "nails",
+     6
+    ],
+    [
+     "cordage",
+     6
+    ],
+    [
+     "fiber",
+     12
+    ]
+   ],
+   "with": [
+    "workbench",
+    "hammer"
+   ]
+  },
+  {
+   "id": "fence",
+   "makes": [
+    [
+     "fence",
+     1
+    ]
+   ],
+   "uses": [
+    [
+     "wood",
+     1
+    ],
+    [
+     "sticks",
+     2
+    ],
+    [
+     "cordage",
+     1
+    ]
+   ],
+   "with": [
+    "axe"
+   ]
+  },
+  {
+   "id": "torch",
+   "makes": [
+    [
+     "torch",
+     2
+    ]
+   ],
+   "uses": [
+    [
+     "sticks",
+     1
+    ],
+    [
+     "fiber",
+     2
+    ],
+    [
+     "charcoal",
+     1
+    ]
+   ],
+   "with": [
+    "campfire"
    ]
   }
  ],

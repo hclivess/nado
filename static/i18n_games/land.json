@@ -155,7 +155,13 @@
   "land.i.bronze": "Bronze",
   "land.t.bronze_axe": "Bronze axe",
   "land.t.bronze_pick": "Bronze pickaxe",
-  "land.t.bronze_shovel": "Bronze shovel"
+  "land.t.bronze_shovel": "Bronze shovel",
+  "land.i.table": "Table",
+  "land.i.chair": "Chair",
+  "land.i.bench": "Bench",
+  "land.i.bed": "Bed",
+  "land.i.fence": "Fence",
+  "land.i.torch": "Torch"
  },
  "cs": {
   "land.notYours": "Pozemek {p} patří někomu jinému. Kupte si pozemek, nebo požádejte jeho vlastníka o pozvání.",
@@ -313,7 +319,13 @@
   "land.i.bronze": "Bronz",
   "land.t.bronze_axe": "Bronzová sekera",
   "land.t.bronze_pick": "Bronzový krumpáč",
-  "land.t.bronze_shovel": "Bronzová lopata"
+  "land.t.bronze_shovel": "Bronzová lopata",
+  "land.i.table": "Stůl",
+  "land.i.chair": "Židle",
+  "land.i.bench": "Lavice",
+  "land.i.bed": "Postel",
+  "land.i.fence": "Plot",
+  "land.i.torch": "Pochodeň"
  },
  "es": {
   "land.notYours": "La parcela {p} pertenece a otra persona. Compra una parcela o pide a su dueño que te invite.",
@@ -471,7 +483,13 @@
   "land.i.bronze": "Bronce",
   "land.t.bronze_axe": "Hacha de bronce",
   "land.t.bronze_pick": "Pico de bronce",
-  "land.t.bronze_shovel": "Pala de bronce"
+  "land.t.bronze_shovel": "Pala de bronce",
+  "land.i.table": "Mesa",
+  "land.i.chair": "Silla",
+  "land.i.bench": "Banco",
+  "land.i.bed": "Cama",
+  "land.i.fence": "Valla",
+  "land.i.torch": "Antorcha"
  },
  "pt": {
   "land.notYours": "O lote {p} pertence a outra pessoa. Compre um lote ou peça ao dono que convide você.",
@@ -629,7 +647,13 @@
   "land.i.bronze": "Bronze",
   "land.t.bronze_axe": "Machado de bronze",
   "land.t.bronze_pick": "Picareta de bronze",
-  "land.t.bronze_shovel": "Pá de bronze"
+  "land.t.bronze_shovel": "Pá de bronze",
+  "land.i.table": "Mesa",
+  "land.i.chair": "Cadeira",
+  "land.i.bench": "Banco",
+  "land.i.bed": "Cama",
+  "land.i.fence": "Cerca",
+  "land.i.torch": "Tocha"
  },
  "fr": {
   "land.notYours": "La parcelle {p} appartient à quelqu'un d'autre. Achetez une parcelle ou demandez à son propriétaire de vous inviter.",
@@ -787,7 +811,13 @@
   "land.i.bronze": "Bronze",
   "land.t.bronze_axe": "Hache en bronze",
   "land.t.bronze_pick": "Pioche en bronze",
-  "land.t.bronze_shovel": "Pelle en bronze"
+  "land.t.bronze_shovel": "Pelle en bronze",
+  "land.i.table": "Table",
+  "land.i.chair": "Chaise",
+  "land.i.bench": "Banc",
+  "land.i.bed": "Lit",
+  "land.i.fence": "Clôture",
+  "land.i.torch": "Torche"
  },
  "de": {
   "land.notYours": "Grundstück {p} gehört jemand anderem. Kauf dir ein Grundstück oder bitte den Besitzer um eine Einladung.",
@@ -945,7 +975,13 @@
   "land.i.bronze": "Bronze",
   "land.t.bronze_axe": "Bronzeaxt",
   "land.t.bronze_pick": "Bronzespitzhacke",
-  "land.t.bronze_shovel": "Bronzeschaufel"
+  "land.t.bronze_shovel": "Bronzeschaufel",
+  "land.i.table": "Tisch",
+  "land.i.chair": "Stuhl",
+  "land.i.bench": "Bank",
+  "land.i.bed": "Bett",
+  "land.i.fence": "Zaun",
+  "land.i.torch": "Fackel"
  },
  "it": {
   "land.notYours": "Il lotto {p} appartiene a qualcun altro. Compra un lotto o chiedi al proprietario di invitarti.",
@@ -1103,7 +1139,13 @@
   "land.i.bronze": "Bronzo",
   "land.t.bronze_axe": "Ascia di bronzo",
   "land.t.bronze_pick": "Piccone di bronzo",
-  "land.t.bronze_shovel": "Pala di bronzo"
+  "land.t.bronze_shovel": "Pala di bronzo",
+  "land.i.table": "Tavolo",
+  "land.i.chair": "Sedia",
+  "land.i.bench": "Panca",
+  "land.i.bed": "Letto",
+  "land.i.fence": "Recinto",
+  "land.i.torch": "Torcia"
  },
  "ru": {
   "land.notYours": "Участок {p} принадлежит другому игроку. Купите участок или попросите владельца пригласить вас.",
@@ -1261,7 +1303,13 @@
   "land.i.bronze": "Бронза",
   "land.t.bronze_axe": "Бронзовый топор",
   "land.t.bronze_pick": "Бронзовая кирка",
-  "land.t.bronze_shovel": "Бронзовая лопата"
+  "land.t.bronze_shovel": "Бронзовая лопата",
+  "land.i.table": "Стол",
+  "land.i.chair": "Стул",
+  "land.i.bench": "Скамья",
+  "land.i.bed": "Кровать",
+  "land.i.fence": "Забор",
+  "land.i.torch": "Факел"
  },
  "zh": {
   "land.notYours": "地块 {p} 属于别人。购买一块地，或请它的所有者邀请你。",
@@ -1419,7 +1467,13 @@
   "land.i.bronze": "青铜",
   "land.t.bronze_axe": "青铜斧",
   "land.t.bronze_pick": "青铜镐",
-  "land.t.bronze_shovel": "青铜铲"
+  "land.t.bronze_shovel": "青铜铲",
+  "land.i.table": "桌子",
+  "land.i.chair": "椅子",
+  "land.i.bench": "长凳",
+  "land.i.bed": "床",
+  "land.i.fence": "栅栏",
+  "land.i.torch": "火把"
  },
  "ja": {
   "land.notYours": "区画 {p} は他の人のものです。区画を購入するか、所有者に招待してもらいましょう。",
@@ -1577,7 +1631,13 @@
   "land.i.bronze": "青銅",
   "land.t.bronze_axe": "青銅の斧",
   "land.t.bronze_pick": "青銅のつるはし",
-  "land.t.bronze_shovel": "青銅のシャベル"
+  "land.t.bronze_shovel": "青銅のシャベル",
+  "land.i.table": "テーブル",
+  "land.i.chair": "椅子",
+  "land.i.bench": "ベンチ",
+  "land.i.bed": "ベッド",
+  "land.i.fence": "柵",
+  "land.i.torch": "松明"
  },
  "ko": {
   "land.notYours": "구역 {p}은(는) 다른 사람의 땅입니다. 구역을 사거나 소유자에게 초대를 요청하세요.",
@@ -1735,7 +1795,13 @@
   "land.i.bronze": "청동",
   "land.t.bronze_axe": "청동 도끼",
   "land.t.bronze_pick": "청동 곡괭이",
-  "land.t.bronze_shovel": "청동 삽"
+  "land.t.bronze_shovel": "청동 삽",
+  "land.i.table": "탁자",
+  "land.i.chair": "의자",
+  "land.i.bench": "벤치",
+  "land.i.bed": "침대",
+  "land.i.fence": "울타리",
+  "land.i.torch": "횃불"
  },
  "ar": {
   "land.notYours": "القطعة {p} ملك لشخص آخر. اشترِ قطعة، أو اطلب من مالكها أن يدعوك.",
@@ -1893,7 +1959,13 @@
   "land.i.bronze": "برونز",
   "land.t.bronze_axe": "فأس برونزية",
   "land.t.bronze_pick": "معول برونزي",
-  "land.t.bronze_shovel": "مجرفة برونزية"
+  "land.t.bronze_shovel": "مجرفة برونزية",
+  "land.i.table": "طاولة",
+  "land.i.chair": "كرسي",
+  "land.i.bench": "مقعد خشبي",
+  "land.i.bed": "سرير",
+  "land.i.fence": "سياج",
+  "land.i.torch": "شعلة"
  },
  "hi": {
   "land.notYours": "प्लॉट {p} किसी और का है। कोई प्लॉट खरीदें, या उसके मालिक से आपको आमंत्रित करने को कहें।",
@@ -2051,7 +2123,13 @@
   "land.i.bronze": "कांसा",
   "land.t.bronze_axe": "कांसे की कुल्हाड़ी",
   "land.t.bronze_pick": "कांसे की गैंती",
-  "land.t.bronze_shovel": "कांसे का फावड़ा"
+  "land.t.bronze_shovel": "कांसे का फावड़ा",
+  "land.i.table": "मेज़",
+  "land.i.chair": "कुर्सी",
+  "land.i.bench": "बेंच",
+  "land.i.bed": "पलंग",
+  "land.i.fence": "बाड़",
+  "land.i.torch": "मशाल"
  },
  "tr": {
   "land.notYours": "{p} arsası başkasına ait. Bir arsa satın al ya da sahibinden seni davet etmesini iste.",
@@ -2209,7 +2287,13 @@
   "land.i.bronze": "Tunç",
   "land.t.bronze_axe": "Tunç balta",
   "land.t.bronze_pick": "Tunç kazma",
-  "land.t.bronze_shovel": "Tunç kürek"
+  "land.t.bronze_shovel": "Tunç kürek",
+  "land.i.table": "Masa",
+  "land.i.chair": "Sandalye",
+  "land.i.bench": "Bank",
+  "land.i.bed": "Yatak",
+  "land.i.fence": "Çit",
+  "land.i.torch": "Meşale"
  },
  "id": {
   "land.notYours": "Petak {p} milik orang lain. Beli sebuah petak, atau minta pemiliknya mengundangmu.",
@@ -2367,7 +2451,13 @@
   "land.i.bronze": "Perunggu",
   "land.t.bronze_axe": "Kapak perunggu",
   "land.t.bronze_pick": "Beliung perunggu",
-  "land.t.bronze_shovel": "Sekop perunggu"
+  "land.t.bronze_shovel": "Sekop perunggu",
+  "land.i.table": "Meja",
+  "land.i.chair": "Kursi",
+  "land.i.bench": "Bangku",
+  "land.i.bed": "Ranjang",
+  "land.i.fence": "Pagar",
+  "land.i.torch": "Obor"
  },
  "vi": {
   "land.notYours": "Mảnh đất {p} thuộc về người khác. Hãy mua một mảnh, hoặc nhờ chủ của nó mời bạn.",
@@ -2525,7 +2615,13 @@
   "land.i.bronze": "Đồng thau",
   "land.t.bronze_axe": "Rìu đồng",
   "land.t.bronze_pick": "Cuốc chim đồng",
-  "land.t.bronze_shovel": "Xẻng đồng"
+  "land.t.bronze_shovel": "Xẻng đồng",
+  "land.i.table": "Bàn",
+  "land.i.chair": "Ghế",
+  "land.i.bench": "Ghế dài",
+  "land.i.bed": "Giường",
+  "land.i.fence": "Hàng rào",
+  "land.i.torch": "Đuốc"
  },
  "pl": {
   "land.notYours": "Działka {p} należy do kogoś innego. Kup działkę albo poproś jej właściciela o zaproszenie.",
@@ -2683,6 +2779,12 @@
   "land.i.bronze": "Brąz",
   "land.t.bronze_axe": "Brązowa siekiera",
   "land.t.bronze_pick": "Brązowy kilof",
-  "land.t.bronze_shovel": "Brązowa łopata"
+  "land.t.bronze_shovel": "Brązowa łopata",
+  "land.i.table": "Stół",
+  "land.i.chair": "Krzesło",
+  "land.i.bench": "Ława",
+  "land.i.bed": "Łóżko",
+  "land.i.fence": "Płot",
+  "land.i.torch": "Pochodnia"
  }
 }

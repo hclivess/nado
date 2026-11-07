@@ -1334,13 +1334,20 @@ const PIECE_TEX = {
   10: ["cobble", 1, 0.9], 16: ["stonebrick", 1, 0.88], 7: ["bark", 1, 0.95], 31: ["birch", 1, 0.9], 32: ["plaster", 1.08, 0.6],
   37: ["darkwood", 1.15, 0.75], 38: ["planks", 0.78, 0.85], 39: ["thatch", 1, 0.98], 40: ["darkwood", 1.25, 0.7],
   2: ["dirt", 1, 0.95], 3: ["rock", 1, 0.85], 4: ["sand", 1, 0.9], 6: ["snow", 1, 0.55], 17: ["gravel", 1, 0.9],
+  // furniture and fittings: joinery in planed planks, a fence in weathered split rails, a torch's charred shaft
+  45: ["planks", 0.92, 0.7], 46: ["planks", 0.92, 0.7], 47: ["planks", 0.85, 0.8], 48: ["planks", 0.88, 0.75], 49: ["planks", 0.68, 0.95],
+  50: ["darkwood", 1, 0.9],
 };
 const pieceMats = new Map();
 function pieceMaterial(blk) {
   if (pieceMats.has(blk)) return pieceMats.get(blk);
   const spec = PIECE_TEX[blk];
   let m = matPieces;
-  if (spec) {
+  if (Wd.BLOCKS[blk] && Wd.BLOCKS[blk].glow) {
+    // a lamp or a torch's flame gives light rather than taking it: emissive, so the bloom haloes it and it reads at night
+    m = new THREE.MeshStandardNodeMaterial({ roughness: 1, metalness: 0 });
+    m.colorNode = TSL.vec3(1.0, 0.78, 0.45); m.emissiveNode = TSL.vec3(1.0, 0.62, 0.25).mul(2.4);
+  } else if (spec) {
     const [name, tint, rough] = spec;
     m = new THREE.MeshStandardNodeMaterial({ roughness: rough, metalness: 0 });
     const uv = TSL.uv(), col = name === "thatch" ? thatchTexture() : loadTex(name + "_col");
@@ -1454,6 +1461,7 @@ function sky(fr) {
   const star = Cosmos.sunFrom(Wd.PLANET), sd = new THREE.Vector3(...star.dir), up = new THREE.Vector3(fr.up[0], fr.up[1], fr.up[2]);
   const elev = sd.dot(up);                                  // the sun's height over this player's horizon (-1..1)
   const day = smooth01(-0.08, 0.22, elev), dusk = Math.max(0, 1 - Math.abs(elev) / 0.22);
+  torchNight = 1 - day;
   sun.position.copy(sd).multiplyScalar(150);
   sun.color.setRGB(1, 0.62 + 0.35 * smooth01(0, 0.4, elev), 0.38 + 0.55 * smooth01(0, 0.5, elev));
   sun.intensity = 2.4 * Math.min(1.6, star.flux) * day;
@@ -1501,6 +1509,29 @@ function sky(fr) {
   }
   Cc.needsUpdate = true;
 }
+// the torches nearest the player, re-chosen twice a second from the loaded plots' pieces; [x, y, z] world metres
+const TORCH_LIGHTS = 4, torchLights = [];
+let torchNear = [], torchAt = 0, torchNight = 0;
+function torchTick(now, cam) {
+  if (now - torchAt > 500) {
+    torchAt = now;
+    const all = [];
+    for (const [plot, rec] of plotBoxes) {
+      const q = Wd.plotCoords(plot);
+      for (const b of rec.list) if (b[6] === Wd.B.torch) {
+        const w = Wd.posOf(q.face, q.u0 + (b[0] + b[3] / 2) / Wd.CM, q.v0 + (b[1] + b[4] / 2) / Wd.CM, (b[2] + 112) / Wd.CM);
+        all.push([Math.hypot(w[0] - cam[0], w[1] - cam[1], w[2] - cam[2]), w]);
+      }
+    }
+    torchNear = all.filter((t) => t[0] < 40).sort((a, b) => a[0] - b[0]).slice(0, TORCH_LIGHTS).map((t) => t[1]);
+  }
+  torchLights.forEach((l, i) => {
+    const w = torchNear[i];
+    // a flame flickers; by day a torch is no match for the sun, so its light fades in with the dusk
+    l.intensity = w ? (3 + 0.6 * Math.sin(now / 90 + i * 1.7) + 0.4 * Math.sin(now / 37 + i)) * (0.15 + 0.85 * torchNight) : 0;
+    if (w) l.position.set(w[0] - cam[0], w[1] - cam[1], w[2] - cam[2]);
+  });
+}
 function frame(now) {
   const dt = Math.min(0.05, (now - lastT) / 1000 || 0); lastT = now;
   step(dt);
@@ -1521,6 +1552,7 @@ function frame(now) {
     r.mesh.lookAt(r.mesh.position.x + fx, r.mesh.position.y + fy, r.mesh.position.z + fz);
   }
   sky(fr);
+  torchTick(now, cam);
   // the aimed block's outline
   const a = aim();
   // a cell's outline, or the piece's own box; and where the chosen piece would go (green: it fits, red: it does not)
@@ -1581,6 +1613,9 @@ async function start() {
   moon = new THREE.DirectionalLight(0x8fa8d8, 0.3); scene.add(moon, moon.target);
   hemi = new THREE.HemisphereLight(0xcfe8ff, 0x5a4a38, 0.9); scene.add(hemi);
   scene.add(new THREE.AmbientLight(0x8090b0, 0.45));      // a night is dark, never black
+  // torchlight: a FIXED pool of warm point lights given to the torches nearest the player (a changing light count would
+  // recompile every material); unused ones sit at intensity 0
+  for (let i = 0; i < TORCH_LIGHTS; i++) { const l = new THREE.PointLight(0xffa04a, 0, 9, 2); torchLights.push(l); scene.add(l); }
   buildSky();
   const atlas = paintAtlas();
   atlasTex = new THREE.CanvasTexture(atlas);

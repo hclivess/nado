@@ -196,6 +196,14 @@ export const BLOCKS = [
   { key: "copperore", solid: true, tex: [43, 43, 43] },
   { key: "tinore", solid: true, tex: [44, 44, 44] },
   { key: "clay", solid: true, tex: [45, 45, 45] },
+  // FURNISHING A HOUSE ("start creating various structures ... in a sensible, realistic yet engaging manner", operator
+  // 2026-11-07): unit items, each drawn as its real model (land-mesher.js MODELS: legs, a top, a back, rails), not a box
+  { key: "table", solid: true, tex: [12, 12, 12] },
+  { key: "chair", solid: true, tex: [12, 12, 12] },
+  { key: "bench", solid: true, tex: [12, 12, 12] },
+  { key: "bed", solid: true, tex: [12, 12, 12] },
+  { key: "fence", solid: true, tex: [39, 39, 39] },
+  { key: "torch", solid: true, tex: [18, 18, 18] },
 ];
 export const B = Object.fromEntries(BLOCKS.map((b, i) => [b.key, i]));
 export const ATLAS_TILES = 46;              // tiles 0..45 (0 unused)
