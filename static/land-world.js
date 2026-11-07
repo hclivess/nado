@@ -224,6 +224,11 @@ export const BLOCKS = [
   { key: "cornflower", solid: false, see: true, tex: [11, 11, 11] },
   { key: "daisy", solid: false, see: true, tex: [11, 11, 11] },
   { key: "buttercup", solid: false, see: true, tex: [11, 11, 11] },
+  // LIGHT ("we could use some more intense sources of light - townhall disappears after walking 20 meters at night",
+  // operator 2026-11-07): a lantern (glass round a flame, an iron frame) and a street lamp (a lantern on an iron post) —
+  // unit pieces drawn as their models; they light the night much farther than a torch (land.js LIGHTS)
+  { key: "lantern", solid: true, glow: true, tex: [23, 23, 23] },
+  { key: "lamppost", solid: true, glow: true, tex: [23, 23, 23] },
 ];
 export const B = Object.fromEntries(BLOCKS.map((b, i) => [b.key, i]));
 export const ATLAS_TILES = 48;              // tiles 0..47 (0 unused)

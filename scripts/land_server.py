@@ -49,7 +49,7 @@ AGENT_ORIGIN = "land-agent"       # the origin an agent's challenge names (a bro
 CHALLENGE_TTL = 300
 SESSION_TTL = 7 * 86400
 FACE_N, PLOT, W, H = L.FACE_N, L.PLOT, L.FACE_N * L.PLOT, 256
-N_BLOCKS = 62                     # static/land-world.js BLOCKS.length (tests/test_the_land_planet_… checks the two agree)
+N_BLOCKS = 64                     # static/land-world.js BLOCKS.length (tests/test_the_land_planet_… checks the two agree)
 DOOR = 37                         # static/land-world.js B.door: a piece that swings open and shut ("door" op)
 CHEST = 54                        # static/land-world.js B.chest: a piece that keeps items on its plot ("chest" op, #114)
 CHEST_MAX = 2000                  # items one chest holds
@@ -582,6 +582,7 @@ class World:
     def keep_place(self, addr, pos):
         """Remember where a signed-in player stands ([face, u, v, h, yaw]), written with the player at the next flush."""
         self.player(addr)["pos"] = [int(pos[0]), round(float(pos[1]), 2), round(float(pos[2]), 2), round(float(pos[3]), 2), round(float(pos[4]), 3)]
+        self.player(addr)["pos_at"] = int(time.time())                # the page compares it with its own save
         self.pdirty.add(addr)
 
     def look_of(self, addr):
@@ -1656,7 +1657,8 @@ def make_app(world, hub, site_origin, wallet_url, secure_cookies=True, shot_page
         st = hub.socks[ws] = {"who": addr, "watch": set(), "pos": None, "id": secrets.token_hex(4)}
         # A PLAYER'S LAST PLACE is kept with them (not only in one browser's storage): a signed-in player who comes back —
         # on any device, in any browser — is put where they left off ("why did i respawn somewhere off again", 2026-11-07)
-        await ws.send_json({"t": "hello", "you": addr, "id": st["id"], **({"pos": world.player(addr).get("pos")} if addr else {})})
+        await ws.send_json({"t": "hello", "you": addr, "id": st["id"],
+                            **({"pos": world.player(addr).get("pos"), "pos_at": world.player(addr).get("pos_at")} if addr else {})})
         if addr:
             await ws.send_json(dict(world.inv_json(addr), t="inv"))
         await ws.send_json({"t": "offers", "offers": sorted(world.offers.values(), key=lambda o: -o["at"])[:500]})

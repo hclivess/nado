@@ -260,6 +260,24 @@
   "water": {
    "name": "Water (a bucketful)",
    "places": 5
+  },
+  "lantern": {
+   "name": "Lantern",
+   "places": 62,
+   "unit": [
+    24,
+    24,
+    36
+   ]
+  },
+  "lamppost": {
+   "name": "Street lamp",
+   "places": 63,
+   "unit": [
+    24,
+    24,
+    320
+   ]
   }
  },
  "tools": {
@@ -878,6 +896,25 @@
    "yields": [
     [
      "water",
+     1
+    ]
+   ]
+  },
+  "62": {
+   "hard": 0.5,
+   "yields": [
+    [
+     "lantern",
+     1
+    ]
+   ]
+  },
+  "63": {
+   "hard": 1.0,
+   "class": "pick",
+   "yields": [
+    [
+     "lamppost",
      1
     ]
    ]
@@ -2229,6 +2266,56 @@
    ],
    "with": [
     "workbench"
+   ]
+  },
+  {
+   "id": "lantern",
+   "makes": [
+    [
+     "lantern",
+     1
+    ]
+   ],
+   "uses": [
+    [
+     "glass",
+     1
+    ],
+    [
+     "iron",
+     1
+    ],
+    [
+     "torch",
+     1
+    ]
+   ],
+   "with": [
+    "anvil",
+    "hammer"
+   ]
+  },
+  {
+   "id": "lamppost",
+   "makes": [
+    [
+     "lamppost",
+     1
+    ]
+   ],
+   "uses": [
+    [
+     "lantern",
+     1
+    ],
+    [
+     "iron",
+     3
+    ]
+   ],
+   "with": [
+    "anvil",
+    "hammer"
    ]
   }
  ],

@@ -58,6 +58,29 @@ import (or mirror) it.
 - **Wild flowers** (poppy, cornflower, daisy, buttercup) grow in drifts on the meadows, are picked by hand and planted in
   soil like a sapling. **Water** is carried in a wooden bucket (planks and cordage at a workbench). A bucket scoops a cell
   of water, and a bucketful is placed only where something holds it. It does not flow.
+- **Light:**
+  - a **lantern** (glass, iron and a torch at the anvil) lights a yard, about 18 m;
+  - a **street lamp** (a lantern on three iron) lights a street, about 26 m;
+  - the page gives its few point lights to the sources whose light reaches the player soonest;
+  - twelve street lamps line the town's streets (`land_town.py --lights`).
+- **Ownership borders:** every titled plot around the player is outlined just inside its edges, in the colour of whose
+  it is:
+  - green: yours;
+  - blue: invited;
+  - gold: for sale;
+  - orange: someone else's;
+  - grey: owner not yet known.
+
+  Plots of one holder share one outline, plots on sale keep each their own, and wilderness has none. The line follows
+  the drawn ground and pieces, never a tree. `/set borders 0` hides it; photo mode outlines the plot it photographs.
+- **Placing:**
+  - the search for a free cell stops at the player's body, so a block never goes over their head;
+  - placing while in the air above the cell you jumped from puts the block in that cell once your feet clear it (jump
+    and place under);
+  - a piece put on the ground rests on the drawn ground, not the planet's untouched height, wherever the ground was
+    dug or levelled.
+- **Your place is kept:** the world server keeps a signed-in player's last place and gives it back on their next
+  connect, on any device. Builder invitations are re-asked at every 30 s title refresh.
   The title contract is e7dfe9aa3cbb4b0c9293caeaf992a041.
 - **Biomes** come from temperature (latitude, altitude, broad noise) and moisture: meadow, forest (a ~1 km forest field,
   wetter ground more wooded), desert (hot and dry: sand), snow and taiga (cold; conifers where wet), beach, alpine rock.

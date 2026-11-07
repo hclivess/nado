@@ -40,7 +40,7 @@ POPPY, CORNFLOWER, DAISY, BUTTERCUP, SAPLING, WATER, BENCH, TORCH = 58, 59, 60, 
 data = os.path.join(os.environ["HOME"], "planet")
 os.makedirs(data)
 env = dict(os.environ, LAND_DATA=data, LAND_EXEC="http://127.0.0.1:1")
-r = subprocess.run([sys.executable, os.path.join(ROOT, "scripts", "land_town.py"), "--rehearse", "--garden"], capture_output=True,
+r = subprocess.run([sys.executable, os.path.join(ROOT, "scripts", "land_town.py"), "--rehearse", "--garden", "--lights"], capture_output=True,
                    text=True, timeout=1500, env=env)
 out = r.stdout
 check("the town is built and gardened through the world server's own rules, nothing refused",
@@ -70,6 +70,14 @@ check(f"the garden's {len(flowers)} flowers and its saplings stand in soil on th
 water = [k for k, b in edits.items() if b == WATER]
 check(f"its pond and fountain ({len(water)} cells of water) lie in cells dug at {T}, ground under every one",
       len(water) == 28 and all(k[2] == T and edits.get((k[0], k[1], T - 1), 2) != 0 for k in water))
+lamps = [b for d in recs.values() for b in d["boxes"] if b[6] == 63]
+check("twelve street lamps stand on the ground round the town's streets", len(lamps) == 12 and all(b[2] == (T + 1) * 100 for b in lamps), lamps)
+# a repair run over the finished town levels nothing that is the garden's: its pond and fountain keep their water
+r2 = subprocess.run([sys.executable, os.path.join(ROOT, "scripts", "land_town.py"), "--rehearse", "--repair"], capture_output=True,
+                    text=True, timeout=1500, env=env)
+water2 = sum(1 for p in TOWN for b in json.load(open(os.path.join(data, f"{p}.json")))["edits"].values() if b == WATER)
+check("a repair over the finished town refuses nothing and leaves the garden's water", r2.returncode == 0 and "refused" not in r2.stdout and water2 == 28,
+      (r2.stdout[-400:], water2))
 fountain = [b for b in recs.get(40963439, {}).get("boxes", []) if b[6] == 16 and 400 <= b[0] <= 1000 and 600 <= b[1] <= 1200]
 check("the fountain's basin and pillar are stone brick", len(fountain) == 5, fountain)
 bare = sum(1 for (u, v, y), b in edits.items() if y == T and b == S.DIRT and edits.get((u, v, T + 1)) == 0)

@@ -235,7 +235,18 @@ function ladderNear() {
     && c.y > b[2] - 150 && c.y < b[2] + b[5]) return b;
   return null;
 }
+let pillar = null;                                   // a block to put under the player once their feet clear its cell
+function pillarTick() {
+  if (!pillar) return;
+  const [u, v, h] = pillar.cell;
+  if (!P.ground) pillar.air = true;
+  // it waits for this jump only: moved off the column, or landed without clearing the cell (game time, not the clock —
+  // a slow frame rate stretches a jump over seconds)
+  if (Math.floor(P.u) !== u || Math.floor(P.v) !== v || (P.ground && pillar.air)) { pillar = null; return; }
+  if (P.h >= h + 1) { const c = pillar; pillar = null; setBlock(P.face, u, v, h, c.b); }
+}
 function step(dt) {
+  pillarTick();
   const fwd = (keys.has("KeyW") || keys.has("ArrowUp") ? 1 : 0) - (keys.has("KeyS") || keys.has("ArrowDown") ? 1 : 0) + (touch ? touch.my : 0);
   const side = (keys.has("KeyD") || keys.has("ArrowRight") ? 1 : 0) - (keys.has("KeyA") || keys.has("ArrowLeft") ? 1 : 0) + (touch ? touch.mx : 0);
   const fast = keys.has("ShiftLeft") || keys.has("ShiftRight");
@@ -311,9 +322,19 @@ function aim() {
     let prev = null;
     for (const back of [0.3, 0.6, 1.0, 1.5, 2.0, 2.5]) {
       const pc = cellOf([p[0] - d[0] * back, p[1] - d[1] * back, p[2] - d[2] * back]);
+      // the walk back stops at the player's own body: past it the cells are ABOVE them — looking down (a jump, a step
+      // down) a block went over their head ("i place a block and it places above my head", 2026-11-07)
+      if (pc[0] === pu && pc[1] === pv && pc[2] >= ph) break;
       if (!same(pc, hit) && free(pc)) { prev = pc; break; }
     }
-    for (let up = 1; !prev && up <= 3; up++) { const q = [hit[0], hit[1], hit[2] + up]; if (free(q)) prev = q; }
+    // …but never up through the player: looking down at the cell under your own feet, the cells on top of it are your
+    // body, and the first free one was above your head — a block appeared there ("im looking at the ground, i place a
+    // block and it places above my head", 2026-11-07)
+    for (let up = 1; !prev && up <= 3; up++) {
+      const q = [hit[0], hit[1], hit[2] + up];
+      if (q[0] === pu && q[1] === pv && q[2] >= ph) break;
+      if (free(q)) prev = q;
+    }
     return { hit, prev, point: p, dir: d, water: wet };
   }
   return null;
@@ -321,9 +342,18 @@ function aim() {
 /** The height a player stands at on (face, u, v): just above the smooth surface. */
 function groundAt(f, u, v) {
   let h = Wd.column(f, Math.floor(u), Math.floor(v)).height + 0.05;
-  while (collides(u, v, h) && h < H) h += 0.25;
-  return h;
+  if (collides(u, v, h)) { while (collides(u, v, h) && h < H) h += 0.25; return h; }   // buried: rise out of it
+  // IN THE AIR: the untouched planet's height is not the ground where it was dug or levelled lower (the town; a pit) —
+  // a piece put "on the ground" there floated up to a metre over it ("i place a block and it places above my head",
+  // 2026-11-07). Fall to what is really under it (at most GROUND_FALL m), then find its surface to a centimetre.
+  let lo = h;
+  while (lo > h - GROUND_FALL && lo > Wd.DEEP_MIN + 1 && !collides(u, v, lo - 0.25)) lo -= 0.25;
+  if (!collides(u, v, lo - 0.25)) return h;               // nothing under it within reach: keep the planet's height
+  let a = lo - 0.25, b = lo;                                // a collides, b does not
+  for (let n = 0; n < 6; n++) { const m = (a + b) / 2; if (collides(u, v, m)) a = m; else b = m; }
+  return b;
 }
+const GROUND_FALL = 64;                                 // metres a ground search falls before it gives up
 
 // ---- edits ------------------------------------------------------------------------------------------------------
 // "you can build anywhere unless it is owned" (operator, 2026-11-06): unowned land is open to everyone signed in; an
@@ -365,7 +395,7 @@ function explainNoBuild(plot) {
   return false;
 }
 function save() {
-  try { localStorage.setItem(LS, JSON.stringify({ p: [P.face, P.u, P.v, P.h, P.yaw, P.pitch], hot, piece })); } catch (e) {}
+  try { localStorage.setItem(LS, JSON.stringify({ p: [P.face, P.u, P.v, P.h, P.yaw, P.pitch], at: Math.floor(Date.now() / 1000), hot, piece })); } catch (e) {}
 }
 /** The chosen piece size and snap, under the hotbar. */
 function pieceInfo() {
@@ -395,6 +425,7 @@ function townSpawn() {
 function load() {
   let d = null;
   try { d = JSON.parse(localStorage.getItem(LS) || "null"); } catch (e) {}
+  localPlace = d && Array.isArray(d.p) ? (Number.isFinite(d.at) ? d.at : Infinity) : 0;   // when this browser last saved a place
   if (d && Array.isArray(d.hot)) hot = d.hot.filter((x) => typeof x === "string").slice(0, 9);
   if (d && d.piece && [d.piece.w, d.piece.d, d.piece.h].every((x) => Number.isInteger(x) && x >= 1 && x <= Wd.PLOT_CM) && SNAPS.includes(d.piece.snap)) piece = d.piece;
   const at = d && restorePlace(d.p, W, (f, u, v, h) => { const pf = P.face; P.face = f; const c = collides(u, v, h); P.face = pf; return c; },
@@ -413,7 +444,7 @@ function load() {
 
 // ---- chunks: a pool of mesher workers ---------------------------------------------------------------------------
 const chunks = new Map();                      // "face:cu:cv:ch" -> { meshes: [], anchor, busy, dirty }
-let pendingPlace = null;                       // a saved place underground, until its plot's edits arrive (load)
+let pendingPlace = null, localPlace = 0;                       // a saved place underground, until its plot's edits arrive (load)
 const workers = [], queue = [], inflight = new Map();
 let reqId = 0;
 function startWorkers() {
@@ -779,7 +810,9 @@ function connect() {
       net.online = true; net.tries = 0; net.me = m.you || null; net.lastWatch = "";
       // the world server keeps a signed-in player's last place: on this page's first connect, go back there — wherever
       // (on whichever device) they last played. A place underground waits for its plot's edits (pendingPlace).
-      if (!net.placed) { net.placed = true; if (m.pos) takePlace(m.pos); }
+      // …only if it is newer than this browser's own (a reload in the same browser keeps where you just were — the server
+      // keeps a place at most every 10 s, and a reload went back up to 10 s of walking)
+      if (!net.placed) { net.placed = true; if (m.pos && (m.pos_at || 0) > localPlace) takePlace(m.pos); }
       invSeen = false;                                       // a (re)connect re-sends the whole bag: not a pickup
       // the server is the record now: drop the plots this browser cached, the server sends each watched one back
       for (const [plot, pe] of plotEdit) { const q = Wd.plotCoords(plot); for (const lk of pe.keys()) { const [x, z, y] = lk.split(":").map(Number); edits.delete(key(q.face, q.u0 + x, q.v0 + z, y)); } }
@@ -1292,7 +1325,15 @@ function act(place, mouse) {
     if (!net.online || !net.me) return setBlock(P.face, Math.floor(a.point[0]), Math.floor(a.point[1]), Math.floor(a.point[2]), B.air);   // says why first
     if (!id || !(haveCm3(id) > 0)) return notify(T("noItem", "You have none of that — gather or make some first."));
     if (NATURAL_ITEMS.has(id)) {
-      if (!a.prev) return;
+      // JUMP AND PLACE UNDER ("the jump + place under should work", operator 2026-11-07): in the air above the cell you
+      // jumped from, looking down at what is under you, the block goes into that cell — as soon as your feet clear it,
+      // so the click need not land on the top of the jump
+      const fu = Math.floor(P.u), fv = Math.floor(P.v);
+      if (!P.ground && !P.fly && a.hit && a.hit[0] === fu && a.hit[1] === fv && a.hit[2] + 1 <= P.h + 0.05) {
+        pillar = { cell: [fu, fv, a.hit[2] + 1], b: RULES.items[id].places, air: true };
+        return pillarTick();
+      }
+      if (!a.prev) return notify(T("noRoomYou", "You are standing there."));
       // never into the player ("sadly it is possible to build oneself into the terrain", operator 2026-11-06): a cell that
       // overlaps the body is refused. The half-cell bulge it adds to the smooth ground around it is not — that refused
       // earth on the very next cell, and the walker steps up onto a bulge (land-walk.js: a buried walker rises).
@@ -1326,8 +1367,8 @@ function act(place, mouse) {
 // closes it. A line without a slash is chat to the players around you (the world server relays it to whoever watches
 // the plots you watch). SETTINGS are this viewer's own, remembered in this browser — a convenience, nothing shared.
 const LS_SET = "nado_land_settings";
-const SET_DEF = { fov: 72, sens: 1, invert: 0, grass: 1, shadows: 1, effects: 1 };
-const SET_RANGE = { fov: [50, 110], sens: [0.2, 4], invert: [0, 1], grass: [0, 1], shadows: [0, 1], effects: [0, 1] };
+const SET_DEF = { fov: 72, sens: 1, invert: 0, grass: 1, shadows: 1, effects: 1, borders: 1 };
+const SET_RANGE = { fov: [50, 110], sens: [0.2, 4], invert: [0, 1], grass: [0, 1], shadows: [0, 1], effects: [0, 1], borders: [0, 1] };
 const SET = (() => {
   let s = {};
   try { s = JSON.parse(localStorage.getItem(LS_SET) || "{}") || {}; } catch (e) {}
@@ -1872,7 +1913,12 @@ function sky(fr) {
   Cc.needsUpdate = true;
 }
 // the torches nearest the player, re-chosen twice a second from the loaded plots' pieces; [x, y, z] world metres
-const TORCH_LIGHTS = 4, torchLights = [];
+const TORCH_LIGHTS = 6, torchLights = [];
+// LIGHTS by source: how bright, how far it reaches (m), how much it flickers, and the height of its flame in its piece
+// (cm). A lantern lights a yard, a street lamp a street ("townhall disappears after walking 20 meters at night",
+// operator 2026-11-07); the pool is given to the sources whose light reaches the player soonest (distance / reach).
+const LIGHTS = { torch: { i: 3, d: 9, f: 1, y: 112 }, fire: { i: 3, d: 9, f: 1, y: 0 },
+                 lantern: { i: 20, d: 18, f: 0.25, y: 18 }, lamppost: { i: 60, d: 26, f: 0.12, y: 297 } };
 let torchNear = [], torchAt = 0, torchNight = 0;
 function torchTick(now, cam) {
   if (now - torchAt > 500) {
@@ -1880,9 +1926,11 @@ function torchTick(now, cam) {
     const all = [];
     for (const [plot, rec] of plotBoxes) {
       const q = Wd.plotCoords(plot);
-      for (const b of rec.list) if (b[6] === Wd.B.torch) {
-        const w = Wd.posOf(q.face, q.u0 + (b[0] + b[3] / 2) / Wd.CM, q.v0 + (b[1] + b[4] / 2) / Wd.CM, (b[2] + 112) / Wd.CM);
-        all.push([Math.hypot(w[0] - cam[0], w[1] - cam[1], w[2] - cam[2]), w]);
+      for (const b of rec.list) {
+        const kind = b[6] === Wd.B.torch ? "torch" : b[6] === Wd.B.lantern ? "lantern" : b[6] === Wd.B.lamppost ? "lamppost" : null;
+        if (!kind) continue;
+        const w = Wd.posOf(q.face, q.u0 + (b[0] + b[3] / 2) / Wd.CM, q.v0 + (b[1] + b[4] / 2) / Wd.CM, (b[2] + LIGHTS[kind].y) / Wd.CM);
+        all.push([Math.hypot(w[0] - cam[0], w[1] - cam[1], w[2] - cam[2]), w, kind]);
       }
     }
     // a burning cell lights its surroundings as a torch does (#124), from the edits the world server sent
@@ -1890,15 +1938,19 @@ function torchTick(now, cam) {
       const [f, u, v, h] = k.split(":").map(Number);
       if (f !== P.face) continue;
       const w = Wd.posOf(f, u + 0.5, v + 0.5, h + 0.6);
-      all.push([Math.hypot(w[0] - cam[0], w[1] - cam[1], w[2] - cam[2]), w]);
+      all.push([Math.hypot(w[0] - cam[0], w[1] - cam[1], w[2] - cam[2]), w, "fire"]);
     }
-    torchNear = all.filter((t) => t[0] < 40).sort((a, b) => a[0] - b[0]).slice(0, TORCH_LIGHTS).map((t) => t[1]);
+    torchNear = all.filter((t) => t[0] < LIGHTS[t[2]].d + 40).sort((a, b) => a[0] / LIGHTS[a[2]].d - b[0] / LIGHTS[b[2]].d)
+      .slice(0, TORCH_LIGHTS).map((t) => [t[1], LIGHTS[t[2]]]);
   }
   torchLights.forEach((l, i) => {
-    const w = torchNear[i];
-    // a flame flickers; by day a torch is no match for the sun, so its light fades in with the dusk
-    l.intensity = w ? (3 + 0.6 * Math.sin(now / 90 + i * 1.7) + 0.4 * Math.sin(now / 37 + i)) * (0.15 + 0.85 * torchNight) : 0;
-    if (w) l.position.set(w[0] - cam[0], w[1] - cam[1], w[2] - cam[2]);
+    const n = torchNear[i];
+    // a flame flickers (a lantern's glass steadies it); by day a light is no match for the sun, so it fades in at dusk
+    if (!n) { l.intensity = 0; return; }
+    const [w, L] = n, flick = 1 + L.f * (0.2 * Math.sin(now / 90 + i * 1.7) + 0.13 * Math.sin(now / 37 + i));
+    l.intensity = L.i * flick * (0.15 + 0.85 * torchNight);
+    l.distance = L.d;
+    l.position.set(w[0] - cam[0], w[1] - cam[1], w[2] - cam[2]);
   });
 }
 function frame(now) {
@@ -1912,7 +1964,7 @@ function frame(now) {
   camera.lookAt(fw[0], fw[1], fw[2]);
   hemi.position.set(fr.up[0], fr.up[1], fr.up[2]);     // "up" is radial on a planet: three's hemisphere light assumes +Y
   for (const c of chunks.values()) if (c.anchor) for (const me of c.meshes) me.position.set(c.anchor[0] - cam[0], c.anchor[1] - cam[1], c.anchor[2] - cam[2]);
-  for (const m of [farMesh, farSea]) if (m) { const a = m.userData.anchor; m.position.set(a[0] - cam[0], a[1] - cam[1], a[2] - cam[2]); }
+  for (const m of [farMesh, farSea, borderMesh]) if (m) { const a = m.userData.anchor; m.position.set(a[0] - cam[0], a[1] - cam[1], a[2] - cam[2]); }
   for (const r of others.values()) {
     if (!r.p) continue;
     const [f, u, v, h, yaw] = r.p, q = Wd.posOf(f, u, v, h), ofr = Wd.frameOf(f, u, v);
@@ -1949,8 +2001,100 @@ function frame(now) {
   if (pipeline) pipeline.render(); else renderer.render(scene, camera);
 }
 let tick = 0;
+// ---- OWNERSHIP BORDERS ("there should be some kind of a visual cue marking the ownership borders", operator 2026-11-07):
+// every titled plot around the player is outlined on the ground just inside its edges, in the colour of whose it is —
+// yours green, one you were invited to build on blue, one for sale gold, anyone else's orange (titled, owner not yet
+// known: grey). Wilderness has none. The line follows the drawn ground and rides over pieces (a street slab), so it is
+// seen where it runs. On by default (/set borders 0 hides it). Photo mode outlines only the plot it photographs (#127).
+const BORDER = { mine: 0x3ddc84, build: 0x4aa3ff, sale: 0xffd24a, owned: 0xff8a3d, titled: 0xbdbdbd, shot: 0xfff1b0 };
+const BORDER_R = 3;                                         // plots around the player's that show their borders
+let borderMesh = null, borderOwn = "", borderSig = "", borderAt = 0;
+function borderKind(plot) {
+  if (SHOT !== null) return plot === SHOT ? "shot" : null;
+  const t = titles.get(plot);
+  if (!t) return null;
+  if (mine.has(plot) || (t.sale && t.sale.seller && t.sale.seller === (net.me || dapp.me))) return "mine";
+  if (t.sale) return "sale";
+  if (builds.has(plot)) return "build";
+  return t.holder ? "owned" : "titled";
+}
+function pieceTopAt(plot, x, z) {                          // the highest piece over a point of a plot (cm in the plot), m
+  const rec = plotBoxes.get(plot);
+  let top = -Infinity;
+  if (rec) for (const b of rec.list)
+    if (x >= b[0] && x < b[0] + b[3] && z >= b[1] && z < b[1] + b[4]) top = Math.max(top, (b[2] + b[5]) / Wd.CM);
+  return top;
+}
+/** The drawn ground's height at (face, u, v): the smooth field's zero crossing — never a tree trunk, a built block or a
+ *  player (a border followed groundAt up every trunk on its line). */
+function earthAt(f, u, v) {
+  let h = Wd.column(f, Math.floor(u), Math.floor(v)).height;
+  const inside = (y) => fieldAt(f, u, v, y) > 0;
+  let a, b;
+  if (inside(h)) { a = h; b = h + 0.25; while (inside(b) && b < h + 40) { a = b; b += 0.25; } }
+  else { b = h; a = h - 0.25; while (!inside(a) && a > h - 64) { b = a; a -= 0.25; } }
+  for (let n = 0; n < 6; n++) { const m = (a + b) / 2; if (inside(m)) a = m; else b = m; }
+  return b;
+}
+function updateBorders() {
+  if (!scene) return;
+  const on = SHOT !== null || SET.borders;
+  const w = Wd.wrap(P.face, Math.floor(P.u), Math.floor(P.v)), here = Wd.plotCoords(Wd.plotOf(w.face, w.u, w.v));
+  const list = [];
+  if (on) for (let dr = -BORDER_R; dr <= BORDER_R; dr++) for (let dc = -BORDER_R; dc <= BORDER_R; dc++) {
+    const r = here.prow + dr, c = here.pcol + dc;
+    if (r < 0 || c < 0 || r >= Wd.FACE_N || c >= Wd.FACE_N) continue;
+    const p = Wd.plotId(here.face, r, c), t = titles.get(p);
+    if (t && SHOT === null && !mine.has(p) && !t.asked) { t.asked = true; holderOf(p).then(() => { borderOwn = ""; }); }   // whose it is: its colour
+    const k = borderKind(p);
+    if (k) list.push([p, k, (plotBoxes.get(p) || { list: [] }).list.length, (plotEdit.get(p) || new Map()).size]);
+  }
+  // where they are and whose — re-drawn at once when that changes; a build changing the ground under them, at most
+  // every 2 s
+  const own = here.face + ":" + here.prow + ":" + here.pcol + "|" + list.map((x) => x[0] + ":" + x[1]).join(","), sig = list.map((x) => x.join(":")).join(",");
+  if (own === borderOwn && (sig === borderSig || performance.now() - borderAt < 2000)) return;
+  borderOwn = own; borderSig = sig; borderAt = performance.now();
+  if (borderMesh) { scene.remove(borderMesh); borderMesh.geometry.dispose(); borderMesh = null; }
+  if (!list.length) return;
+  const anchor = Wd.posOf(here.face, here.u0, here.v0, Wd.SEA), pos = [], col = [], idx = [];
+  const wd = SHOT !== null ? 0.18 : 0.09, e = 0.04, STEP_M = 0.5;
+  for (const [p, k] of list) {
+    const q = Wd.plotCoords(p), c = new THREE.Color(BORDER[k]);
+    const at = (u, v) => {
+      const g = earthAt(q.face, u, v), t = pieceTopAt(p, (u - q.u0) * Wd.CM, (v - q.v0) * Wd.CM);
+      return Math.max(g, t) + 0.04;
+    };
+    const edges = [[[q.u0 + e, q.v0 + e], [1, 0], [0, 1], [-1, 0]], [[q.u0 + 16 - e, q.v0 + e], [0, 1], [-1, 0], [0, 1]],
+                   [[q.u0 + 16 - e, q.v0 + 16 - e], [-1, 0], [0, -1], [1, 0]], [[q.u0 + e, q.v0 + 16 - e], [0, -1], [1, 0], [0, -1]]];
+    // no border between two plots of one holder: their edge is no border at all (the town's four plots draw one outline,
+    // not a double line down the middle of its street)
+    const holder = (titles.get(p) || {}).holder;
+    for (const [[u0, v0], [du, dv], [iu, iv], [nr, nc]] of edges) {
+      const n = q.prow + nr >= 0 && q.pcol + nc >= 0 && q.prow + nr < Wd.FACE_N && q.pcol + nc < Wd.FACE_N ? Wd.plotId(q.face, q.prow + nr, q.pcol + nc) : -1;
+      // (plots on sale keep each their own: the market escrows them all, and a buyer needs to see each one's edges)
+      if (SHOT === null && k !== "sale" && holder && n >= 0 && (titles.get(n) || {}).holder === holder && borderKind(n) === k) continue;
+      for (let s0 = 0; s0 < 16 - 2 * e - 1e-6; s0 += STEP_M) {
+        const s1 = Math.min(16 - 2 * e, s0 + STEP_M), n = pos.length / 3;
+        for (const [ss, inn] of [[s0, 0], [s1, 0], [s1, wd], [s0, wd]]) {
+          const u = u0 + du * ss + iu * inn, v = v0 + dv * ss + iv * inn, x = Wd.posOf(q.face, u, v, at(u0 + du * ss, v0 + dv * ss));
+          pos.push(x[0] - anchor[0], x[1] - anchor[1], x[2] - anchor[2]); col.push(c.r, c.g, c.b);
+        }
+        idx.push(n, n + 1, n + 2, n, n + 2, n + 3);
+      }
+    }
+  }
+  const g = new THREE.BufferGeometry();
+  g.setAttribute("position", new THREE.Float32BufferAttribute(pos, 3));
+  g.setAttribute("color", new THREE.Float32BufferAttribute(col, 3));
+  g.setIndex(idx);
+  borderMesh = new THREE.Mesh(g, new THREE.MeshBasicMaterial({ vertexColors: true, transparent: true, opacity: 0.85, depthWrite: false, side: THREE.DoubleSide }));
+  borderMesh.userData.anchor = anchor;
+  borderMesh.renderOrder = 2;
+  scene.add(borderMesh);
+}
 function slow() {
   updateChunks();
+  updateBorders();
   netTick();
   if (!farAt || farAt.face !== P.face || Math.abs(farAt.u - P.u) > 400 || Math.abs(farAt.v - P.v) > 400) buildFar();
   hud();

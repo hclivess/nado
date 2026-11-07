@@ -32,6 +32,9 @@ REPAIR = "--repair" in sys.argv
 # every block and piece one any player can gather or make (flowers picked on the meadows, water in a bucket, saplings
 # from leaves, stone brick at the kiln)
 GARDEN = "--garden" in sys.argv
+# --lights: street lamps at every corner of the crossing and both ends of each street ("we could use some more intense
+# sources of light - townhall disappears after walking 20 meters at night", operator 2026-11-07)
+LIGHTS = "--lights" in sys.argv
 if REHEARSE:
     DATA = os.environ["LAND_DATA"]
 
@@ -68,7 +71,7 @@ async def true_level(world, T, cols, natural):
         b0, b1 = at[(0, u, v, T)], at[(0, u, v, T + 1)]
         if k(T) not in edited:
             out += ([[0, u, v, T, 0]] if b0 else []) + [[0, u, v, T, DIRT]]
-        elif b0 not in natural:
+        elif b0 not in natural and b0 != WATER:              # a pond or a basin of the garden stays as it is
             out += ([[0, u, v, T, 0]] if b0 else []) + [[0, u, v, T, DIRT]]
         if k(T + 1) not in edited:
             out += [[0, u, v, T + 1, DIRT], [0, u, v, T + 1, 0]] if b1 == 0 else [[0, u, v, T + 1, 0]]
@@ -78,6 +81,23 @@ async def true_level(world, T, cols, natural):
 
 
 POPPY, CORNFLOWER, DAISY, BUTTERCUP, SAPLING, WATER = 58, 59, 60, 61, 52, 5     # static/land-world.js B
+LAMPPOST = 63
+
+
+def lamps(G):
+    """{plot: [lamppost pieces]}: one at the crossing's corner of each quarter and one at each street's far end in it,
+    on the grass just off the kerb (24 x 24 cm, 3.2 m tall — land-recipes.json lamppost unit)."""
+    out = {}
+    for r in ROWS:
+        for c in COLS:
+            west, north = c == COLS[1], r == ROWS[1]            # the N-S street on this plot's west edge, the E-W on its north
+            x_by = 216 if west else 1360                        # beside the N-S street, off its kerb
+            z_by = 216 if north else 1360                       # beside the E-W street
+            far_z = 1536 if north else 40                       # the N-S street's far end in this plot
+            far_x = 1536 if west else 40                        # the E-W street's far end
+            out[plot_at(r, c)] = [[x_by, z_by, G, 24, 24, 320, LAMPPOST], [x_by, far_z, G, 24, 24, 320, LAMPPOST],
+                                  [far_x, z_by, G, 24, 24, 320, LAMPPOST]]
+    return out
 
 
 def garden(T, G):
@@ -183,6 +203,8 @@ async def main():
         if k not in pl["tools"]:
             pl["tools"].append(k)
     endow = {"dirt": 400} if REPAIR else ENDOW            # the repair's earth: what levelling exactly takes, at most
+    if LIGHTS:
+        endow = dict(endow, lamppost=endow.get("lamppost", 0) + 12)
     if GARDEN:                                             # the garden's plants, water and stone — all things a player gets
         extra = {"poppy": 80, "cornflower": 80, "daisy": 80, "buttercup": 80, "sapling": 9, "water": 40, "stonebrick": 20, "torch": 2}
         endow = {k: endow.get(k, 0) + extra.get(k, 0) for k in set(endow) | set(extra)}   # added to, never in place of
@@ -325,6 +347,10 @@ async def main():
         await green(world, set(pieces), 120)
         bare = sum(1 for p in pieces for (x, z, y), b in world.plots[p]["edits"].items() if y == T and b == DIRT)
         print(f"greened: {bare} cells of bare earth left at the surface")
+    if LIGHTS and not DRY:
+        for p, ls in lamps(G).items():
+            added, _, ref = await world.boxes(WHO, p, ls, [])
+            print(f"lights on plot {p}: {len(added)} street lamps" + (f", refused: {ref[:3]}" if ref else ""))
     print(f"{total} pieces planned; the server wallet keeps what is left of its endowment:",
           {k: pl['items'].get(k, 0) for k in set(ENDOW) | set(endow)})
     if not DRY:

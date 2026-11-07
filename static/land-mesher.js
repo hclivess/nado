@@ -497,7 +497,17 @@ export const MODELS = {
   // a torch: a shaft, a head wrapped in fibre and pitch, and its flame (a lamp: it glows, and lights the night near it)
   [B.torch]: (L, S) => [[L / 2 - 1.5, L / 2 + 1.5, S / 2 - 1.5, S / 2 + 1.5, 0, 100], [L / 2 - 2.5, L / 2 + 2.5, S / 2 - 2.5, S / 2 + 2.5, 96, 106, B.thatch],
     [L / 2 - 2, L / 2 + 2, S / 2 - 2, S / 2 + 2, 106, 118, B.lamp]],
+  // a lantern: an iron base, a glowing glass case in four iron corner posts, an iron roof and cap
+  [B.lantern]: (L, S) => lanternParts(L, S, 0),
+  // a street lamp: an iron post on a footing, a lantern on top
+  [B.lamppost]: (L, S, H) => [[L / 2 - 3, L / 2 + 3, S / 2 - 3, S / 2 + 3, 0, H - 40, B.black], [L / 2 - 6, L / 2 + 6, S / 2 - 6, S / 2 + 6, 0, 12, B.black],
+    ...lanternParts(L, S, H - 40)],
 };
+function lanternParts(L, S, y) {
+  const posts = [[2, 4], [L - 4, L - 2]].flatMap(([a, b]) => [[2, 4], [S - 4, S - 2]].map(([c, d]) => [a, b, c, d, y + 3, y + 27, B.black]));
+  return [[1, L - 1, 1, S - 1, y, y + 3, B.black], [4, L - 4, 4, S - 4, y + 3, y + 27, B.lamp], ...posts,
+          [0, L, 0, S, y + 27, y + 31, B.black], [L / 2 - 3, L / 2 + 3, S / 2 - 3, S / 2 + 3, y + 31, y + 36, B.black]];
+}
 // a chair is pulled up to a table: its back is on the side AWAY from the nearest table within 1.5 m (a unit piece turns
 // only two ways, so its facing is read from where it stands, never a stored flag the world server would have to know)
 export function facesAway(b, boxes) {
