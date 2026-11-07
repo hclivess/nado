@@ -50,6 +50,12 @@ N_BLOCKS = 52                     # static/land-world.js BLOCKS.length (tests/te
 DOOR = 37                         # static/land-world.js B.door: a piece that swings open and shut ("door" op)
 TREE_WOOD = {7, 31}                # static/land-world.js TREE_WOOD (log, birchlog): cutting one fells its tree above
 UNBUILDABLE = {5, 30}             # water, bedrock: never placed (no item in land-recipes.json places them either)
+# GRAVITY ("can we add some basic gravity", operator 2026-11-06; "i kept digging in snow but the snow stays put and i dig
+# under it"): sand, gravel and snow (static/land-world.js B) are LOOSE — dug out from under, or placed over a hole, they
+# fall until they rest on something; they fall through air and water (a vacated cell under water fills with water).
+FALLS = {4, 17, 6}
+PASSABLE = {0, 5}
+FALL_REACH = 48                   # cells a column is settled over, below and above the change (bounds one call's work)
 MAX_CELLS = 4096                  # per /set call or ws "set"
 RATE = 400                        # cells per second per caller, refilling a bucket that holds one full call (MAX_CELLS)
 PLANET = 0
@@ -332,6 +338,46 @@ class World:
             raise RuntimeError("terrain oracle: " + r["error"])
         return r["blocks"]
 
+    async def settle(self, p, rec, face, u, v, h, titled, applied):
+        """GRAVITY: let column (face, u, v) of plot `p` settle around height h after a change there — every loose block
+        (FALLS) with something passable under it drops onto the first thing that holds it, in order, so a column of sand
+        comes down as a column. One terrain round trip for the window; only the cells that changed are written (as edits
+        that regrow like any other in the commons). Returns the number of cells moved."""
+        lo, hi = max(1, h - FALL_REACH), min(H - 1, h + FALL_REACH)
+        fc, fr = p % FACE_N, (p // FACE_N) % FACE_N
+        key = lambda hh: (u - fc * PLOT, v - fr * PLOT, hh)
+        edits = rec["edits"]
+        need = [hh for hh in range(lo, hi + 1) if key(hh) not in edits]
+        base = dict(zip(need, await self.terrain([[face, u, v, hh] for hh in need]))) if need else {}
+        col = {hh: (edits[key(hh)] if key(hh) in edits else base[hh]) for hh in range(lo, hi + 1)}
+        before, out, vac, slot = dict(col), dict(col), set(), None
+        for hh in range(lo, hi + 1):                         # bottom up: each loose block to the lowest free slot
+            b = out[hh]
+            if b in PASSABLE:
+                if slot is None:
+                    slot = hh
+            elif b in FALLS:
+                if slot is not None:
+                    out[slot], out[hh] = b, 0
+                    vac.add(hh); vac.discard(slot)
+                    slot += 1
+            else:
+                slot = None
+        for hh in range(hi - 1, lo - 1, -1):                 # a vacated cell under water is water, not an air pocket
+            if hh in vac and out[hh] == 0 and out[hh + 1] == 5:
+                out[hh] = 5
+        moved = 0
+        for hh in range(lo, hi + 1):
+            if out[hh] == before[hh]:
+                continue
+            k = key(hh)
+            edits[k] = out[hh]
+            if not titled:
+                rec.setdefault("exp", {})[k] = time.time() + RULES["wilderness_regrow_s"]
+            applied.setdefault(p, []).append([face, u, v, hh, out[hh]])
+            moved += 1
+        return moved
+
     # -- players: inventory, tools, stations, and the work their hands (or tools) can do per second
     def player(self, addr):
         pl = self.players.get(addr)
@@ -460,6 +506,10 @@ class World:
             self.dirty.add(p)
             self.pdirty.add(who)
             applied.setdefault(p, []).append([face, u, v, h, rec["edits"][k]])
+            # GRAVITY: a hole under loose blocks, or a loose block placed over a hole, settles its column (after the
+            # change itself is in `applied`, so a page applies the fall on top of it)
+            if b in FALLS or b == 0:
+                await self.settle(p, rec, face, u, v, h, titled, applied)
         return applied, refused, changed
 
     def regrow(self):
