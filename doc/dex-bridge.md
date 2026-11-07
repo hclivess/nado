@@ -506,9 +506,11 @@ NADO's block pipeline removes the usual levers:
   cannot choose *which* eligible txs to include beyond the deterministic target-height/`min_block` rule, so it
   cannot insert itself ahead of a fill it just saw.
 
-Residual, and honestly noted: a producer still *chooses among simultaneously-eligible* txs at the margin, and
-cross-chain price moves during a swap window create the **free-option problem** below. NADO reduces MEV
-structurally but does not claim to eliminate marginal ordering discretion.
+Residual, and honestly noted (corrected 2026-11-07): there is no producer — every node assembles every block — but
+in-block order is txid order, which a SUBMITTER can grind, and `min_block` is the sender's choice, so the "inclusion
+delay" above is a wallet default, not a rule. On the AMM this is answered by per-block batches (execnode/games/dex.py
+SWAPS: one price per block per pool, minOut enforced against the whole batch). Cross-chain price moves during a swap
+window still create the **free-option problem** below.
 
 ### 9.1 The free-option problem (the real economic risk, not a bug)
 

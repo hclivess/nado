@@ -10,7 +10,9 @@ block takes. What they pin down is the set of things an AMM can get wrong and lo
   * solvency       — exit can never draw past the reserve; shares and supply stay consistent.
   * ownership      — a position is spendable only by its owner (exit/refund are authenticated).
   * no fund lock   — a half-funded position is always refundable (the escape-hatch class).
-  * slippage       — minOut is enforced.
+  * slippage       — minOut is enforced (an order whose batch would pay it less is refused).
+  * batches        — a swap is an order in its block's batch, claimed from the next block
+                     (tests/test_amm_swaps_clear_in_batches_… pins the batching itself).
   * id bounds      — an id >= 2^32 is refused (the storage-aliasing class from the security audit).
 """
 import os
@@ -91,27 +93,33 @@ def main():
         check("seed mints shares = native units", sup == n0 and _cell(st, cid, dex.PSH, 11) == n0)
         check("pending cleared after join", _cell(st, cid, dex.PPN, 11) == 0 and _cell(st, cid, dex.PPT, 11) == 0)
 
-        # ---- swap NADO -> token: the invariant must not fall ---------------------------------------
+        # ---- swap NADO -> token: an order in this block's batch, claimed in the next -------------------
         k0 = rn * rt
         dx = 1_000
-        _call(st, cid, BOB, "swapn", [1, dx, 0, aid], value=dx * UNIT, asset=0)
+        st.cursor = 100
+        _call(st, cid, BOB, "obuy", [1, 501, dx, 0], value=dx * UNIT, asset=0)
+        st.cursor = 101
+        b0 = st.asset_balance(aid, BOB)
+        _call(st, cid, BOB, "claim", [501, aid])
         rn1, rt1 = _cell(st, cid, dex.RN, 1), _cell(st, cid, dex.RT, 1)
         out = rt - rt1
-        check("swapn moved the reserves", rn1 == rn + dx and out > 0)
+        check("a buy moved the reserves and paid its coins", rn1 == rn + dx and out > 0 and st.asset_balance(aid, BOB) - b0 == out * UNIT)
         check("k never decreases across a swap (fee accrues to LPs)", rn1 * rt1 >= k0)
         # the output must be strictly worse than the no-fee, no-slippage price
         check("output is below the spot price (fee + slippage)", out < (rt * dx) // rn)
 
         # ---- slippage -------------------------------------------------------------------------------
         rn2, rt2 = _cell(st, cid, dex.RN, 1), _cell(st, cid, dex.RT, 1)
-        _call(st, cid, BOB, "swapn", [1, dx, 10 ** 9, aid], value=dx * UNIT, asset=0)   # absurd minOut
-        check("minOut is enforced (swap reverted)",
-              _cell(st, cid, dex.RN, 1) == rn2 and _cell(st, cid, dex.RT, 1) == rt2)
+        _call(st, cid, BOB, "obuy", [1, 502, dx, 10 ** 9], value=dx * UNIT, asset=0)   # absurd minOut
+        check("minOut is enforced (the order is refused)",
+              _cell(st, cid, dex.RN, 1) == rn2 and _cell(st, cid, dex.RT, 1) == rt2 and _cell(st, cid, dex.OOWN, 502) == 0)
 
         # ---- swap token -> NADO (mirror) ------------------------------------------------------------
         st.assets.setdefault(str(aid), {})
         k1 = _cell(st, cid, dex.RN, 1) * _cell(st, cid, dex.RT, 1)
-        _call(st, cid, BOB, "swapt", [1, 500, 0], value=500 * UNIT, asset=aid)
+        _call(st, cid, BOB, "osell", [1, 503, 500, 0], value=500 * UNIT, asset=aid)
+        st.cursor = 102
+        _call(st, cid, BOB, "claim", [503, aid])
         check("k never decreases across the mirror swap",
               _cell(st, cid, dex.RN, 1) * _cell(st, cid, dex.RT, 1) >= k1)
 

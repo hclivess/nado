@@ -21,7 +21,7 @@ ARITHMETIC — the part that decides whether the trace is provable at all. Reser
 DIVMODW needs a divisor in [1, 2^31) and a quotient < 2^32, and every AMM formula divides by a
 reserve-sized number. UNIT = 10^8 gives 0.01 NADO granularity and caps a side at ~21.4M NADO — the same
 scaling, for the same reason, as reserve.py and bet.py. Everything that can GROW is bounded < 2^31:
-    swap: out = RT·dxf // (RN + dxf)   divisor RN+dxf < 2^31, quotient out <= RT < 2^31 < 2^32   ✓
+    swap: see SWAPS below — every division's divisor < 2^31 and quotient < 2^32 by construction or by a require
     join: sh  = pn·SUP // RN           divisor RN < 2^31,     quotient <= SUP < 2^31             ✓
     exit: amt = sh·R   // SUP          divisor SUP < 2^31,    quotient <= R < 2^31               ✓
 `x·y` is never formed — k is implicit in those divisions, so nothing approaches the field size.
@@ -35,7 +35,27 @@ aliases onto another field's slots (the cross-entity storage-aliasing lock class
 Pool fields  (keyed by pid): 1 ast · 2 rn(UNITs) · 3 rt(UNITs) · 4 sup(shares) · 9 list; slot 0 = count.
 Position flds(keyed by posId): 5 own · 6 pool · 7 sh · 10 pn(UNITs) · 11 pt(UNITs)
 Methods: open(pid,asset) · fundn(posId,pid,units)[NADO] · fundt(posId,units)[asset] · join(posId)
-         refund(posId) · exit(posId,shares) · swapn(pid,units,minOut)[NADO] · swapt(pid,units,minOut)[asset]
+         refund(posId) · exit(posId,shares) · obuy(pid,order,units,minOut)[NADO] · osell(pid,order,units,minOut)[asset]
+         · settle(pid) · claim(order, asset) · order(order) (a read: the block of an unclaimed order's batch, else 0)
+
+SWAPS ARE BATCHED, ONE PRICE PER BLOCK (operator, 2026-11-07, choosing it over a consensus reorder: an in-block shuffle
+cannot stop a sandwich whose two legs sit in different blocks, and the only unpredictable consensus seed would delay all
+execution by ~15 minutes). Every swap on a pool in one block is an ORDER in that block's batch; the first call on the pool
+in a later block (an order, claim, settle, join or exit) clears it: the 30 bps fee comes off both totals (B' and S',
+staying in the pool for the LPs), buys and sells net at the pool's spot, and only the remainder trades through the
+curve — so every buyer in the block gets one price and every seller another, and position in the block (txid order,
+grindable) is worth nothing. Each order then claims amount·total//sum, as a launch order does. A single order alone in
+its batch gets EXACTLY what the old immediate swap paid (B' = units·9970//10000, out = RT·B'//(RN+B')).
+LIMITS PROTECT THE WHOLE BATCH: minOut is checked against the batch's own clearing every time an order joins it — each
+side keeps its tightest limit (largest minOut/units, compared cross-multiplied) and the batch, quoted with the new order
+in, must honour both; an order that would push anyone past their limit reverts. Reserves cannot move under a batch
+still taking orders (join/exit wait out the block's batch and clear a closed one first), so the clearing is the last
+quote, and every claimed fill is at least its minOut. What this cannot stop is a front-runner whose leg clears in an
+EARLIER block: that moves the spot before your order is placed, and your minOut refuses it.
+ARITHMETIC: x = RN, y = RT, B, S < 2^31 (required where they grow). sv = S'·x//y: when y < x the sell side must stay under
+y·2^31//x (required), else sv <= S'. Net buy: dy = y·dB//(x+dB) with x+dB <= x+B < 2^31. Net sell: the buyers' coins
+B'·y//x < S' (B' <= sv), dx = x·dS//(y+dS). BTOUT <= S'+dy < 2^32 and BNOUT <= B'+dx < 2^32, the quotients the claims
+divide. Reserves after: RN + B - BNOUT > 0 and RT + S - BTOUT > 0 (dy < y, dx < x).
 
 THE LAUNCHPAD (doc/launchpad.md — "create it now, i think by upgrading the existing dex contract and updating it in
 place", operator 2026-11-07). A launch is a pool with KIND = 1: a bonding curve over the coin's WHOLE supply, priced by
@@ -54,7 +74,7 @@ nothing: no sniping the first block, no sandwich inside a block. The clearing is
 each order then claims `amount · total // sum` — the work never grows with the number of traders.
 GRADUATION when the curve has sold 4/5 of the supply (CT <= GRAD): the curve becomes a KIND = 2 pool at its own price —
 RN = the NADO raised, RT = the coins that price needs (the rest of the curve's coins are BURNED) — with NO SHARES
-(SUP = 0), so nobody can ever withdraw its liquidity; swapn/swapt trade it from then on.
+(SUP = 0), so nobody can ever withdraw its liquidity; it trades in batches (obuy/osell) like every pool from then on.
 FEES — 1 % of every order: a buy's in NADO, a sell's in the coin (burned, ABURN). There is no burn for native NADO, so
 the NADO fee and the creation fee are SEALED: the contract keeps them, no method can pay them out, and FEEB (slot
 FEEB·2^32) counts them in public. The protocol and the creator take nothing.
@@ -88,6 +108,9 @@ FEEB = 20                                      # slot 0: NADO fees sealed (creat
 BCNT, BKEY, BPOOL, BNIN, BTIN, BTOUT, BNOUT, BDONE = 21, 22, 23, 24, 25, 26, 27, 28   # per batch (slot 0 of BCNT = count)
 OOWN, OBAT, OSIDE, OAMT = 29, 30, 31, 32       # per order
 BX, BD = 33, 34                                # per batch: scratch for the clearing (x at clearing, the netted delta)
+# AMM BATCHES (see the header's SWAPS): per batch, the tightest buy limit (its order's units, minOut) and the tightest
+# sell limit, and scratch for the clearing (the buy and sell totals net of the 30 bps fee)
+BLBA, BLBM, BLSA, BLSM, BBF, BSF = 35, 36, 37, 38, 39, 40
 CURVE, GRADUATED = 1, 2
 VN0 = 50_000                                   # the DEFAULT virtual NADO (500 NADO; the page's default): it sets the
                                                # opening price (VN / supply) and the raise at graduation (4·VN)
@@ -117,6 +140,53 @@ CARRY_STORAGE = True
 
 def build():
     c = zkpy.Contract()
+
+    # ---- AMM SWAPS IN BATCHES (see the header's SWAPS): defined first, join and exit clear a closed batch too ----
+    def _pquote(m, bx, tag):
+        """The clearing of AMM batch bx() at its pool's reserves, WITHOUT changing them: fees off both totals (BBF,
+        BSF), buys and sells netted at the pool's spot, the remainder through the curve, into BTOUT (coins to the
+        buyers) and BNOUT (NADO to the sellers). Every intermediate is parked in the batch's slots (the REGISTER
+        BUDGET note at _clear); `bx` re-reads the batch id at each use, so nothing is pinned. DIVMODW's budget holds
+        by construction: see the SWAPS arithmetic in the header."""
+        def P(f):
+            return m.slot(f, m.slot(BPOOL, bx()).get())
+        def Bt(f):
+            return m.slot(f, bx())
+        Bt(BBF).set(m.muldiv(Bt(BNIN).get(), FEE_NUM, FEE_DEN))
+        Bt(BSF).set(m.muldiv(Bt(BTIN).get(), FEE_NUM, FEE_DEN))
+        # sv = the sellers' coins at spot, S'·x//y. With y < x the quotient could leave DIVMODW's budget: then the
+        # sell side must stay under y·2^31//x (< 2^31 because y < x), which keeps it under 2^31.
+        m.jnz(P(RT).get() < P(RN).get(), f"{tag}_big")
+        m.jmp(f"{tag}_sv")
+        m.label(f"{tag}_big")
+        m.require(Bt(BSF).get() < m.muldiv(P(RT).get(), m.const(1 << 31), P(RN).get()))
+        m.label(f"{tag}_sv")
+        Bt(BX).set(m.muldiv(Bt(BSF).get(), P(RN).get(), P(RT).get()))
+        m.jnz(Bt(BBF).get() < Bt(BX).get() + 1, f"{tag}_netsell")
+        # NET BUY: the sellers get their coins' worth at spot; the buyers' remainder buys from the pool
+        Bt(BD).set(Bt(BBF).get() - Bt(BX).get())
+        Bt(BTOUT).set(Bt(BSF).get() + m.muldiv(P(RT).get(), Bt(BD).get(), P(RN).get() + Bt(BD).get()))
+        Bt(BNOUT).set(Bt(BX).get())
+        m.jmp(f"{tag}_q")
+        m.label(f"{tag}_netsell")
+        # NET SELL: the buyers get their NADO's worth at spot (< S', since B' <= S'·x//y); the rest sells to the pool
+        Bt(BX).set(m.muldiv(Bt(BBF).get(), P(RT).get(), P(RN).get()))
+        Bt(BD).set(Bt(BSF).get() - Bt(BX).get())
+        Bt(BNOUT).set(Bt(BBF).get() + m.muldiv(P(RN).get(), Bt(BD).get(), P(RT).get() + Bt(BD).get()))
+        Bt(BTOUT).set(Bt(BX).get())
+        m.label(f"{tag}_q")
+    def _pclear(m, bx, tag):
+        """Clear AMM batch bx(): its quote, then the pool takes everything in and pays everything out —
+        RN += BNIN - BNOUT, RT += BTIN - BTOUT (the fees and the netted trade stay in it) — and the batch closes.
+        OPEN is reset LAST: bx() may read it."""
+        def P(f):
+            return m.slot(f, m.slot(BPOOL, bx()).get())
+        m.require(m.slot(BDONE, bx()).get() == 0)
+        _pquote(m, bx, tag)
+        P(RN).set(P(RN).get() + m.slot(BNIN, bx()).get() - m.slot(BNOUT, bx()).get())
+        P(RT).set(P(RT).get() + m.slot(BTIN, bx()).get() - m.slot(BTOUT, bx()).get())
+        m.slot(BDONE, bx()).set(m.const(1))
+        P(OPEN).set(m.const(0))
 
     # open(pid, asset) — claim a pool id for a NADO/asset pair. Carries no value; an empty pool is just a
     # name until someone seeds it through a position.
@@ -203,6 +273,13 @@ def build():
     with c.method("join") as m:
         m.require(m.arg(0) < ID_MAX)                   # C2 (2026-09-23)
         m.require(m.arg(1) < ID_MAX)
+        # SWAPS ARE BATCHED (header): the reserves must not move under a batch still taking orders — its limits were
+        # checked against them — so liquidity waits out this block's batch, and a closed one is cleared first
+        m.jnz(m.slot(OPEN, m.arg(1)).get() == 0, "jc_free")
+        m.require(m.slot(KIND, m.arg(1)).get() != CURVE)
+        m.require(m.slot(BKEY, m.slot(OPEN, m.arg(1)).get()).get() != m.cursor())
+        _pclear(m, lambda: m.slot(OPEN, m.arg(1)).get(), "jc")
+        m.label("jc_free")
         # REGISTER BUDGET: a named temp (m.set) is pinned for the WHOLE method and only ~7 registers exist
         # (r7 is DIVMOD's). ARGS are leaves — they re-materialize into a transient register on each use and
         # pin nothing — so the pool id rides in as an arg (checked against the position) instead of being
@@ -256,6 +333,13 @@ def build():
     with c.method("exit") as m:
         m.require(m.arg(0) < ID_MAX)                   # C2 (2026-09-23)
         m.require(m.arg(1) < ID_MAX)
+        # SWAPS ARE BATCHED (header): the reserves must not move under a batch still taking orders — its limits were
+        # checked against them — so liquidity waits out this block's batch, and a closed one is cleared first
+        m.jnz(m.slot(OPEN, m.arg(1)).get() == 0, "xc_free")
+        m.require(m.slot(KIND, m.arg(1)).get() != CURVE)
+        m.require(m.slot(BKEY, m.slot(OPEN, m.arg(1)).get()).get() != m.cursor())
+        _pclear(m, lambda: m.slot(OPEN, m.arg(1)).get(), "xc")
+        m.label("xc_free")
         pos = m.arg(0)
         pid = m.arg(1)                                 # a leaf (see the REGISTER BUDGET note in join)
         m.require(m.slot(POW, pos).get() == m.caller())
@@ -286,67 +370,6 @@ def build():
         atu = m.set(at * UNIT, "atu")
         m.apay(m.arg(3), m.caller(), atu)
         m.ret(an)
-
-    # swapn(pid, units, minOut)[NADO] — sell NADO for the pool's token.
-    #   out = RT·dxf // (RN + dxf),  dxf = dx·9970//10000
-    with c.method("swapn") as m:
-        m.require(m.arg(0) < ID_MAX)                   # C2 (2026-09-23)
-        pid = m.arg(0)
-        m.require(m.slot(AST, pid).get() != 0)
-        m.require(m.slot(KIND, pid).get() != CURVE)    # a curve trades by batch (buy/sell) until it graduates
-        m.require(m.slot(AST, pid).get() == m.arg(3))  # asset as a checked leaf (see exit)
-        m.require(m.in_asset() == 0)
-        dx = m.set(m.arg(1), "dx")
-        m.require(dx > 0)
-        m.require(dx < BOUND)
-        m.require(m.value() == dx * UNIT)
-        m.require(m.slot(RN, pid).get() > 0)
-        m.require(m.slot(RT, pid).get() > 0)
-        m.require(m.slot(RN, pid).get() < BOUND)
-        m.require(m.slot(RT, pid).get() < BOUND)
-        dxf = m.set(m.muldiv(dx, FEE_NUM, FEE_DEN), "dxf")
-        m.require(dxf > 0)
-        m.require(m.slot(RN, pid).get() + dxf < BOUND)   # DIVMODW divisor budget — enforced, not assumed
-        out = m.set(m.muldiv(m.slot(RT, pid).get(), dxf, m.slot(RN, pid).get() + dxf), "out")
-        m.require(out > 0)
-        m.require(out < m.slot(RT, pid).get())         # a swap can never drain the whole side
-        # SLIPPAGE: out >= minOut, written as `minOut < out+1`. NEVER `out > minOut-1`: field
-        # arithmetic has no negatives, so minOut=0 wraps to P-1 and the check refuses every swap.
-        m.require(m.arg(2) < out + 1)
-        m.require(m.slot(RN, pid).get() + dx < BOUND)
-        m.slot(RN, pid).set(m.slot(RN, pid).get() + dx)
-        m.slot(RT, pid).set(m.slot(RT, pid).get() - out)
-        outu = m.set(out * UNIT, "outu")
-        m.apay(m.arg(3), m.caller(), outu)
-        m.ret(out)
-
-    # swapt(pid, units, minOut)[asset] — sell the pool's token for NADO. Mirror of swapn.
-    with c.method("swapt") as m:
-        m.require(m.arg(0) < ID_MAX)                   # C2 (2026-09-23)
-        pid = m.arg(0)
-        m.require(m.slot(AST, pid).get() != 0)
-        m.require(m.slot(KIND, pid).get() != CURVE)    # a curve trades by batch (buy/sell) until it graduates
-        m.require(m.in_asset() == m.slot(AST, pid).get())
-        dx = m.set(m.arg(1), "dx")
-        m.require(dx > 0)
-        m.require(dx < BOUND)
-        m.require(m.value() == dx * UNIT)
-        m.require(m.slot(RN, pid).get() > 0)
-        m.require(m.slot(RT, pid).get() > 0)
-        m.require(m.slot(RN, pid).get() < BOUND)
-        m.require(m.slot(RT, pid).get() < BOUND)
-        dxf = m.set(m.muldiv(dx, FEE_NUM, FEE_DEN), "dxf")
-        m.require(dxf > 0)
-        m.require(m.slot(RT, pid).get() + dxf < BOUND)
-        out = m.set(m.muldiv(m.slot(RN, pid).get(), dxf, m.slot(RT, pid).get() + dxf), "out")
-        m.require(out > 0)
-        m.require(out < m.slot(RN, pid).get())
-        m.require(m.arg(2) < out + 1)                  # SLIPPAGE (see swapn: no minOut-1 underflow)
-        m.require(m.slot(RT, pid).get() + dx < BOUND)
-        m.slot(RT, pid).set(m.slot(RT, pid).get() + dx)
-        m.slot(RN, pid).set(m.slot(RN, pid).get() - out)
-        m.pay(m.caller(), out * UNIT)
-        m.ret(out)
 
     # ---- THE LAUNCHPAD ----------------------------------------------------------------------------------------
     # prelaunch(pid)[NADO] — pay the creation fee and reserve the id for the caller.
@@ -480,6 +503,85 @@ def build():
         m.slot(OBAT, o).set(m.slot(OPEN, pid).get())
         m.slot(OSIDE, o).set(m.const(side))
 
+    # ---- AMM orders (the clearing helpers are at the top of build) ---------------------------------------------
+    def _porder(m, side, tag):
+        """Place an AMM order (args: pid, order, units, minOut) into the pool's batch for THIS block — clearing the
+        previous block's batch first. Every pool kind but a running curve trades this way (a graduated launch too)."""
+        pid = m.arg(0)
+        m.require(pid < ID_MAX)
+        m.require(m.slot(AST, pid).get() != 0)
+        m.require(m.slot(KIND, pid).get() != CURVE)
+        m.require(m.slot(RN, pid).get() > 0)
+        m.require(m.slot(RT, pid).get() > 0)
+        m.require(m.arg(1) > 0)
+        m.require(m.arg(1) < ID_MAX)
+        m.require(m.slot(OOWN, m.arg(1)).get() == 0)   # a fresh order id
+        m.require(m.arg(2) > 0)
+        m.require(m.arg(2) < BOUND)
+        m.require(m.value() == m.arg(2) * UNIT)
+        m.require(m.arg(3) < BOUND)                    # minOut
+        m.jnz(m.slot(OPEN, pid).get() == 0, f"{tag}_new")
+        m.jnz(m.slot(BKEY, m.slot(OPEN, pid).get()).get() == m.cursor(), f"{tag}_join")
+        _pclear(m, lambda: m.slot(OPEN, m.arg(0)).get(), f"{tag}c")
+        m.label(f"{tag}_new")
+        m.slot(BCNT, m.const(0)).set(m.slot(BCNT, m.const(0)).get() + 1)
+        m.require(m.slot(BCNT, m.const(0)).get() < ID_MAX)
+        m.slot(BPOOL, m.slot(BCNT, m.const(0)).get()).set(m.arg(0))
+        m.slot(OPEN, m.arg(0)).set(m.slot(BCNT, m.const(0)).get())
+        m.slot(BKEY, m.slot(OPEN, m.arg(0)).get()).set(m.cursor())
+        m.label(f"{tag}_join")
+        m.slot(OOWN, m.arg(1)).set(m.caller())
+        m.slot(OBAT, m.arg(1)).set(m.slot(OPEN, m.arg(0)).get())
+        m.slot(OSIDE, m.arg(1)).set(m.const(side))
+        m.slot(OAMT, m.arg(1)).set(m.arg(2))
+    def _plimits(m, tag):
+        """The batch, quoted with this order in it, must honour the tightest limit on EACH side — and so every
+        order's: a buyer gets amount·BTOUT//BNIN >= minOut iff amount·BTOUT >= minOut·BNIN, and the tightest
+        (largest minOut/amount) bounds them all. A later order that would push anyone past their limit reverts.
+        (Plain products: zkvm2 words are 256-bit and LT is exact, so 31-bit × 31-bit compares are exact.)"""
+        bx = lambda: m.slot(OPEN, m.arg(0)).get()
+        _pquote(m, bx, f"{tag}q")
+        m.require(m.slot(BLBM, bx()).get() * m.slot(BNIN, bx()).get() < m.slot(BLBA, bx()).get() * m.slot(BTOUT, bx()).get() + 1)
+        m.require(m.slot(BLSM, bx()).get() * m.slot(BTIN, bx()).get() < m.slot(BLSA, bx()).get() * m.slot(BNOUT, bx()).get() + 1)
+    def _tighter(m, fa, fm, tag):
+        """Keep the side's tightest limit: this order's (units arg 2, minOut arg 3) if the side has none yet, or if
+        minOut/units > the kept minOut/units (cross-multiplied, exact)."""
+        bx = lambda: m.slot(OPEN, m.arg(0)).get()
+        m.jnz(m.slot(fa, bx()).get() == 0, f"{tag}_set")
+        m.jnz(m.arg(3) * m.slot(fa, bx()).get() < m.slot(fm, bx()).get() * m.arg(2) + 1, f"{tag}_keep")
+        m.label(f"{tag}_set")
+        m.slot(fa, bx()).set(m.arg(2))
+        m.slot(fm, bx()).set(m.arg(3))
+        m.label(f"{tag}_keep")
+    # obuy(pid, order, units, minOut)[NADO] — buy the pool's coin in this block's batch
+    with c.method("obuy") as m:
+        m.require(m.in_asset() == 0)
+        _porder(m, 1, "pb")
+        m.require(m.slot(RN, m.arg(0)).get() + m.slot(BNIN, m.slot(OPEN, m.arg(0)).get()).get() + m.arg(2) < BOUND)
+        m.slot(BNIN, m.slot(OPEN, m.arg(0)).get()).set(m.slot(BNIN, m.slot(OPEN, m.arg(0)).get()).get() + m.arg(2))
+        _tighter(m, BLBA, BLBM, "pbt")
+        _plimits(m, "pb")
+        m.ret(m.arg(2))
+    # osell(pid, order, units, minOut)[asset] — sell the pool's coin in this block's batch
+    with c.method("osell") as m:
+        m.require(m.in_asset() == m.slot(AST, m.arg(0)).get())
+        _porder(m, 2, "ps")
+        m.require(m.slot(RT, m.arg(0)).get() + m.slot(BTIN, m.slot(OPEN, m.arg(0)).get()).get() + m.arg(2) < BOUND)
+        m.slot(BTIN, m.slot(OPEN, m.arg(0)).get()).set(m.slot(BTIN, m.slot(OPEN, m.arg(0)).get()).get() + m.arg(2))
+        _tighter(m, BLSA, BLSM, "pst")
+        _plimits(m, "ps")
+        m.ret(m.arg(2))
+
+    # order(o) — a READ for pages (through /exec/view): the block whose batch holds unclaimed order o, or 0 if there is
+    # no unclaimed order o (never placed, refused for its limit, or already claimed). A page claims once that block has
+    # passed — it cannot otherwise tell a landed order from a refused one.
+    with c.method("order") as m:
+        m.require(m.arg(0) < ID_MAX)
+        m.jnz(m.slot(OAMT, m.arg(0)).get() == 0, "none")
+        m.ret(m.slot(BKEY, m.slot(OBAT, m.arg(0)).get()).get())
+        m.label("none")
+        m.ret(m.const(0))
+
     # buy(pid, order, units)[NADO]
     with c.method("buy") as m:
         m.require(m.in_asset() == 0)
@@ -516,6 +618,11 @@ def build():
         m.require(pid < ID_MAX)
         m.require(m.slot(OPEN, pid).get() != 0)
         m.require(m.slot(BKEY, m.slot(OPEN, pid).get()).get() != m.cursor())
+        # an AMM batch (any kind but a running curve) clears by the pool's rule
+        m.jnz(m.slot(KIND, pid).get() == CURVE, "curve")
+        _pclear(m, lambda: m.slot(OPEN, m.arg(0)).get(), "sp")
+        m.ret(m.const(1))
+        m.label("curve")
         # the opening batch stays open through its window
         m.jnz(m.slot(BKEY, m.slot(OPEN, pid).get()).get() != m.slot(LBLK, pid).get(), "go")
         m.require(_key(m, pid) == 0)
@@ -536,6 +643,11 @@ def build():
         # not yet cleared: it must be its curve's open batch, and closed
         m.require(m.slot(OPEN, m.slot(BPOOL, b).get()).get() == b)
         m.require(m.slot(BKEY, b).get() != m.cursor())
+        # an AMM batch clears by the pool's rule; a curve's by its own (with its opening window)
+        m.jnz(m.slot(KIND, m.slot(BPOOL, b).get()).get() == CURVE, "kcurve")
+        _pclear(m, lambda: b, "kp")
+        m.jmp("done")
+        m.label("kcurve")
         m.jnz(m.slot(BKEY, b).get() != m.slot(LBLK, m.slot(BPOOL, b).get()).get(), "late")
         m.require(_key(m, m.slot(BPOOL, b).get()) == 0)
         m.label("late")
@@ -568,14 +680,15 @@ ABI = {
     "join":   {"args": ["posId", "poolId"]},
     "refund": {"args": ["posId", "poolId", "assetId"]},
     "exit":   {"args": ["posId", "poolId", "shares", "assetId"]},
-    "swapn":  {"args": ["poolId", "units", "minOut", "assetId"], "value": True},
-    "swapt":  {"args": ["poolId", "units", "minOut"], "value": True},
+    "obuy":   {"args": ["poolId", "orderId", "units", "minOut"], "value": True},
+    "osell":  {"args": ["poolId", "orderId", "units", "minOut"], "value": True},
     "prelaunch": {"args": ["poolId"], "value": True},
     "launch": {"args": ["poolId", "units", "virtualNado"], "value": True},
     "buy":    {"args": ["poolId", "orderId", "units"], "value": True},
     "sell":   {"args": ["poolId", "orderId", "units"], "value": True},
     "settle": {"args": ["poolId"]},
     "claim":  {"args": ["orderId", "assetId"]},
+    "order":  {"args": ["orderId"]},
     "_view": {"maps": {"ast": {"field": AST, "index": "pools"},
                        "rn":  {"field": RN,  "index": "pools"},
                        "rt":  {"field": RT,  "index": "pools"},

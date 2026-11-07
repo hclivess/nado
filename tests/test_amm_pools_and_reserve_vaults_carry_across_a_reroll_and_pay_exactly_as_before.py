@@ -100,7 +100,11 @@ call(old, dc, ISS, "open", [1, A1])
 call(old, dc, LP, "fundn", [10, 1, 5000], 5000 * U)
 call(old, dc, LP, "fundt", [10, 1, 20000], 20000 * U, A1)
 r = call(old, dc, LP, "join", [10, 1])
-call(old, dc, TR, "swapn", [1, 100, 0, A1], 100 * U)
+c0 = old.cursor
+call(old, dc, TR, "obuy", [1, 700, 100, 0], 100 * U)          # swaps are batched: an order, claimed next block
+old.cursor += 1
+call(old, dc, TR, "claim", [700, A1])
+old.cursor = c0                                               # the vault below reads the setup's own height
 call(old, dc, LP2, "fundn", [11, 1, 300], 300 * U)            # staged, never joined: refundable at any time
 call(old, dc, TR, "open", [2, MADE_UP])
 shares = cell(old.contracts[dc], D.PSH, 10)
@@ -116,6 +120,10 @@ TIP = old.cursor + 5000
 T.check("setup: a vault with an announced release and a redemption",
         rdy_old == 100_000 + R.MIN_NOTICE and cell(old.contracts[rc], R.OUT, 5) == 4900, rdy_old)
 old.cursor = TIP
+# a swap IN FLIGHT at the carry: an order in the batch of the old chain's last block (its key is the old cursor, which
+# the new chain's never equals — so it is closed there, claimable, and must pay what the old chain pays)
+r = call(old, dc, TR, "obuy", [1, 702, 150, 0], 150 * U)
+T.check("setup: a swap order sits in the open batch of the last block", "ok" in r and cell(old.contracts[dc], D.OPEN, 1) != 0, r)
 T.check("setup: the old state's asset ids are the one (BLAKE2s) id format the carry re-derives",
         carry.asset_map(old.assets) == {A1: A1, A2: A2})
 
@@ -131,8 +139,14 @@ T.check("3. tools/carry.py carries the saved state: both contracts and both asse
 # ---- what the old chain pays from here ------------------------------------------------------------------------------
 def play(st, release_at, early):
     out = {}
+    st.cursor += 1                                     # a later block: the in-flight batch has closed
+    b = tok(st, A1, TR)
+    call(st, dc, TR, "claim", [702, A1])
+    out["inflight"] = tok(st, A1, TR) - b
     b = (nat(st, TR), tok(st, A1, TR))
-    call(st, dc, TR, "swapt", [1, 50, 0], 50 * U, A1)
+    call(st, dc, TR, "osell", [1, 701, 50, 0], 50 * U, A1)
+    st.cursor += 1
+    call(st, dc, TR, "claim", [701, A1])
     out["swapt"] = (nat(st, TR) - b[0], b[1] - tok(st, A1, TR))
     b = (nat(st, LP), tok(st, A1, LP))
     call(st, dc, LP, "exit", [10, 1, shares, A1])
@@ -156,7 +170,7 @@ def play(st, release_at, early):
 
 before = play(old, rdy_old, rdy_old - 1)
 T.check("setup: on the old chain the swap, exit, refund, redemption and release all pay",
-        all(before[k] for k in ("swapt", "exit", "refund", "redeem", "release")) and before["early_release"] == 0
+        all(before[k] for k in ("inflight", "swapt", "exit", "refund", "redeem", "release")) and before["early_release"] == 0
         and before["refund"] == 300 * U, before)
 
 # ---- the carry (the reroll builder's path) --------------------------------------------------------------------------
@@ -196,6 +210,8 @@ for w in (ISS, LP, LP2, TR, HOL):
 after = play(new, rdy_old - TIP, rdy_old - TIP - 1)
 T.check("1. on the new chain the swap pays the same, the LP's exit takes the same slice of both sides, the staged "
         "deposit refunds in full", all(after[k] == before[k] for k in ("swapt", "exit", "refund")), (after, before))
+T.check("1. a swap in flight at the carry is claimed on the new chain for exactly what the old chain pays",
+        after["inflight"] == before["inflight"] > 0, (after["inflight"], before["inflight"]))
 T.check("2. on the new chain a redemption pays the same, a release one block early is refused, and at the rebased "
         "height it pays what the old chain paid", all(after[k] == before[k] for k in ("redeem", "early_release", "release")),
         (after, before))

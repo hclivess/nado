@@ -318,13 +318,61 @@ async function doSwap() {
   if (impact >= 5 && !await uiConfirm({ title: "High price impact", danger: true,
     body: `This trade moves the pool's price by ${impact.toFixed(1)}%. You get at worst ${$("quote").textContent.replace(/.*at worst /, "").replace(")", "")}. A smaller amount, or several swaps, gets a better rate.`,
     confirmText: "Swap anyway" })) return;
-  if (($("dir").value || "n2t") === "n2t") {
-    dapp.call("swapn", [p.id, Number(inU), Number(minOut), BigInt(p.asset)], inU * UNIT,
-              "Swapping…", { poolId: p.id });
-  } else {
-    dapp.call("swapt", [p.id, Number(inU), Number(minOut)], inU * UNIT,
-              "Swapping…", { poolId: p.id }, { asset: p.asset });
+  // SWAPS ARE BATCHED (execnode/games/dex.py SWAPS): an order in this block's batch, which clears at one price; minOut
+  // protects it against the whole batch. The coins are collected by swapClaims once the block has passed.
+  const oid = randId(), side = ($("dir").value || "n2t") === "n2t" ? 1 : 2;
+  const os = lpRead(LS_SW, []); os.push({ oid, pid: p.id, side, units: String(inU), at: dapp.cursor, asset: p.asset, me: dapp.me }); lpWrite(LS_SW, os);
+  if (side === 1) dapp.call("obuy", [p.id, oid, Number(inU), Number(minOut)], inU * UNIT, LT("swPlacing", "Placing your swap in this block's batch…"), { poolId: p.id, id: oid });
+  else dapp.call("osell", [p.id, oid, Number(inU), Number(minOut)], inU * UNIT, LT("swPlacing", "Placing your swap in this block's batch…"), { poolId: p.id, id: oid }, { asset: p.asset });
+}
+
+// ---- your swaps: each an order in its block's batch, read back from the chain (the contract's order() read: the block
+// of an unclaimed order's batch, 0 if none) and collected once that block has passed. A claim carries no value, so a
+// wallet with auto-sign collects silently. An order the chain never shows (refused for its limit, or never landed) is
+// dropped after a while and says so.
+const LS_SW = "nado_dex_swaps", SW_GIVEUP = 60;           // blocks without a trace before an order is called refused
+const swState = {};                                       // oid -> { k: block of its batch (0 = none), at: when read }
+async function swOrder(oid) {
+  const c = swState[oid];
+  if (c && Date.now() - c.at < 6000) return c.k;
+  try {
+    const r = await (await fetch(base() + "/exec/view?ns=" + dapp.ns + "&cid=" + CID + "&method=order&args=" + encodeURIComponent(JSON.stringify([oid])), { cache: "no-store" })).json();
+    swState[oid] = { k: Number(r && r.result || 0), at: Date.now() };
+  } catch (e) { return c ? c.k : null; }
+  return swState[oid].k;
+}
+async function swapClaims() {
+  if (!dapp.me || dapp.cursor == null) return;
+  const os = lpRead(LS_SW, []).filter((o) => o.me === dapp.me);
+  let changed = false;
+  for (const o of os) {
+    if (o.done) continue;
+    const k = await swOrder(o.oid);
+    if (k == null) continue;
+    if (k > 0) { o.seen = true; if (dapp.cursor > k && !o.claimed) {
+      o.claimed = true; changed = true;
+      dapp.call("claim", [o.oid, BigInt(o.asset)], null, LT("swCollect", "Collecting your swap…"), { phase: "swclaim", id: o.oid });
+      break;                                                // one signature at a time
+    } }
+    else if (o.claimed || o.seen) { o.done = true; changed = true; }               // claimed (or claimed elsewhere)
+    else if (dapp.cursor - Number(o.at || 0) > SW_GIVEUP) { o.done = o.refused = true; changed = true; }
   }
+  if (changed) { const all = lpRead(LS_SW, []).map((x) => os.find((y) => y.oid === x.oid) || x); lpWrite(LS_SW, all.filter((x) => !x.done || dapp.cursor - Number(x.at || 0) < 2000)); }
+  renderSwPending();
+}
+function renderSwPending() {
+  const box = $("swPending"); if (!box || !lastSto) return;
+  const os = lpRead(LS_SW, []).filter((o) => o.me === dapp.me && (!o.done || o.refused) && dapp.cursor - Number(o.at || 0) < 400);
+  box.innerHTML = os.length ? `<h3 class="mt">${esc(LT("swYours", "Your swaps"))}</h3>` + os.map((o) => {
+    const sym = tokSym(o.asset), amt = o.side === 1 ? fromUnits(BigInt(o.units)) + " NADO" : tokFromUnits(BigInt(o.units), o.asset) + " " + sym;
+    const k = (swState[o.oid] || {}).k;
+    const st = o.refused ? LT("swRefused", "not filled — refused for its slippage limit, or never landed; nothing was taken")
+      : o.claimed ? LT("swCollecting", "collecting…") : k > 0 ? LT("swInBatch", "in the batch of block {b} — collected once it has passed", { b: k })
+      : LT("swLanding", "landing…");
+    return `<div class="row small"><span>${esc((o.side === 1 ? LT("buy", "Buy") : LT("sell", "Sell")) + " · " + amt)} — ${esc(st)}</span>${k > 0 && !o.claimed && dapp.cursor > k ? `<button class="ghost" data-swc="${o.oid}">${esc(LT("claim", "Claim"))}</button>` : ""}</div>`;
+  }).join("") : "";
+  box.querySelectorAll("[data-swc]").forEach((b) => { b.onclick = () => { const o = lpRead(LS_SW, []).find((x) => String(x.oid) === b.dataset.swc);
+    if (o) dapp.call("claim", [o.oid, BigInt(o.asset)], null, LT("swCollect", "Collecting your swap…"), { phase: "swclaim", id: o.oid }); }; });
 }
 
 
@@ -2482,6 +2530,7 @@ async function refresh() {
     render();
     renderTicker();
     swapAutopilot().catch(() => {});
+    swapClaims().catch(() => {});
   } finally { refreshing = false; }
 }
 
@@ -2612,8 +2661,8 @@ dapp.onReturn((pend, ok, err) => {
     fundn: "NADO deposited — confirming…",
     fundt: "Token deposited — confirming…",
     join: "Liquidity added — confirming…",
-    swapn: "Swap sent — confirming…",
-    swapt: "Swap sent — confirming…",
+    obuy: LT("swSent", "Swap placed in this block's batch — your coins are collected once it has passed"),
+    osell: LT("swSent", "Swap placed in this block's batch — your coins are collected once it has passed"),
     exit: "Withdrawal sent — confirming…",
     refund: "Refund sent — confirming…",
     post: "Order posted — confirming…",

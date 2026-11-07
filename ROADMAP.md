@@ -81,9 +81,8 @@ Concretely:
 4. **The chain metric we optimize is not "app revenue," it is `fees burned + volume settled`.**
    See §10. Copying Solana's *numbers* would mean copying its extraction; we copy its *machine*
    and let the value land on holders instead of on an app company.
-5. **No priority-fee auction, no MEV lane.** But note: today a block producer still chooses intra-block
-   ordering, so sandwiching an AMM would be possible. Fair ordering becomes a *requirement* the moment
-   an AMM exists — see Track C.
+5. **No priority-fee auction, no MEV lane.** There is no proposer to order a block, and since 2026-11-07 the AMM
+   clears every block's swaps on a pool at ONE price (Track C), so position inside a block is worth nothing.
 
 ---
 
@@ -466,12 +465,15 @@ profile is many tiny calls, not few large ones — the opposite of the game cont
 limits. Before Phase 5 volume: measure calls/block, batch calls into one blob, and revisit whether the
 flat `MIN_TX_FEE` per blob is the right shape when a blob carries 200 swaps. (Keep the fee burned.)
 
-### Track C — Fair ordering / anti-MEV
-The moment an AMM has real volume, block producers can sandwich it. "No MEV" is currently true only
-because there's nothing to extract. Options to evaluate before Phase 2 ships to mainnet-scale volume:
-deterministic intra-block ordering (e.g. by tx hash), per-block batch auctions with a uniform clearing
-price, or encrypted mempool. **This is a consensus-level commitment and cheaper to make now than
-after a sandwich bot exists.** Position it publicly as a feature — it is one.
+### Track C — Fair ordering / anti-MEV — **BUILT (2026-11-07): per-block batch auctions**
+Chosen by the operator over a consensus reorder. In-block order is txid order, which a submitter grinds, and NO
+in-block shuffle can stop a sandwich whose two legs sit in different blocks (the mempool is public; the only
+unpredictable consensus seed, the RANDAO beacon two epochs ahead, would delay all execution ~15 minutes). So the DEX
+contract (upgraded in place) makes every swap an order in its block's batch: buys and sells net at the pool's spot,
+the remainder trades through the curve, every buyer in the block gets one price and every seller another, and minOut
+is enforced against the whole batch (an order that would push anyone past their limit reverts). What remains is a
+front-runner whose leg clears in an EARLIER block — that moves the spot before your order and your minOut refuses it.
+Open: commit-reveal swaps (intent hidden until execution) as an opt-in protected swap.
 
 ### Track D — Developer surface
 We are permissionless at the protocol level (`_apply_blob_inner` does zero sender checks on deploy;

@@ -74,5 +74,25 @@ ok(/txns: trades24\(XKEY\(m\.key\)\) \|\| null/.test(js) && !/txns: open\.length
 ok(/\$\("mktPrice"\)\.textContent = live \? fmtShort\(px\) \+ " NADO"/.test(js) && /const price = live \? nadoPerTok\(p\) : 0;/.test(js),
    "the pair header and the pool list price in NADO per coin");
 
+// 4. swaps are batch orders (execnode/games/dex.py SWAPS): the page places them with the user's minOut and collects them
+//    once their block has passed, reading the contract's order() back — never claiming an order the chain does not hold
+{
+  const sw = js.slice(js.indexOf("async function doSwap("), js.indexOf("function renderSwPending("));
+  ok(/dapp\.call\("obuy", \[p\.id, oid, Number\(inU\), Number\(minOut\)\]/.test(sw) && /dapp\.call\("osell", \[p\.id, oid, Number\(inU\), Number\(minOut\)\]/.test(sw)
+     && !/"swapn"|"swapt"/.test(js), "a swap is an order in the block's batch, carrying the user's minOut (the immediate swaps are gone)");
+  ok(/method=order&args=/.test(sw) && /if \(k > 0\) \{ o\.seen = true; if \(dapp\.cursor > k && !o\.claimed\)/.test(sw),
+     "the page collects a swap only once the chain shows it in a batch whose block has passed");
+  // the quote the page shows is what an order ALONE in its batch is paid (the batch test pins the contract to this formula)
+  const qsrc = js.slice(js.indexOf("function quoteOut("), js.indexOf("function execUnits("));
+  const quoteOut = new Function("FEE_NUM", "FEE_DEN", qsrc + "; return quoteOut;")(9970n, 10000n);
+  let bad = 0;
+  for (let i = 0; i < 500; i++) {
+    const rn = BigInt(1 + Math.floor(Math.random() * 2 ** 30)), rt = BigInt(1 + Math.floor(Math.random() * 2 ** 30)), u = BigInt(1 + Math.floor(Math.random() * 2 ** 24));
+    const f = u * 9970n / 10000n, want = f > 0n ? rt * f / (rn + f) : 0n;
+    if (quoteOut(u, rn, rt) !== want) bad++;
+  }
+  ok(!bad, "the swap quote is exactly what an order alone in its batch is paid (500 random pools)");
+}
+
 if (fails) { console.log(`${fails} FAILURES`); process.exit(1); }
 console.log("ALL PASS");

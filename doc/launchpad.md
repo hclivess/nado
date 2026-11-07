@@ -179,9 +179,8 @@ funds ships before it has been run end to end (ROADMAP §12).
   needs `/upload` and `/ipfs/` routed on dex.nadochain.com — an nginx change waiting for the operator's yes.
 - **In-block ordering.** A gated reorder by `hash(set digest, txid)` was scoped (2026-11-07) and NOT shipped: the
   mempool is shared in a leaderless chain, so a sender can grind a txid against the known set (≈N tries to go first, N²
-  to sandwich). An unbiasable order needs a seed revealed after the set is fixed — the RANDAO beacon with execution
-  delayed — a consensus design of its own. The launchpad does not depend on it: a uniform price per batch makes position
-  inside a batch worthless.
+  to sandwich), and no in-block order stops a sandwich across two blocks. The operator chose batches instead: the
+  ordinary AMM pools now clear one batch per block too (dex.py SWAPS, ROADMAP Track C), as the launchpad always did.
 - **Tests:** `tests/test_the_dex_launchpad_clears_every_batch_at_one_price_and_graduates_into_locked_liquidity.py`
   (money: one price per batch vs an independent model, solvency, fees, graduation, carry); every launchpad method is
   proven by the Stwo prover (`tests/test_a_stwo_proof_of_contract_execution_…`, which records it);

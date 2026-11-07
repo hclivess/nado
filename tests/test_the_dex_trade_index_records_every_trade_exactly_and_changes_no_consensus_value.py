@@ -79,11 +79,15 @@ def scenario(nbuys=14):
                            call(OWNER, "fundn", [1, POOL, 2_000], 2_000 * U),
                            call(OWNER, "fundt", [1, POOL, 4_000], 4_000 * U, TOK),
                            call(OWNER, "join", [1, POOL])]))
-    blocks.append((h + 2, [call(BUYER, "swapn", [POOL, 100, 1, TOK], 100 * U),
-                           call(SELLER, "swapt", [POOL, 300, 1], 300 * U, TOK),
-                           call(BUYER, "swapn", [POOL, 100, 10 ** 9, TOK], 100 * U),          # REVERT: minOut too high
-                           call(BUYER, "swapn", [POOL, 40, 1, TOK], 40 * U)]))
-    blocks.append((h + 3, [call(OWNER, "exit", [1, POOL, 500, TOK]),
+    # swaps are orders in the block's batch (execnode/games/dex.py SWAPS), claimed from the next block
+    blocks.append((h + 2, [call(BUYER, "obuy", [POOL, 21, 100, 1], 100 * U),
+                           call(SELLER, "osell", [POOL, 22, 300, 1], 300 * U, TOK),
+                           call(BUYER, "obuy", [POOL, 23, 100, 10 ** 9], 100 * U),            # REVERT: minOut too high
+                           call(BUYER, "obuy", [POOL, 24, 40, 1], 40 * U)]))
+    blocks.append((h + 3, [call(BUYER, "claim", [21, TOK]),                                    # clears the batch
+                           call(SELLER, "claim", [22, TOK]),
+                           call(BUYER, "claim", [24, TOK]),
+                           call(OWNER, "exit", [1, POOL, 500, TOK]),
                            call(OWNER, "prelaunch", [CURVE], D.CREATE_FEE * U),
                            call(OWNER, "launch", [CURVE, 10_000, 1_000], 10_000 * U, COIN)]))
     blocks.append((h + 4, [call(BUYER, "buy", [CURVE, 1, 150], 150 * U),
@@ -98,8 +102,14 @@ def scenario(nbuys=14):
         blocks.append((hh, [call(BUYER, "buy", [CURVE, o, 700], 700 * U)]))
         blocks.append((hh + 1, [call(BUYER, "claim", [o, COIN])]))
         hh, o = hh + 2, o + 1
-    blocks.append((hh, [call(SELLER, "swapn", [CURVE, 20, 1, COIN], 20 * U)]))       # trade on the graduated pool
+    blocks.append((hh, [call(SELLER, "obuy", [CURVE, 30, 20, 1], 20 * U)]))         # trade on the graduated pool
+    blocks.append((hh + 1, [call(SELLER, "claim", [30, COIN])]))
     return blocks
+
+
+def tx_of(blocks, method, oid):
+    """The txid of the call `method` on order `oid` (the fixture's calls are numbered, so name them by what they do)."""
+    return next(t for _h, bl in blocks for p, _s, t in bl if p.get("method") == method and (p.get("args") or [None, None])[1 if method != "claim" else 0] == oid)
 
 
 def fresh(tag):
@@ -135,7 +145,8 @@ def run(st, blocks, store=None, upto=None, frm=None, balances=None):
 # the loop buys until the curve graduates: probe where it does, then build the scenario with exactly that many buys
 _probe = fresh("probe")
 _o = dict(zip([t for _h, bl in scenario() for _p, _s, t in bl], run(_probe, scenario())[0]))
-NB = next(i for i in range(14) if "revert" in _o[f"c{18 + 2 * i:04d}"])         # c0018 is the first loop buy
+_sc = scenario()
+NB = next(i for i in range(14) if "revert" in _o[tx_of(_sc, "buy", 10 + i)])      # the loop's orders are 10, 11, …
 blocks = scenario(NB)
 plain = fresh("plain")
 outs0, roots0 = run(plain, blocks)
@@ -162,10 +173,11 @@ outs2, roots2 = run(boom, blocks)
 
 txids = [t for _h, bl in blocks for _p, _s, t in bl]
 out = dict(zip(txids, outs0))
+REV = tx_of(blocks, "obuy", 23)
 
 # ---- 2. neutral ----------------------------------------------------------------------------------------------------
 check("the fixture runs: every call applies except the one meant to revert",
-      all(o.endswith("-> ok") for t, o in out.items() if t.startswith("c") and t != "c0007") and "revert" in out["c0007"],
+      all(o.endswith("-> ok") for t, o in out.items() if t.startswith("c") and t != REV) and "revert" in out[REV],
       {t: o for t, o in out.items() if t.startswith("c") and not o.endswith("-> ok")})
 check("every apply_blob return string is identical with the index on", outs0 == outs1)
 check("the state root after EVERY block is identical with the index on", roots0 == roots1)
@@ -183,32 +195,24 @@ rows.reverse()                                                    # oldest first
 by_tx = {}
 for r in rows:
     by_tx.setdefault(r["txid"], []).append(r)
-check("the reverted swap left no row", "c0007" not in by_tx)
-swaps = [r for r in rows if r["side"] in ("buy", "sell") and r["kind"] != D.CURVE]
-ok_swaps = []
-for r in swaps:
-    sender, method, b, a = moved[r["txid"]]
-    coin_d = (a[1] - b[1]) if r["pid"] == POOL else (a[2] - b[2])
-    if r["side"] == "buy":
-        ok_swaps.append(b[0] - a[0] == r["nado"] * U and coin_d == r["tokens"] * U)
-    else:
-        ok_swaps.append(a[0] - b[0] == r["nado"] * U and -coin_d == r["tokens"] * U)
-check("every swap's NADO and coins are exactly what the trader's balances moved",
-      len(swaps) == 4 and all(ok_swaps), (len(swaps), ok_swaps))
-fills = [r for r in rows if r["kind"] == D.CURVE and r["side"] in ("buy", "sell")]
+check("the swap order refused for its limit left no row", REV not in by_tx)
+fills = [r for r in rows if r["side"] in ("buy", "sell")]
 claims = {}
 for t, (sender, method, b, a) in moved.items():
     if method == "claim":
         claims[t] = (sender, b, a)
 paid = []
 for r in fills:
-    # the claim of order oid paid it: coins to a buyer, NADO to a seller
-    ct = next(t for t, (_s, p) in ((t, (bl[1], bl[0])) for _h, bls in blocks for bl in bls for t in [bl[2]])
-              if p.get("method") == "claim" and p["args"][0] == r["oid"])
-    sender, b, a = claims[ct]
-    paid.append((a[2] - b[2]) == r["tokens"] * U if r["side"] == "buy" else (a[0] - b[0]) == r["nado"] * U)
-check("every launch fill equals what its claim actually paid (the contract's own claim formula)",
-      len(fills) == 3 + NB and all(paid), (len(fills), NB, paid.count(False)))
+    # the claim of order oid paid it: coins to a buyer, NADO to a seller (the pool's coin TOK, the launch's COIN)
+    sender, b, a = claims[tx_of(blocks, "claim", r["oid"])]
+    coin = 1 if r["pid"] == POOL else 2
+    paid.append((a[coin] - b[coin]) == r["tokens"] * U if r["side"] == "buy" else (a[0] - b[0]) == r["nado"] * U)
+check("every fill — pool swaps and launch orders alike — equals what its claim actually paid (the contract's own formula)",
+      len(fills) == 3 + 3 + NB + 1 and all(paid), (len(fills), NB, paid.count(False)))
+pb = {r["oid"]: r for r in fills if r["pid"] == POOL}
+check("the pool's two buyers in one block filled at ONE price, at the block their batch cleared",
+      set(pb) == {21, 22, 24} and pb[21]["cursor"] == pb[24]["cursor"] == H0 + 3
+      and abs(pb[21]["tokens"] * 40 - pb[24]["tokens"] * 100) < 100, pb)
 first = [r for r in fills if r["oid"] in (1, 2)]
 check("both opening-window buyers filled at ONE price, at the block the window's batch cleared",
       len(first) == 2 and first[0]["tokens"] == first[1]["tokens"] and first[0]["cursor"] == first[1]["cursor"] == H0 + 3 + D.WINDOW + 1,
@@ -218,7 +222,7 @@ check("the launch and the graduation are recorded, in order",
 check("liquidity is recorded as add and remove", [r["side"] for r in rows if r["pid"] == POOL and r["side"] in ("add", "remove")] == ["add", "remove"])
 check("each row carries its block's time", all(r["ts"] == TS0 + 7 * (r["cursor"] - H0) for r in rows))
 gp = [r for r in rows if r["pid"] == CURVE and r["side"] == "graduate"][0]
-last = [r for r in rows if r["pid"] == CURVE][-1]                  # the swap on the graduated pool, after it
+last = [r for r in rows if r["pid"] == CURVE][-1]                  # the swap on the graduated pool (its fill), after it
 _sl = idx.contracts[CID]["storage"]["slots"]
 rn, rt = (int(_sl.get(str(f * 2 ** 32 + CURVE), 0)) for f in (D.RN, D.RT))
 check("after graduation the spot is the share-less pool's reserves (and the swap on it moves them exactly)",

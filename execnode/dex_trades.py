@@ -10,11 +10,11 @@ attribute outside _snapshot()/clone(); it READS the contract's slots before and 
 failure is swallowed; the rows live in the asset-history sqlite file and share its lifecycle (one transaction per
 finalized block, trim on rewind, restart on a gap or a replaced state). tests/test_the_dex_trade_index_… pins it.
 
-EXACT AMOUNTS FROM THE CONTRACT'S OWN STATE. A swap's NADO and coin amounts are the pool's reserve deltas across the call
-(the whole input joins the reserve, the 30 bps fee included, so the delta IS what the trader paid and got). A launch
-order's fill is computed with the contract's own claim formula — a buyer's coins = amount * BTOUT // BNIN, a seller's
-NADO = amount * BNOUT // BTIN — at the block the batch CLEARED (a batch clears lazily, inside whichever buy, sell, settle
-or claim touches it first; the capture sees BDONE turn 1). All quantities are in the contract's UNITs (0.01 NADO; 10^8
+EXACT AMOUNTS FROM THE CONTRACT'S OWN STATE. Every trade is an ORDER in a batch — a pool's swaps (obuy/osell, one batch
+per block) and a launch curve's (buy/sell) alike — and its fill is computed with the contract's own claim formula — a
+buyer's coins = amount * BTOUT // BNIN, a seller's NADO = amount * BNOUT // BTIN — at the block the batch CLEARED (a batch
+clears lazily, inside whichever order, settle, claim, join or exit touches it first; the capture sees BDONE turn 1).
+Liquidity adds and removes are the pool's reserve deltas across join/exit (after any batch they cleared first). All quantities are in the contract's UNITs (0.01 NADO; 10^8
 raw units of the coin). A price is the pool's SPOT after the trade: rn/rt for a pool or a graduated curve, (VN+CN)/CT
 for a running curve — in NADO-units per coin-unit."""
 import os
@@ -108,12 +108,12 @@ class DexCallSink:
             return None
         method, args = p.get("method"), p.get("args") if isinstance(p.get("args"), list) else []
         slots = _slots(st, cid)
-        if method in ("swapn", "swapt", "launch", "buy", "sell", "settle"):
+        if method in ("obuy", "osell", "launch", "buy", "sell", "settle"):
             pid = _int(args[0]) if args else 0
             batch = _sv(slots, OPEN, pid)
         elif method in ("join", "exit"):
             pid = _int(args[1]) if len(args) > 1 else 0
-            batch = 0
+            batch = _sv(slots, OPEN, pid)                   # a closed batch they clear before the reserves move
         elif method == "claim":
             batch = _sv(slots, OBAT, _int(args[0]) if args else 0)
             pid = _sv(slots, BPOOL, batch)
@@ -121,7 +121,7 @@ class DexCallSink:
             return None
         if pid <= 0:
             return None
-        oid = _int(args[1]) if method in ("buy", "sell") and len(args) > 1 else 0
+        oid = _int(args[1]) if method in ("buy", "sell", "obuy", "osell") and len(args) > 1 else 0
         return {"cid": cid, "method": method, "pid": pid, "batch": batch, "pool": _pool(slots, pid),
                 "bdone": _sv(slots, BDONE, batch) if batch else 1, "oamt": _sv(slots, OAMT, oid) if oid else 0, "oid": oid}
 
@@ -134,26 +134,31 @@ class DexCallSink:
         base = {"cursor": st.applying_height(), "txid": str(txid or ""), "cid": cid, "pid": pid, "trader": str(sender or "")}
         recs = []
         pn, pt = _spot(b)
-        if method in ("swapn", "swapt") and (a[RN], a[RT]) != (b[RN], b[RT]):
-            buy = method == "swapn"
-            recs.append(dict(base, t="trade", kind=a[KIND], side="buy" if buy else "sell",
-                             nado=abs(b[RN] - a[RN]), tokens=abs(a[RT] - b[RT]), pn=pn, pt=pt))
-        elif method in ("join", "exit") and (a[RN], a[RT]) != (b[RN], b[RT]):
-            recs.append(dict(base, t="trade", kind=a[KIND], side="add" if method == "join" else "remove",
-                             nado=abs(b[RN] - a[RN]), tokens=abs(b[RT] - a[RT]), pn=pn, pt=pt))
-        elif method == "launch" and a[KIND] != CURVE and b[KIND] == CURVE:
+        cleared = pre["batch"] and not pre["bdone"] and _sv(slots, BDONE, pre["batch"])
+        if method == "launch" and a[KIND] != CURVE and b[KIND] == CURVE:
             recs.append(dict(base, t="trade", kind=CURVE, side="launch", nado=0, tokens=b[CT], pn=pn, pt=pt))
-        # a batch that CLEARED in this call (it clears before a new order joins, so it is written first)
-        if pre["batch"] and not pre["bdone"] and _sv(slots, BDONE, pre["batch"]):
+        # a batch that CLEARED in this call (it clears before a new order joins or the reserves move, so it is first);
+        # its spot is the pool's right after the clearing — for join/exit, the clearing's own reserves
+        if cleared:
             bt = pre["batch"]
-            recs.append(dict(base, t="clear", batch=bt, bnin=_sv(slots, BNIN, bt), btin=_sv(slots, BTIN, bt),
-                             btout=_sv(slots, BTOUT, bt), bnout=_sv(slots, BNOUT, bt), pn=pn, pt=pt,
-                             grad=int(a[KIND] == CURVE and b[KIND] == GRADUATED)))
-        if method in ("buy", "sell") and pre["oid"] and not pre["oamt"]:
+            bnin, btin, btout, bnout = (_sv(slots, f, bt) for f in (BNIN, BTIN, BTOUT, BNOUT))
+            if method in ("join", "exit"):
+                cn, ct = a[RN] + bnin - bnout, a[RT] + btin - btout
+            else:
+                cn, ct = pn, pt
+            recs.append(dict(base, t="clear", batch=bt, kind=a[KIND], bnin=bnin, btin=btin, btout=btout, bnout=bnout,
+                             pn=cn, pt=ct, grad=int(a[KIND] == CURVE and b[KIND] == GRADUATED)))
+        if method in ("join", "exit"):
+            rn0 = a[RN] + (bnin - bnout if cleared else 0)
+            rt0 = a[RT] + (btin - btout if cleared else 0)
+            if (rn0, rt0) != (b[RN], b[RT]):
+                recs.append(dict(base, t="trade", kind=a[KIND], side="add" if method == "join" else "remove",
+                                 nado=abs(b[RN] - rn0), tokens=abs(b[RT] - rt0), pn=pn, pt=pt))
+        if method in ("buy", "sell", "obuy", "osell") and pre["oid"] and not pre["oamt"]:
             amt = _sv(slots, OAMT, pre["oid"])
             if amt > 0:
                 recs.append(dict(base, t="order", oid=pre["oid"], batch=_sv(slots, OBAT, pre["oid"]),
-                                 side="buy" if method == "buy" else "sell", amt=amt))
+                                 side="buy" if method in ("buy", "obuy") else "sell", amt=amt))
         if recs:
             self.store.dex_sink(self.ns, recs)
 
@@ -180,7 +185,7 @@ def write_block(db, ns, h, ts, recs):
                 else:
                     nado, tokens = (amt * r["bnout"] // r["btin"] if r["btin"] else 0), amt
                 db.execute("INSERT OR REPLACE INTO dex_trades VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)",
-                           (ns, h, seq, ts, r["txid"], r["cid"], r["pid"], CURVE, side, trader, oid, nado, tokens,
+                           (ns, h, seq, ts, r["txid"], r["cid"], r["pid"], r["kind"], side, trader, oid, nado, tokens,
                             r["pn"], r["pt"]))
                 seq += 1
             if r["grad"]:

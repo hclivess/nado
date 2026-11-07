@@ -14,7 +14,7 @@ real ExecState (deploy -> calls -> asserts) and checks every batch against an in
     NADO and coins, the sealed fees, the graduated pool's reserves — and never pays a seller past the NADO raised;
   * FEES: 1 % of every buy is sealed (FEEB), 1 % of every sell's coins is burned (the supply falls);
   * GRADUATION at 4/5 sold: the curve becomes a share-less pool at its own price, the surplus coins are burned, the
-    pool trades through swapn/swapt, and nobody can seed, join or withdraw it; before graduation the curve is never
+    pool trades in batches (obuy/osell) like every pool, and nobody can seed, join or withdraw it; before graduation the curve is never
     traded through the pool methods.
 
 Run: python3 tests/test_the_dex_launchpad_clears_every_batch_at_one_price_and_graduates_into_locked_liquidity.py
@@ -84,7 +84,7 @@ check("the creator launches the whole supply", ok(call(CREATOR, "launch", [PID, 
 L0 = st.cursor
 check("a dust order (under the 1 % fee's unit) is refused", not ok(call(A, "buy", [PID, 1, 50], value=50 * U)))
 check("an order id >= 2^32 is refused", not ok(call(A, "buy", [PID, 1 << 32, 1000], value=1000 * U)))
-check("the curve is never traded through the pool methods", not ok(call(A, "swapn", [PID, 1000, 0, AID], value=1000 * U)))
+check("the curve is never traded through the pool methods", not ok(call(A, "obuy", [PID, 8001, 1000, 0], value=1000 * U)))
 
 
 # ---- the model --------------------------------------------------------------------------------------------------
@@ -235,7 +235,9 @@ for o in big:
     if cell(D.OAMT, o):
         claim(o)
 check("graduation burned the coins its price did not need", int(st.assets[str(AID)]["supply"]) < SUPPLY * U - burned)
-check("the graduated pool trades through swapn", ok(call(E, "swapn", [PID, 5_000, 1, AID], value=5_000 * U)) and cell(D.RN, PID) > rn)
+check("the graduated pool trades in batches like any pool", ok(call(E, "obuy", [PID, 8002, 5_000, 1], value=5_000 * U)))
+st.cursor += 1
+check("…its batch clears into the pool and pays", ok(call(E, "claim", [8002, AID])) and cell(D.RN, PID) > rn)
 check("…and nobody can seed, join or withdraw it",
       ok(call(E, "fundn", [9002, PID, 2000], value=2000 * U)) and not ok(call(E, "join", [9002, PID]))
       and not ok(call(E, "exit", [9002, PID, 1, AID])) and ok(call(E, "refund", [9002, PID, AID])))
