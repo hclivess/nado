@@ -66,5 +66,8 @@ try {
   code = 0;
 } catch (e) { console.error(String(e)); }
 proc.kill("SIGKILL");
-try { rmSync(prof, { recursive: true, force: true }); } catch (e) {}
+// the profile goes only once the browser has exited, with retries: removed at once, a browser's children still writing
+// into it left the directory behind on most runs (2026-11-07)
+await new Promise((r) => { if (proc.exitCode !== null || proc.signalCode) r(); else { proc.once("exit", r); setTimeout(r, 5000); } });
+try { rmSync(prof, { recursive: true, force: true, maxRetries: 10, retryDelay: 300 }); } catch (e) {}
 process.exit(code);

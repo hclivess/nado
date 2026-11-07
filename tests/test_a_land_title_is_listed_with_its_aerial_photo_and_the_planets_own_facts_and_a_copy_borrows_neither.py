@@ -140,6 +140,8 @@ check("…draws nothing until the world has settled, then says shot-ready",
 check("the capture prefers $LAND_SHOT_BROWSER, then Brave, then Chrome",
       'process.env.LAND_SHOT_BROWSER\n  || ["brave-browser", "brave", "google-chrome", "chromium", "chromium-browser"].find(onPath)' in shot)
 srv_src = open(os.path.join(ROOT, "scripts", "land_server.py"), encoding="utf-8").read()
+check("a capture leaves no browser behind: its process group is killed on a timeout, its profile removed after it exits",
+      "os.killpg(proc.pid, 9)" in srv_src and "start_new_session=True" in srv_src and 'proc.once("exit", r)' in shot and "maxRetries: 10" in shot)
 check("the photographer runs one capture at a time, niced", '"nice", "-n", "19", "node"' in srv_src and "await world.shoot(p, shot_page)" in srv_src)
 
 # 5. the market: verified, or nothing borrowed
