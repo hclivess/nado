@@ -27,6 +27,9 @@ export function walk(P, wish, jump, dt, collides, C) {
   }
   if (P.fly) {
     P.vu = wish[0]; P.vv = wish[1];
+  } else if (P.climb) {
+    // ON A LADDER (#114): the caller sets vh (climbing, descending, or holding still); no gravity, no jump
+    P.vu += (wish[0] - P.vu) * Math.min(1, dt * 12); P.vv += (wish[1] - P.vv) * Math.min(1, dt * 12);
   } else {
     const k = P.ground ? 1 : 0.25;                       // a little air control
     P.vu += (wish[0] - P.vu) * Math.min(1, dt * 12 * k); P.vv += (wish[1] - P.vv) * Math.min(1, dt * 12 * k);

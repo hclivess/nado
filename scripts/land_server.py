@@ -46,8 +46,10 @@ AGENT_ORIGIN = "land-agent"       # the origin an agent's challenge names (a bro
 CHALLENGE_TTL = 300
 SESSION_TTL = 7 * 86400
 FACE_N, PLOT, W, H = L.FACE_N, L.PLOT, L.FACE_N * L.PLOT, 256
-N_BLOCKS = 53                     # static/land-world.js BLOCKS.length (tests/test_the_land_planet_… checks the two agree)
+N_BLOCKS = 55                     # static/land-world.js BLOCKS.length (tests/test_the_land_planet_… checks the two agree)
 DOOR = 37                         # static/land-world.js B.door: a piece that swings open and shut ("door" op)
+CHEST = 54                        # static/land-world.js B.chest: a piece that keeps items on its plot ("chest" op, #114)
+CHEST_MAX = 2000                  # items one chest holds
 TREE_WOOD = {7, 31}                # static/land-world.js TREE_WOOD (log, birchlog): cutting one fells its tree above
 UNBUILDABLE = {5, 30}             # water, bedrock: never placed (no item in land-recipes.json places them either)
 # GRAVITY ("can we add some basic gravity", operator 2026-11-06; "i kept digging in snow but the snow stays put and i dig
@@ -173,6 +175,11 @@ class BoxIndex:
         return False
 
 
+def chest_key(b):
+    """A chest's identity on its plot: its box (a chest never moves; taking it down needs it empty)."""
+    return ",".join(str(int(x)) for x in b[:7])
+
+
 def plot_of(face, u, v):
     return (face * FACE_N + v // PLOT) * FACE_N + u // PLOT
 
@@ -213,6 +220,7 @@ class World:
                                                "salt": bytes.fromhex(d["salt"]), "ver": int(d.get("ver", 0)),
                                                "exp": {tuple(map(int, k.split(":"))): t for k, t in d.get("exp", {}).items()},
                                                "grow": {tuple(map(int, k.split(":"))): t for k, t in d.get("grow", {}).items()},
+                                               "chests": {k: {i: int(n) for i, n in v.items()} for k, v in d.get("chests", {}).items()},
                                                "boxes": [list(b) for b in d.get("boxes", [])]}
                 except Exception:
                     pass
@@ -229,7 +237,8 @@ class World:
             rec = self.plots[p]
             body = {"edits": {f"{x}:{z}:{y}": b for (x, z, y), b in rec["edits"].items()}, "salt": rec["salt"].hex(), "ver": rec["ver"],
                     "exp": {f"{x}:{z}:{y}": t for (x, z, y), t in (rec.get("exp") or {}).items()},
-                    "grow": {f"{x}:{z}:{y}": t for (x, z, y), t in (rec.get("grow") or {}).items()}, "boxes": rec.get("boxes", [])}
+                    "grow": {f"{x}:{z}:{y}": t for (x, z, y), t in (rec.get("grow") or {}).items()},
+                    "chests": {k: v for k, v in (rec.get("chests") or {}).items() if v}, "boxes": rec.get("boxes", [])}
             self._write(f"{p}.json", body)
             self.dirty.discard(p)
         for a in list(self.pdirty):
@@ -662,6 +671,8 @@ class World:
             b = normal_box(b) if isinstance(b, (list, tuple)) else b
             if b not in rec["boxes"]:
                 refused.append([b, "no such piece here"]); continue
+            if b[6] == CHEST and (rec.get("chests") or {}).get(chest_key(b)):
+                refused.append([b, "empty the chest first"]); continue          # its items are never lost with it
             rule = RULES["breaking"].get(str(b[6])) or {"hard": 1.0}
             unit = RULES["items"][places[b[6]]].get("unit")
             speed = self._speed(pl, rule.get("class"))
@@ -724,6 +735,37 @@ class World:
         rec["ver"] += 1
         self.dirty.add(p)
         return nb, b, None
+
+    async def chest(self, who, p, b, put, take):
+        """Move items between the caller's bag and chest `b` on plot `p` (#114): `put` and `take` are {item: count}. On an
+        owned plot only its owner and their builders open it; in the commons a chest is everyone's. All or nothing: a
+        call that cannot move everything it names moves nothing. Returns (the chest's items, error)."""
+        rec = self.plots.get(p)
+        b = list(b) if isinstance(b, (list, tuple)) else b
+        if not rec or not isinstance(b, list) or b not in rec.get("boxes", []) or b[6] != CHEST:
+            return None, "no such chest here"
+        if (await self.holder(p)) is not None and not await self.may_build(p, who):
+            return None, "not your plot — only its owner and the builders they invite open its chests"
+        if not isinstance(put, dict) or not isinstance(take, dict):
+            return None, "put and take are {item: count}"
+        store = dict((rec.get("chests") or {}).get(chest_key(b), {}))
+        pl = self.player(who)
+        bag = dict(pl["items"])
+        for src, dst, moves in ((bag, store, put), (store, bag, take)):
+            for item, n in moves.items():
+                if item not in RULES["items"] or not isinstance(n, int) or isinstance(n, bool) or n <= 0:
+                    return None, "an item and a whole count"
+                if src.get(item, 0) < n:
+                    return None, f"not enough {RULES['items'][item]['name'].lower()}"
+                src[item] -= n
+                dst[item] = dst.get(item, 0) + n
+        if sum(store.values()) > CHEST_MAX:
+            return None, f"a chest holds at most {CHEST_MAX} items"
+        pl["items"] = {k: v for k, v in bag.items() if v}
+        rec.setdefault("chests", {})[chest_key(b)] = {k: v for k, v in store.items() if v}
+        rec["ver"] += 1
+        self.dirty.add(p); self.pdirty.add(who)
+        return rec["chests"][chest_key(b)], None
 
     # -- crafting
     def craft(self, who, rid, times=1):
@@ -1212,6 +1254,15 @@ def make_app(world, hub, site_origin, wallet_url, secure_cookies=True):
                     await ws.send_json({"t": "done", "req": m.get("req"), "error": err})
                     if not err:
                         await hub.boxes(m.get("plot"), [nb], [ob], addr)
+                elif t == "chest":
+                    if not addr:
+                        await ws.send_json({"t": "chest", "req": m.get("req"), "error": "sign in first"})
+                        continue
+                    items, err = await world.chest(addr, m.get("plot"), m.get("box"), m.get("put") or {}, m.get("take") or {})
+                    await ws.send_json({"t": "chest", "req": m.get("req"), "plot": m.get("plot"), "box": m.get("box"),
+                                        "items": items, "error": err})
+                    if not err:
+                        await hub.inv(world, addr)
                 elif t in ("craft", "give", "offer", "accept", "cancel_offer"):
                     if not addr:
                         await ws.send_json({"t": "done", "req": m.get("req"), "error": "sign in first"})

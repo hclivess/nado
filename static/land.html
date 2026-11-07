@@ -91,6 +91,10 @@
   #palette .card{max-width:min(620px,calc(100vw - 32px));max-height:80vh;overflow:auto;background:var(--elev);border:1px solid var(--border);border-radius:14px;padding:16px}
   #palette h2{margin:0 0 10px;font-size:16px;display:flex;align-items:center}#palette h2 button{margin-left:auto}
   #palGrid{font-size:13px}
+  #chestPanel{position:fixed;inset:0;z-index:8;display:grid;place-items:center;background:rgba(0,0,0,.45)}
+  #chestPanel .card{max-width:min(560px,calc(100vw - 32px));max-height:80vh;overflow:auto;background:var(--elev);border:1px solid var(--border);border-radius:14px;padding:16px;font-size:13px}
+  #chestPanel h2{margin:0 0 10px;font-size:16px;display:flex;align-items:center}#chestPanel h2 button{margin-left:auto}
+  #chestPanel h3{margin:10px 0 6px;font-size:12px;color:var(--dim)}.chestRow{display:flex;flex-wrap:wrap;gap:6px}.chestRow .pb{padding:6px 9px;display:block}
   .pb{font:inherit;font-size:11px;color:var(--txt);background:#0b0f14;border:1px solid var(--border);border-radius:9px;padding:8px 4px;cursor:pointer;display:grid;justify-items:center;gap:5px}
   .pb:hover{border-color:var(--accent2)}.pb canvas{width:40px;height:40px;image-rendering:pixelated}
   #loading{position:fixed;inset:0;display:grid;place-items:center;z-index:9;background:var(--bg);font-size:15px;color:var(--dim);padding:24px;text-align:center}
@@ -132,6 +136,10 @@
 <div id="palette" class="hidden"><div class="card">
   <h2><span data-i18n="land.bagTitle">Bag</span><button id="palClose" class="ghost" data-i18n="land.close">Close</button></h2>
   <div id="palGrid"></div>
+</div></div>
+<div id="chestPanel" class="hidden"><div class="card">
+  <h2><span data-i18n="land.i.chest">Chest</span><button id="chestClose" class="ghost" data-i18n="land.close">Close</button></h2>
+  <div id="chestGrid"></div>
 </div></div>
 <div id="touchUi">
   <button id="tJump" data-i18n="land.tJump">Jump</button><button id="tDown" data-i18n="land.tDown">Down</button>

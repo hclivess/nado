@@ -462,6 +462,12 @@ export const MODELS = {
     [8, L - 8, 0, 5, 20, 35], [8, L - 8, S - 5, S, 20, 35], [2, 6, 8, S - 8, 40, 85], [L - 6, L - 2, 8, S - 8, 35, 50],
     [8, L - 8, 5, S - 5, 35, 48, B.thatch], [70, L - 8, 4, S - 4, 48, 51, B.red], [12, 45, 20, S - 20, 48, 57, B.white]],
   [B.fence]: (L, S) => [[0, 8, 0, S, 0, 100], [L - 8, L, 0, S, 0, 100], [8, L - 8, 2, S - 2, 38, 46], [8, L - 8, 2, S - 2, 76, 84]],
+  // a ladder: two rails and a rung every 30 cm (lashed sticks — climbed by standing at it, land.js step)
+  [B.ladder]: (L, S, H) => [[0, 5, 0, S, 0, H], [L - 5, L, 0, S, 0, H],
+    ...Array.from({ length: Math.floor((H - 20) / 30) + 1 }, (_, i) => [5, L - 5, S / 2 - 2, S / 2 + 2, 20 + i * 30, 24 + i * 30])],
+  // a chest: a plank body, a darker lid and two iron bands over it
+  [B.chest]: (L, S) => [[1, L - 1, 1, S - 1, 0, 44], [1, L - 1, 1, S - 1, 44, 54, B.darkwood], [12, 16, 0, S, 0, 55, B.black],
+    [L - 16, L - 12, 0, S, 0, 55, B.black]],
   // a torch: a shaft, a head wrapped in fibre and pitch, and its flame (a lamp: it glows, and lights the night near it)
   [B.torch]: (L, S) => [[L / 2 - 1.5, L / 2 + 1.5, S / 2 - 1.5, S / 2 + 1.5, 0, 100], [L / 2 - 2.5, L / 2 + 2.5, S / 2 - 2.5, S / 2 + 2.5, 96, 106, B.thatch],
     [L / 2 - 2, L / 2 + 2, S / 2 - 2, S / 2 + 2, 106, 118, B.lamp]],
@@ -481,7 +487,7 @@ function meshModel(b, u0, v0, place, buf, lo, hi, group, boxes) {
   if (b[2] < lo || b[2] >= hi) return;
   const longX = b[3] >= b[4], L = longX ? b[3] : b[4], S = longX ? b[4] : b[3];
   const flip = b[6] === B.chair && facesAway(b, boxes);
-  for (const [l0, l1, s0f, s1f, y0, y1, m] of MODELS[b[6]](L, S)) {
+  for (const [l0, l1, s0f, s1f, y0, y1, m] of MODELS[b[6]](L, S, b[5])) {
     const s0 = flip ? S - s1f : s0f, s1 = flip ? S - s0f : s1f;
     const lo3 = longX ? [b[0] + l0, b[1] + s0, b[2] + y0] : [b[0] + s0, b[1] + l0, b[2] + y0];
     const hi3 = longX ? [b[0] + l1, b[1] + s1, b[2] + y1] : [b[0] + s1, b[1] + l1, b[2] + y1];

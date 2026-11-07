@@ -29,7 +29,7 @@ import { fxaa } from "three/addons/tsl/display/FXAANode.js";
 import * as Wd from "./land-world.js";
 import * as Cosmos from "./land-cosmos.js";
 import { walk, trunkAt, TRUNK_R, restorePlace } from "./land-walk.js";
-import { snapBox, piecesFor } from "./land-snap.js";
+import { snapBox, piecesFor, restOnGround } from "./land-snap.js";
 import { levelOps, earthNeeded, trunkIn, siteLayer, topFirst } from "./land-level.js";
 import { groundWeights } from "./land-mesher.js";
 import { NadoDapp, wireWallet, renderWallet, alertBar, notify, uiConfirm, uiPrompt, isAddress, esc, base, disp, $ } from "./nadodapp.js";
@@ -224,6 +224,15 @@ function collides(u, v, h) {
 }
 // trunks are solid cylinders (land-walk.js trunkAt); leaves stay walk-through
 const isLog = (cu, cv, ch) => Wd.TREE_WOOD.has(blockAt(P.face, cu, cv, ch));
+const CLIMB = 1.8;                               // m/s up or down a ladder
+/** A ladder within reach of the body: its box, grown by 45 cm around and reaching from 1.5 m below its foot to its top. */
+function ladderNear() {
+  const c = plotCm(P.face, P.u, P.v, P.h), rec = plotBoxes.get(c.plot);
+  if (!rec) return null;
+  for (const b of rec.list) if (b[6] === B.ladder && c.x > b[0] - 45 && c.x < b[0] + b[3] + 45 && c.z > b[1] - 45 && c.z < b[1] + b[4] + 45
+    && c.y > b[2] - 150 && c.y < b[2] + b[5]) return b;
+  return null;
+}
 function step(dt) {
   const fwd = (keys.has("KeyW") || keys.has("ArrowUp") ? 1 : 0) - (keys.has("KeyS") || keys.has("ArrowDown") ? 1 : 0) + (touch ? touch.my : 0);
   const side = (keys.has("KeyD") || keys.has("ArrowRight") ? 1 : 0) - (keys.has("KeyA") || keys.has("ArrowLeft") ? 1 : 0) + (touch ? touch.mx : 0);
@@ -234,6 +243,14 @@ function step(dt) {
   if (P.fly) P.vh = ((keys.has("Space") || (touch && touch.up) ? 1 : 0) - (keys.has("KeyC") || keys.has("ControlLeft") || (touch && touch.down) ? 1 : 0)) * sp;
   // the body's motion, climbing and descending slopes exactly (land-walk.js: the 5 cm notches it replaced made every
   // other uphill frame "airborne" and stopped the walk — the jitter-jumping of 2026-11-06)
+  // A LADDER (#114): standing at one, forward or Space climbs, back goes down, nothing holds you there; gravity is off
+  // while you are on it (land-walk.js climb) and comes back the moment you leave its reach (stepping off at the top)
+  const lad = !P.fly && ladderNear();
+  P.climb = !!lad;
+  if (lad) {
+    const up = fwd > 0 || keys.has("Space") || !!(touch && touch.up), down = fwd < 0 || keys.has("KeyC");
+    P.vh = up ? CLIMB : down && !P.ground ? -CLIMB : 0;
+  }
   walk(P, [wu, wv], keys.has("Space") || !!(touch && touch.up), dt, collides, { GRAV, JUMP, STEP });
   if (P.h < 1) { P.h = groundAt(P.face, P.u, P.v); P.vh = 0; }
   if (P.h > H + 400) P.h = H + 400;
@@ -674,6 +691,9 @@ function connect() {
       setPlotBoxes(m.plot, list);                       // re-meshes the old and new pieces' heights alike
     } else if (m.t === "boxes_ok") {
       if (m.refused && m.refused.length) { notify(String(m.refused[0][1])); if (m.plot !== undefined) resync(m.plot); }
+    } else if (m.t === "chest") {
+      if (chest && m.plot === chest.plot && String(m.box) === String(chest.box)) { chest.items = m.items || {}; renderChest(); }
+      if (m.error) notify(m.error);
     } else if (m.t === "chat") {
       conLine(`<${String(m.who || "").slice(0, 10)}…> ${String(m.text || "")}`);
     } else if (m.t === "chat_ok" && m.error) {
@@ -917,6 +937,10 @@ function placement(a) {
   // lined up with the pieces around it (land-snap.js): same material first, edges, flush faces, level bottoms and tops
   const it = RULES && hot[slot] && RULES.items[hot[slot]], rec0 = plotBoxes.get(c.plot);
   let box = [out[0], out[1], out[2], w, d, h, it && it.places ? it.places : 0];
+  if (!a.box) {                                          // on the ground: on its lowest point under the whole footprint
+    const q = Wd.plotCoords(c.plot);
+    box = restOnGround(box, (x, z) => groundAt(P.face, q.u0 + x / Wd.CM, q.v0 + z / Wd.CM) * Wd.CM);
+  }
   if (rec0 && rec0.list.length) box = snapBox(box, rec0.list, a.box ? ax : -1);
   box[0] = Math.max(0, Math.min(Wd.PLOT_CM - w, box[0])); box[1] = Math.max(0, Math.min(Wd.PLOT_CM - d, box[1]));
   // never inside the player
@@ -945,9 +969,32 @@ function startBreak(c, mouse) {
 /** Open or close the door aimed at (Q, or the touch button): it swings a quarter turn on its hinge (land_server.py door). */
 function useDoor() {
   const a = aim();
-  if (!a || !a.box || a.box.b[6] !== B.door) return notify(T("noDoor", "Aim at a door to open or close it."));
+  if (a && a.box && a.box.b[6] === B.chest) return openChest(a.box);           // Q uses what you aim at: a door or a chest
+  if (!a || !a.box || a.box.b[6] !== B.door) return notify(T("noUse", "Aim at a door or a chest to use it."));
   if (!net.online || !net.me) return notify(T("signInFirst", "Sign in first."));
   net.send({ t: "door", plot: a.box.plot, box: a.box.b, req: ++net.req });
+}
+// ---- a chest (#114): items kept on its plot by the world server; open it with Q, click an item to move one (Shift: all)
+let chest = null;                                // { plot, box, items } of the open chest
+function openChest(bx) {
+  if (!net.online || !net.me) return notify(T("signInFirst", "Sign in first."));
+  chest = { plot: bx.plot, box: bx.b, items: null };
+  chestSend({}, {});
+  if (document.pointerLockElement) document.exitPointerLock();
+  $("chestPanel").classList.remove("hidden");
+  renderChest();
+}
+function chestSend(put, take) { net.send({ t: "chest", plot: chest.plot, box: chest.box, put, take, req: ++net.req }); }
+function renderChest() {
+  const box = $("chestGrid");
+  if (!box || !chest) return;
+  const row = (id, n, dir) => `<button class="pb" data-${dir}="${esc(id)}" title="${esc(T("chestHint", "Click: one · Shift+click: all"))}"><b>${n}</b> ${esc(nameOf(id))}</button>`;
+  const items = chest.items, mine = Object.entries(inv.items || {}).filter(([, n]) => n > 0);
+  box.innerHTML = `<h3>${esc(T("chestIn", "In the chest"))}</h3><div class="chestRow">${items == null ? "…" : Object.keys(items).length ? Object.entries(items).map(([id, n]) => row(id, n, "take")).join("") : `<span class="dim">${esc(T("chestEmpty", "empty"))}</span>`}</div>
+    <h3>${esc(T("chestBag", "In your bag"))}</h3><div class="chestRow">${mine.length ? mine.map(([id, n]) => row(id, n, "put")).join("") : `<span class="dim">${esc(T("chestEmpty", "empty"))}</span>`}</div>
+    <p class="small dim">${esc(T("chestHint", "Click: one · Shift+click: all"))}</p>`;
+  box.querySelectorAll("[data-take]").forEach((b) => { b.onclick = (e) => { const id = b.dataset.take; chestSend({}, { [id]: e.shiftKey ? chest.items[id] : 1 }); }; });
+  box.querySelectorAll("[data-put]").forEach((b) => { b.onclick = (e) => { const id = b.dataset.put; chestSend({ [id]: e.shiftKey ? inv.items[id] : 1 }, {}); }; });
 }
 function startTakeDown(bx, mouse) {
   const rule = RULES.breaking[bx.b[6]] || { hard: 1 };
@@ -1213,6 +1260,7 @@ function wireInput(canvas) {
     $("tPal").onclick = () => palette(true);
   }
   $("palClose").onclick = () => palette(false);
+  $("chestClose").onclick = () => { $("chestPanel").classList.add("hidden"); chest = null; };
 }
 
 // ---- frame -----------------------------------------------------------------------------------------------------
@@ -1433,7 +1481,7 @@ const PIECE_TEX = {
   2: ["dirt", 1, 0.95], 3: ["rock", 1, 0.85], 4: ["sand", 1, 0.9], 6: ["snow", 1, 0.55], 17: ["gravel", 1, 0.9],
   // furniture and fittings: joinery in planed planks, a fence in weathered split rails, a torch's charred shaft
   45: ["planks", 0.92, 0.7], 46: ["planks", 0.92, 0.7], 47: ["planks", 0.85, 0.8], 48: ["planks", 0.88, 0.75], 49: ["planks", 0.68, 0.95],
-  50: ["darkwood", 1, 0.9],
+  50: ["darkwood", 1, 0.9], 53: ["planks", 0.75, 0.9], 54: ["planks", 0.95, 0.7],
 };
 const pieceMats = new Map();
 function pieceMaterial(blk) {

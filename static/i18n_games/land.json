@@ -185,7 +185,14 @@
   "land.cUnknown": "Unknown command — /help lists them.",
   "land.cSignIn": "Sign in to chat.",
   "land.cPlaceholder": "/help — or say something",
-  "land.i.sapling": "Sapling"
+  "land.i.sapling": "Sapling",
+  "land.i.ladder": "Ladder",
+  "land.i.chest": "Chest",
+  "land.noUse": "Aim at a door or a chest to use it.",
+  "land.chestHint": "Click: one · Shift+click: all",
+  "land.chestIn": "In the chest",
+  "land.chestBag": "In your bag",
+  "land.chestEmpty": "empty"
  },
  "cs": {
   "land.notYours": "Pozemek {p} patří někomu jinému. Kupte si pozemek, nebo požádejte jeho vlastníka o pozvání.",
@@ -373,7 +380,14 @@
   "land.cUnknown": "Neznámý příkaz — /help je vypíše.",
   "land.cSignIn": "Pro chat se přihlaste.",
   "land.cPlaceholder": "/help — nebo něco napište",
-  "land.i.sapling": "Sazenice"
+  "land.i.sapling": "Sazenice",
+  "land.i.ladder": "Žebřík",
+  "land.i.chest": "Truhla",
+  "land.noUse": "Zamiřte na dveře nebo truhlu, abyste je použili.",
+  "land.chestHint": "Klik: jeden · Shift+klik: vše",
+  "land.chestIn": "V truhle",
+  "land.chestBag": "Ve vaku",
+  "land.chestEmpty": "prázdné"
  },
  "es": {
   "land.notYours": "La parcela {p} pertenece a otra persona. Compra una parcela o pide a su dueño que te invite.",
@@ -561,7 +575,14 @@
   "land.cUnknown": "Comando desconocido: /help los lista.",
   "land.cSignIn": "Inicia sesión para chatear.",
   "land.cPlaceholder": "/help — o di algo",
-  "land.i.sapling": "Plantón"
+  "land.i.sapling": "Plantón",
+  "land.i.ladder": "Escalera",
+  "land.i.chest": "Cofre",
+  "land.noUse": "Apunta a una puerta o un cofre para usarlo.",
+  "land.chestHint": "Clic: uno · Mayús+clic: todos",
+  "land.chestIn": "En el cofre",
+  "land.chestBag": "En tu bolsa",
+  "land.chestEmpty": "vacío"
  },
  "pt": {
   "land.notYours": "O lote {p} pertence a outra pessoa. Compre um lote ou peça ao dono que convide você.",
@@ -749,7 +770,14 @@
   "land.cUnknown": "Comando desconhecido — /help lista todos.",
   "land.cSignIn": "Entre para conversar.",
   "land.cPlaceholder": "/help — ou diga algo",
-  "land.i.sapling": "Muda"
+  "land.i.sapling": "Muda",
+  "land.i.ladder": "Escada",
+  "land.i.chest": "Baú",
+  "land.noUse": "Mire numa porta ou num baú para usar.",
+  "land.chestHint": "Clique: um · Shift+clique: todos",
+  "land.chestIn": "No baú",
+  "land.chestBag": "Na sua bolsa",
+  "land.chestEmpty": "vazio"
  },
  "fr": {
   "land.notYours": "La parcelle {p} appartient à quelqu'un d'autre. Achetez une parcelle ou demandez à son propriétaire de vous inviter.",
@@ -937,7 +965,14 @@
   "land.cUnknown": "Commande inconnue — /help les liste.",
   "land.cSignIn": "Connectez-vous pour discuter.",
   "land.cPlaceholder": "/help — ou dites quelque chose",
-  "land.i.sapling": "Jeune plant"
+  "land.i.sapling": "Jeune plant",
+  "land.i.ladder": "Échelle",
+  "land.i.chest": "Coffre",
+  "land.noUse": "Visez une porte ou un coffre pour l'utiliser.",
+  "land.chestHint": "Clic : un · Maj+clic : tout",
+  "land.chestIn": "Dans le coffre",
+  "land.chestBag": "Dans votre sac",
+  "land.chestEmpty": "vide"
  },
  "de": {
   "land.notYours": "Grundstück {p} gehört jemand anderem. Kauf dir ein Grundstück oder bitte den Besitzer um eine Einladung.",
@@ -1125,7 +1160,14 @@
   "land.cUnknown": "Unbekannter Befehl — /help listet sie auf.",
   "land.cSignIn": "Melde dich an, um zu chatten.",
   "land.cPlaceholder": "/help — oder sag etwas",
-  "land.i.sapling": "Setzling"
+  "land.i.sapling": "Setzling",
+  "land.i.ladder": "Leiter",
+  "land.i.chest": "Truhe",
+  "land.noUse": "Ziele auf eine Tür oder eine Truhe, um sie zu benutzen.",
+  "land.chestHint": "Klick: eins · Umschalt+Klick: alle",
+  "land.chestIn": "In der Truhe",
+  "land.chestBag": "In deiner Tasche",
+  "land.chestEmpty": "leer"
  },
  "it": {
   "land.notYours": "Il lotto {p} appartiene a qualcun altro. Compra un lotto o chiedi al proprietario di invitarti.",
@@ -1313,7 +1355,14 @@
   "land.cUnknown": "Comando sconosciuto: /help li elenca.",
   "land.cSignIn": "Accedi per chattare.",
   "land.cPlaceholder": "/help — o di' qualcosa",
-  "land.i.sapling": "Alberello"
+  "land.i.sapling": "Alberello",
+  "land.i.ladder": "Scala",
+  "land.i.chest": "Baule",
+  "land.noUse": "Mira a una porta o a un baule per usarlo.",
+  "land.chestHint": "Clic: uno · Maiusc+clic: tutti",
+  "land.chestIn": "Nel baule",
+  "land.chestBag": "Nella tua borsa",
+  "land.chestEmpty": "vuoto"
  },
  "ru": {
   "land.notYours": "Участок {p} принадлежит другому игроку. Купите участок или попросите владельца пригласить вас.",
@@ -1501,7 +1550,14 @@
   "land.cUnknown": "Неизвестная команда — /help покажет все.",
   "land.cSignIn": "Войдите, чтобы писать в чат.",
   "land.cPlaceholder": "/help — или напишите что-нибудь",
-  "land.i.sapling": "Саженец"
+  "land.i.sapling": "Саженец",
+  "land.i.ladder": "Лестница",
+  "land.i.chest": "Сундук",
+  "land.noUse": "Наведите на дверь или сундук, чтобы использовать.",
+  "land.chestHint": "Клик: один · Shift+клик: все",
+  "land.chestIn": "В сундуке",
+  "land.chestBag": "В сумке",
+  "land.chestEmpty": "пусто"
  },
  "zh": {
   "land.notYours": "地块 {p} 属于别人。购买一块地，或请它的所有者邀请你。",
@@ -1689,7 +1745,14 @@
   "land.cUnknown": "未知命令——/help 会列出全部。",
   "land.cSignIn": "登录后才能聊天。",
   "land.cPlaceholder": "/help —— 或说点什么",
-  "land.i.sapling": "树苗"
+  "land.i.sapling": "树苗",
+  "land.i.ladder": "梯子",
+  "land.i.chest": "箱子",
+  "land.noUse": "对准门或箱子来使用。",
+  "land.chestHint": "点击：一个 · Shift+点击：全部",
+  "land.chestIn": "箱子里",
+  "land.chestBag": "你的背包里",
+  "land.chestEmpty": "空"
  },
  "ja": {
   "land.notYours": "区画 {p} は他の人のものです。区画を購入するか、所有者に招待してもらいましょう。",
@@ -1877,7 +1940,14 @@
   "land.cUnknown": "不明なコマンドです。/help で一覧できます。",
   "land.cSignIn": "チャットするにはサインインしてください。",
   "land.cPlaceholder": "/help — または何か話す",
-  "land.i.sapling": "苗木"
+  "land.i.sapling": "苗木",
+  "land.i.ladder": "はしご",
+  "land.i.chest": "チェスト",
+  "land.noUse": "ドアかチェストに狙いを合わせて使います。",
+  "land.chestHint": "クリック：1つ · Shift+クリック：すべて",
+  "land.chestIn": "チェストの中",
+  "land.chestBag": "バッグの中",
+  "land.chestEmpty": "空"
  },
  "ko": {
   "land.notYours": "구역 {p}은(는) 다른 사람의 땅입니다. 구역을 사거나 소유자에게 초대를 요청하세요.",
@@ -2065,7 +2135,14 @@
   "land.cUnknown": "알 수 없는 명령 — /help로 목록을 보세요.",
   "land.cSignIn": "채팅하려면 로그인하세요.",
   "land.cPlaceholder": "/help — 또는 무언가 말하기",
-  "land.i.sapling": "묘목"
+  "land.i.sapling": "묘목",
+  "land.i.ladder": "사다리",
+  "land.i.chest": "상자",
+  "land.noUse": "문이나 상자를 겨냥해 사용하세요.",
+  "land.chestHint": "클릭: 하나 · Shift+클릭: 전부",
+  "land.chestIn": "상자 안",
+  "land.chestBag": "가방 안",
+  "land.chestEmpty": "비어 있음"
  },
  "ar": {
   "land.notYours": "القطعة {p} ملك لشخص آخر. اشترِ قطعة، أو اطلب من مالكها أن يدعوك.",
@@ -2253,7 +2330,14 @@
   "land.cUnknown": "أمر غير معروف — /help يعرضها.",
   "land.cSignIn": "سجّل الدخول للدردشة.",
   "land.cPlaceholder": "/help — أو قل شيئًا",
-  "land.i.sapling": "شتلة"
+  "land.i.sapling": "شتلة",
+  "land.i.ladder": "سُلَّم",
+  "land.i.chest": "صندوق",
+  "land.noUse": "صوّب نحو باب أو صندوق لاستخدامه.",
+  "land.chestHint": "نقرة: واحد · Shift+نقرة: الكل",
+  "land.chestIn": "في الصندوق",
+  "land.chestBag": "في حقيبتك",
+  "land.chestEmpty": "فارغ"
  },
  "hi": {
   "land.notYours": "प्लॉट {p} किसी और का है। कोई प्लॉट खरीदें, या उसके मालिक से आपको आमंत्रित करने को कहें।",
@@ -2441,7 +2525,14 @@
   "land.cUnknown": "अज्ञात आदेश — /help सूची दिखाता है।",
   "land.cSignIn": "चैट के लिए साइन इन करें।",
   "land.cPlaceholder": "/help — या कुछ कहें",
-  "land.i.sapling": "पौधा"
+  "land.i.sapling": "पौधा",
+  "land.i.ladder": "सीढ़ी",
+  "land.i.chest": "संदूक",
+  "land.noUse": "इस्तेमाल के लिए किसी दरवाज़े या संदूक पर निशाना लगाएँ।",
+  "land.chestHint": "क्लिक: एक · Shift+क्लिक: सब",
+  "land.chestIn": "संदूक में",
+  "land.chestBag": "आपके थैले में",
+  "land.chestEmpty": "खाली"
  },
  "tr": {
   "land.notYours": "{p} arsası başkasına ait. Bir arsa satın al ya da sahibinden seni davet etmesini iste.",
@@ -2629,7 +2720,14 @@
   "land.cUnknown": "Bilinmeyen komut — /help listeler.",
   "land.cSignIn": "Sohbet için giriş yapın.",
   "land.cPlaceholder": "/help — ya da bir şey söyleyin",
-  "land.i.sapling": "Fidan"
+  "land.i.sapling": "Fidan",
+  "land.i.ladder": "Merdiven",
+  "land.i.chest": "Sandık",
+  "land.noUse": "Kullanmak için bir kapıya ya da sandığa nişan alın.",
+  "land.chestHint": "Tık: bir · Shift+tık: hepsi",
+  "land.chestIn": "Sandıkta",
+  "land.chestBag": "Çantanda",
+  "land.chestEmpty": "boş"
  },
  "id": {
   "land.notYours": "Petak {p} milik orang lain. Beli sebuah petak, atau minta pemiliknya mengundangmu.",
@@ -2817,7 +2915,14 @@
   "land.cUnknown": "Perintah tak dikenal — /help menampilkannya.",
   "land.cSignIn": "Masuk untuk mengobrol.",
   "land.cPlaceholder": "/help — atau katakan sesuatu",
-  "land.i.sapling": "Bibit pohon"
+  "land.i.sapling": "Bibit pohon",
+  "land.i.ladder": "Tangga",
+  "land.i.chest": "Peti",
+  "land.noUse": "Arahkan ke pintu atau peti untuk memakainya.",
+  "land.chestHint": "Klik: satu · Shift+klik: semua",
+  "land.chestIn": "Di dalam peti",
+  "land.chestBag": "Di tas Anda",
+  "land.chestEmpty": "kosong"
  },
  "vi": {
   "land.notYours": "Mảnh đất {p} thuộc về người khác. Hãy mua một mảnh, hoặc nhờ chủ của nó mời bạn.",
@@ -3005,7 +3110,14 @@
   "land.cUnknown": "Lệnh không rõ — /help liệt kê chúng.",
   "land.cSignIn": "Đăng nhập để trò chuyện.",
   "land.cPlaceholder": "/help — hoặc nói gì đó",
-  "land.i.sapling": "Cây non"
+  "land.i.sapling": "Cây non",
+  "land.i.ladder": "Thang",
+  "land.i.chest": "Rương",
+  "land.noUse": "Nhắm vào cửa hoặc rương để dùng.",
+  "land.chestHint": "Nhấp: một · Shift+nhấp: tất cả",
+  "land.chestIn": "Trong rương",
+  "land.chestBag": "Trong túi của bạn",
+  "land.chestEmpty": "trống"
  },
  "pl": {
   "land.notYours": "Działka {p} należy do kogoś innego. Kup działkę albo poproś jej właściciela o zaproszenie.",
@@ -3193,6 +3305,13 @@
   "land.cUnknown": "Nieznane polecenie — /help je wypisze.",
   "land.cSignIn": "Zaloguj się, aby czatować.",
   "land.cPlaceholder": "/help — albo coś powiedz",
-  "land.i.sapling": "Sadzonka"
+  "land.i.sapling": "Sadzonka",
+  "land.i.ladder": "Drabina",
+  "land.i.chest": "Skrzynia",
+  "land.noUse": "Wyceluj w drzwi lub skrzynię, by ich użyć.",
+  "land.chestHint": "Klik: jeden · Shift+klik: wszystko",
+  "land.chestIn": "W skrzyni",
+  "land.chestBag": "W twojej torbie",
+  "land.chestEmpty": "pusto"
  }
 }

@@ -14,6 +14,17 @@ const overlap = (a, b) => a[0] < b[0] + b[3] && b[0] < a[0] + a[3] && a[1] < b[1
 const gap = (a, b, i) => Math.max(0, b[i] - (a[i] + a[i + 3]), a[i] - (b[i] + b[i + 3]));
 
 /** The piece `box` lined up with `list` (the plot's pieces); `fixed`: the axis it was placed against, or -1. */
+/** A piece set ON THE GROUND rests on the LOWEST ground under its whole footprint ("there's a gap under your floor",
+ *  operator 2026-11-07): its bottom at the hit point left a wide floor hanging over every dip of the meadow. Sampled on a
+ *  grid of the footprint (corners, edges, inside, every 50 cm at most); heightAt(xcm, zcm) is the ground's surface in cm.
+ *  Where the ground is higher the piece sinks into it, as a foundation does — never a gap under it. */
+export function restOnGround(box, heightAt) {
+  const nx = Math.max(2, Math.ceil(box[3] / 50) + 1), nz = Math.max(2, Math.ceil(box[4] / 50) + 1);
+  let low = Infinity;
+  for (let i = 0; i < nx; i++) for (let j = 0; j < nz; j++)
+    low = Math.min(low, heightAt(box[0] + box[3] * i / (nx - 1), box[1] + box[4] * j / (nz - 1)));
+  return [box[0], box[1], Math.floor(low), ...box.slice(3)];
+}
 export function snapBox(box, list, fixed = -1) {
   const near = list.filter((o) => gap(box, o, 0) <= NEAR && gap(box, o, 1) <= NEAR && gap(box, o, 2) <= NEAR);
   if (!near.length) return box;

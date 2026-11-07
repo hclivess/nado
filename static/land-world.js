@@ -208,6 +208,10 @@ export const BLOCKS = [
   { key: "flax", solid: false, see: true, tex: [11, 11, 11] },
   // a sapling: planted in soil, it grows into a young tree of its climate (scripts/land_server.py ECOLOGY)
   { key: "sapling", solid: false, see: true, tex: [11, 11, 11] },
+  // MORE STRUCTURES (#114): a ladder the walker climbs (land.js step, land-walk.js climb) and a chest that holds items on
+  // its plot (scripts/land_server.py chest) — unit pieces drawn as their models (land-mesher.js MODELS)
+  { key: "ladder", solid: true, tex: [12, 12, 12] },
+  { key: "chest", solid: true, tex: [12, 12, 12] },
 ];
 export const B = Object.fromEntries(BLOCKS.map((b, i) => [b.key, i]));
 export const ATLAS_TILES = 46;              // tiles 0..45 (0 unused)

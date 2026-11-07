@@ -150,5 +150,7 @@ check(f"a planted sapling is drawn as its model (stem and leaves: {b - a} vertic
 tr = json.load(open(os.path.join(ROOT, "static", "i18n_games", "land.json"), encoding="utf-8"))
 check("a sapling is named in 17 languages", len(tr) == 17 and all(l.get("land.i.sapling") for l in tr.values()))
 srv = int([l for l in open(os.path.join(ROOT, "scripts", "land_server.py")) if l.startswith("N_BLOCKS = ")][0].split()[2])
-check("the world server knows every block", srv == 53)
+nb = int(subprocess.run(["node", "--input-type=module", "-e", "const W = await import(%s); console.log(W.BLOCKS.length)" % json.dumps(os.path.join(ROOT, "static", "land-world.js"))],
+                        capture_output=True, text=True, timeout=120).stdout.strip())
+check("the world server knows every block", srv == nb, (srv, nb))
 _report.done()

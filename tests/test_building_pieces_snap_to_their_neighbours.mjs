@@ -15,7 +15,7 @@ import { readFileSync } from "node:fs";
 import { join, dirname } from "node:path";
 import { fileURLToPath } from "node:url";
 const ROOT = join(dirname(fileURLToPath(import.meta.url)), "..");
-const { snapBox, SAME_TOL, OTHER_TOL } = await import(join(ROOT, "static", "land-snap.js"));
+const { snapBox, SAME_TOL, OTHER_TOL, restOnGround } = await import(join(ROOT, "static", "land-snap.js"));
 let fails = 0;
 const ok = (c, m) => { console.log((c ? "ok   " : "FAIL ") + m); if (!c) fails++; };
 const WOOD = 7, PLANK = 9, BRICK = 11;
@@ -52,5 +52,19 @@ const land = readFileSync(join(ROOT, "static", "land.js"), "utf8"), pl = land.sl
 ok(/box = snapBox\(box, rec0\.list, a\.box \? ax : -1\)/.test(pl) && pl.indexOf("snapBox") < pl.indexOf("const clash"),
    "the page snaps a piece before it checks room for it and places what it snapped");
 
+// 6. a piece set on the ground rests on the LOWEST ground under its footprint ("there's a gap under your floor",
+//    operator 2026-11-07): never a gap under it anywhere, and on flat ground it sits exactly on it
+{
+  const slope = (x, z) => 4000 + 0.3 * x - 0.12 * z + 8 * Math.sin(x / 37) * Math.cos(z / 53);     // a bumpy hillside, cm
+  const fl = restOnGround([120, 80, 4500, 300, 300, 4, PLANK], slope);
+  let gap = 0;
+  for (let x = 120; x <= 420; x += 5) for (let z = 80; z <= 380; z += 5) gap = Math.max(gap, fl[2] - slope(x, z));
+  ok(gap <= 3, `a 3 x 3 m floor on a bumpy slope has no gap under it anywhere (worst ${gap.toFixed(1)} cm, sampling every 50 cm)`);
+  const dip = (x, z) => (x > 300 && x < 330 && z > 200 && z < 230 ? 3990 : 4000);   // a dip just inside the edge
+  ok(restOnGround([100, 100, 4500, 260, 200, 4, PLANK], dip)[2] <= 4000, "it never floats over the ground it sampled");
+  ok(restOnGround([100, 100, 4500, 260, 200, 4, PLANK], () => 4000)[2] === 4000, "on flat ground it sits exactly on it");
+  const page = readFileSync(join(ROOT, "static", "land.js"), "utf8");
+  ok(/if \(!a\.box\) \{[^}]*restOnGround\(box, \(x, z\) => groundAt\(/.test(page), "the page places a piece on the ground that way");
+}
 if (fails) { console.log(`${fails} FAILURES`); process.exit(1); }
 console.log("ALL PASS");

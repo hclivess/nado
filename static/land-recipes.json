@@ -1,6 +1,6 @@
 {
  "about": "Land's gathering and crafting web (doc/land.md 'Gathering, tools, crafting'). ONE file read by the page (static/land.js) and the world server (scripts/land_server.py), so both apply the same rules: 'you must gather resources to make tools to make tools to collect more resources' (operator, 2026-11-06). No eras: every recipe names exactly what it needs. Block ids are static/land-world.js BLOCKS.",
- "version": 6,
+ "version": 7,
  "items": {
   "fiber": {
    "name": "Plant fiber"
@@ -194,6 +194,24 @@
   "sapling": {
    "name": "Sapling",
    "places": 52
+  },
+  "ladder": {
+   "name": "Ladder",
+   "places": 53,
+   "unit": [
+    50,
+    8,
+    300
+   ]
+  },
+  "chest": {
+   "name": "Chest",
+   "places": 54,
+   "unit": [
+    90,
+    50,
+    55
+   ]
   }
  },
  "tools": {
@@ -688,6 +706,26 @@
    "yields": [
     [
      "sapling",
+     1
+    ]
+   ]
+  },
+  "53": {
+   "hard": 0.6,
+   "class": "axe",
+   "yields": [
+    [
+     "ladder",
+     1
+    ]
+   ]
+  },
+  "54": {
+   "hard": 1.0,
+   "class": "axe",
+   "yields": [
+    [
+     "chest",
      1
     ]
    ]
@@ -1746,6 +1784,55 @@
    ],
    "with": [
     "campfire"
+   ]
+  },
+  {
+   "id": "ladder",
+   "makes": [
+    [
+     "ladder",
+     1
+    ]
+   ],
+   "uses": [
+    [
+     "sticks",
+     6
+    ],
+    [
+     "cordage",
+     4
+    ]
+   ],
+   "with": [
+    "axe"
+   ]
+  },
+  {
+   "id": "chest",
+   "makes": [
+    [
+     "chest",
+     1
+    ]
+   ],
+   "uses": [
+    [
+     "planks",
+     6
+    ],
+    [
+     "nails",
+     6
+    ],
+    [
+     "hinges",
+     1
+    ]
+   ],
+   "with": [
+    "workbench",
+    "hammer"
    ]
   }
  ],
