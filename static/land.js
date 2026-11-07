@@ -34,7 +34,7 @@ import { levelOps, earthNeeded, trunkIn, siteLayer, topFirst } from "./land-leve
 import { groundWeights } from "./land-mesher.js";
 import { NadoDapp, wireWallet, renderWallet, alertBar, notify, uiConfirm, uiPrompt, isAddress, esc, base, disp, $ } from "./nadodapp.js";
 
-const CID = "0000000000000000000000000000000c";      // set by execnode/games/redeploy.py wire() at deploy
+const CID = "e7dfe9aa3cbb4b0c9293caeaf992a041";      // the land title contract (deployed 2026-11-07, scripts/land_first_wave.py); redeploy.py wire() repoints it
 const ISSUER = "3cc4c44a94a900f79716dc6d3822a81603b1ce7862ce03572f";   // land.py ISSUER — every title's issuer
 const NFT_URL = "https://nft.nadochain.com/";
 const dapp = new NadoDapp({ cid: CID, app: "Land" });

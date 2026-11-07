@@ -40,7 +40,11 @@ import (or mirror) it.
 - **The landing site** is face 0, plot rows 4995–5004, columns 3435–3444: a temperate meadow ~40 m above the sea at a
   forest's edge, with ~37 m of relief within 160 m — chosen by scanning face 0 after the world was regenerated with relief,
   biomes and forests in patches (2026-11-06; the old site, rows 4924–, was a flat plain). The first wave is those 100
-  plots. **Fixed once minted** — no title has been minted yet.
+  plots — **minted 2026-11-07** (scripts/land_first_wave.py): 96 listed on the NFT market at 5 NADO with the 5 % royalty, and
+  the four central plots (rows 4999–5000, cols 3439–3440, plot ids 40955247, 40955248, 40963439, 40963440) kept by the server
+  wallet as **the town**: levelled, two crossing paved streets on the plot boundaries (the landing is on the main street),
+  benches and lamps, and a town hall (scripts/land_town.py; the server wallet's endowment for it is in its output and #123).
+  The title contract is e7dfe9aa3cbb4b0c9293caeaf992a041.
 - **Biomes** come from temperature (latitude, altitude, broad noise) and moisture: meadow, forest (a ~1 km forest field,
   wetter ground more wooded), desert (hot and dry: sand), snow and taiga (cold; conifers where wet), beach, alpine rock.
   Measured over 30 000 columns: meadow 32 %, ocean 21 %, snow 19 %, forest 12 %, beach 9 %, desert 6 %, rock 1 %.
@@ -263,6 +267,6 @@ nado-land.service and documented with a reference client:
 
 ## Still to build
 
-1. Minting the first 100 titles, registering the 5 % royalty, and listing them at 5 NADO — each batch asked for first.
-2. The lobby entry, and deployment of the land contract.
+1. ~~Minting the first 100 titles, registering the 5 % royalty, and listing them at 5 NADO~~ — done 2026-11-07.
+2. The lobby entry. (~~Deployment of the land contract~~ — done 2026-11-07.)
 3. Private interiors (encrypted plot data for the owner and their builders) and, later, a provable server.
