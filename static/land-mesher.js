@@ -404,7 +404,15 @@ export function meshChunk(face, cu, cv, ch, edits, boxes, lod, grassOn = true) {
   // triangle's place (the same meadow on every screen). The page draws them instanced, near the player only.
   // the middle distance (lod 1) gets a third of the blades: a meadow that stopped 40 m away left a pale wash beyond it
   // (operator, 2026-11-06). Far chunks (lod 2) none.
-  const grass = lod >= 2 || !grassOn ? null : scatterGrass(smooth, lod ? GRASS_DENSITY / 3 : GRASS_DENSITY);
+  // never through a built piece lying on the ground (blades stood up through a plank floor, the furniture render
+  // 2026-11-07): a blade whose spot a piece covers, from just under the ground to 60 cm above it, is not grown. A chunk
+  // column IS a plot, so the blade's grid offset from the chunk's corner is the piece's own frame (cm).
+  const lying = boxes && boxes.length ? boxes.filter((b) => !shapeOf(b)) : null;
+  const under = lying ? (gu, gv, gh) => {
+    const x = (((gu - u0) % 4096) + 4096) % 4096 * CM, z = (((gv - v0) % 4096) + 4096) % 4096 * CM, y = gh * CM;
+    return lying.some((b) => x >= b[0] && x < b[0] + b[3] && z >= b[1] && z < b[1] + b[4] && b[2] <= y + 60 && b[2] + b[5] >= y - 10);
+  } : null;
+  const grass = lod >= 2 || !grassOn ? null : scatterGrass(smooth, lod ? GRASS_DENSITY / 3 : GRASS_DENSITY, under);
   const pieces = mk(), glassy = mk();
   if (boxes && boxes.length) meshBoxes(boxes, u0, v0, h0, place, pieces, glassy, lod);
   if (!smooth.idx.length && !trees.idx.length && !solid.n && !clear.n && !pieces.n && !glassy.n && !bark.n && !foliage.n && !stones.n && !water.n) return { empty: true };
@@ -632,8 +640,8 @@ function placeModel(m, face, cu, cv, base, rot, sc, phase, place, bark, foliage,
 }
 
 const GRASS_DENSITY = 6;                                   // clumps per m² of meadow
-function scatterGrass(g, density) {
-  const P = g.pos, N = g.nor, I = g.idx, W1 = g.w1, out = [], kinds = [];
+function scatterGrass(g, density, under) {
+  const P = g.pos, N = g.nor, I = g.idx, W1 = g.w1, U = g.uvw, out = [], kinds = [];
   for (let t = 0; t < I.length; t += 3) {
     const a = I[t], b = I[t + 1], c = I[t + 2];
     const gw = (W1[a * 4] + W1[b * 4] + W1[c * 4]) / 3;
@@ -645,6 +653,10 @@ function scatterGrass(g, density) {
     for (let k = 0; k < n; k++) {
       let r1 = hash3(a + k, b, c * 3 + 1), r2 = hash3(a, b + k, c * 7 + 2);
       if (r1 + r2 > 1) { r1 = 1 - r1; r2 = 1 - r2; }
+      if (under) {
+        const gp = (o) => U[a * 3 + o] + (U[b * 3 + o] - U[a * 3 + o]) * r1 + (U[c * 3 + o] - U[a * 3 + o]) * r2;
+        if (under(gp(0), gp(1), gp(2))) continue;
+      }
       out.push(ax + ex * r1 + fx * r2, ay + ey * r1 + fy * r2, az + ez * r1 + fz * r2, N[a * 3], N[a * 3 + 1], N[a * 3 + 2], hash3(c, k, a));
       kinds.push(hash3(k, a, c) < 0.04 ? 1 : 0);                       // one clump in 25 is a wildflower
     }

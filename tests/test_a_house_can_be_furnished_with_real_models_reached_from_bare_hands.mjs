@@ -84,6 +84,32 @@ ok(Wd.BLOCKS[B.lamp].glow && /BLOCKS\[blk\]\.glow\)[\s\S]{0,300}emissiveNode/.te
 ok(/const TORCH_LIGHTS = 4/.test(land) && /for \(let i = 0; i < TORCH_LIGHTS; i\+\+\) \{ const l = new THREE\.PointLight/.test(land) && /l\.intensity = w \?/.test(land),
    "torchlight is a fixed pool of point lights, unused ones dark");
 
+// 3b. grass never grows up through a piece lying on the ground (a plank floor in the meadow, the furniture render)
+{
+  // a meadow spot: grass on top, gentle
+  let at = null;
+  for (let i = 2; i < 14 && !at; i++) for (let j = 2; j < 14 && !at; j++) {
+    const c = Wd.column(0, sp.u0 + i, sp.v0 + j);
+    if (c.biome === "grass" && Wd.terrainBlock(0, sp.u0 + i, sp.v0 + j, c.top) === B.grass) at = { i, j, top: c.top };
+  }
+  const blades = (bx) => {
+    let inF = 0, outF = 0;
+    for (const ch of [Math.floor(at.top / 16) - 1, Math.floor(at.top / 16), Math.floor(at.top / 16) + 1]) {
+      const r = M.meshChunk(0, sp.u0 / 16, sp.v0 / 16, ch, null, bx, 0);
+      if (!r.grass) continue;
+      for (let k = 0; k < r.grass.inst.length; k += 7) {
+        const x = r.anchor[0] + r.grass.inst[k], y = r.anchor[1] + r.grass.inst[k + 1], z = r.anchor[2] + r.grass.inst[k + 2], rr = Math.hypot(x, y, z), g = Wd.gridOf([x / rr, y / rr, z / rr]);
+        const lu = g.u - sp.u0, lv = g.v - sp.v0;
+        if (lu > at.i - 1 + 0.05 && lu < at.i + 2 - 0.05 && lv > at.j - 1 + 0.05 && lv < at.j + 2 - 0.05) inF++; else outF++;
+      }
+    }
+    return [inF, outF];
+  };
+  const floor = [(at.i - 1) * 100, (at.j - 1) * 100, (at.top + 1) * 100 - 2, 300, 300, 4, B.planks];
+  const [bare] = blades([]), [onF, beside] = blades([floor]);
+  ok(at && bare > 10 && onF === 0 && beside > 0, `no blade grows through a floor laid on the meadow (${bare} blades there bare, ${onF} with the floor, ${beside} beside it)`);
+}
+
 // 4.
 const srv = Number((readFileSync(join(ROOT, "scripts", "land_server.py"), "utf8").match(/^N_BLOCKS = (\d+)/m) || [])[1]);
 ok(srv === Wd.BLOCKS.length, `the world server knows every block (${srv})`);
