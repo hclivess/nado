@@ -351,9 +351,9 @@
       <path d="M8 18h22l-6-6 4-4 13 13-13 13-4-4 6-6H8z" fill="#00c9a7"/>
       <path d="M40 30H18l6 6-4 4L7 27 20 14l4 4-6 6h22z" fill="#00ad93" opacity=".75"/></svg></span>
     <h1>NADO <span class="a">DEX</span></h1>
-    <a class="hub" href="https://nadochain.com/apps">All apps</a>
+    <a class="hub" href="https://nadochain.com/apps" data-i18n="dex.hAllApps">All apps</a>
   </header>
-  <p class="sub">Swap NADO for tokens, or for <b>real BTC, ETH and SOL</b> — no middleman, no listing, no
+  <p class="sub" data-i18n-html="dex.hSub">Swap NADO for tokens, or for <b>real BTC, ETH and SOL</b> — no middleman, no listing, no
   admin key. The 0.3% fee goes to the people who supply the liquidity.</p>
 
   <div class="ticker" id="dexTicker" hidden></div>
@@ -361,20 +361,20 @@
 
   <!-- WALLET -->
   <div class="card" id="walletcard">
-    <h2>Wallet</h2>
-    <p class="small dim lead">Every action is confirmed in your <a href="https://get.nadochain.com/">NADO wallet</a>; your key never touches this site.</p>
-    <details class="more"><summary>How balances work</summary><p class="small dim">Trades settle in the
+    <h2 data-i18n="dex.wTitle">Wallet</h2>
+    <p class="small dim lead" data-i18n-html="dex.wLead">Every action is confirmed in your <a href="https://get.nadochain.com/">NADO wallet</a>; your key never touches this site.</p>
+    <details class="more"><summary data-i18n="dex.wHowBal">How balances work</summary><p class="small dim" data-i18n="dex.wHowBalText">Trades settle in the
     execution layer. Buy in to move NADO from your main-chain wallet to a usable balance here; cash out
     moves it back. Both are yours to do at any time.</p></details>
-    <div class="kv mt"><span class="k">Acting as</span><span class="mono" id="who">not signed in</span></div>
-    <div class="kv needsig"><span class="k">Wallet — NADO (main chain)</span><span class="mono" id="l1bal">—</span></div>
-    <div class="kv needsig"><span class="k">Usable balance</span><span class="mono" id="bal">—</span></div>
-    <div class="row mt"><button class="primary" id="btnSignIn">Sign in with NADO wallet</button></div>
+    <div class="kv mt"><span class="k" data-i18n="dex.wActing">Acting as</span><span class="mono" id="who" data-i18n="dex.notSignedIn">not signed in</span></div>
+    <div class="kv needsig"><span class="k" data-i18n="dex.wL1">Wallet — NADO (main chain)</span><span class="mono" id="l1bal">—</span></div>
+    <div class="kv needsig"><span class="k" data-i18n="dex.wUsable">Usable balance</span><span class="mono" id="bal">—</span></div>
+    <div class="row mt"><button class="primary" id="btnSignIn" data-i18n="dex.wSignIn">Sign in with NADO wallet</button></div>
     <div class="needsig">
     <div class="row mt">
-      <input id="bankAmt" aria-label="Amount" value="10" placeholder="amount (NADO)" inputmode="decimal" autocomplete="off">
-      <button class="ghost" id="btnDeposit" style="flex:0 0 auto">Deposit</button>
-      <button class="ghost" id="btnWithdraw" style="flex:0 0 auto">Withdraw</button>
+      <input id="bankAmt" aria-label="Amount" value="10" placeholder="amount (NADO)" data-i18n-ph="dex.wAmtPh" inputmode="decimal" autocomplete="off">
+      <button class="ghost" id="btnDeposit" style="flex:0 0 auto" data-i18n="dex.wDeposit">Deposit</button>
+      <button class="ghost" id="btnWithdraw" style="flex:0 0 auto" data-i18n="dex.wWithdraw">Withdraw</button>
     </div>
     </div>
   </div>
@@ -383,7 +383,7 @@
   <!-- MARKET (price chart + stats for the selected pool) -->
   <div class="card hidden" id="marketCard">
     <div class="seg hidden" id="envSeg" style="max-width:240px;margin-bottom:10px" role="tablist" aria-label="Network">
-      <button data-env="main" class="on" role="tab" aria-selected="true">Mainnet</button><button data-env="test" role="tab" aria-selected="false">Testnet</button>
+      <button data-env="main" class="on" role="tab" aria-selected="true" data-i18n="dex.envMain">Mainnet</button><button data-env="test" role="tab" aria-selected="false" data-i18n="dex.envTest">Testnet</button>
     </div>
     <div class="mkt">
       <select class="searchable" id="mktPick" aria-label="Market" style="max-width:250px;flex:0 0 auto"></select>
@@ -402,30 +402,30 @@
       <div class="tt" id="mktTt"></div>
       <div class="chart-empty hidden" id="mktEmpty"></div>
     </div>
-    <div class="small dim" style="margin-top:8px" id="depthCap">How much the rate moves as your trade gets bigger:</div>
+    <div class="small dim" style="margin-top:8px" id="depthCap" data-i18n="dex.depthAmm">How much the rate moves as your trade gets bigger:</div>
     <div class="depthwrap"><svg id="mktDepth" preserveAspectRatio="none"></svg></div>
     <div class="stats" id="mktStats"></div>
     <div class="hidden" id="mktTradesWrap"><h3 class="mt" data-i18n="dex.tTitle">Recent trades</h3><div id="mktTrades"></div></div>
-    <div class="mkt-empty" id="mktNone"><b>No market to chart yet</b>Open the first pool below and seed it — the chart, depth curve and stats appear with the first liquidity.</div>
-    <div class="small dim mt" id="mktCap">Live price, straight from the pool. Nothing is back-filled — a gap means no trading happened.</div>
+    <div class="mkt-empty" id="mktNone" data-i18n-html="dex.mktNone"><b>No market to chart yet</b>Open the first pool below and seed it — the chart, depth curve and stats appear with the first liquidity.</div>
+    <div class="small dim mt" id="mktCap" data-i18n="dex.capLive">Live price, straight from the pool. Nothing is back-filled — a gap means no trading happened.</div>
     <div class="small mt hidden" id="xReq" aria-live="polite"></div>
   </div>
 
   <!-- SWAP -->
   <div class="card hidden" id="swapCard">
-    <h2>Swap</h2>
-    <p class="small dim lead">What you see is what settles — the quote is computed exactly as the pool will.</p>
-    <details class="more"><summary>How this works</summary><p class="small dim">The <b>at worst</b> figure
+    <h2 data-i18n="dex.swTitle">Swap</h2>
+    <p class="small dim lead" data-i18n="dex.swLead">What you see is what settles — the quote is computed exactly as the pool will.</p>
+    <details class="more"><summary data-i18n="dex.howWorks">How this works</summary><p class="small dim" data-i18n-html="dex.swHowText">The <b>at worst</b> figure
     is enforced on-chain: if the price moves past your tolerance while your swap is in flight, it is
     cancelled instead of filling at a bad rate.</p></details>
     <select id="dir" aria-label="Swap direction" class="hidden">
-      <option value="n2t">NADO → token</option>
-      <option value="t2n">token → NADO</option>
+      <option value="n2t" data-i18n="dex.optN2t">NADO → token</option>
+      <option value="t2n" data-i18n="dex.optT2n">token → NADO</option>
     </select>
     <div class="amtbox">
-      <div class="top"><span>You pay</span>
+      <div class="top" data-i18n="dex.swPay"><span>You pay</span>
         <span><span id="payBal">—</span> <span class="pcts" style="display:inline-flex;margin-left:6px">
-          <button data-pct="25">25%</button><button data-pct="50">50%</button><button data-pct="100">MAX</button></span></span></div>
+          <button data-pct="25">25%</button><button data-pct="50">50%</button><button data-pct="100" data-i18n="dex.pctMax">MAX</button></span></span></div>
       <div class="row" style="align-items:center;gap:8px">
         <input id="swapAmt" aria-label="Amount you pay" placeholder="0.0" inputmode="decimal" autocomplete="off">
         <span class="mono" id="paySym" style="flex:0 0 auto;font-weight:700">NADO</span>
@@ -433,22 +433,22 @@
     </div>
     <div class="flip"><button class="ghost" id="btnFlip" title="Swap direction" aria-label="Swap direction"><svg viewBox="0 0 16 16" width="14" height="14" aria-hidden="true"><path d="M5 2v10M2 9l3 3 3-3M11 14V4M8 7l3-3 3 3" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/></svg></button></div>
     <div class="amtbox">
-      <div class="top"><span>You receive</span><span id="getBal">—</span></div>
+      <div class="top" data-i18n="dex.swGet"><span>You receive</span><span id="getBal">—</span></div>
       <div class="row" style="align-items:center;gap:8px">
         <input id="quoteAmt" placeholder="0.0" readonly tabindex="-1">
         <span class="mono" id="getSym" style="flex:0 0 auto;font-weight:700">—</span>
       </div>
     </div>
     <div class="sum">
-      <div class="kv"><span class="k">Rate</span><span class="mono" id="sumRate">—</span></div>
-      <div class="kv"><span class="k">Price impact</span><span class="mono" id="sumImpact">—</span></div>
-      <div class="kv"><span class="k">At worst you get</span><span class="mono" id="quote">—</span></div>
-      <div class="kv"><span class="k">Trading fee</span><span class="mono">0.30%</span></div>
-      <div class="kv"><span class="k">Max slippage</span><span><input id="slip" aria-label="Maximum slippage, percent" value="1" inputmode="decimal"
+      <div class="kv"><span class="k" data-i18n="dex.swRate">Rate</span><span class="mono" id="sumRate">—</span></div>
+      <div class="kv"><span class="k" data-i18n="dex.swImpact">Price impact</span><span class="mono" id="sumImpact">—</span></div>
+      <div class="kv"><span class="k" data-i18n="dex.swWorst">At worst you get</span><span class="mono" id="quote">—</span></div>
+      <div class="kv"><span class="k" data-i18n="dex.swFee">Trading fee</span><span class="mono">0.30%</span></div>
+      <div class="kv"><span class="k" data-i18n="dex.swSlip">Max slippage</span><span><input id="slip" aria-label="Maximum slippage, percent" value="1" inputmode="decimal"
         style="max-width:62px;padding:3px 7px;font-size:12px;text-align:right"> %</span></div>
     </div>
-    <div class="row mt"><button class="primary" id="btnSwap">Swap</button>
-      <button class="ghost" id="btnShare" style="flex:0 0 auto">Share</button></div>
+    <div class="row mt"><button class="primary" id="btnSwap" data-i18n="dex.swBtn">Swap</button>
+      <button class="ghost" id="btnShare" style="flex:0 0 auto" data-i18n="dex.swShare">Share</button></div>
     <p class="small dim mt" data-i18n="dex.swBatchNote">Every swap in a block clears at one price — nobody can jump ahead of you inside it. Your coins are collected for you once the block has passed.</p>
     <div id="swPending"></div>
   </div>
@@ -457,58 +457,58 @@
 
   <!-- MARKETS (every market on both venues, sortable; a row opens the market) -->
   <div class="card hidden" id="marketsCard">
-    <h2>Markets</h2>
-    <p class="small dim lead">Every pair on the on-chain AMM and the cross-chain book. Tap a column to sort, a row to trade.</p>
-    <div class="row mt"><input id="mtSearch" placeholder="Search markets" aria-label="Search markets" autocomplete="off" style="max-width:260px"></div>
+    <h2 data-i18n="dex.mtsTitle">Markets</h2>
+    <p class="small dim lead" data-i18n="dex.mtsLead">Every pair on the on-chain AMM and the cross-chain book. Tap a column to sort, a row to trade.</p>
+    <div class="row mt"><input id="mtSearch" placeholder="Search markets" data-i18n-ph="dex.mtSearch" aria-label="Search markets" autocomplete="off" style="max-width:260px"></div>
     <div class="mtwrap"><table class="mt-table" aria-label="Markets"><thead id="mtHead"></thead><tbody id="mtBody"></tbody></table></div>
     <div class="small dim mt" id="mtNote"></div>
   </div>
 
   <!-- POOLS -->
   <div class="card" id="poolsCard">
-    <h2>Pools</h2>
-    <p class="small dim lead">Tap a market to trade it or supply liquidity.</p>
-    <div class="mkthead mt"><span>Market</span><span style="text-align:right">Price (in NADO)</span><span style="text-align:right">24h</span></div>
+    <h2 data-i18n="dex.plTitle">Pools</h2>
+    <p class="small dim lead" data-i18n="dex.plLead">Tap a market to trade it or supply liquidity.</p>
+    <div class="mkthead mt"><span data-i18n="dex.plMarket">Market</span><span style="text-align:right" data-i18n="dex.plPrice">Price (in NADO)</span><span style="text-align:right">24h</span></div>
     <div id="pools"></div>
   </div>
 
   <!-- LIQUIDITY -->
   <div class="card hidden" id="liqCard">
-    <h2>Liquidity</h2>
-    <p class="small dim lead">Deposit both sides, then confirm. <span id="liqPos" class="dim"></span></p>
-    <details class="more"><summary>How this works</summary><p class="small dim">Each side is its own
+    <h2 data-i18n="dex.lqTitle">Liquidity</h2>
+    <p class="small dim lead" data-i18n="dex.lqLead">Deposit both sides, then confirm. <span id="liqPos" class="dim"></span></p>
+    <details class="more"><summary data-i18n="dex.howWorks">How this works</summary><p class="small dim" data-i18n-html="dex.lqHowText">Each side is its own
     transaction because a transaction carries one currency. Anything deposited but not yet confirmed is
     <b>always refundable</b>. The first person to supply a market sets its opening price; after that both
     sides go in at the market's current ratio, and anything left over stays yours.</p></details>
     <div class="row mt">
-      <input id="addN" aria-label="NADO amount to deposit" placeholder="NADO amount" inputmode="decimal" autocomplete="off">
-      <button class="ghost" id="btnFundN" style="flex:0 0 auto">1 · Deposit NADO</button>
+      <input id="addN" aria-label="NADO amount to deposit" placeholder="NADO amount" data-i18n-ph="dex.lqNPh" inputmode="decimal" autocomplete="off">
+      <button class="ghost" id="btnFundN" style="flex:0 0 auto" data-i18n="dex.lqFundN">1 · Deposit NADO</button>
     </div>
     <div class="row mt">
-      <input id="addT" aria-label="Token amount to deposit" placeholder="token amount" inputmode="decimal" autocomplete="off">
-      <button class="ghost" id="btnFundT" style="flex:0 0 auto">2 · Deposit token</button>
+      <input id="addT" aria-label="Token amount to deposit" placeholder="token amount" data-i18n-ph="dex.lqTPh" inputmode="decimal" autocomplete="off">
+      <button class="ghost" id="btnFundT" style="flex:0 0 auto" data-i18n="dex.lqFundT">2 · Deposit token</button>
     </div>
     <div class="row mt">
-      <button class="primary" id="btnJoin">3 · Confirm liquidity</button>
-      <button class="ghost" id="btnRefund" style="flex:0 0 auto">Take deposits back</button>
+      <button class="primary" id="btnJoin" data-i18n="dex.lqJoin">3 · Confirm liquidity</button>
+      <button class="ghost" id="btnRefund" style="flex:0 0 auto" data-i18n="dex.lqRefund">Take deposits back</button>
     </div>
     <div class="row mt">
-      <input id="exitSh" aria-label="Pool shares to withdraw" placeholder="pool shares to withdraw" inputmode="numeric" autocomplete="off">
-      <button class="ghost" id="btnExit" style="flex:0 0 auto">Withdraw liquidity</button>
+      <input id="exitSh" aria-label="Pool shares to withdraw" placeholder="pool shares to withdraw" data-i18n-ph="dex.lqExitPh" inputmode="numeric" autocomplete="off">
+      <button class="ghost" id="btnExit" style="flex:0 0 auto" data-i18n="dex.lqExit">Withdraw liquidity</button>
     </div>
 
   </div>
 
   <!-- OPEN A POOL -->
   <div class="card" id="openCard">
-    <h2>Open a pool</h2>
-    <p class="small dim lead">Pair any token with NADO — permissionless and free.</p>
+    <h2 data-i18n="dex.opTitle">Open a pool</h2>
+    <p class="small dim lead" data-i18n="dex.opLead">Pair any token with NADO — permissionless and free.</p>
     <div class="row mt">
       <select class="searchable" id="newAsset" aria-label="Token to pair with NADO"></select>
-      <button class="ghost" id="btnOpen" style="flex:0 0 auto">Open pool</button>
+      <button class="ghost" id="btnOpen" style="flex:0 0 auto" data-i18n="dex.opBtn">Open pool</button>
     </div>
     <div class="row mt hidden" id="newAssetCustomRow">
-      <input id="newAssetCustom" aria-label="Token id" placeholder="paste the token id" autocomplete="off">
+      <input id="newAssetCustom" aria-label="Token id" placeholder="paste the token id" data-i18n-ph="dex.opIdPh" autocomplete="off">
     </div>
   </div>
 
@@ -538,9 +538,9 @@
   </div>
 
   <div class="card hidden" id="otcBookCard">
-    <h2>Cross-chain order book</h2>
-    <p class="small dim lead">Swap NADO against real <b>BTC, ETH or SOL</b> — no custodian, no wrapped coins. <b>ETH needs an Ethereum wallet extension (MetaMask), SOL a Solana one (Phantom); BTC needs nothing extra.</b> New: check every figure and start small.</p>
-    <details class="more"><summary>How an atomic swap works</summary><p class="small dim">Both sides lock
+    <h2 data-i18n="dex.obTitle">Cross-chain order book</h2>
+    <p class="small dim lead" data-i18n-html="dex.obLead">Swap NADO against real <b>BTC, ETH or SOL</b> — no custodian, no wrapped coins. <b>ETH needs an Ethereum wallet extension (MetaMask), SOL a Solana one (Phantom); BTC needs nothing extra.</b> New: check every figure and start small.</p>
+    <details class="more"><summary data-i18n="dex.obHow">How an atomic swap works</summary><p class="small dim" data-i18n-html="dex.obHowText">Both sides lock
     behind the <b>same secret</b>. The NADO side sits in an L1 HTLC under exactly the same SHA-256 hashlock
     as the other chain's lock, so one revealed secret opens both and neither party can take one leg without
     giving up the other. Each row verifies the counterparty's lock for you before you commit yours, and
@@ -549,77 +549,77 @@
   </div>
 
   <div class="card hidden" id="otcPostCard">
-    <h2>Post an order</h2>
-    <p class="small dim lead">Posting costs nothing and locks nothing — funds move only after someone fills.</p>
-    <details class="more"><summary>How this works</summary><p class="small dim">Posting creates your
+    <h2 data-i18n="dex.opoTitle">Post an order</h2>
+    <p class="small dim lead" data-i18n="dex.opoLead">Posting costs nothing and locks nothing — funds move only after someone fills.</p>
+    <details class="more"><summary data-i18n="dex.howWorks">How this works</summary><p class="small dim" data-i18n-html="dex.opoHowText">Posting creates your
     <b>swap secret</b> (kept in this browser — back it up). Once filled, your row walks you through the
     locks. An unfinished swap refunds to whoever paid in once it expires — nothing can get stuck. A
     <b>Tip</b> on the row pays watchtowers to finish the swap for you.</p></details>
     <div class="row mt">
       <select id="otcKind" aria-label="Order side">
-        <option value="1">Sell NADO</option>
-        <option value="2">Buy NADO</option>
+        <option value="1" data-i18n="dex.otcSellNado">Sell NADO</option>
+        <option value="2" data-i18n="dex.otcBuyNado">Buy NADO</option>
       </select>
-      <input id="otcNado" aria-label="NADO amount" placeholder="NADO amount" inputmode="decimal" autocomplete="off">
+      <input id="otcNado" aria-label="NADO amount" placeholder="NADO amount" data-i18n-ph="dex.lqNPh" inputmode="decimal" autocomplete="off">
     </div>
     <div class="small dim" id="otcKindHint" style="margin-top:6px"></div>
     <div class="row mt">
     </div>
     <div class="row mt">
       <select class="searchable" id="otcNet" aria-label="Network"></select>
-      <input id="otcFAmt" aria-label="Amount of the other coin" placeholder="amount of that coin" autocomplete="off">
+      <input id="otcFAmt" aria-label="Amount of the other coin" placeholder="amount of that coin" data-i18n-ph="dex.otcFAmtPh" autocomplete="off">
     </div>
     <div class="row mt hidden" id="otcTokenRow">
       <select class="searchable" id="otcTokenPick" aria-label="Token"></select>
-      <input id="otcToken" aria-label="Token contract address" class="hidden" placeholder="paste the token's contract address" autocomplete="off">
+      <input id="otcToken" aria-label="Token contract address" class="hidden" placeholder="paste the token's contract address" data-i18n-ph="dex.otcTokPh" autocomplete="off">
     </div>
     <div class="row mt">
-      <div style="flex:1 1 0;min-width:0"><input id="otcFAddr" aria-label="Your address on that network" placeholder="your address on that network (saved for next time)" autocomplete="off" spellcheck="false">
+      <div style="flex:1 1 0;min-width:0"><input id="otcFAddr" aria-label="Your address on that network" placeholder="your address on that network (saved for next time)" data-i18n-ph="dex.otcFAddrPh" autocomplete="off" spellcheck="false">
         <div id="otcFAddrHint" class="hint" aria-live="polite"></div></div>
     </div>
     <div class="row mt">
-      <label class="small dim" for="otcExpiry">NADO-side expiry, in blocks <span class="mono" id="otcExpiryHuman"></span></label>
+      <label class="small dim" for="otcExpiry" data-i18n="dex.otcExpiryLbl">NADO-side expiry, in blocks <span class="mono" id="otcExpiryHuman"></span></label>
       <input id="otcExpiry" value="9000" inputmode="numeric" style="max-width:110px" autocomplete="off">
     </div>
-    <div class="row mt"><button class="primary" id="btnOtcPost">Post order</button></div>
+    <div class="row mt"><button class="primary" id="btnOtcPost" data-i18n="dex.otcPostBtn">Post order</button></div>
     <div id="otcTokenInfo" class="small mt"></div>
     <div id="otcSecretBox" class="mt hidden">
-      <p class="small warn">Your swap secret — WITHOUT IT A FILLED SWAP CANNOT COMPLETE. It stays in this
+      <p class="small warn" data-i18n="dex.otcSecretWarn">Your swap secret — WITHOUT IT A FILLED SWAP CANNOT COMPLETE. It stays in this
       browser; copy it somewhere safe too:</p>
       <p class="mono small" id="otcSecretHex" style="word-break:break-all"></p>
     </div>
   </div>
 
   <div class="card hidden" id="otcMyCard">
-    <h2>My swaps</h2>
-    <p class="small dim lead">Every order you posted or filled, with its next step.</p>
+    <h2 data-i18n="dex.otcMyTitle">My swaps</h2>
+    <p class="small dim lead" data-i18n="dex.otcMyLead">Every order you posted or filled, with its next step.</p>
     <div id="otcMine" class="mt"></div>
   </div>
 
   <!-- LIMIT ORDERS (otc contract SWAP_INTRA — exec-layer limit orders beside the AMM) -->
   <div class="card hidden" id="otcLimitCard">
-    <h2>Limit orders</h2>
-    <p class="small dim lead">Name your own price; the first taker swaps both sides in one go.</p>
-    <details class="more"><summary>How this works</summary><p class="small dim">No partial fills. Cancel any
+    <h2 data-i18n="dex.limTitle">Limit orders</h2>
+    <p class="small dim lead" data-i18n="dex.limLead">Name your own price; the first taker swaps both sides in one go.</p>
+    <details class="more"><summary data-i18n="dex.howWorks">How this works</summary><p class="small dim" data-i18n="dex.limHowText">No partial fills. Cancel any
     time before someone takes it; after it expires anyone can return it to you.</p></details>
     <div id="otcLimits" class="mt"></div>
     <div class="row mt">
       <select class="searchable" id="limGiveAsset" aria-label="Asset you give"></select>
-      <input id="limGiveAmt" aria-label="Amount you give" placeholder="amount you give" inputmode="decimal" autocomplete="off">
+      <input id="limGiveAmt" aria-label="Amount you give" placeholder="amount you give" data-i18n-ph="dex.limGivePh" inputmode="decimal" autocomplete="off">
     </div>
     <div class="row mt">
       <select class="searchable" id="limWantAsset" aria-label="Asset you want"></select>
-      <input id="limWantAmt" aria-label="Amount you want" placeholder="amount you want" inputmode="decimal" autocomplete="off">
+      <input id="limWantAmt" aria-label="Amount you want" placeholder="amount you want" data-i18n-ph="dex.limWantPh" inputmode="decimal" autocomplete="off">
     </div>
     <div class="row mt">
-      <label class="small dim" for="limExpiry">Expiry, in blocks <span class="mono" id="limExpiryHuman"></span></label>
+      <label class="small dim" for="limExpiry" data-i18n="dex.limExpiryLbl">Expiry, in blocks <span class="mono" id="limExpiryHuman"></span></label>
       <input id="limExpiry" value="3000" inputmode="numeric" style="max-width:110px" autocomplete="off">
-      <button class="primary" id="btnLimPost" style="flex:0 0 auto">Post order</button>
+      <button class="primary" id="btnLimPost" style="flex:0 0 auto" data-i18n="dex.otcPostBtn">Post order</button>
     </div>
   </div>
 
   <footer>
-    <span>Everything here is public and verifiable on-chain. Supplying liquidity carries risk: if the price
+    <span data-i18n="dex.ftNote">Everything here is public and verifiable on-chain. Supplying liquidity carries risk: if the price
     moves, you withdraw a different mix than you put in. Not investment advice.</span>
   </footer>
 </div>

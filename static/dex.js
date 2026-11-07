@@ -58,7 +58,7 @@ const _pickerApi = {};             // id -> the picker wrapping that <select>, s
 const akey = (id) => String(Number(id));
 const tokMeta = (id) => assetReg[akey(id)] || null;
 const tokSym = (id) => (tokMeta(id) || {}).sym || "token";
-const tokName = (id) => { const m = tokMeta(id); return m ? (m.name || m.sym) : "unknown token"; };
+const tokName = (id) => { const m = tokMeta(id); return m ? (m.name || m.sym) : LT("unknownTok", "unknown token"); };
 async function refreshAssets() {
   try {
     // TWO requests on purpose: ?holder= filters the registry down to assets you already hold (the node
@@ -121,9 +121,9 @@ function renderPools() {
   const box = $("pools");
   if (!box) return;
   const ids = lastSto ? poolIds(lastSto) : [];
-  if (!lastSto) { box.innerHTML = `<p class="small dim"><span class="spin"></span> Loading markets…</p>`; return; }
+  if (!lastSto) { box.innerHTML = `<p class="small dim"><span class="spin"></span> ${esc(LT("mtLoading", "Loading markets…"))}</p>`; return; }
   if (!ids.length) {
-    box.innerHTML = `<p class="small dim">No pools yet — open one below and seed it.</p>`;
+    box.innerHTML = `<p class="small dim">${esc(LT("plNone", "No pools yet — open one below and seed it."))}</p>`;
     return;
   }
   box.innerHTML = ids.map((id) => {
@@ -136,7 +136,7 @@ function renderPools() {
     const chg = pc != null ? (pc >= 0 ? "+" : "") + pc.toFixed(2) + "%" : "—";
     const cls = pc != null ? (Math.abs(pc) < 0.005 ? "" : pc > 0 ? "up" : "dn") : "";
     return `<div class="poolrow${on}" data-pool="${p.id}" style="cursor:pointer">
-      <div class="pmain"><span class="tok" aria-hidden="true">${esc(tokIni(sym))}</span><div><b>${esc(sym)} / NADO</b><div class="small dim">${live ? fromUnits(p.rn) + " NADO liquidity" : "empty — needs liquidity"}</div></div></div>
+      <div class="pmain"><span class="tok" aria-hidden="true">${esc(tokIni(sym))}</span><div><b>${esc(sym)} / NADO</b><div class="small dim">${esc(live ? LT("plLiq", "{n} NADO liquidity", { n: fromUnits(p.rn) }) : LT("plEmpty", "empty — needs liquidity"))}</div></div></div>
       <div class="num">${live ? fmtShort(price) + " NADO" : "—"}</div>
       <div class="chgc ${cls}">${chg}</div>
     </div>`;
@@ -150,8 +150,9 @@ function renderLiq() {
   const el = $("liqPos");
   if (!el || !sel || !lastSto) return;
   const p = poolOf(lastSto, sel), sym = tokSym(p.asset);
-  const t = $("addT"); if (t) t.placeholder = `${sym} amount`;
-  el.innerHTML = `You are adding to the ${esc(sym)} / NADO pool. Position id <span class="mono">${esc(String(posFor(p.id)))}</span> — it lives in this browser; note it down if you clear site data (your wallet key plus this id recovers the position).`;
+  const t = $("addT"); if (t) t.placeholder = LT("lqSymPh", "{s} amount", { s: sym });
+  el.innerHTML = LT("lqPos", "You are adding to the {s} / NADO pool. Position id {id} — it lives in this browser; note it down if you clear site data (your wallet key plus this id recovers the position).",
+    { s: esc(sym), id: `<span class="mono">${esc(String(posFor(p.id)))}</span>` });
 }
 function renderSwap() {
   const card = $("swapCard");
@@ -179,9 +180,10 @@ function renderSwap() {
   // minOut = the quote reduced by the tolerance, rounded DOWN (the contract compares UNITs as integers).
   const minOut = out * BigInt(Math.max(0, Math.round((100 - slipPct) * 100))) / 10000n;
   $("quote").textContent = out > 0n
-    ? `${fmtOut(out)} ${dir === "n2t" ? sym : "NADO"}   (at worst ${fmtOut(minOut)})`
+    ? `${fmtOut(out)} ${dir === "n2t" ? sym : "NADO"}   (${LT("swAtWorst", "at worst {v}", { v: fmtOut(minOut) })})`
     : "—";
-  const amtIn = $("swapAmt"); if (amtIn) amtIn.placeholder = `amount in ${dir === "n2t" ? "NADO" : sym}`;
+  card.dataset.worst = out > 0n ? fmtOut(minOut) : "";      // doSwap's warning quotes it (the label above is translated)
+  const amtIn = $("swapAmt"); if (amtIn) amtIn.placeholder = LT("swAmtPh", "amount in {s}", { s: dir === "n2t" ? "NADO" : sym });
   card.dataset.minout = String(minOut);
   card.dataset.inunits = String(inU);
   // ticket chrome: which side is which, what you hold, the rate and what the trade itself moves the price by
@@ -195,13 +197,13 @@ function renderSwap() {
   const impact = spot > 0 && execRate > 0 ? (1 - execRate / spot) * 100 : 0;
   const imp = $("sumImpact");
   card.dataset.impact = String(inU > 0n && out > 0n ? impact : 0);
-  if (imp) { imp.textContent = inU > 0n && out > 0n ? impact.toFixed(2) + "%" + (impact >= 5 ? " (very high)" : impact >= 1 ? " (high)" : "") : "—";
+  if (imp) { imp.textContent = inU > 0n && out > 0n ? impact.toFixed(2) + "%" + (impact >= 5 ? " (" + LT("swImpVHigh", "very high") + ")" : impact >= 1 ? " (" + LT("swImpHigh", "high") + ")" : "") : "—";
     imp.style.color = impact >= 5 ? "var(--danger)" : impact >= 1 ? "var(--warn)" : "var(--dim)"; }
   const qa = $("quoteAmt"); if (qa) qa.value = out > 0n ? fmtOut(out) : "";
   const payBalU = dir === "n2t" ? execUnits() : tokenUnits(p.asset);
-  setTxt("payBal", payBalU === null ? "—" : "Balance " + (dir === "n2t" ? fromUnits(payBalU) : tokFromUnits(payBalU, p.asset)) + " " + paySym);
+  setTxt("payBal", payBalU === null ? "—" : LT("swBal", "Balance {v}", { v: (dir === "n2t" ? fromUnits(payBalU) : tokFromUnits(payBalU, p.asset)) + " " + paySym }));
   const getBalU = dir === "n2t" ? tokenUnits(p.asset) : execUnits();
-  setTxt("getBal", getBalU === null ? "" : "Balance " + (dir === "n2t" ? tokFromUnits(getBalU, p.asset) : fromUnits(getBalU)) + " " + getSym);
+  setTxt("getBal", getBalU === null ? "" : LT("swBal", "Balance {v}", { v: (dir === "n2t" ? tokFromUnits(getBalU, p.asset) : fromUnits(getBalU)) + " " + getSym }));
 }
 
 function fillAssetPicker(el, { withNado = true, keepValue = true, search = "" } = {}) {
@@ -216,13 +218,14 @@ function fillAssetPicker(el, { withNado = true, keepValue = true, search = "" } 
   const sig = opts.join("");
   if (el.dataset.sig === sig) { return; }
   el.dataset.sig = sig;
-  el.innerHTML = opts.length ? opts.join("") : `<option value="">${q ? "no token matches that" : "no tokens yet"}</option>`;
+  el.innerHTML = opts.length ? opts.join("") : `<option value="">${esc(q ? LT("pickNoMatch", "no token matches that") : LT("pickNone", "no tokens yet"))}</option>`;
   if (prev && [...el.options].some((o) => o.value === prev)) el.value = prev;
 }
 function doRender() {
   const wc = $("walletcard"); if (wc) wc.classList.toggle("signed", !!dapp.me);
   renderWallet(dapp);                                 // who you are + both balances; without this a
                                                       // completed sign-in never showed up on the page
+  if (!dapp.me) { const w = $("who"); if (w) w.textContent = LT("notSignedIn", "not signed in"); }   // the SDK writes it in English
   fillAssetPicker($("newAsset"), { withNado: false });
   fillAssetPicker($("limGiveAsset"));
   fillTokenPicker();
@@ -241,83 +244,84 @@ function doRender() {
 // ---- actions -------------------------------------------------------------------------------------------
 function openPool() {
   const asset = (($("newAsset") || {}).value || ($("newAssetCustom") || {}).value || "").trim();
-  if (!asset) return alertBar("No tokens exist yet to pair with NADO.");
-  let aidB; try { aidB = BigInt(asset); } catch (e) { return alertBar("That token id isn't valid."); }
-  if (aidB <= 0n) return alertBar("That token id isn't valid.");
+  if (!asset) return alertBar(LT("opNoTok", "No tokens exist yet to pair with NADO."));
+  let aidB; try { aidB = BigInt(asset); } catch (e) { return alertBar(LT("opBadId", "That token id isn't valid.")); }
+  if (aidB <= 0n) return alertBar(LT("opBadId", "That token id isn't valid."));
   if (lastSto) for (const id of poolIds(lastSto))                       // don't open a duplicate market
     if (akey(poolOf(lastSto, id).asset) === akey(asset)) { sel = String(id); render();
-      return alertBar(`A ${tokSym(asset)} / NADO pool already exists — selected it for you.`); }
+      return alertBar(LT("opExists", "A {s} / NADO pool already exists — selected it for you.", { s: tokSym(asset) })); }
   const pid = randId();
-  dapp.call("open", [pid, aidB], null, `Opening the ${tokSym(asset)} / NADO pool…`, { poolId: pid });
+  dapp.call("open", [pid, aidB], null, LT("opCall", "Opening the {s} / NADO pool…", { s: tokSym(asset) }), { poolId: pid });
 }
 
 function fundNative() {
-  if (!sel) return alertBar("Select a pool first.");
+  if (!sel) return alertBar(LT("selPool", "Select a pool first."));
   const p = poolOf(lastSto, sel);
   const pos = posFor(p.id);
   const u = toUnits(($("addN").value || "").trim());
-  if (u <= 0n) return alertBar("Enter a NADO amount (at least 0.01).");
-  dapp.call("fundn", [pos, p.id, Number(u)], u * UNIT, "Staging NADO…", { posId: pos });
+  if (u <= 0n) return alertBar(LT("lqNeedN", "Enter a NADO amount (at least 0.01)."));
+  dapp.call("fundn", [pos, p.id, Number(u)], u * UNIT, LT("lqCallN", "Staging NADO…"), { posId: pos });
 }
 
 function fundToken() {
-  if (!sel) return alertBar("Select a pool first.");
+  if (!sel) return alertBar(LT("selPool", "Select a pool first."));
   const p = poolOf(lastSto, sel);
   const pos = posFor(p.id);
   const u = tokToUnits($("addT").value, p.asset);
-  if (u <= 0n) return alertBar(`Enter a ${tokSym(p.asset)} amount (at least ${tokFromUnits(1n, p.asset)} ${tokSym(p.asset)} — the pool counts in that step).`);
+  if (u <= 0n) return alertBar(LT("lqNeedT", "Enter a {s} amount (at least {m} {s} — the pool counts in that step).", { s: tokSym(p.asset), m: tokFromUnits(1n, p.asset) }));
   // opts.asset makes this an ASSET-denominated call (value = amount, asset = which token).
-  dapp.call("fundt", [pos, p.id, Number(u)], u * UNIT, "Depositing token…",
+  dapp.call("fundt", [pos, p.id, Number(u)], u * UNIT, LT("lqCallT", "Depositing token…"),
             { posId: pos }, { asset: p.asset });
 }
 
 async function joinPool() {
-  if (!sel) return alertBar("Select a pool first.");
+  if (!sel) return alertBar(LT("selPool", "Select a pool first."));
   const p = poolOf(lastSto, sel), sym = tokSym(p.asset);
   const live = p.sup > 0n && p.rn > 0n;
   // value-free calls sign without a wallet dialog, so the page itself states what this does before it goes
-  if (!await uiConfirm({ title: "Add liquidity",
-    body: live ? `Both deposits go into the ${sym} / NADO pool at its current price and become pool shares. Anything that does not fit the ratio stays deposited and refundable.`
-               : `You are the first to supply ${sym} / NADO, so your two deposits SET its opening price. Check both amounts — a wrong ratio is free money for the first trader.`,
-    rows: live ? [{ k: "Pool price", v: `1 NADO = ${fmtPrice(midPrice(p))} ${sym}` }] : [],
-    confirmText: "Add liquidity" })) return;
-  dapp.call("join", [posFor(p.id), p.id], null, "Adding your liquidity…", { posId: posFor(p.id) });
+  if (!await uiConfirm({ title: LT("lqAdd", "Add liquidity"),
+    body: live ? LT("lqAddLive", "Both deposits go into the {s} / NADO pool at its current price and become pool shares. Anything that does not fit the ratio stays deposited and refundable.", { s: sym })
+               : LT("lqAddFirst", "You are the first to supply {s} / NADO, so your two deposits SET its opening price. Check both amounts — a wrong ratio is free money for the first trader.", { s: sym }),
+    rows: live ? [{ k: LT("lqPoolPrice", "Pool price"), v: `1 NADO = ${fmtPrice(midPrice(p))} ${sym}` }] : [],
+    confirmText: LT("lqAdd", "Add liquidity") })) return;
+  dapp.call("join", [posFor(p.id), p.id], null, LT("lqCallJoin", "Adding your liquidity…"), { posId: posFor(p.id) });
 }
 
 function refundPos() {
-  if (!sel) return alertBar("Select a pool first.");
+  if (!sel) return alertBar(LT("selPool", "Select a pool first."));
   const p = poolOf(lastSto, sel);
-  dapp.call("refund", [posFor(p.id), p.id, BigInt(p.asset)], null, "Returning your deposits…", { posId: posFor(p.id) });
+  dapp.call("refund", [posFor(p.id), p.id, BigInt(p.asset)], null, LT("lqCallRefund", "Returning your deposits…"), { posId: posFor(p.id) });
 }
 
 async function exitPos() {
-  if (!sel) return alertBar("Select a pool first.");
+  if (!sel) return alertBar(LT("selPool", "Select a pool first."));
   const p = poolOf(lastSto, sel), sym = tokSym(p.asset);
   const sh = Number(($("exitSh").value || "").trim());
-  if (!(Number.isInteger(sh) && sh > 0)) return alertBar(`Enter how many pool shares to withdraw (a whole number — the pool has ${p.sup} in total).`);
-  if (BigInt(sh) > p.sup) return alertBar(`The whole pool has only ${p.sup} shares.`);
+  if (!(Number.isInteger(sh) && sh > 0)) return alertBar(LT("lqNeedSh", "Enter how many pool shares to withdraw (a whole number — the pool has {n} in total).", { n: p.sup }));
+  if (BigInt(sh) > p.sup) return alertBar(LT("lqTooManySh", "The whole pool has only {n} {n|one:share|other:shares}.", { n: p.sup }));
   const outN = p.sup > 0n ? p.rn * BigInt(sh) / p.sup : 0n, outT = p.sup > 0n ? p.rt * BigInt(sh) / p.sup : 0n;
-  if (!await uiConfirm({ title: "Withdraw liquidity",
-    body: "Your shares are burned and both sides come back to your wallet. If you own fewer shares than this, the withdrawal is refused and nothing moves.",
-    rows: [{ k: "Shares", v: `${sh} of ${p.sup}` },
-           { k: "You receive", v: `≈ ${fromUnits(outN)} NADO + ${tokFromUnits(outT, p.asset)} ${sym}` }],
-    confirmText: "Withdraw" })) return;
-  dapp.call("exit", [posFor(p.id), p.id, sh, BigInt(p.asset)], null, "Withdrawing your liquidity…", { posId: posFor(p.id) });
+  if (!await uiConfirm({ title: LT("lqExitTitle", "Withdraw liquidity"),
+    body: LT("lqExitBody", "Your shares are burned and both sides come back to your wallet. If you own fewer shares than this, the withdrawal is refused and nothing moves."),
+    rows: [{ k: LT("lqShares", "Shares"), v: LT("lqShOf", "{a} of {b}", { a: sh, b: p.sup }) },
+           { k: LT("youGet", "You receive"), v: `≈ ${fromUnits(outN)} NADO + ${tokFromUnits(outT, p.asset)} ${sym}` }],
+    confirmText: LT("lqExitOk", "Withdraw") })) return;
+  dapp.call("exit", [posFor(p.id), p.id, sh, BigInt(p.asset)], null, LT("lqCallExit", "Withdrawing your liquidity…"), { posId: posFor(p.id) });
 }
 
 async function doSwap() {
-  if (!sel) return alertBar("Select a pool first.");
+  if (!sel) return alertBar(LT("selPool", "Select a pool first."));
   const p = poolOf(lastSto, sel);
   const card = $("swapCard");
   const inU = BigInt(card.dataset.inunits || "0");
   const minOut = BigInt(card.dataset.minout || "0");
-  if (inU <= 0n) return alertBar("Enter an amount to swap.");
-  if (inU >= 1n << 31n) return alertBar(`Trades are capped at ${fromUnits((1n << 31n) - 1n)} NADO-units per swap — split it into smaller swaps.`);
-  if (minOut <= 0n) return alertBar("This pool cannot fill that amount — nothing would come out.");   // the contract requires out > 0
+  if (inU <= 0n) return alertBar(LT("swNeedAmt", "Enter an amount to swap."));
+  if (inU >= 1n << 31n) return alertBar(LT("swCap", "Trades are capped at {n} NADO-units per swap — split it into smaller swaps.", { n: fromUnits((1n << 31n) - 1n) }));
+  if (minOut <= 0n) return alertBar(LT("swNoOut", "This pool cannot fill that amount — nothing would come out."));   // the contract requires out > 0
   const impact = Number(card.dataset.impact || 0);
-  if (impact >= 5 && !await uiConfirm({ title: "High price impact", danger: true,
-    body: `This trade moves the pool's price by ${impact.toFixed(1)}%. You get at worst ${$("quote").textContent.replace(/.*at worst /, "").replace(")", "")}. A smaller amount, or several swaps, gets a better rate.`,
-    confirmText: "Swap anyway" })) return;
+  if (impact >= 5 && !await uiConfirm({ title: LT("swHighImp", "High price impact"), danger: true,
+    body: LT("swHighImpBody", "This trade moves the pool's price by {p}%. You get at worst {w}. A smaller amount, or several swaps, gets a better rate.",
+      { p: impact.toFixed(1), w: card.dataset.worst || "" }),
+    confirmText: LT("swAnyway", "Swap anyway") })) return;
   // SWAPS ARE BATCHED (execnode/games/dex.py SWAPS): an order in this block's batch, which clears at one price; minOut
   // protects it against the whole batch. The coins are collected by swapClaims once the block has passed.
   const oid = randId(), side = ($("dir").value || "n2t") === "n2t" ? 1 : 2;
@@ -589,11 +593,11 @@ function lpCreate() {
 const OTC_CID = "83562ce0cf5ee023d98b366bfcbc6e57";
 let otcState = "loading";                    // loading | ok | missing | down — never a spinner forever
 const otcEmpty = (msg) => otcState === "ok" || otcSto ? `<p class="small dim">${msg}</p>`
-  : otcState === "missing" ? `<p class="small warn">Order-book contract ${OTC_CID.slice(0, 10)}… is not deployed on this chain — the page needs rewiring (execnode.games.redeploy).</p>`
-  : otcState === "down" ? `<p class="small dim">Order book unreachable right now — retrying.</p>`
-  : `<p class="small dim"><span class="spin"></span> Loading orders…</p>`;
+  : otcState === "missing" ? `<p class="small warn">${esc(LT("otcMissing", "Order-book contract {c}… is not deployed on this chain — the page needs rewiring (execnode.games.redeploy).", { c: OTC_CID.slice(0, 10) }))}</p>`
+  : otcState === "down" ? `<p class="small dim">${esc(LT("otcDown", "Order book unreachable right now — retrying."))}</p>`
+  : `<p class="small dim"><span class="spin"></span> ${esc(LT("otcLoading", "Loading orders…"))}</p>`;
 const OTC_ASK = 1, OTC_BID = 2, OTC_INTRA = 3;                       // kind: maker SELLS NADO / maker BUYS NADO
-const OTC_ST = { 1: "open", 2: "filled", 3: "settled", 4: "refunded", 5: "cancelled" };
+const OTC_ST = () => ({ 1: LT("stOpen", "open"), 2: LT("stFilled", "filled"), 3: LT("stSettled", "settled"), 4: LT("stRefunded", "refunded"), 5: LT("stCancelled", "cancelled") });
 const LIMB_BITS = 52n, LIMBS = 5;                     // must match otc.preimage_limbs
 const LS_OTC_SECRETS = "nado_otc_secrets";            // {orderId: 64-hex swap secret} — maker-side only
 let otcSto = null;
@@ -625,10 +629,10 @@ const otcForget = (o) => { const m = otcSecrets(); delete m[o]; try { localStora
 // a wallet extension's error, in the user's terms — what happened and what to do, never its internals
 function walletErr(e) {
   const m = String((e && e.message) || e || ""), code = e && e.code;
-  if (code === 4001 || /user (rejected|denied)|rejected the request/i.test(m)) return "You cancelled it in your wallet — nothing was sent.";
-  if (/insufficient funds/i.test(m)) return "Not enough coin in that account to pay the network fee.";
-  if (/chain|network/i.test(m) && /switch|unsupported|mismatch/i.test(m)) return "Your wallet is on a different network — switch it and try again.";
-  return "Your wallet refused the transaction: " + m.slice(0, 120);
+  if (code === 4001 || /user (rejected|denied)|rejected the request/i.test(m)) return LT("weCancel", "You cancelled it in your wallet — nothing was sent.");
+  if (/insufficient funds/i.test(m)) return LT("weFunds", "Not enough coin in that account to pay the network fee.");
+  if (/chain|network/i.test(m) && /switch|unsupported|mismatch/i.test(m)) return LT("weNet", "Your wallet is on a different network — switch it and try again.");
+  return LT("weRefused", "Your wallet refused the transaction: {m}", { m: m.slice(0, 120) });
 }
 
 // ---- the AUTOMATIC Bitcoin leg (no builder, no pubkey pasting — see btcsign.js) -----------------------
@@ -740,25 +744,25 @@ function btcInfo(od) {
 async function btcVerifyInto(od, elId) {
   const el = document.getElementById(elId), b = btcInfo(od);
   if (!el || !b) return;
-  el.textContent = "checking…";
+  el.textContent = LT("checking", "checking…");
   try {
     const a = await (await fetch(`${explorerOf(od)}/api/address/${b.addr}`, { cache: "no-store" })).json();
     const conf = Number(a.chain_stats.funded_txo_sum || 0), pend = Number(a.mempool_stats.funded_txo_sum || 0);
     const need = Math.round(Number(od.wamt) * 1e8);     // the AGREED amount — a dust lock must never read green
     el.innerHTML = conf >= need && need > 0
-      ? `<span style="color:var(--accent2)">CONFIRMED: ${conf / 1e8} BTC locked</span>${pend ? ` (+${pend / 1e8} unconfirmed)` : ""}`
-      : conf > 0 ? `<span style="color:var(--danger)">UNDERFUNDED: only ${conf / 1e8} of the agreed ${esc(od.wamt)} BTC — do NOT reveal your secret</span>`
-      : pend > 0 ? `UNCONFIRMED: ${pend / 1e8} BTC in the mempool — wait for confirmations`
-      : "nothing sent to this address yet";
-  } catch (e) { el.textContent = "explorer unreachable — try again"; }
+      ? `<span style="color:var(--accent2)">${esc(LT("btcConf", "CONFIRMED: {n} BTC locked", { n: conf / 1e8 }))}</span>${pend ? ` (${esc(LT("btcPlusUnconf", "+{n} unconfirmed", { n: pend / 1e8 }))})` : ""}`
+      : conf > 0 ? `<span style="color:var(--danger)">${esc(LT("btcUnderNoReveal", "UNDERFUNDED: only {n} of the agreed {a} BTC — do NOT reveal your secret", { n: conf / 1e8, a: od.wamt }))}</span>`
+      : pend > 0 ? esc(LT("btcUnconf", "UNCONFIRMED: {n} BTC in the mempool — wait for confirmations", { n: pend / 1e8 }))
+      : esc(LT("btcNothing", "nothing sent to this address yet"));
+  } catch (e) { el.textContent = LT("explDown", "explorer unreachable — try again"); }
 }
 async function btcSpendFlow(od, mode) {
   // ONE button: find the funded coin, ask where to send it, sign in-page, broadcast via the explorer.
   const b = btcInfo(od);
-  if (!b) return alertBar("Still deriving the Bitcoin address — try again in a second.");
+  if (!b) return alertBar(LT("btcDeriving", "Still deriving the Bitcoin address — try again in a second."));
   let utxos;
   try { utxos = await (await fetch(`${explorerOf(od)}/api/address/${b.addr}/utxo`, { cache: "no-store" })).json(); }
-  catch (e) { return alertBar("Explorer unreachable — try again."); }
+  catch (e) { return alertBar(LT("explDown2", "Explorer unreachable — try again.")); }
   const need = Math.round(Number(od.wamt) * 1e8);
   // Spend the coin that pays the AGREED amount, not merely the first one listed: claiming a dust output
   // publishes the swap secret while the real coin sits untouched (audit).
@@ -766,15 +770,15 @@ async function btcSpendFlow(od, mode) {
   if (!utxo) {
     const most = Math.max(0, ...(utxos || []).map((u) => u.value));
     return alertBar(mode === "claim"
-      ? `No coin here pays the agreed ${od.wamt} ${coinOf(od)} (largest: ${most / 1e8}). Claiming a smaller one would publish your secret for nothing.`
-      : `Nothing here to reclaim (largest: ${most / 1e8}).`);
+      ? LT("btcNoCoin", "No coin here pays the agreed {a} {c} (largest: {m}). Claiming a smaller one would publish your secret for nothing.", { a: od.wamt, c: coinOf(od), m: most / 1e8 })
+      : LT("btcNoReclaim", "Nothing here to reclaim (largest: {m}).", { m: most / 1e8 }));
   }
-  if (!utxo.status.confirmed && !await uiConfirm({ title: "That coin is still unconfirmed",
-    body: "It has not been mined yet, so this spend may not be accepted. Continue anyway?", danger: true })) return;
+  if (!utxo.status.confirmed && !await uiConfirm({ title: LT("btcUnconfTitle", "That coin is still unconfirmed"),
+    body: LT("btcUnconfBody", "It has not been mined yet, so this spend may not be accepted. Continue anyway?"), danger: true })) return;
   const rec = otcRec(od.o);
-  if (!rec.k) return alertBar("This browser doesn't hold the swap key for this order (use the device you posted/filled from, or scripts/otc_btc_leg.py).");
-  const payout = ((await uiPrompt({ title: "Where should the coins go?",
-    body: `Your ${coinOf(od)} address — this spend pays it directly.`, placeholder: "address" })) || "").trim();
+  if (!rec.k) return alertBar(LT("btcNoKey", "This browser doesn't hold the swap key for this order (use the device you posted/filled from, or scripts/otc_btc_leg.py)."));
+  const payout = ((await uiPrompt({ title: LT("btcWhere", "Where should the coins go?"),
+    body: LT("btcWhereBody", "Your {c} address — this spend pays it directly.", { c: coinOf(od) }), placeholder: LT("addrPh", "address") })) || "").trim();
   if (!payout) return;
   let outScriptHex;
   try { outScriptHex = await addressToScript(payout, (netOf(od) || {}).hrp || "bc"); } catch (e) { return alertBar(String(e.message || e)); }
@@ -783,18 +787,18 @@ async function btcSpendFlow(od, mode) {
   // The fee estimate comes from an explorer we do not control, so cap it: unbounded, a bad (or hostile)
   // estimate could burn most of the coin, and the only prior guard was "output > 0" (audit).
   const feeSat = Math.min(feeRate * 160, Math.floor(utxo.value * 0.02), 200000);
-  if (utxo.value - feeSat < 546) return alertBar("This coin is too small to spend after fees.");
-  if (!await uiConfirm({ title: mode === "claim" ? "Claim these coins" : "Reclaim these coins",
-    rows: [{ k: "You receive", v: (utxo.value - feeSat) / 1e8 + " " + coinOf(od) },
-           { k: "To", v: payout.slice(0, 22) + (payout.length > 22 ? "…" : "") },
-           { k: "Network fee", v: `${feeSat} sat (${(feeSat / utxo.value * 100).toFixed(2)}%)` }],
-    confirmText: "Send" })) return;
+  if (utxo.value - feeSat < 546) return alertBar(LT("btcDust", "This coin is too small to spend after fees."));
+  if (!await uiConfirm({ title: mode === "claim" ? LT("btcClaimT", "Claim these coins") : LT("btcReclaimT", "Reclaim these coins"),
+    rows: [{ k: LT("youGet", "You receive"), v: (utxo.value - feeSat) / 1e8 + " " + coinOf(od) },
+           { k: LT("rowTo", "To"), v: payout.slice(0, 22) + (payout.length > 22 ? "…" : "") },
+           { k: LT("rowNetFee", "Network fee"), v: `${feeSat} sat (${(feeSat / utxo.value * 100).toFixed(2)}%)` }],
+    confirmText: LT("send", "Send") })) return;
   const sHex = mode === "claim" ? await otcKnownSecret(od) : null;
-  if (mode === "claim" && !sHex) return alertBar("The swap secret isn't available yet.");
+  if (mode === "claim" && !sHex) return alertBar(LT("noSecretYet", "The swap secret isn't available yet."));
   // A claim that lands after the deadline still publishes the secret; Bitcoin's CLTV clock is median-time-
   // past, which lags wall time by up to ~1h, so keep a wider margin than the other chains.
   if (mode === "claim" && Math.floor(Date.now() / 1000) > Math.floor(Number(od.expf)) - 3600 - 900)
-    return alertBar("Too close to this lock's deadline — a claim that lands late would publish your secret and pay nothing.");
+    return alertBar(LT("tooLate", "Too close to this lock's deadline — a claim that lands late would publish your secret and pay nothing."));
   try {
     const hex = mode === "claim"
       ? await claimTx({ scriptHex: b.script, secretHex: sHex, privHex: rec.k, fundTxid: utxo.txid,
@@ -803,8 +807,9 @@ async function btcSpendFlow(od, mode) {
                          fundTxid: utxo.txid, vout: utxo.vout, amountSat: utxo.value, outScriptHex, feeSat });
     const r = await fetch(`${explorerOf(od)}/api/tx`, { method: "POST", body: hex });
     const t = (await r.text()).trim();
-    if (!r.ok) return alertBar(/non-final|non-BIP68/.test(t) ? "The Bitcoin deadline hasn't passed yet — try again after it." : "Bitcoin rejected it: " + t.slice(0, 120));
-    alertBar((mode === "claim" ? "Claimed! " : "Reclaimed! ") + "Bitcoin txid: " + t.slice(0, 24) + "… — coins on the way to " + payout.slice(0, 16) + "…");
+    if (!r.ok) return alertBar(/non-final|non-BIP68/.test(t) ? LT("btcNotYet", "The Bitcoin deadline hasn't passed yet — try again after it.") : LT("btcRejected", "Bitcoin rejected it: {m}", { m: t.slice(0, 120) }));
+    const tv = { t: t.slice(0, 24), a: payout.slice(0, 16) };
+    alertBar(mode === "claim" ? LT("btcClaimed", "Claimed! Bitcoin txid: {t}… — coins on the way to {a}…", tv) : LT("btcReclaimed", "Reclaimed! Bitcoin txid: {t}… — coins on the way to {a}…", tv));
   } catch (e) { alertBar(String(e.message || e)); }
 }
 async function btcFoundSecret(od) {
@@ -852,7 +857,7 @@ const otcLeft = (od) => od.expn - (dapp.cursor || 0);          // blocks until t
 const ethProv = () => (typeof window !== "undefined" ? window.ethereum : null);
 async function ethReq(method, params) { return ethProv().request({ method, params: params || [] }); }
 async function ethConnect() {
-  if (!ethProv()) throw new Error("No Ethereum wallet in this browser — install MetaMask, or open this page in a wallet browser.");
+  if (!ethProv()) throw new Error(LT("ethNoWallet", "No Ethereum wallet in this browser — install MetaMask, or open this page in a wallet browser."));
   const [addr] = await ethReq("eth_requestAccounts");
   const chain = await ethReq("eth_chainId");
   return { addr, chain };
@@ -866,12 +871,13 @@ const ethAddrOf = (field) => { const p = (field || "").split("|").pop(); return 
 async function legConfirm(od, mode, netLabel) {
   const coin = coinOf(od), dl = new Date(ethDeadline(od) * 1000);
   const when = dl.toISOString().slice(0, 16).replace("T", " ") + "Z";
+  const amt = `${od.wamt} ${coin}`;
   const spec = mode === "fund"
-    ? { title: `Lock ${od.wamt} ${coin}`, body: `Only the counterparty can take it, and only with the swap secret. If they never do, you reclaim it after ${when}.`, confirmText: "Lock" }
+    ? { title: LT("legLockT", "Lock {a}", { a: amt }), body: LT("legLockB", "Only the counterparty can take it, and only with the swap secret. If they never do, you reclaim it after {w}.", { w: when }), confirmText: LT("lock", "Lock") }
     : mode === "claim"
-    ? { title: `Claim ${od.wamt} ${coin}`, body: "Claiming publishes the swap secret on that chain — after this the counterparty can take the NADO side. This is what completes the swap.", confirmText: "Claim" }
-    : { title: `Reclaim ${od.wamt} ${coin}`, body: "Returns your locked coins to the account that funded them. Only possible after the deadline.", confirmText: "Reclaim" };
-  return uiConfirm(Object.assign(spec, { rows: [{ k: "Amount", v: `${od.wamt} ${coin}` }, { k: "Network", v: netLabel || coin }, { k: "Deadline", v: when }] }));
+    ? { title: LT("legClaimT", "Claim {a}", { a: amt }), body: LT("legClaimB", "Claiming publishes the swap secret on that chain — after this the counterparty can take the NADO side. This is what completes the swap."), confirmText: LT("claim", "Claim") }
+    : { title: LT("legReclaimT", "Reclaim {a}", { a: amt }), body: LT("legReclaimB", "Returns your locked coins to the account that funded them. Only possible after the deadline."), confirmText: LT("reclaim", "Reclaim") };
+  return uiConfirm(Object.assign(spec, { rows: [{ k: LT("amount", "Amount"), v: amt }, { k: LT("rowNetwork", "Network"), v: netLabel || coin }, { k: LT("rowDeadline", "Deadline"), v: when }] }));
 }
 async function ethLeg(od, mode) {
   // mode: fund (the ETH/token sender locks) · claim (reveal s, get paid) · refund (after the deadline)
@@ -879,14 +885,15 @@ async function ethLeg(od, mode) {
     const { addr, chain } = await ethConnect();
     const net = netOf(od) || {}, token = tokAddrOf(od);
     const htlc = token ? (net.erc20 || "") : ethHtlcFor(od);
-    if (!htlc) { alertBar(`No ${token ? "token" : ""} swap contract is deployed on ${net.label || "that network"} yet — use the command shown on this row.`); return; }
-    if (chain !== net.evm) { alertBar(`Switch your wallet to ${net.label} — this order is on that network.`); return; }
+    if (!htlc) { alertBar(token ? LT("ethNoTokCtr", "No token swap contract is deployed on {n} yet — use the command shown on this row.", { n: net.label || LT("thatNet", "that network") })
+                                : LT("ethNoCtr", "No swap contract is deployed on {n} yet — use the command shown on this row.", { n: net.label || LT("thatNet", "that network") })); return; }
+    if (chain !== net.evm) { alertBar(LT("ethSwitch", "Switch your wallet to {n} — this order is on that network.", { n: net.label })); return; }
     const sells = od.kind === OTC_ASK;                  // ASK: taker sends the coin, maker claims
     const senderAddr = sells ? ethAddrOf(od.tadr) : ethAddrOf(od.wadr);   // who funded the lock (the refundee)
     const claimAddr = sells ? ethAddrOf(od.wadr) : ethAddrOf(od.tadr);    // who claims with the secret
     const dl = ethDeadline(od);
     if ((mode === "fund" || mode === "refund") && senderAddr && addr.toLowerCase() !== senderAddr.toLowerCase())
-      return alertBar(`This swap's Ethereum side belongs to ${senderAddr.slice(0, 10)}… — switch your wallet to that account.`);
+      return alertBar(LT("ethWrongAcct", "This swap's Ethereum side belongs to {a}… — switch your wallet to that account.", { a: senderAddr.slice(0, 10) }));
     const meta0 = token ? await ethTokenMeta(token) : { decimals: 18 };
     const amtWei = toUnitsDec(od.wamt, meta0.decimals);   // the AGREED amount is part of the lock key
     const key = token ? htlcErc20Abi.lockKey(token, od.hsha, claimAddr, senderAddr, dl, amtWei)
@@ -895,11 +902,11 @@ async function ethLeg(od, mode) {
     if (mode === "fund") {
       if (token) {
         const amt = amtWei;
-        if (amt <= 0n) return alertBar("That order's token amount is not a number.");
+        if (amt <= 0n) return alertBar(LT("ethBadAmt", "That order's token amount is not a number."));
         // ERC-20 needs an allowance first — top it up only when it is short, so a second swap costs one tx.
         const cur = BigInt(await ethReq("eth_call", [{ to: token, data: erc20Abi.allowance(addr, htlc) }, "latest"]) || "0x0");
         if (cur < amt) {
-          alertBar(`Approving ${meta0.symbol || "the token"}… confirm the first transaction, then the lock.`);
+          alertBar(LT("ethApproving", "Approving {s}… confirm the first transaction, then the lock.", { s: meta0.symbol || LT("theToken", "the token") }));
           await ethReq("eth_sendTransaction", [{ from: addr, to: token, data: erc20Abi.approve(htlc, amt) }]);
         }
         data = htlcErc20Abi.fund(token, claimAddr, addr, od.hsha, dl, amt);
@@ -909,21 +916,21 @@ async function ethLeg(od, mode) {
       }
     } else if (mode === "claim") {
       const sHex = await otcKnownSecret(od);
-      if (!sHex) return alertBar("The swap secret isn't available yet.");
+      if (!sHex) return alertBar(LT("noSecretYet", "The swap secret isn't available yet."));
       const nowS2 = Math.floor(Date.now() / 1000);
       if (nowS2 > dl - 900)                              // a claim that misses the deadline still leaks s
-        return alertBar("Too close to this lock's deadline — a claim that lands late would publish your secret and pay nothing.");
+        return alertBar(LT("tooLate", "Too close to this lock's deadline — a claim that lands late would publish your secret and pay nothing."));
       // Read the lock back before revealing: an underfunded or mis-parameterised lock must NOT buy the secret.
       const raw = await ethReq("eth_call", [{ to: htlc, data: (token ? htlcErc20Abi : htlcAbi).locks(key) }, "latest"]);
       const words = (raw || "0x").replace(/^0x/, "").match(/.{64}/g) || [];
       const held = words.length ? BigInt("0x" + words[token ? 3 : 2]) : 0n;
       if (held < amtWei)
-        return alertBar(`That lock holds less than the agreed amount — claiming it would publish your secret for nothing.`);
+        return alertBar(LT("ethShort", "That lock holds less than the agreed amount — claiming it would publish your secret for nothing."));
       data = token ? htlcErc20Abi.claim(key, sHex) : htlcAbi.claim(key, sHex);
     } else data = token ? htlcErc20Abi.refund(key) : htlcAbi.refund(key);
     if (!await legConfirm(od, mode, net.label)) return;
     const txid = await ethReq("eth_sendTransaction", [{ from: addr, to: htlc, data, value: valueHex }]);
-    alertBar((mode === "fund" ? "Locked" : mode === "claim" ? "Claimed" : "Reclaimed") + " — tx " + String(txid).slice(0, 20) + "…");
+    alertBar(LT("legDone", "{w} — tx {t}…", { w: mode === "fund" ? LT("wLocked", "Locked") : mode === "claim" ? LT("wClaimed", "Claimed") : LT("wReclaimed", "Reclaimed"), t: String(txid).slice(0, 20) }));
   } catch (e) { alertBar(walletErr(e)); }
 }
 // a token's symbol/decimals, read once from the chain and cached (the row shows the symbol, the lock needs the decimals)
@@ -958,8 +965,8 @@ async function ethFoundSecret(od) {
 }
 function ethCliHint(od) {
   const rec = otcRec(od.o);
-  return `<div class="small dim mt">No Ethereum wallet in this browser. Install MetaMask (or open this page in a wallet browser) to finish this step here.
-    <details class="more"><summary>Advanced: finish it from a terminal</summary><span class="mono" style="word-break:break-all">node scripts/otc_eth_leg.mjs claim --rpc ${od.wch === "eths" ? "https://ethereum-sepolia-rpc.publicnode.com" : "&lt;rpc&gt;"} --htlc ${esc((netOf(od) || {}).htlc || "&lt;deploy first&gt;")} --key &lt;your-eth-key&gt; --hash ${esc(od.hsha)} --claimant &lt;addr&gt; --refundee &lt;addr&gt; --deadline ${ethDeadline(od)} --secret &lt;s&gt;</span></details></div>`;
+  return `<div class="small dim mt">${esc(LT("ethCli", "No Ethereum wallet in this browser. Install MetaMask (or open this page in a wallet browser) to finish this step here."))}
+    <details class="more"><summary>${esc(LT("cliAdv", "Advanced: finish it from a terminal"))}</summary><span class="mono" style="word-break:break-all">node scripts/otc_eth_leg.mjs claim --rpc ${od.wch === "eths" ? "https://ethereum-sepolia-rpc.publicnode.com" : "&lt;rpc&gt;"} --htlc ${esc((netOf(od) || {}).htlc || "&lt;deploy first&gt;")} --key &lt;your-eth-key&gt; --hash ${esc(od.hsha)} --claimant &lt;addr&gt; --refundee &lt;addr&gt; --deadline ${ethDeadline(od)} --secret &lt;s&gt;</span></details></div>`;
 }
 
 // ---- the Solana leg (scripts/solana-htlc, via static/solsign.js) -------------------------------------
@@ -982,7 +989,7 @@ async function solMintDecimals(rpc, mint) {
   const S = await solMod();
   const v = (await S.solRpc(rpc, "getAccountInfo", [mint, { encoding: "jsonParsed" }])).value;
   const info = v && v.data && v.data.parsed && v.data.parsed.type === "mint" ? v.data.parsed.info : null;
-  if (!info) throw new Error("That mint address is not an SPL token.");
+  if (!info) throw new Error(LT("solNotSpl", "That mint address is not an SPL token."));
   solMintMeta[mint] = { decimals: Number(info.decimals) };
   return solMintMeta[mint].decimals;
 }
@@ -996,10 +1003,10 @@ async function solTerms(od) {
   const mint = chainOf(od) === "sol" && isB58Addr(tokAddrOf(od)) ? tokAddrOf(od) : "";   // an SPL order names its mint
   const lamports = mint ? solTokUnits(od.wamt, await solMintDecimals(rpc, mint)) : solLamports(od.wamt);   // "lamports" = the lock's amount units
   const program = solProgramOf(od);
-  if (!program) throw new Error(`No swap program is deployed on ${(netOf(od) || {}).label} yet.`);
-  if (!funder || !claimant) throw new Error("This swap's Solana addresses aren't both published yet.");
-  if (!/^[0-9a-f]{64}$/.test(od.hsha || "")) throw new Error("This order has no usable hashlock.");
-  if (!(deadline > 0) || lamports <= 0n) throw new Error("This order's Solana amount or deadline is missing.");
+  if (!program) throw new Error(LT("solNoProg", "No swap program is deployed on {n} yet.", { n: (netOf(od) || {}).label }));
+  if (!funder || !claimant) throw new Error(LT("solNoAddrs", "This swap's Solana addresses aren't both published yet."));
+  if (!/^[0-9a-f]{64}$/.test(od.hsha || "")) throw new Error(LT("solNoHash", "This order has no usable hashlock."));
+  if (!(deadline > 0) || lamports <= 0n) throw new Error(LT("solNoAmt", "This order's Solana amount or deadline is missing."));
   const { address } = mint ? await S.htlcPdaTok(program, od.hsha, claimant, funder, deadline, Number(lamports), mint)
                            : await S.htlcPda(program, od.hsha, claimant, funder, deadline, Number(lamports));
   const lockAta = mint ? await S.ataOf(address, mint) : "";
@@ -1011,25 +1018,25 @@ async function solLeg(od, mode) {
     const { provider, address: me } = await t.S.solWalletConnect();
     const want = mode === "claim" ? t.claimant : t.funder;
     if (me !== want)
-      return alertBar(`This swap's Solana side belongs to ${want.slice(0, 8)}… — switch your wallet to that account.`);
+      return alertBar(LT("solWrongAcct", "This swap's Solana side belongs to {a}… — switch your wallet to that account.", { a: want.slice(0, 8) }));
     let ix;
     const ata = async (owner) => t.mint ? await t.S.ataOf(owner, t.mint) : "";
     if (mode === "fund") {
       const already = await t.S.solLockInfo(t.rpc, t.program, t.address);
-      if (already) return alertBar("That lock is already funded — nothing more to send.");
+      if (already) return alertBar(LT("solFunded", "That lock is already funded — nothing more to send."));
       ix = t.mint ? t.S.ixFundToken(t.program, me, t.address, od.hsha, t.claimant, t.deadline, Number(t.lamports), t.mint, await ata(me), t.lockAta)
                   : t.S.ixFund(t.program, me, t.address, od.hsha, t.claimant, t.deadline, Number(t.lamports));
     } else if (mode === "claim") {
       const sHex = await otcKnownSecret(od);
-      if (!sHex) return alertBar("The swap secret isn't available yet.");
+      if (!sHex) return alertBar(LT("noSecretYet", "The swap secret isn't available yet."));
       if (Math.floor(Date.now() / 1000) > t.deadline - 900)
-        return alertBar("Too close to this lock's deadline — a claim that lands late would publish your secret and pay nothing.");
+        return alertBar(LT("tooLate", "Too close to this lock's deadline — a claim that lands late would publish your secret and pay nothing."));
       // Read the escrow back before revealing anything: the secret buys nothing from an empty account.
       const info = await t.S.solLockInfo(t.rpc, t.program, t.address);
-      if (!info) return alertBar("No lock exists at this swap's address yet — nothing to claim.");
-      if (info.owner !== t.program) return alertBar("That account is not owned by the swap program — do not reveal your secret.");
+      if (!info) return alertBar(LT("solNoLock", "No lock exists at this swap's address yet — nothing to claim."));
+      if (info.owner !== t.program) return alertBar(LT("solNotOwned", "That account is not owned by the swap program — do not reveal your secret."));
       if (info.hashlock !== od.hsha || info.claimant !== t.claimant || info.amount < t.lamports || (info.mint || "") !== t.mint)
-        return alertBar("The lock on chain does not match this order's terms — claiming it would publish your secret for nothing.");
+        return alertBar(LT("solMismatch", "The lock on chain does not match this order's terms — claiming it would publish your secret for nothing."));
       ix = t.mint ? t.S.ixClaimToken(t.program, me, t.address, t.claimant, sHex, t.mint, t.lockAta, await ata(t.claimant))
                   : t.S.ixClaim(t.program, me, t.address, t.claimant, sHex);
     } else {
@@ -1038,7 +1045,7 @@ async function solLeg(od, mode) {
     }
     if (!await legConfirm(od, mode, (netOf(od) || {}).label)) return;
     const sig = await t.S.solWalletSend(t.rpc, provider, me, [ix]);
-    alertBar((mode === "fund" ? "Locked" : mode === "claim" ? "Claimed" : "Reclaimed") + " — tx " + sig.slice(0, 20) + "…");
+    alertBar(LT("legDone", "{w} — tx {t}…", { w: mode === "fund" ? LT("wLocked", "Locked") : mode === "claim" ? LT("wClaimed", "Claimed") : LT("wReclaimed", "Reclaimed"), t: sig.slice(0, 20) }));
   } catch (e) { alertBar(walletErr(e)); }
 }
 async function solFoundSecret(od) {
@@ -1047,8 +1054,8 @@ async function solFoundSecret(od) {
 }
 function solCliHint(od) {
   const net = netOf(od) || {};
-  return `<div class="small dim mt">No Solana wallet in this browser. Install Phantom (or open this page in a wallet browser) to finish this step here.
-    <details class="more"><summary>Advanced: finish it from a terminal</summary><span class="mono" style="word-break:break-all">node scripts/otc_sol_leg.mjs claim --rpc ${esc(net.rpc || "&lt;rpc&gt;")} --program ${esc(net.program || "&lt;not deployed&gt;")} --key &lt;your-key&gt; --hash ${esc(od.hsha)} --claimant &lt;addr&gt; --funder &lt;addr&gt; --deadline ${Number(od.expf) || 0} --amount ${tokAddrOf(od) ? "&lt;units&gt;" : String(solLamports(od.wamt))}${tokAddrOf(od) ? " --mint " + esc(tokAddrOf(od)) : ""} --secret &lt;s&gt;</span></details></div>`;
+  return `<div class="small dim mt">${esc(LT("solCli", "No Solana wallet in this browser. Install Phantom (or open this page in a wallet browser) to finish this step here."))}
+    <details class="more"><summary>${esc(LT("cliAdv", "Advanced: finish it from a terminal"))}</summary><span class="mono" style="word-break:break-all">node scripts/otc_sol_leg.mjs claim --rpc ${esc(net.rpc || "&lt;rpc&gt;")} --program ${esc(net.program || "&lt;not deployed&gt;")} --key &lt;your-key&gt; --hash ${esc(od.hsha)} --claimant &lt;addr&gt; --funder &lt;addr&gt; --deadline ${Number(od.expf) || 0} --amount ${tokAddrOf(od) ? "&lt;units&gt;" : String(solLamports(od.wamt))}${tokAddrOf(od) ? " --mint " + esc(tokAddrOf(od)) : ""} --secret &lt;s&gt;</span></details></div>`;
 }
 
 // ---- cross-chain markets: a BTC/NADO book IS a market, so it gets the same header, chart and stats ----
@@ -1067,7 +1074,7 @@ function xMarkets(env = xEnv) {
       const t = tokAddrOf(od);
       if (t && netKeyOf(od) === k && !toks[tokNorm(t)]) toks[tokNorm(t)] = { sym: (erc20Names[tokNorm(t)] || {}).symbol || "TOKEN", dec: 18 };
     }
-    for (const a of Object.keys(toks)) out.push({ key: k + "|" + a, net: k, token: a, coin: toks[a].sym, label: `${toks[a].sym} on ${n.label}`, chain: n.chain });
+    for (const a of Object.keys(toks)) out.push({ key: k + "|" + a, net: k, token: a, coin: toks[a].sym, label: LT("xTokOn", "{s} on {n}", { s: toks[a].sym, n: n.label }), chain: n.chain });
   }
   return out;
 }
@@ -1076,8 +1083,9 @@ const xMarket = (key) => xMarkets("main").concat(xMarkets("test")).find((m) => m
 function xMarketBlocker(m) {
   if (!m) return "";
   const n = NETS[m.net] || {};
-  if (n.chain === "eth" && !(m.token ? n.erc20 : n.htlc)) return `The ${m.token ? "token" : "ETH"} swap contract is not deployed on ${n.label} yet — trading here opens when it is.`;
-  if (n.chain === "sol" && !n.program) return `The swap program is not deployed on ${n.label} yet — trading here opens when it is.`;
+  if (n.chain === "eth" && !(m.token ? n.erc20 : n.htlc)) return m.token ? LT("xBlkTok", "The token swap contract is not deployed on {n} yet — trading here opens when it is.", { n: n.label })
+                                                                       : LT("xBlkEth", "The ETH swap contract is not deployed on {n} yet — trading here opens when it is.", { n: n.label });
+  if (n.chain === "sol" && !n.program) return LT("xBlkSol", "The swap program is not deployed on {n} yet — trading here opens when it is.", { n: n.label });
   return "";
 }
 const otcPrice = (od) => {                           // NADO per 1 foreign coin
@@ -1105,7 +1113,7 @@ function renderXMarket() {
   const mkts = xMarkets(), keys = mkts.map((m) => m.key);
   const pick = $("mktPick");
   if (pick) {
-    const opts = mkts.map((m) => `<option value="${esc(m.key)}">${esc(m.coin)} / NADO${xMarketBlocker(m) ? " · soon" : ""} — ${esc(m.label)}</option>`).join("");
+    const opts = mkts.map((m) => `<option value="${esc(m.key)}">${esc(m.coin)} / NADO${xMarketBlocker(m) ? " · " + esc(LT("vSoon", "soon")) : ""} — ${esc(m.label)}</option>`).join("");
     if (pick.dataset.sig !== opts) { pick.dataset.sig = opts; pick.innerHTML = opts; }
     if (!keys.includes(xsel)) xsel = keys[0];
     pick.value = xsel;
@@ -1133,24 +1141,24 @@ function renderXMarket() {
   if (st24 && b.mid) {
     chgEl.textContent = (st24.pct >= 0 ? "+" : "") + st24.pct.toFixed(2) + "%  24h";
     chgEl.className = "chg " + (Math.abs(st24.pct) < 0.005 ? "flat" : st24.pct > 0 ? "up" : "dn");
-  } else { chgEl.textContent = blk ? "coming soon" : b.bids.length || b.asks.length ? "one side quoted" : "no open orders"; chgEl.className = "chg flat"; }
+  } else { chgEl.textContent = blk ? LT("xSoon", "coming soon") : b.bids.length || b.asks.length ? LT("xOneSide", "one side quoted") : LT("xNoOrders", "no open orders"); chgEl.className = "chg flat"; }
   chgEl.title = blk;
   const mine = otcOrders().filter((x) => mktKeyOf(x) === xsel && dapp.me && (x.maker === dapp.me || x.taker === dapp.me)).length;
   $("mktStats").innerHTML = [
-    ["Best bid", b.bb ? fmtPrice(b.bb) + " NADO" : "—"],
-    ["Best ask", b.ba ? fmtPrice(b.ba) + " NADO" : "—"],
-    ["Spread", b.bb && b.ba ? ((b.ba - b.bb) / b.ba * 100).toFixed(2) + "%" : "—"],
-    ["24h high", st24 && b.mid ? fmtShort(st24.hi) : "—"],
-    ["24h low", st24 && b.mid ? fmtShort(st24.lo) : "—"],
-    ["24h volume", vol24(XKEY(xsel)) ? fmtShort(vol24(XKEY(xsel))) + " NADO" : "—"],
-    ["24h swaps", String(trades24(XKEY(xsel)))],
-    ["Buy orders", String(b.bids.length)],
-    ["Sell orders", String(b.asks.length)],
-    ["Your orders", String(mine)],
-  ].map(([l, v]) => `<div class="stat"><div class="l">${l}</div><div class="v">${v}</div></div>`).join("");
+    [LT("stBestBid", "Best bid"), b.bb ? fmtPrice(b.bb) + " NADO" : "—"],
+    [LT("stBestAsk", "Best ask"), b.ba ? fmtPrice(b.ba) + " NADO" : "—"],
+    [LT("stSpread", "Spread"), b.bb && b.ba ? ((b.ba - b.bb) / b.ba * 100).toFixed(2) + "%" : "—"],
+    [LT("st24Hi", "24h high"), st24 && b.mid ? fmtShort(st24.hi) : "—"],
+    [LT("st24Lo", "24h low"), st24 && b.mid ? fmtShort(st24.lo) : "—"],
+    [LT("st24Vol", "24h volume"), vol24(XKEY(xsel)) ? fmtShort(vol24(XKEY(xsel))) + " NADO" : "—"],
+    [LT("st24Swaps", "24h swaps"), String(trades24(XKEY(xsel)))],
+    [LT("stBuyOrders", "Buy orders"), String(b.bids.length)],
+    [LT("stSellOrders", "Sell orders"), String(b.asks.length)],
+    [LT("yourOrders", "Your orders"), String(mine)],
+  ].map(([l, v]) => `<div class="stat"><div class="l">${esc(l)}</div><div class="v">${v}</div></div>`).join("");
   const mcX = $("marketCard"); if (mcX) mcX.classList.remove("nomarket");   // a cross-chain market always has a book to show
-  const cap = $("depthCap"); if (cap) cap.textContent = "Live order book — how much is offered at each price:";
-  const mc = $("mktCap"); if (mc) mc.textContent = "Prices come from open orders on this book. Nothing is back-filled — a gap means nothing was offered.";
+  const cap = $("depthCap"); if (cap) cap.textContent = LT("depthBook", "Live order book — how much is offered at each price:");
+  const mc = $("mktCap"); if (mc) mc.textContent = LT("capBook", "Prices come from open orders on this book. Nothing is back-filled — a gap means nothing was offered.");
   // WHAT YOU NEED, said up front — the other chain's side is signed by that chain's wallet, and a page that
   // only reveals this at the lock step has already let someone post an order they cannot finish here
   const rq = $("xReq");
@@ -1158,16 +1166,17 @@ function renderXMarket() {
     rq.classList.remove("hidden");
     const ch = net.chain, has = ch === "eth" ? !!ethProv() : ch === "sol" ? solHas() : true;
     rq.className = "small mt " + (has ? "dim" : "warn");
+    const c = { c: esc(net.coin) };
     rq.innerHTML = ch === "eth"
-      ? (has ? `Ethereum wallet connected — the ${esc(net.coin)} side is signed by it.`
-             : `<b>An Ethereum wallet extension (MetaMask or similar) is required to trade ${esc(net.coin)} here.</b> None is detected in this browser. You can still post and take orders, but locking, claiming or reclaiming the ${esc(net.coin)} side must then be done from a terminal (shown on the swap row).`)
+      ? (has ? LT("reqEthOk", "Ethereum wallet connected — the {c} side is signed by it.", c)
+             : LT("reqEthNo", "<b>An Ethereum wallet extension (MetaMask or similar) is required to trade {c} here.</b> None is detected in this browser. You can still post and take orders, but locking, claiming or reclaiming the {c} side must then be done from a terminal (shown on the swap row).", c))
       : ch === "sol"
-      ? (has ? `Solana wallet detected — the ${esc(net.coin)} side is signed by it.`
-             : `<b>A Solana wallet extension (Phantom or similar) is required to trade ${esc(net.coin)} here.</b> None is detected in this browser.`)
-      : `No extra wallet needed: this page builds and signs the Bitcoin side itself and shows you the address to fund.`;
+      ? (has ? LT("reqSolOk", "Solana wallet detected — the {c} side is signed by it.", c)
+             : LT("reqSolNo", "<b>A Solana wallet extension (Phantom or similar) is required to trade {c} here.</b> None is detected in this browser.", c))
+      : LT("reqBtc", "No extra wallet needed: this page builds and signs the Bitcoin side itself and shows you the address to fund.");
   }
   renderChart(XKEY(xsel), "NADO", `1 ${net.coin} =`);
-  renderBookDepth(b, net.coin, blk ? (xEnv === "main" ? "trading opens when the swap contract is live — try Testnet" : "trading opens when the swap program is live") : "");
+  renderBookDepth(b, net.coin, blk ? (xEnv === "main" ? LT("depthSoonMain", "trading opens when the swap contract is live — try Testnet") : LT("depthSoonTest", "trading opens when the swap program is live")) : "");
   syncUrl(false);
 }
 // the order book as cumulative depth — the classic book view, drawn from live open orders
@@ -1175,7 +1184,7 @@ function renderBookDepth(b, coin, emptyText = "") {
   const svg = $("mktDepth");
   if (!svg) return;
   if (!b.bids.length && !b.asks.length) {
-    svg.innerHTML = `<text x="${DW / 2}" y="${DH / 2}" fill="var(--faint)" font-size="11" text-anchor="middle">${esc(emptyText || "no open orders — post one below")}</text>`;
+    svg.innerHTML = `<text x="${DW / 2}" y="${DH / 2}" fill="var(--faint)" font-size="11" text-anchor="middle">${esc(emptyText || LT("depthNone", "no open orders — post one below"))}</text>`;
     svg.setAttribute("viewBox", `0 0 ${DW} ${DH}`); return;
   }
   const cum = (arr) => { let t = 0; return arr.map((x) => ({ px: x.px, t: (t += x.size) })); };
@@ -1209,8 +1218,8 @@ function renderBookDepth(b, coin, emptyText = "") {
   svg.innerHTML = `<line x1="${X(mid).toFixed(1)}" y1="4" x2="${X(mid).toFixed(1)}" y2="${DH - 14}" stroke="var(--border)"/>` +
     side(B, "var(--accent2)", -1) + side(A, "var(--danger)", 1) +   // bids run LEFT of mid, asks RIGHT
     `<text x="${X(mid).toFixed(1)}" y="${DH - 2}" fill="var(--faint)" font-size="9" text-anchor="middle" font-family="ui-monospace,monospace">${fmtPrice(mid)}</text>` +
-    `<text x="8" y="${DH - 2}" fill="var(--accent2)" font-size="9.5" font-family="ui-monospace,monospace">buying ${esc(coin)} ←</text>` +
-    `<text x="${DW - 8}" y="${DH - 2}" fill="var(--danger)" font-size="9.5" text-anchor="end" font-family="ui-monospace,monospace">→ selling ${esc(coin)}</text>`;
+    `<text x="8" y="${DH - 2}" fill="var(--accent2)" font-size="9.5" font-family="ui-monospace,monospace">${esc(LT("depthBuying", "buying {c}", { c: coin }))} ←</text>` +
+    `<text x="${DW - 8}" y="${DH - 2}" fill="var(--danger)" font-size="9.5" text-anchor="end" font-family="ui-monospace,monospace">→ ${esc(LT("depthSelling", "selling {c}", { c: coin }))}</text>`;
 }
 
 // ---- the NADO leg on L1 -------------------------------------------------------------------------------
@@ -1236,34 +1245,34 @@ async function foreignLockState(od) {
   const ch = chainOf(od), net = netOf(od) || {};
   try {
     if (ch === "btc") {
-      const b = btcInfo(od); if (!b) return { state: "none", html: "— deriving the address" };
+      const b = btcInfo(od); if (!b) return { state: "none", html: "— " + esc(LT("flDeriving", "deriving the address")) };
       const need = Math.round(Number(od.wamt) * 1e8);
       const a = await (await fetch(`${explorerOf(od)}/api/address/${b.addr}`, { cache: "no-store" })).json();
       const conf = Number(a.chain_stats.funded_txo_sum || 0), spent = Number(a.chain_stats.spent_txo_sum || 0), pend = Number(a.mempool_stats.funded_txo_sum || 0);
-      if (spent >= need && need > 0) return { state: "claimed", html: `<span style="color:var(--accent2)">spent — claimed or reclaimed</span>` };
-      if (conf >= need && need > 0) return { state: "funded", html: `<span style="color:var(--accent2)">CONFIRMED: ${conf / 1e8} BTC locked</span>` };
-      if (conf > 0) return { state: "short", html: `<span style="color:var(--danger)">UNDERFUNDED: only ${conf / 1e8} of the agreed ${esc(od.wamt)} BTC</span>` };
-      return { state: "none", html: pend > 0 ? `UNCONFIRMED: ${pend / 1e8} BTC in the mempool — wait for confirmations` : "— nothing sent yet" };
+      if (spent >= need && need > 0) return { state: "claimed", html: `<span style="color:var(--accent2)">${esc(LT("flSpent", "spent — claimed or reclaimed"))}</span>` };
+      if (conf >= need && need > 0) return { state: "funded", html: `<span style="color:var(--accent2)">${esc(LT("btcConf", "CONFIRMED: {n} BTC locked", { n: conf / 1e8 }))}</span>` };
+      if (conf > 0) return { state: "short", html: `<span style="color:var(--danger)">${esc(LT("btcUnder", "UNDERFUNDED: only {n} of the agreed {a} BTC", { n: conf / 1e8, a: od.wamt }))}</span>` };
+      return { state: "none", html: pend > 0 ? esc(LT("btcUnconf", "UNCONFIRMED: {n} BTC in the mempool — wait for confirmations", { n: pend / 1e8 })) : "— " + esc(LT("flNothingYet", "nothing sent yet")) };
     }
     if (ch === "sol") {
       const t = await solTerms(od);
       const info = await t.S.solLockInfo(t.rpc, t.program, t.address);
-      if (!info) { const sec = await t.S.solFoundSecret(t.rpc, t.address, od.hsha); return sec ? { state: "claimed", html: `<span style="color:var(--accent2)">claimed</span>` } : { state: "none", html: "— nothing locked yet" }; }
+      if (!info) { const sec = await t.S.solFoundSecret(t.rpc, t.address, od.hsha); return sec ? { state: "claimed", html: `<span style="color:var(--accent2)">${esc(LT("flClaimed", "claimed"))}</span>` } : { state: "none", html: "— " + esc(LT("flNoLock", "nothing locked yet")) }; }
       const bad = [];
-      if (info.owner !== t.program) bad.push("not owned by the swap program");
-      if (info.hashlock !== od.hsha) bad.push("hashlock differs");
-      if (info.claimant !== t.claimant) bad.push("claimant is not the counterparty");
-      if (info.amount < t.lamports) bad.push("amount short");
-      if ((info.mint || "") !== t.mint) bad.push(t.mint ? "not this token" : "a token lock, not SOL");
-      return bad.length ? { state: "short", html: `<span style="color:var(--danger)">DOES NOT MATCH: ${esc(bad.join("; "))}</span>` }
-        : { state: "funded", html: `<span style="color:var(--accent2)">verified: ${esc(od.wamt)} ${esc(coinOf(od))} locked until ${new Date(t.deadline * 1000).toISOString().slice(0, 16).replace("T", " ")}Z</span>` };
+      if (info.owner !== t.program) bad.push(LT("badOwner", "not owned by the swap program"));
+      if (info.hashlock !== od.hsha) bad.push(LT("badHash", "hashlock differs"));
+      if (info.claimant !== t.claimant) bad.push(LT("badClaimant", "claimant is not the counterparty"));
+      if (info.amount < t.lamports) bad.push(LT("badAmt", "amount short"));
+      if ((info.mint || "") !== t.mint) bad.push(t.mint ? LT("badTok", "not this token") : LT("badNotSol", "a token lock, not SOL"));
+      return bad.length ? { state: "short", html: `<span style="color:var(--danger)">${esc(LT("flMismatch", "DOES NOT MATCH: {m}", { m: bad.join("; ") }))}</span>` }
+        : { state: "funded", html: `<span style="color:var(--accent2)">${esc(LT("flVerified", "verified: {a} locked until {d}", { a: od.wamt + " " + coinOf(od), d: new Date(t.deadline * 1000).toISOString().slice(0, 16).replace("T", " ") + "Z" }))}</span>` };
     }
     if (ch === "eth") {
       const token = tokAddrOf(od), htlc = token ? (net.erc20 || "") : ethHtlcFor(od);
       if (!htlc || !net.rpc) return { state: "none", html: "" };
       const sells = od.kind === OTC_ASK;
       const senderAddr = sells ? ethAddrOf(od.tadr) : ethAddrOf(od.wadr), claimAddr = sells ? ethAddrOf(od.wadr) : ethAddrOf(od.tadr);
-      if (!senderAddr || !claimAddr) return { state: "none", html: "— addresses not both published yet" };
+      if (!senderAddr || !claimAddr) return { state: "none", html: "— " + esc(LT("flNoAddrs", "addresses not both published yet")) };
       const dec = token ? (await ethTokenMeta(token) || {}).decimals : 18;
       const amtWei = toUnitsDec(od.wamt, dec == null ? 18 : dec), dl = ethDeadline(od);
       const key = token ? htlcErc20Abi.lockKey(token, od.hsha, claimAddr, senderAddr, dl, amtWei) : htlcAbi.lockKey(od.hsha, claimAddr, senderAddr, dl, amtWei);
@@ -1271,13 +1280,13 @@ async function foreignLockState(od) {
         body: JSON.stringify({ jsonrpc: "2.0", id: 1, method: "eth_call", params: [{ to: htlc, data: (token ? htlcErc20Abi : htlcAbi).locks(key) }, "latest"] }) })).json();
       const words = String(r.result || "0x").replace(/^0x/, "").match(/.{64}/g) || [];
       const held = words.length ? BigInt("0x" + words[token ? 3 : 2]) : 0n;
-      if (held >= amtWei && amtWei > 0n) return { state: "funded", html: `<span style="color:var(--accent2)">verified: ${esc(od.wamt)} ${esc(coinOf(od))} locked under this order's exact terms until ${new Date(dl * 1000).toISOString().slice(0, 16).replace("T", " ")}Z</span>` };
-      if (held > 0n) return { state: "short", html: `<span style="color:var(--danger)">UNDERFUNDED: holds less than the agreed amount — do not lock your side</span>` };
+      if (held >= amtWei && amtWei > 0n) return { state: "funded", html: `<span style="color:var(--accent2)">${esc(LT("flVerifiedEth", "verified: {a} locked under this order's exact terms until {d}", { a: od.wamt + " " + coinOf(od), d: new Date(dl * 1000).toISOString().slice(0, 16).replace("T", " ") + "Z" }))}</span>` };
+      if (held > 0n) return { state: "short", html: `<span style="color:var(--danger)">${esc(LT("flUnderEth", "UNDERFUNDED: holds less than the agreed amount — do not lock your side"))}</span>` };
       const sec = await ethRevealed(od, net.rpc, htlc, key, token);
-      return sec ? { state: "claimed", html: `<span style="color:var(--accent2)">claimed</span>`, secret: sec } : { state: "none", html: "— nothing locked under these terms yet" };
+      return sec ? { state: "claimed", html: `<span style="color:var(--accent2)">${esc(LT("flClaimed", "claimed"))}</span>`, secret: sec } : { state: "none", html: "— " + esc(LT("flNoLockTerms", "nothing locked under these terms yet")) };
     }
     return { state: "none", html: "" };
-  } catch (e) { return { state: "error", html: "— could not read the lock: " + esc(String(e.message || e).slice(0, 80)) }; }
+  } catch (e) { return { state: "error", html: "— " + esc(LT("flErr", "could not read the lock: {m}", { m: String(e.message || e).slice(0, 80) })) }; }
 }
 /** The preimage the contract recorded when the lock under this key was claimed — one eth_call, served by any RPC. */
 async function ethRevealed(od, rpc, htlc, key, token) {
@@ -1316,21 +1325,23 @@ async function foreignLockCheck(od) {
   const el = $("fchk" + od.o); if (!el) return;
   const r = await foreignLockState(od); el.innerHTML = r.html;
 }
+// the node reports an L1 lock's status as an English word; say the ones we know in the page's language
+const htlcStatus = (st) => ({ open: LT("stOpen", "open"), claimed: LT("flClaimed", "claimed"), refunded: LT("stRefunded", "refunded") })[st] || st;
 /** Fill #hchk<o> with a verdict on the bound L1 lock: amount, hashlock, claimant, expiry, status. */
 async function nadoHtlcCheck(od) {
   const el = $("hchk" + od.o); if (!el) return;
   const h = await nadoHtlc(od);
-  if (!h) { el.textContent = "— not found on L1 yet"; return; }
+  if (!h) { el.textContent = "— " + LT("hNotFound", "not found on L1 yet"); return; }
   const sells = od.kind === OTC_ASK, wantClaimant = sells ? od.taker : od.maker;
   const bad = [];
-  if (BigInt(h.amount || 0) < od.namtRaw) bad.push(`amount ${rawToNado(String(h.amount || 0))} < ${rawToNado(od.namtRaw.toString())}`);
-  if (String(h.hashlock || "").toLowerCase() !== od.hsha) bad.push("locked under a different secret");
-  if (String(h.claimant || "") !== String(wantClaimant)) bad.push("not claimable by the counterparty");
-  if (Number(h.expiry || 0) < od.expn) bad.push(`unlocks ${blocksToTime(Math.max(0, od.expn - Number(h.expiry || 0)))} before this order expires`);
-  if (h.status !== "open") bad.push("already " + h.status);
+  if (BigInt(h.amount || 0) < od.namtRaw) bad.push(LT("hBadAmt", "amount {a} < {b}", { a: rawToNado(String(h.amount || 0)), b: rawToNado(od.namtRaw.toString()) }));
+  if (String(h.hashlock || "").toLowerCase() !== od.hsha) bad.push(LT("hBadHash", "locked under a different secret"));
+  if (String(h.claimant || "") !== String(wantClaimant)) bad.push(LT("hBadClaimant", "not claimable by the counterparty"));
+  if (Number(h.expiry || 0) < od.expn) bad.push(LT("hBadExp", "unlocks {t} before this order expires", { t: blocksToTime(Math.max(0, od.expn - Number(h.expiry || 0))) }));
+  if (h.status !== "open") bad.push(LT("hAlready", "already {s}", { s: htlcStatus(h.status) }));
   el.innerHTML = bad.length
-    ? `<span style="color:var(--danger)">DOES NOT MATCH: ${esc(bad.join("; "))} — do not fund your side</span>`
-    : `<span style="color:var(--accent2)">verified: ${rawToNado(String(h.amount))} NADO, this hashlock, claimable by the counterparty for ≈ ${blocksToTime(Math.max(0, Number(h.expiry) - (dapp.cursor || 0)))}</span>`;
+    ? `<span style="color:var(--danger)">${esc(LT("hMismatch", "DOES NOT MATCH: {m} — do not fund your side", { m: bad.join("; ") }))}</span>`
+    : `<span style="color:var(--accent2)">${esc(LT("hVerified", "verified: {n} NADO, this hashlock, claimable by the counterparty for ≈ {t}", { n: rawToNado(String(h.amount)), t: blocksToTime(Math.max(0, Number(h.expiry) - (dapp.cursor || 0))) }))}</span>`;
 }
 
 // ---- the swap engine ---------------------------------------------------------------------------------
@@ -1371,58 +1382,59 @@ function swapPlan(od, S) {
   const refundF = ch === "btc" ? "btcrefund" : ch === "eth" ? "ethrefund" : "solrefund";
   const owesNado = sells ? isMaker : isTaker, owesF = !owesNado;
   const P = (o) => Object.assign({ step: 0 }, o);
-  if (od.st === 5) return P({ done: "Cancelled", step: 6 });
-  if (od.st === 4) return P({ done: "Refunded", step: 6 });
+  if (od.st === 5) return P({ done: LT("pCancelled", "Cancelled"), step: 6 });
+  if (od.st === 4) return P({ done: LT("pRefunded", "Refunded"), step: 6 });
   if (od.st === 1) {
-    if (expired) return isMaker ? P({ act: "cancel", label: "Close this expired order", step: 1 }) : P({ done: "Expired", step: 1 });
-    return isMaker ? P({ wait: "Waiting for someone to take it", step: 1 }) : P({ act: "fillask", label: "Take this order", step: 1 });
+    if (expired) return isMaker ? P({ act: "cancel", label: LT("pCloseExpired", "Close this expired order"), step: 1 }) : P({ done: LT("pExpired", "Expired"), step: 1 });
+    return isMaker ? P({ wait: LT("pWaitTaker", "Waiting for someone to take it"), step: 1 }) : P({ act: "fillask", label: LT("pTake", "Take this order"), step: 1 });
   }
   const nadoOpen = S.nado === "open", nadoClaimed = S.nado === "claimed", fFunded = S.foreign === "funded", fClaimed = S.foreign === "claimed";
   // finished?
-  if ((owesNado && fClaimed) || (owesF && nadoClaimed) || (od.st === 3 && (owesNado ? fClaimed || !!S.secret : nadoClaimed))) return P({ done: "Swap complete", step: 6 });
+  if ((owesNado && fClaimed) || (owesF && nadoClaimed) || (od.st === 3 && (owesNado ? fClaimed || !!S.secret : nadoClaimed))) return P({ done: LT("pComplete", "Swap complete"), step: 6 });
   // deadlines: reclaim what is yours
-  if (owesNado && expired && od.hid && nadoOpen) return P({ act: "nadorefund", label: `Reclaim your ${nado}`, step: 5 });
-  if (owesF && fexp && fFunded) return P({ act: refundF, label: `Reclaim your ${fam}`, step: 5 });
-  if (expired || fexp) return P({ wait: "Expired — each side reclaims its own lock", step: 5 });
+  if (owesNado && expired && od.hid && nadoOpen) return P({ act: "nadorefund", label: LT("pReclaimYour", "Reclaim your {a}", { a: nado }), step: 5 });
+  if (owesF && fexp && fFunded) return P({ act: refundF, label: LT("pReclaimYour", "Reclaim your {a}", { a: fam }), step: 5 });
+  if (expired || fexp) return P({ wait: LT("pExpiredEach", "Expired — each side reclaims its own lock"), step: 5 });
   // a fill costs nothing: if the taker never bound the NADO leg within the fill window, the maker may
   // release the order back to open (contract: release). Before that, say how long is left.
   if (isMaker && !od.hid) {
     const fillh = Number(od.fillh || 0), left = fillh ? fillh + 600 - (dapp.cursor || 0) : 600;
     const takerOwesNado = !sells;
-    if (fillh && left <= 0 && (takerOwesNado || !fFunded)) return P({ act: "release", label: "Release this order — the taker never locked", step: 2 });
-    if (takerOwesNado && !nadoOpen) return P({ wait: `Waiting for the taker to lock ${nado} (they have ~${blocksToTime(Math.max(0, left))} left, then you can release)`, step: 3 });
+    if (fillh && left <= 0 && (takerOwesNado || !fFunded)) return P({ act: "release", label: LT("pRelease", "Release this order — the taker never locked"), step: 2 });
+    if (takerOwesNado && !nadoOpen) return P({ wait: LT("pWaitTakerLockLeft", "Waiting for the taker to lock {a} (they have ~{t} left, then you can release)", { a: nado, t: blocksToTime(Math.max(0, left)) }), step: 3 });
   }
   // the secret-holder (the maker) funds FIRST: ASK = maker's NADO, BID = maker's foreign coin
   if (sells) {
     if (isMaker) {
-      if (!od.hid) return P({ act: "nadolock", label: `Lock ${nado}`, step: 2 });
-      if (!fFunded) return P({ wait: `Waiting for the taker to lock ${fam}`, step: 3, hint: S.foreign === "short" ? "their lock is short — do not claim" : "" });
-      if (S.secret) return P({ act: claimF, label: `Claim ${fam}`, auto: true, step: 4 });
-      return P({ wait: "Your swap secret is not in this browser — restore it from your backup", step: 4 });
+      if (!od.hid) return P({ act: "nadolock", label: LT("pLock", "Lock {a}", { a: nado }), step: 2 });
+      if (!fFunded) return P({ wait: LT("pWaitTakerLock", "Waiting for the taker to lock {a}", { a: fam }), step: 3, hint: S.foreign === "short" ? LT("hShortNoClaim", "their lock is short — do not claim") : "" });
+      if (S.secret) return P({ act: claimF, label: LT("pClaim", "Claim {a}", { a: fam }), auto: true, step: 4 });
+      return P({ wait: LT("pNoSecret", "Your swap secret is not in this browser — restore it from your backup"), step: 4 });
     }
     if (isTaker) {
-      if (!od.hid || !nadoOpen) return P({ wait: `Waiting for the maker to lock ${nado}`, step: 2 });
-      if (!fFunded && !fClaimed) return P({ act: fundAct, label: `Lock ${fam}`, step: 3, hint: S.foreign === "short" ? "your lock is short of the agreed amount" : "" });
-      if (!S.secret) return P({ wait: `Waiting for the maker to claim the ${coin} — that reveals the secret`, step: 4 });
-      return P({ act: "nadoclaim", label: `Claim ${nado}`, auto: true, step: 5 });
+      if (!od.hid || !nadoOpen) return P({ wait: LT("pWaitMakerLock", "Waiting for the maker to lock {a}", { a: nado }), step: 2 });
+      if (!fFunded && !fClaimed) return P({ act: fundAct, label: LT("pLock", "Lock {a}", { a: fam }), step: 3, hint: S.foreign === "short" ? LT("hShortYours", "your lock is short of the agreed amount") : "" });
+      if (!S.secret) return P({ wait: LT("pWaitMakerClaim", "Waiting for the maker to claim the {c} — that reveals the secret", { c: coin }), step: 4 });
+      return P({ act: "nadoclaim", label: LT("pClaim", "Claim {a}", { a: nado }), auto: true, step: 5 });
     }
   } else {
     if (isMaker) {
-      if (!fFunded && !fClaimed) return P({ act: fundAct, label: `Lock ${fam}`, step: 2 });
-      if (!od.hid || !nadoOpen) return P({ wait: `Waiting for the taker to lock ${nado}`, step: 3 });
-      if (S.secret) return P({ act: "nadoclaim", label: `Claim ${nado}`, auto: true, step: 4 });
-      return P({ wait: "Your swap secret is not in this browser — restore it from your backup", step: 4 });
+      if (!fFunded && !fClaimed) return P({ act: fundAct, label: LT("pLock", "Lock {a}", { a: fam }), step: 2 });
+      if (!od.hid || !nadoOpen) return P({ wait: LT("pWaitTakerLock", "Waiting for the taker to lock {a}", { a: nado }), step: 3 });
+      if (S.secret) return P({ act: "nadoclaim", label: LT("pClaim", "Claim {a}", { a: nado }), auto: true, step: 4 });
+      return P({ wait: LT("pNoSecret", "Your swap secret is not in this browser — restore it from your backup"), step: 4 });
     }
     if (isTaker) {
-      if (!fFunded) return P({ wait: `Waiting for the maker to lock ${fam}`, step: 2, hint: S.foreign === "short" ? "their lock is short — do not lock yours" : "" });
-      if (!od.hid) return P({ act: "nadolock", label: `Lock ${nado}`, step: 3 });
-      if (!S.secret) return P({ wait: `Waiting for the maker to claim the NADO — that reveals the secret`, step: 4 });
-      return P({ act: claimF, label: `Claim ${fam}`, auto: true, step: 5 });
+      if (!fFunded) return P({ wait: LT("pWaitMakerLock", "Waiting for the maker to lock {a}", { a: fam }), step: 2, hint: S.foreign === "short" ? LT("hShortNoLock", "their lock is short — do not lock yours") : "" });
+      if (!od.hid) return P({ act: "nadolock", label: LT("pLock", "Lock {a}", { a: nado }), step: 3 });
+      if (!S.secret) return P({ wait: LT("pWaitMakerClaim", "Waiting for the maker to claim the {c} — that reveals the secret", { c: "NADO" }), step: 4 });
+      return P({ act: claimF, label: LT("pClaim", "Claim {a}", { a: fam }), auto: true, step: 5 });
     }
   }
   return P({ wait: "…", step: 0 });
 }
-const STEPS = (od) => ["Posted", "Taken", (od.kind === OTC_ASK ? "NADO" : coinOf(od)) + " locked", (od.kind === OTC_ASK ? coinOf(od) : "NADO") + " locked", "Claimed", "Done"];
+const STEPS = (od) => [LT("sPosted", "Posted"), LT("sTaken", "Taken"), LT("sLocked", "{c} locked", { c: od.kind === OTC_ASK ? "NADO" : coinOf(od) }),
+  LT("sLocked", "{c} locked", { c: od.kind === OTC_ASK ? coinOf(od) : "NADO" }), LT("sClaimed", "Claimed"), LT("sDone", "Done")];
 function stepperHtml(od, plan) {
   const names = STEPS(od), cur = Math.max(1, Math.min(6, plan.step || 1));
   return `<div class="steps">${names.map((n, i) => `<span class="stp${i + 1 < cur ? " done" : i + 1 === cur ? " cur" : ""}"${i + 1 === cur ? ' aria-current="step"' : ""}>${i + 1 < cur ? "✓ " : i + 1 === cur ? "▸ " : ""}${esc(n)}</span>`).join("")}</div>`;
@@ -1439,14 +1451,14 @@ async function swapAutopilot() {
       const plan = swapPlan(od, S);
       if (plan.auto && plan.act && !autoRecently(plan.act + ":" + od.o, 120000)) {
         autoMark(plan.act + ":" + od.o);
-        alertBar(`${plan.label} — signing…`);
+        alertBar(LT("autoSigning", "{l} — signing…", { l: plan.label }));
         try { await otcAction(plan.act, od.o, null); } catch (e) {}
       }
       // settle is bookkeeping (publishes the secret on NADO, returns tips): value-free, so a wallet with
       // auto-sign on signs it silently; either party may send it
       if (od.st === 2 && S.secret && S.nado !== "open" && !autoRecently("settle:" + od.o, 180000)) {
         autoMark("settle:" + od.o);
-        dapp.call("settle", [od.o, ...otcLimbs(S.secret)], null, "Settling #" + od.o + "…", { otc: od.o }, { cid: OTC_CID });
+        dapp.call("settle", [od.o, ...otcLimbs(S.secret)], null, LT("callSettle", "Settling #{o}…", { o: od.o }), { otc: od.o }, { cid: OTC_CID });
       }
     }
   } finally { _autoBusy = false; }
@@ -1458,99 +1470,98 @@ function otcRow(od, mine) {
   const sells = od.kind === OTC_ASK;
   const left = otcLeft(od), expired = left <= 0;
   const chain = esc(coinOf(od));
-  const head = sells
-    ? `sells <b>${rawToNado(od.namtRaw.toString())} NADO</b> for <b>${esc(od.wamt)} ${chain}</b>`
-    : `buys <b>${rawToNado(od.namtRaw.toString())} NADO</b> for <b>${esc(od.wamt)} ${chain}</b>`;
+  const hv = { n: `<b>${rawToNado(od.namtRaw.toString())} NADO</b>`, f: `<b>${esc(od.wamt)} ${chain}</b>` };
+  const head = sells ? LT("rowSells", "sells {n} for {f}", hv) : LT("rowBuys", "buys {n} for {f}", hv);
   const pill = od.st === 1
-    ? (expired ? '<span class="pill warn">expired</span>' : '<span class="pill">open</span>')
-    : `<span class="pill${od.st === 2 ? " warn" : ""}">${OTC_ST[od.st] || od.st}</span>`;
+    ? (expired ? `<span class="pill warn">${esc(LT("stExpired", "expired"))}</span>` : `<span class="pill">${esc(LT("stOpen", "open"))}</span>`)
+    : `<span class="pill${od.st === 2 ? " warn" : ""}">${OTC_ST()[od.st] || od.st}</span>`;
   const party = isMaker || isTaker;
   const acts = [];
   const settler = sells ? isTaker : isMaker;            // settle pays ASK->taker, BID->maker (otc.py)
-  if (od.st === 2 && !expired && settler) acts.push(`<button class="primary" data-otc="settle" data-o="${od.o}">Settle…</button>`);
-  if (od.st === 1 && !expired && !isMaker && me && !mine) acts.push(`<button class="primary" data-otc="fillask" data-o="${od.o}">Take…</button>`);
-  if (od.st === 1 && !expired && isMaker) acts.push(`<button class="ghost" data-otc="cancel" data-o="${od.o}">Cancel</button>`);
-  if ((od.st === 1 || od.st === 2) && expired && party) acts.push(`<button class="ghost" data-otc="expire" data-o="${od.o}">Reclaim${od.hid && (sells ? isMaker : isTaker) ? " " + rawToNado(od.namtRaw.toString()) + " NADO" : ""}</button>`);
-  if ((od.st === 1 || od.st === 2) && !expired && party) acts.push(`<button class="ghost" data-otc="boost" data-o="${od.o}">Tip…</button>`);
+  if (od.st === 2 && !expired && settler) acts.push(`<button class="primary" data-otc="settle" data-o="${od.o}">${esc(LT("bSettle", "Settle…"))}</button>`);
+  if (od.st === 1 && !expired && !isMaker && me && !mine) acts.push(`<button class="primary" data-otc="fillask" data-o="${od.o}">${esc(LT("bTake", "Take…"))}</button>`);
+  if (od.st === 1 && !expired && isMaker) acts.push(`<button class="ghost" data-otc="cancel" data-o="${od.o}">${esc(LT("bCancel", "Cancel"))}</button>`);
+  if ((od.st === 1 || od.st === 2) && expired && party) acts.push(`<button class="ghost" data-otc="expire" data-o="${od.o}">${esc(LT("reclaim", "Reclaim"))}${od.hid && (sells ? isMaker : isTaker) ? " " + rawToNado(od.namtRaw.toString()) + " NADO" : ""}</button>`);
+  if ((od.st === 1 || od.st === 2) && !expired && party) acts.push(`<button class="ghost" data-otc="boost" data-o="${od.o}">${esc(LT("bTip", "Tip…"))}</button>`);
   const owesNado = od.st === 2 && (sells ? isMaker : isTaker);   // who provides the NADO side of this swap
   const getsNado = (sells ? isTaker : isMaker);                   // ... and who takes it with the secret
-  if (od.st >= 2 && od.st !== 4 && od.hid && getsNado && !expired) acts.unshift(`<button class="primary" data-otc="nadoclaim" data-o="${od.o}">Claim the NADO…</button>`);
+  if (od.st >= 2 && od.st !== 4 && od.hid && getsNado && !expired) acts.unshift(`<button class="primary" data-otc="nadoclaim" data-o="${od.o}">${esc(LT("bClaimThe", "Claim the {c}…", { c: "NADO" }))}</button>`);
   // the counterparty's foreign claim needs the secret: a BID taker can have it as soon as the NADO lock
   // is claimed on L1 (the row reads the preimage back), not only after the maker also calls settle
   const secretMayExist = od.st === 3 || (od.st === 2 && !!od.hid);
   if (owesNado && !expired && !od.hid) {
-    acts.unshift(`<button class="primary" data-otc="nadolock" data-o="${od.o}">Lock the NADO…</button>`);
-    acts.push(`<button class="ghost" data-otc="nadobind" data-o="${od.o}">I already locked it</button>`);
+    acts.unshift(`<button class="primary" data-otc="nadolock" data-o="${od.o}">${esc(LT("bLockThe", "Lock the {c}…", { c: "NADO" }))}</button>`);
+    acts.push(`<button class="ghost" data-otc="nadobind" data-o="${od.o}">${esc(LT("bBound", "I already locked it"))}</button>`);
   }
   const isEth = chainOf(od) === "eth";
   if (isEth && tokAddrOf(od) && !erc20Names[tokAddrOf(od).toLowerCase()] && ethProv()) ethTokenMeta(tokAddrOf(od));
   const ethSender = isEth && (sells ? isTaker : isMaker), ethClaimer = isEth && (sells ? isMaker : isTaker);
-  if (isEth && od.st === 2 && ethSender) acts.push(`<button class="primary" data-otc="ethfund" data-o="${od.o}">Lock the ETH…</button>`);
-  if (isEth && ((sells && od.st === 2) || (!sells && secretMayExist)) && ethClaimer) acts.unshift(`<button class="primary" data-otc="ethclaim" data-o="${od.o}">Claim the ETH…</button>`);
-  if (isEth && od.st >= 2 && ethSender && Date.now() / 1000 >= Number(od.expf)) acts.push(`<button class="ghost" data-otc="ethrefund" data-o="${od.o}">Reclaim ${esc(od.wamt)} ${chain}</button>`);
+  if (isEth && od.st === 2 && ethSender) acts.push(`<button class="primary" data-otc="ethfund" data-o="${od.o}">${esc(LT("bLockThe", "Lock the {c}…", { c: "ETH" }))}</button>`);
+  if (isEth && ((sells && od.st === 2) || (!sells && secretMayExist)) && ethClaimer) acts.unshift(`<button class="primary" data-otc="ethclaim" data-o="${od.o}">${esc(LT("bClaimThe", "Claim the {c}…", { c: "ETH" }))}</button>`);
+  if (isEth && od.st >= 2 && ethSender && Date.now() / 1000 >= Number(od.expf)) acts.push(`<button class="ghost" data-otc="ethrefund" data-o="${od.o}">${esc(LT("reclaim", "Reclaim"))} ${esc(od.wamt)} ${chain}</button>`);
   const isSol = chainOf(od) === "sol";
   const solSender = isSol && (sells ? isTaker : isMaker), solClaimer = isSol && (sells ? isMaker : isTaker);
-  if (isSol && od.st === 2 && solSender) acts.push(`<button class="primary" data-otc="solfund" data-o="${od.o}">Lock the ${chain}…</button>`);
-  if (isSol && ((sells && od.st === 2) || (!sells && secretMayExist)) && solClaimer) acts.unshift(`<button class="primary" data-otc="solclaim" data-o="${od.o}">Claim the ${chain}…</button>`);
-  if (isSol && od.st >= 2 && solSender && Date.now() / 1000 >= Number(od.expf)) acts.push(`<button class="ghost" data-otc="solrefund" data-o="${od.o}">Reclaim ${esc(od.wamt)} ${chain}</button>`);
+  if (isSol && od.st === 2 && solSender) acts.push(`<button class="primary" data-otc="solfund" data-o="${od.o}">${LT("bLockThe", "Lock the {c}…", { c: chain })}</button>`);
+  if (isSol && ((sells && od.st === 2) || (!sells && secretMayExist)) && solClaimer) acts.unshift(`<button class="primary" data-otc="solclaim" data-o="${od.o}">${LT("bClaimThe", "Claim the {c}…", { c: chain })}</button>`);
+  if (isSol && od.st >= 2 && solSender && Date.now() / 1000 >= Number(od.expf)) acts.push(`<button class="ghost" data-otc="solrefund" data-o="${od.o}">${esc(LT("reclaim", "Reclaim"))} ${esc(od.wamt)} ${chain}</button>`);
   const btc = chainOf(od) === "btc" ? btcInfo(od) : null;
   const btcFunder = chainOf(od) === "btc" && (sells ? isTaker : isMaker);
   const btcClaimer = chainOf(od) === "btc" && (sells ? isMaker : isTaker);
-  if (btc && od.st === 2 && btcClaimer && sells && otcRec(od.o).s) acts.unshift(`<button class="primary" data-otc="btcclaim" data-o="${od.o}">Claim the BTC…</button>`);
-  if (btc && secretMayExist && btcClaimer && !sells) acts.unshift(`<button class="primary" data-otc="btcclaim" data-o="${od.o}">Claim your BTC…</button>`);
-  if (btc && od.st >= 2 && btcFunder && Date.now() / 1000 >= Number(od.expf)) acts.push(`<button class="ghost" data-otc="btcrefund" data-o="${od.o}">Reclaim BTC</button>`);
+  if (btc && od.st === 2 && btcClaimer && sells && otcRec(od.o).s) acts.unshift(`<button class="primary" data-otc="btcclaim" data-o="${od.o}">${esc(LT("bClaimThe", "Claim the {c}…", { c: "BTC" }))}</button>`);
+  if (btc && secretMayExist && btcClaimer && !sells) acts.unshift(`<button class="primary" data-otc="btcclaim" data-o="${od.o}">${esc(LT("bClaimYour", "Claim your {c}…", { c: "BTC" }))}</button>`);
+  if (btc && od.st >= 2 && btcFunder && Date.now() / 1000 >= Number(od.expf)) acts.push(`<button class="ghost" data-otc="btcrefund" data-o="${od.o}">${esc(LT("reclaim", "Reclaim"))} BTC</button>`);
   let detail = "";
   if (mine) {
     let hint = "";
-    if (od.st === 1 && !expired && isMaker) hint = "Waiting for a taker — your funds stay reclaimable. Cancel any time.";
+    if (od.st === 1 && !expired && isMaker) hint = esc(LT("hintWaitTaker", "Waiting for a taker — your funds stay reclaimable. Cancel any time."));
     else if (od.st === 2 && !expired) {
       const foreign = chain;
       const isBtc = chainOf(od) === "btc";
-      const lockF = isBtc ? `send the ${foreign} to the address below` : `press Lock the ${foreign} (your wallet pays it into the swap)`;
-      const claimF = isBtc ? `press Claim the ${foreign}` : `press Claim the ${foreign} — your wallet signs it`;
-      if (sells && isMaker && !od.hid) hint = `Next: press Lock the NADO — it escrows your NADO on the main chain under this swap's hashlock, takeable only by the taker and only with the secret.`;
-      else if (sells && isMaker) hint = `Next: once the taker's ${foreign} lock is CONFIRMED and holds the agreed amount, ${claimF}. Claiming reveals the secret, and that completes your side.`;
-      else if (sells && isTaker && !od.hid) hint = `Next: wait — the maker must lock their NADO on the main chain first. Do not send any ${foreign} until that lock shows as verified below.`;
-      else if (sells && isTaker) hint = `Next: once the NADO lock below reads "verified", ${lockF}. When the maker claims it the secret becomes public — then press Claim the NADO.`;
-      else if (!sells && isMaker && !od.hid) hint = `Next: ${lockF} FIRST — you hold the secret, so your lock goes in before the taker's. The taker locks the NADO once they have checked yours.`;
-      else if (!sells && isMaker) hint = `Next: once the NADO lock below reads "verified", press Claim the NADO — that reveals the secret, and the taker claims your ${foreign} with it.`;
-      else if (!sells && isTaker && !od.hid) hint = `Next: wait for the maker's ${foreign} lock and CHECK it (the agreed amount, this hashlock, a deadline past this order's NADO expiry). Only then press Lock the NADO.`;
-      else if (!sells && isTaker) hint = `Next: wait. When the maker claims your NADO the secret becomes public, and Claim the ${foreign} works here.`;
-    } else if ((od.st === 1 || od.st === 2) && expired) hint = "Expired — press Reclaim to take back whatever you locked; the other chain's lock is reclaimed with its own button.";
+      const fv = { c: foreign };
+      const lockF = isBtc ? LT("hLockFBtc", "send the {c} to the address below", fv) : LT("hLockF", "press Lock the {c} (your wallet pays it into the swap)", fv);
+      const claimF = isBtc ? LT("hClaimFBtc", "press Claim the {c}", fv) : LT("hClaimF", "press Claim the {c} — your wallet signs it", fv);
+      if (sells && isMaker && !od.hid) hint = LT("hAskMaker0", "Next: press Lock the NADO — it escrows your NADO on the main chain under this swap's hashlock, takeable only by the taker and only with the secret.");
+      else if (sells && isMaker) hint = LT("hAskMaker1", "Next: once the taker's {c} lock is CONFIRMED and holds the agreed amount, {claim}. Claiming reveals the secret, and that completes your side.", { c: foreign, claim: claimF });
+      else if (sells && isTaker && !od.hid) hint = LT("hAskTaker0", "Next: wait — the maker must lock their NADO on the main chain first. Do not send any {c} until that lock shows as verified below.", fv);
+      else if (sells && isTaker) hint = LT("hAskTaker1", "Next: once the NADO lock below reads \"verified\", {lock}. When the maker claims it the secret becomes public — then press Claim the NADO.", { lock: lockF });
+      else if (!sells && isMaker && !od.hid) hint = LT("hBidMaker0", "Next: {lock} FIRST — you hold the secret, so your lock goes in before the taker's. The taker locks the NADO once they have checked yours.", { lock: lockF });
+      else if (!sells && isMaker) hint = LT("hBidMaker1", "Next: once the NADO lock below reads \"verified\", press Claim the NADO — that reveals the secret, and the taker claims your {c} with it.", fv);
+      else if (!sells && isTaker && !od.hid) hint = LT("hBidTaker0", "Next: wait for the maker's {c} lock and CHECK it (the agreed amount, this hashlock, a deadline past this order's NADO expiry). Only then press Lock the NADO.", fv);
+      else if (!sells && isTaker) hint = LT("hBidTaker1", "Next: wait. When the maker claims your NADO the secret becomes public, and Claim the {c} works here.", fv);
+    } else if ((od.st === 1 || od.st === 2) && expired) hint = esc(LT("hExpired", "Expired — press Reclaim to take back whatever you locked; the other chain's lock is reclaimed with its own button."));
     if (hint) detail += `<div class="small mt" style="color:var(--accent2)">${hint}</div>`;
     if (chainOf(od) === "btc" && od.st >= 2 && (isMaker || isTaker)) {
       const b = btcInfo(od);
-      if (b) detail += `<div class="small mt">${btcFunder && od.st === 2 ? `<b>Send exactly ${esc(od.wamt)} BTC to:</b><br>` : `Swap address: `}<span class="mono" style="word-break:break-all">${b.addr}</span>
-        <a href="#" data-otc="btccopy" data-o="${od.o}">copy</a> · <a href="#" data-otc="btcverify" data-o="${od.o}">verify</a>
+      if (b) detail += `<div class="small mt">${btcFunder && od.st === 2 ? `<b>${esc(LT("btcSendTo", "Send exactly {a} BTC to:", { a: od.wamt }))}</b><br>` : esc(LT("btcSwapAddr", "Swap address:")) + " "}<span class="mono" style="word-break:break-all">${b.addr}</span>
+        <a href="#" data-otc="btccopy" data-o="${od.o}">${esc(LT("aCopy", "copy"))}</a> · <a href="#" data-otc="btcverify" data-o="${od.o}">${esc(LT("aVerify", "verify"))}</a>
         <span id="btcv${od.o}" class="dim"></span></div>`;
-      else if (!btcParts(od)) detail += `<div class="small dim mt">The counterparty's client did not publish a Bitcoin key, so this page cannot build the Bitcoin side. <details class="more"><summary>Advanced</summary>Finish it with scripts/otc_btc_leg.py.</details></div>`;
+      else if (!btcParts(od)) detail += `<div class="small dim mt">${esc(LT("btcNoPub", "The counterparty's client did not publish a Bitcoin key, so this page cannot build the Bitcoin side."))} <details class="more"><summary>${esc(LT("advanced", "Advanced"))}</summary>${esc(LT("btcFinishCli", "Finish it with {s}.", { s: "scripts/otc_btc_leg.py" }))}</details></div>`;
     }
     if ((chainOf(od) === "eth" || chainOf(od) === "sol") && od.st === 2 && (isMaker || isTaker)) {
-      detail += `<div class="small mt">${esc(coinOf(od))} lock: <span id="fchk${od.o}" class="dim">checking…</span></div>`;
+      detail += `<div class="small mt">${esc(LT("fLockLbl", "{c} lock:", { c: coinOf(od) }))} <span id="fchk${od.o}" class="dim">${esc(LT("checking", "checking…"))}</span></div>`;
       setTimeout(() => foreignLockCheck(od), 0);
     }
     if (chainOf(od) === "eth" && od.st >= 2 && (isMaker || isTaker) && !ethProv()) detail += ethCliHint(od);
     if (chainOf(od) === "sol" && od.st >= 2 && (isMaker || isTaker)) {
-      if (!solProgramOf(od)) detail += `<div class="small dim mt">No swap program is deployed on ${esc((netOf(od) || {}).label)} yet — this order cannot be completed here.</div>`;
+      if (!solProgramOf(od)) detail += `<div class="small dim mt">${esc(LT("solNoProgRow", "No swap program is deployed on {n} yet — this order cannot be completed here.", { n: (netOf(od) || {}).label }))}</div>`;
       else if (!solHas()) detail += solCliHint(od);
     }
     const rec0 = otcRec(od.o);
     if ((rec0.k || rec0.s) && (od.st === 1 || od.st === 2))
-      detail += `<div class="small dim mt"><a href="#" data-otc="showsecret" data-o="${od.o}">Back up this swap</a> — without it a lost browser means lost funds.</div>`;
+      detail += `<div class="small dim mt"><a href="#" data-otc="showsecret" data-o="${od.o}">${esc(LT("backupLink", "Back up this swap"))}</a> — ${esc(LT("backupWhy", "without it a lost browser means lost funds."))}</div>`;
     const secret = rec0.s;
     if (secret && (od.st === 1 || od.st === 2))
-      detail += `<div class="small dim mt">Your swap secret: <span class="mono">${secret.slice(0, 16)}…</span>
-        <a href="#" data-otc="showsecret" data-o="${od.o}">back up</a> — keep a copy: it is all this swap
-        needs on any device (never share it before the counterparty's lock is CONFIRMED).</div>`;
+      detail += `<div class="small dim mt">${esc(LT("secretLbl", "Your swap secret:"))} <span class="mono">${secret.slice(0, 16)}…</span>
+        <a href="#" data-otc="showsecret" data-o="${od.o}">${esc(LT("backupShort", "back up"))}</a> — ${esc(LT("secretKeep", "keep a copy: it is all this swap needs on any device (never share it before the counterparty's lock is CONFIRMED)."))}</div>`;
     if (od.st === 2 && od.hid) {
-      detail += `<div class="small mt">NADO locked — lock <span class="mono">${esc(String(od.hid)).slice(0, 16)}…</span> <span id="hchk${od.o}" class="dim">checking…</span></div>`;
+      detail += `<div class="small mt">${esc(LT("nadoLockedLbl", "NADO locked — lock"))} <span class="mono">${esc(String(od.hid)).slice(0, 16)}…</span> <span id="hchk${od.o}" class="dim">${esc(LT("checking", "checking…"))}</span></div>`;
       setTimeout(() => nadoHtlcCheck(od), 0);
     }
-    if (od.st === 2 && od.fref && od.fref !== "pending") detail += `<div class="small dim mt">Their ${chain} transaction: <span class="mono">${esc(od.fref).slice(0, 40)}</span>
-      · counterparty ${esc(disp(isMaker ? od.taker : od.maker))}</div>`;
+    if (od.st === 2 && od.fref && od.fref !== "pending") detail += `<div class="small dim mt">${LT("theirTx", "Their {c} transaction:", { c: chain })} <span class="mono">${esc(od.fref).slice(0, 40)}</span>
+      · ${esc(LT("counterparty", "counterparty"))} ${esc(disp(isMaker ? od.taker : od.maker))}</div>`;
     if (od.st === 3 && od.limbs.some((x) => Number(x) > 0)) {
       const rs = otcSecretFromLimbs(od.limbs);
-      detail += `<div class="small mt">Secret revealed — it unlocks the ${chain} side: <span class="mono" style="word-break:break-all">${rs}</span></div>`;
+      detail += `<div class="small mt">${LT("secretRevealed", "Secret revealed — it unlocks the {c} side:", { c: chain })} <span class="mono" style="word-break:break-all">${rs}</span></div>`;
     }
   }
   let main = "", more = "";
@@ -1559,18 +1570,18 @@ function otcRow(od, mine) {
     if (!SWAP[od.o] || Date.now() - SWAP[od.o].at > 8000) probeSwap(od).then(() => render());
     const plan = swapPlan(od, S);
     const primary = plan.done ? `<span class="pill">${esc(plan.done)}</span>`
-      : plan.act ? `<button class="primary" data-otc="${plan.act}" data-o="${od.o}">${esc(plan.label)}${plan.auto ? " (automatic)" : ""}</button>`
+      : plan.act ? `<button class="primary" data-otc="${plan.act}" data-o="${od.o}">${esc(plan.label)}${plan.auto ? " (" + esc(LT("automatic", "automatic")) + ")" : ""}</button>`
       : `<span class="waiting"><span class="spin"></span>${esc(plan.wait || "")}</span>`;
     main = stepperHtml(od, plan) + `<div class="nextact">${primary}${plan.hint ? `<div class="small" style="color:var(--danger)">${esc(plan.hint)}</div>` : ""}</div>`;
-    more = `<details class="more"><summary>More</summary><div>${detail}<div class="loanacts" style="flex-direction:row;flex-wrap:wrap;margin-top:8px">${acts.join("")}</div></div></details>`;
+    more = `<details class="more"><summary>${esc(LT("more", "More"))}</summary><div>${detail}<div class="loanacts" style="flex-direction:row;flex-wrap:wrap;margin-top:8px">${acts.join("")}</div></div></details>`;
     acts.length = 0; detail = "";
   }
   return `<div class="loan"><div class="loanmain">
       <div class="loantop">${pill} <b>#${od.o}</b> ${esc(disp(od.maker))} ${head}</div>
       ${main}
-      <div class="loanterms">${od.prem > 0n ? `maker has ${rawToNado(od.prem.toString())} NADO at stake · ` : ""}${od.bnty > 0n ? `<span class="pill">+${rawToNado(od.bnty.toString())} NADO tip</span> · ` : ""}${od.st <= 2 ? (expired ? "refundable now" : `expires in ${left} blocks (~${blocksToTime(left)})`) : ""}
-        ${od.expf ? `· ${esc(coinOf(od))} deadline ${new Date(Number(od.expf) * 1000).toISOString().slice(0, 16).replace("T", " ")}Z` : ""}</div>
-      <div class="loanwho dim small">on <b>${esc((netOf(od) || {}).label || od.wch)}</b> · ${sells ? "maker receives" : "taker receives"} ${chain} at ${esc((sells ? od.wadr : od.tadr || od.wadr).split("|")[0]) || "(swap key published)"}</div>
+      <div class="loanterms">${od.prem > 0n ? esc(LT("rowStake", "maker has {n} NADO at stake", { n: rawToNado(od.prem.toString()) })) + " · " : ""}${od.bnty > 0n ? `<span class="pill">${esc(LT("rowTip", "+{n} NADO tip", { n: rawToNado(od.bnty.toString()) }))}</span> · ` : ""}${od.st <= 2 ? esc(expired ? LT("rowRefundable", "refundable now") : LT("rowExpires", "expires in {n} {n|one:block|other:blocks} (~{t})", { n: left, t: blocksToTime(left) })) : ""}
+        ${od.expf ? `· ${esc(LT("rowDeadlineF", "{c} deadline {d}", { c: coinOf(od), d: new Date(Number(od.expf) * 1000).toISOString().slice(0, 16).replace("T", " ") + "Z" }))}` : ""}</div>
+      <div class="loanwho dim small">${LT("rowOn", "on {n}", { n: `<b>${esc((netOf(od) || {}).label || od.wch)}</b>` })} · ${esc(sells ? LT("rowMakerGets", "maker receives {c} at", { c: coinOf(od) }) : LT("rowTakerGets", "taker receives {c} at", { c: coinOf(od) }))} ${esc((sells ? od.wadr : od.tadr || od.wadr).split("|")[0]) || esc("(" + LT("rowKeyPub", "swap key published") + ")")}</div>
       ${detail}${more}
     </div><div class="loanacts">${acts.join("")}</div></div>`;
 }
@@ -1580,10 +1591,10 @@ function renderOtc() {
   const all = otcOrders(), me = dapp.me;
   const open = all.filter((x) => x.st === 1 && x.kind !== OTC_INTRA && mktKeyOf(x) === xsel && otcLeft(x) > 0);
   book.innerHTML = open.length ? open.map((x) => otcRow(x, false)).join("")
-    : otcEmpty("No open orders. Post one — the book is permissionless.");
+    : otcEmpty(esc(LT("bookNone", "No open orders. Post one — the book is permissionless.")));
   const my = all.filter((x) => me && x.kind !== OTC_INTRA && (x.maker === me || x.taker === me));
   mine.innerHTML = my.length ? my.map((x) => otcRow(x, true)).join("")
-    : `<p class="small dim">Nothing yet — post or take an order.</p>`;
+    : `<p class="small dim">${esc(LT("mineNone", "Nothing yet — post or take an order."))}</p>`;
   [book, mine].forEach((box) => box.querySelectorAll("[data-otc]").forEach((el) => {
     el.onclick = (ev) => { ev.preventDefault();
       runAction(el.tagName === "BUTTON" ? el : null, () => otcAction(el.getAttribute("data-otc"), Number(el.getAttribute("data-o")), el)); };
@@ -1600,12 +1611,12 @@ function fillTokenPicker() {
     const t = tokAddrOf(od);
     if (t && netKeyOf(od) === net && !known[t.toLowerCase()]) {
       const m = erc20Names[t.toLowerCase()];
-      known[t.toLowerCase()] = { sym: (m && m.symbol) || "token", dec: (m && m.decimals) || 18 };
+      known[t.toLowerCase()] = { sym: (m && m.symbol) || LT("tokWord", "token"), dec: (m && m.decimals) || 18 };
     }
   }
-  const opts = [`<option value="">${esc((NETS[net] || {}).coin || "the coin")} itself — no token</option>`]
+  const opts = [`<option value="">${esc(LT("tpNoTok", "{c} itself — no token", { c: (NETS[net] || {}).coin || LT("theCoin", "the coin") }))}</option>`]
     .concat(Object.keys(known).map((a) => `<option value="${a}">${esc(known[a].sym)} · ${a.slice(0, 10)}…</option>`))
-    .concat([`<option value="?">another token — paste its address</option>`]);
+    .concat([`<option value="?">${esc(LT("tpOther", "another token — paste its address"))}</option>`]);
   const sig = opts.join("");
   if (tp.dataset.sig !== sig) { tp.dataset.sig = sig; tp.innerHTML = sig; }
 }
@@ -1615,18 +1626,18 @@ function showTokenInfo(text, bad) {
 }
 async function verifyPastedToken() {
   const a = (($("otcToken") || {}).value || "").trim(), net = ($("otcNet") || {}).value;
-  if (!/^0x[0-9a-fA-F]{40}$/.test(a)) return showTokenInfo("A token address is 0x followed by 40 hex characters.", true);
-  if (!ethProv()) return showTokenInfo("Connect an Ethereum wallet to check this token against the chain.", true);
-  showTokenInfo("checking the contract…");
+  if (!/^0x[0-9a-fA-F]{40}$/.test(a)) return showTokenInfo(LT("tiBadAddr", "A token address is 0x followed by 40 hex characters."), true);
+  if (!ethProv()) return showTokenInfo(LT("tiNoWallet", "Connect an Ethereum wallet to check this token against the chain."), true);
+  showTokenInfo(LT("tiChecking", "checking the contract…"));
   try {
     const { chain } = await ethConnect();
-    if (chain !== (NETS[net] || {}).evm) return showTokenInfo(`Switch your wallet to ${(NETS[net] || {}).label} to check a token there.`, true);
+    if (chain !== (NETS[net] || {}).evm) return showTokenInfo(LT("tiSwitch", "Switch your wallet to {n} to check a token there.", { n: (NETS[net] || {}).label }), true);
     const meta = await ethTokenMeta(a);
-    if (!meta || meta.symbol === "TOKEN") return showTokenInfo("That address did not answer as an ERC-20 — check it on a block explorer.", true);
+    if (!meta || meta.symbol === "TOKEN") return showTokenInfo(LT("tiNotErc20", "That address did not answer as an ERC-20 — check it on a block explorer."), true);
     tokenRemember(net, a, meta);
     fillTokenPicker();
     // A symbol is whatever the contract SAYS it is; the address is the only identity that matters.
-    showTokenInfo(`${meta.symbol} · ${meta.decimals} decimals · ${a} — any contract can claim any symbol, so check the address.`);
+    showTokenInfo(LT("tiOk", "{s} · {d} decimals · {a} — any contract can claim any symbol, so check the address.", { s: meta.symbol, d: meta.decimals, a }));
   } catch (e) { showTokenInfo(String((e && e.message) || e).slice(0, 120), true); }
 }
 
@@ -1635,11 +1646,11 @@ async function verifyPastedToken() {
 function kindHint() {
   const el = $("otcKindHint"), k = (($("otcKind") || {}).value) || "1";
   const netK = ($("otcNet") || {}).value, tp = $("otcTokenPick");
-  const tokSel = tp && tp.value && tp.value !== "?" ? (tokensFor(netK)[tp.value] || {}).sym || "the token" : "";
-  const coin = tokSel || (NETS[netK] || {}).coin || "the coin";
+  const tokSel = tp && tp.value && tp.value !== "?" ? (tokensFor(netK)[tp.value] || {}).sym || LT("theToken", "the token") : "";
+  const coin = tokSel || (NETS[netK] || {}).coin || LT("theCoin", "the coin");
   if (el) el.textContent = k === "1"
-    ? `You give NADO and receive ${coin}. You generate the swap secret, so you finish the swap.`
-    : `You give ${coin} and receive NADO. You generate the swap secret; your ${coin} lock must outlast the taker's NADO lock.`;
+    ? LT("kindAsk", "You give NADO and receive {c}. You generate the swap secret, so you finish the swap.", { c: coin })
+    : LT("kindBid", "You give {c} and receive NADO. You generate the swap secret; your {c} lock must outlast the taker's NADO lock.", { c: coin });
 }
 
 async function otcPost() {
@@ -1648,22 +1659,22 @@ async function otcPost() {
   const netSelV = $("otcNet").value, chain = (NETS[netSelV] || {}).chain;
   const tp2 = $("otcTokenPick");
   const tokenV = (tp2 && tp2.value && tp2.value !== "?") ? tp2.value : ((($("otcToken") || {}).value) || "").trim();
-  if (tokenV && chain === "eth" && !/^0x[0-9a-fA-F]{40}$/.test(tokenV)) return alertBar("A token address looks like 0x followed by 40 hex characters.");
-  if (tokenV && chain === "sol" && !isB58Addr(tokenV)) return alertBar("A Solana token is named by its mint address (32–44 base58 characters).");
-  if (tokenV && !netSupportsTokens(netSelV)) return alertBar(`Token swaps are not available on ${(NETS[netSelV] || {}).label} yet.`);
+  if (tokenV && chain === "eth" && !/^0x[0-9a-fA-F]{40}$/.test(tokenV)) return alertBar(LT("postBadTok", "A token address looks like 0x followed by 40 hex characters."));
+  if (tokenV && chain === "sol" && !isB58Addr(tokenV)) return alertBar(LT("postBadMint", "A Solana token is named by its mint address (32–44 base58 characters)."));
+  if (tokenV && !netSupportsTokens(netSelV)) return alertBar(LT("postNoTokNet", "Token swaps are not available on {n} yet.", { n: (NETS[netSelV] || {}).label }));
   const net = tokenV ? netSelV + "|" + tokNorm(tokenV) : netSelV;   // the token rides in the network field
   const famt = ($("otcFAmt").value || "").trim(), faddr = ($("otcFAddr").value || "").trim();
   const blocks = Math.floor(Number($("otcExpiry").value || 0));
-  if (raw <= 0n) return alertBar("Enter the NADO amount.");
-  if (!famt || !(Number(famt) > 0)) return alertBar("Enter the foreign amount.");
-  if (!faddr) return alertBar("Enter your " + (NETS[netSelV] || {}).label + " address.");
+  if (raw <= 0n) return alertBar(LT("postNeedNado", "Enter the NADO amount."));
+  if (!famt || !(Number(famt) > 0)) return alertBar(LT("postNeedF", "Enter the foreign amount."));
+  if (!faddr) return alertBar(LT("postNeedAddr", "Enter your {n} address.", { n: (NETS[netSelV] || {}).label }));
   // Validate the receiving address by chain NOW: a bad one is otherwise discovered only when the other
   // side locks to it (an EVM lock to a malformed address pads to 0x000…0 — unclaimable by anyone).
-  if (chain === "eth" && !/^0x[0-9a-fA-F]{40}$/.test(faddr)) return alertBar("An Ethereum address is 0x followed by 40 hex characters.");
-  if (chain === "sol" && !isB58Addr(faddr)) return alertBar("That is not a Solana address (32–44 base58 characters).");
-  if (chain === "btc") { try { await addressToScript(faddr, (NETS[netSelV] || {}).hrp || "bc"); } catch (e) { return alertBar("That is not a valid " + (NETS[netSelV] || {}).label + " address: " + String(e.message || e)); } }
+  if (chain === "eth" && !/^0x[0-9a-fA-F]{40}$/.test(faddr)) return alertBar(LT("badEthAddr", "An Ethereum address is 0x followed by 40 hex characters."));
+  if (chain === "sol" && !isB58Addr(faddr)) return alertBar(LT("badSolAddr", "That is not a Solana address (32–44 base58 characters)."));
+  if (chain === "btc") { try { await addressToScript(faddr, (NETS[netSelV] || {}).hrp || "bc"); } catch (e) { return alertBar(LT("badBtcAddr", "That is not a valid {n} address: {m}", { n: (NETS[netSelV] || {}).label, m: String(e.message || e) })); } }
   faddrSet(netSelV, faddr);                                // typed once — reused for every future swap on this network
-  if (!(blocks >= 20 && blocks <= 900000)) return alertBar(`Expiry must be between 20 blocks (≈ ${blocksToTime(20)}) and 900,000 blocks (≈ ${blocksToTime(900000)}).`);
+  if (!(blocks >= 20 && blocks <= 900000)) return alertBar(LT("expRange", "Expiry must be between 20 blocks (≈ {a}) and 900,000 blocks (≈ {b}).", { a: blocksToTime(20), b: blocksToTime(900000) }));
   const o = randId();
   const sHex = Array.from(crypto.getRandomValues(new Uint8Array(32)), (x) => x.toString(16).padStart(2, "0")).join("");
   let kp = null, packed = faddr;
@@ -1686,7 +1697,7 @@ async function otcPost() {
   // this order carries must be reachable there — otherwise the lock reverts and the order can only expire.
   const FOREIGN_MAX_S = 29 * 24 * 3600;
   if (windowS < FOREIGN_MIN_S + FOREIGN_MARGIN_S + 1800)
-    return alertBar(`That expiry is too short for a ${(NETS[$("otcNet").value] || {}).coin || "cross-chain"} swap — use at least ${Math.ceil((FOREIGN_MIN_S + FOREIGN_MARGIN_S + 1800) / 6)} blocks.`);
+    return alertBar(LT("expShort", "That expiry is too short for a {c} swap — use at least {n} blocks.", { c: (NETS[$("otcNet").value] || {}).coin || LT("crossWord", "cross-chain"), n: Math.ceil((FOREIGN_MIN_S + FOREIGN_MARGIN_S + 1800) / 6) }));
   // §6.3 is KIND-DEPENDENT (otc.py post): the maker generates the secret for both kinds, and the leg the
   // maker FUNDS must outlast the leg they CLAIM. ASK: maker funds NADO, so the foreign deadline sits
   // inside the NADO window. BID: maker funds the foreign leg, so its deadline sits PAST the NADO window.
@@ -1695,41 +1706,41 @@ async function otcPost() {
   else {
     expf = Math.floor(nowSec + windowS + FOREIGN_MARGIN_S + 3600);
     if (expf > nowSec + FOREIGN_MAX_S)
-      return alertBar(`A buy order's ${(NETS[$("otcNet").value] || {}).coin || "foreign"} lock must outlast its NADO expiry, and that chain allows at most 30 days — use at most ${Math.floor((FOREIGN_MAX_S - FOREIGN_MARGIN_S - 3600) / 6)} blocks.`);
+      return alertBar(LT("expLong", "A buy order's {c} lock must outlast its NADO expiry, and that chain allows at most 30 days — use at most {n} blocks.", { c: (NETS[$("otcNet").value] || {}).coin || LT("foreignWord", "foreign"), n: Math.floor((FOREIGN_MAX_S - FOREIGN_MARGIN_S - 3600) / 6) }));
   }
   if (expf > nowSec + FOREIGN_MAX_S) expf = nowSec + FOREIGN_MAX_S;   // ASK: clamp long NADO windows; the margin still holds
   const expn = (dapp.cursor || 0) + blocks;
   {
-    const coinName = tokenV ? (tokensFor(netSelV)[tokenV] || {}).sym || "tokens" : (NETS[netSelV] || {}).coin || "coins";
+    const coinName = tokenV ? (tokensFor(netSelV)[tokenV] || {}).sym || LT("tokensWord", "tokens") : (NETS[netSelV] || {}).coin || LT("coinsWord", "coins");
     const nadoF = Number(rawToNado(raw.toString())), price = nadoF > 0 ? Number(famt) / nadoF : 0;
     const give = kind === OTC_ASK ? `${rawToNado(raw.toString())} NADO` : `${famt} ${coinName}`;
     const get = kind === OTC_ASK ? `${famt} ${coinName}` : `${rawToNado(raw.toString())} NADO`;
-    if (!await uiConfirm({ title: kind === OTC_ASK ? "Sell NADO" : "Buy NADO",
-      body: "Posting locks nothing. Once someone takes it, both sides are committed and your row walks you through the locks.",
-      rows: [{ k: "You give", v: give }, { k: "You receive", v: get },
-             { k: "Price", v: `1 NADO = ${fmtPrice(price)} ${coinName}` },
-             { k: "Paid to", v: faddr.slice(0, 14) + "…" + faddr.slice(-6) },
-             { k: "Open for", v: `≈ ${blocksToTime(blocks)}` }],
-      confirmText: "Post order" })) { otcForget(o); return; }
+    if (!await uiConfirm({ title: kind === OTC_ASK ? LT("otcSellNado", "Sell NADO") : LT("otcBuyNado", "Buy NADO"),
+      body: LT("postBody", "Posting locks nothing. Once someone takes it, both sides are committed and your row walks you through the locks."),
+      rows: [{ k: LT("youGive", "You give"), v: give }, { k: LT("youGet", "You receive"), v: get },
+             { k: LT("rowPrice", "Price"), v: `1 NADO = ${fmtPrice(price)} ${coinName}` },
+             { k: LT("rowPaidTo", "Paid to"), v: faddr.slice(0, 14) + "…" + faddr.slice(-6) },
+             { k: LT("rowOpenFor", "Open for"), v: `≈ ${blocksToTime(blocks)}` }],
+      confirmText: LT("otcPostBtn", "Post order") })) { otcForget(o); return; }
   }
-  const box = $("otcSecretBox"); if (box) { box.classList.remove("hidden"); $("otcSecretHex").textContent = sHex + (kp ? "  ·  BTC key: " + kp.k : ""); }
+  const box = $("otcSecretBox"); if (box) { box.classList.remove("hidden"); $("otcSecretHex").textContent = sHex + (kp ? "  ·  " + LT("btcKeyLbl", "BTC key:") + " " + kp.k : ""); }
   // No VALUE: the NADO leg of a cross-chain swap is escrowed in an L1 HTLC under the SAME SHA-256
   // hashlock as the foreign leg, never in this contract (see otc.py WHERE THE MONEY SITS).
   dapp.call("post", [o, kind, raw, net, famt, packed, hsha, ...vmParts, expn, expf],
-            null, "Posting order #" + o + "…", { otc: o }, { cid: OTC_CID });
+            null, LT("callPost", "Posting order #{o}…", { o }), { otc: o }, { cid: OTC_CID });
 }
 async function runAction(btn, fn) {
   if (!btn) return fn();
   if (btn.dataset.busy) return;                        // ignore the double-click instead of firing twice
   const was = btn.textContent;
-  btn.dataset.busy = "1"; btn.disabled = true; btn.textContent = "working…";
+  btn.dataset.busy = "1"; btn.disabled = true; btn.textContent = LT("working", "working…");
   try { return await fn(); }
   catch (e) { alertBar((e && e.message) || String(e)); }   // a click must never end in silence
   finally { delete btn.dataset.busy; btn.disabled = false; btn.textContent = was; }
 }
 async function otcAction(what, o, btn) {
   const od = otcOrders().find((x) => x.o === o);
-  if (!od) { render(); return alertBar("That order is no longer on the book — the list has been refreshed."); }
+  if (!od) { render(); return alertBar(LT("aGone", "That order is no longer on the book — the list has been refreshed.")); }
   if (what === "showsecret") {
     const r = otcRec(o);
     // Everything needed to rebuild the swap on another device — the key alone is not enough, because the
@@ -1739,35 +1750,35 @@ async function otcAction(what, o, btn) {
       hashlock: od.hsha, deadline: od.expf, amount: od.wamt },
       r.s ? { secret: r.s } : {}, r.k ? { key: r.k } : {}, r.pub ? { pubkey: r.pub } : {},
       b ? { script: b.script, address: b.addr } : {}));
-    if (r.s || r.k) await uiPrompt({ title: `Back up swap #${o}`,
-      body: "Copy this somewhere safe — it is everything this swap needs to be finished or reclaimed from another device.",
-      value: blob, confirmText: "Done" });
+    if (r.s || r.k) await uiPrompt({ title: LT("bkTitle", "Back up swap #{o}", { o }),
+      body: LT("bkBody", "Copy this somewhere safe — it is everything this swap needs to be finished or reclaimed from another device."),
+      value: blob, confirmText: LT("sDone", "Done") });
     return;
   }
   // INVARIANT: a value-free call is signed in the background with NO wallet dialog, so this confirm is the only thing
   // between one click and an order gone for good (2026-11-05: two open ETH asks were cancelled a minute after posting
   // by a click their owner never meant). Every branch here that ends an order or a fill confirms first.
-  const terms = od.kind === OTC_INTRA ? `${limText(od.gast, od.escRaw)} for ${limText(od.wast, od.want)}`
-                                      : `${rawToNado(od.namtRaw.toString())} NADO for ${od.wamt} ${coinOf(od)}`;
+  const terms = od.kind === OTC_INTRA ? LT("termsFor", "{a} for {b}", { a: limText(od.gast, od.escRaw), b: limText(od.wast, od.want) })
+                                      : LT("termsFor", "{a} for {b}", { a: `${rawToNado(od.namtRaw.toString())} NADO`, b: `${od.wamt} ${coinOf(od)}` });
   if (what === "cancel") {
-    if (!await uiConfirm({ title: `Cancel order #${o}?`,
-      body: "It leaves the book for good and whatever it escrowed comes back to you. To trade again you post a new order.",
-      rows: [{ k: "Order", v: terms }], confirmText: "Cancel the order", cancelText: "Keep it", danger: true })) return;
-    return dapp.call("cancel", [o], null, "Cancelling #" + o + "…", { otc: o }, { cid: OTC_CID });
+    if (!await uiConfirm({ title: LT("cxTitle", "Cancel order #{o}?", { o }),
+      body: LT("cxBody", "It leaves the book for good and whatever it escrowed comes back to you. To trade again you post a new order."),
+      rows: [{ k: LT("rowOrder", "Order"), v: terms }], confirmText: LT("cxOk", "Cancel the order"), cancelText: LT("cxKeep", "Keep it"), danger: true })) return;
+    return dapp.call("cancel", [o], null, LT("callCancel", "Cancelling #{o}…", { o }), { otc: o }, { cid: OTC_CID });
   }
   if (what === "boost") {
-    if (od.st !== 1 && od.st !== 2) return alertBar("This order is finished — nothing left to tip.");
+    if (od.st !== 1 && od.st !== 2) return alertBar(LT("tipDone", "This order is finished — nothing left to tip."));
     // §8: attach a NADO bounty ANYONE can win by finishing this order (settle / expire / atomic fill).
     // It makes watchtowers work for you; cancel returns it to the maker.
-    const typed = ((await uiPrompt({ title: "Tip whoever finishes this swap",
-      body: "Paid to whoever completes or reclaims this order — you, the counterparty, or any watchtower running unattended.",
-      placeholder: "amount in NADO" })) || "").trim();
+    const typed = ((await uiPrompt({ title: LT("tipTitle", "Tip whoever finishes this swap"),
+      body: LT("tipBody", "Paid to whoever completes or reclaims this order — you, the counterparty, or any watchtower running unattended."),
+      placeholder: LT("swAmtPh", "amount in {s}", { s: "NADO" }) })) || "").trim();
     if (typed === "") return;                          // dismissed
     const amt = (() => { try { return BigInt(nadoToRaw(typed.replace(",", "."))); } catch (e) { return 0n; } })();
-    if (amt <= 0n) return alertBar("Enter a tip in NADO, e.g. 0.5.");
-    return dapp.call("boost", [o], amt, "Boosting #" + o + "…", { otc: o }, { cid: OTC_CID });
+    if (amt <= 0n) return alertBar(LT("tipNeed", "Enter a tip in NADO, e.g. 0.5."));
+    return dapp.call("boost", [o], amt, LT("callBoost", "Boosting #{o}…", { o }), { otc: o }, { cid: OTC_CID });
   }
-  if (what === "expire") return dapp.call("expire", [o], null, "Reclaiming #" + o + "…", { otc: o }, { cid: OTC_CID });
+  if (what === "expire") return dapp.call("expire", [o], null, LT("callExpire", "Reclaiming #{o}…", { o }), { otc: o }, { cid: OTC_CID });
   if (what === "fillask") {
     // §6.3 from the TAKER's side (the contract enforces the same rule; this is the plain-language refusal).
     // ASK: the taker funds the foreign leg, so its deadline must sit safely INSIDE the NADO window.
@@ -1784,8 +1795,8 @@ async function otcAction(what, o, btn) {
     const okAsk = fdl > nowS + 1800 && fdl < nowS + blocksLeft * 6 * 0.75;
     const okBid = fdl > nowS + blocksLeft * 8 + 7200;
     if (od.kind === OTC_ASK ? !okAsk : !okBid) {
-      return alertBar("This order's foreign deadline does not line up with its NADO expiry — filling it "
-        + "could let the maker reclaim their own lock and still take yours. Not safe to fill.");
+      return alertBar(LT("fillUnsafe",
+        "This order's foreign deadline does not line up with its NADO expiry — filling it could let the maker reclaim their own lock and still take yours. Not safe to fill."));
     }
     const coin = coinOf(od);                             // the symbol the taker is paid in ("ETH", "USDC", "SOL", …)
     let myf, fref = "pending";
@@ -1797,31 +1808,31 @@ async function otcAction(what, o, btn) {
     } else if (ch === "eth") {
       if (ethProv()) {                                  // the taker's own EVM account
         try { const { addr } = await ethConnect(); myf = addr; }
-        catch (e) { return alertBar("Your Ethereum wallet did not connect (" + ((e && e.message) || e) + "). Approve the connection in the wallet and click Take again."); }
+        catch (e) { return alertBar(LT("fillEthConn", "Your Ethereum wallet did not connect ({m}). Approve the connection in the wallet and click Take again.", { m: (e && e.message) || e })); }
       } else {
         // No wallet extension: ASK where the coin should go. Never silently invent a receive key —
         // a taker who did not know a key was generated for them cannot back it up, and the coin it
         // receives is only as safe as this browser's storage.
-        const typed = ((await uiPrompt({ title: `Where should the ${coin} be paid?`,
-          body: `Enter an ${(netOf(od) || {}).label} address you control — it receives the ${od.wamt} ${coin} when the swap completes. Leave it empty to let this page keep a fresh key for you (you must then back it up from the row).`,
-          value: faddrGet(netKeyOf(od)) || "", placeholder: "0x… address" })) || "").trim();
-        if (typed && !/^0x[0-9a-fA-F]{40}$/.test(typed)) return alertBar("An Ethereum address is 0x followed by 40 hex characters.");
+        const typed = ((await uiPrompt({ title: LT("fillWhereT", "Where should the {c} be paid?", { c: coin }),
+          body: LT("fillWhereB", "Enter an {n} address you control — it receives the {a} {c} when the swap completes. Leave it empty to let this page keep a fresh key for you (you must then back it up from the row).", { n: (netOf(od) || {}).label, a: od.wamt, c: coin }),
+          value: faddrGet(netKeyOf(od)) || "", placeholder: LT("fillAddrPh", "0x… address") })) || "").trim();
+        if (typed && !/^0x[0-9a-fA-F]{40}$/.test(typed)) return alertBar(LT("badEthAddr", "An Ethereum address is 0x followed by 40 hex characters."));
         if (typed) { myf = typed; faddrSet(netKeyOf(od), typed); }
         else { const ek = ethKeypair(); otcSaveRec(o, { k: ek.k }); myf = ek.addr;
           // show the key NOW — the row it will later live on does not exist until the fill lands
-          await uiPrompt({ title: `Your ${coin} receive key for swap #${o}`,
-            body: `This page made a fresh Ethereum key to receive your ${od.wamt} ${coin} at ${ek.addr}. It is stored only in this browser — copy it somewhere safe now. Later it is also under My swaps → #${o} → More → Back up this swap.`,
-            value: JSON.stringify({ order: o, address: ek.addr, key: ek.k }), confirmText: "I saved it" }); }
+          await uiPrompt({ title: LT("fillKeyT", "Your {c} receive key for swap #{o}", { c: coin, o }),
+            body: LT("fillKeyB", "This page made a fresh Ethereum key to receive your {a} {c} at {addr}. It is stored only in this browser — copy it somewhere safe now. Later it is also under My swaps → #{o} → More → Back up this swap.", { a: od.wamt, c: coin, addr: ek.addr, o }),
+            value: JSON.stringify({ order: o, address: ek.addr, key: ek.k }), confirmText: LT("fillKeySaved", "I saved it") }); }
       }
     } else if (ch === "sol" && solHas()) {
       try { myf = (await (await solMod()).solWalletConnect()).address; }   // the taker's own Solana account
       catch (e) { myf = ""; }
-      if (!myf) return alertBar("Connect your Solana wallet to fill this order — it is the account the swap pays.");
+      if (!myf) return alertBar(LT("fillSolConn", "Connect your Solana wallet to fill this order — it is the account the swap pays."));
     } else {
       myf = faddrGet(netKeyOf(od));                    // typed once per network, then never again
       if (!myf) {
-        myf = await uiPrompt({ title: `Your ${(netOf(od) || {}).label || coin} address`,
-          body: "Where this swap pays you on that chain. Saved for next time.", placeholder: "address" });
+        myf = await uiPrompt({ title: LT("fillAddrT", "Your {n} address", { n: (netOf(od) || {}).label || coin }),
+          body: LT("fillAddrB", "Where this swap pays you on that chain. Saved for next time."), placeholder: LT("addrPh", "address") });
         if (!myf) return;
         faddrSet(netKeyOf(od), myf);
       }
@@ -1829,18 +1840,18 @@ async function otcAction(what, o, btn) {
     // a BID fill carries the taker bond (1% of the NADO, min 0.01) — back the moment you lock the NADO,
     // to the maker if you never do. This is what makes a fill cost something.
     const bondRaw = od.kind === OTC_BID ? (od.namtRaw * 100n / 10000n > 100000000n ? od.namtRaw * 100n / 10000n : 100000000n) : 0n;
-    if (bondRaw > 0n && !await uiConfirm({ title: "Take this order",
-      body: `A ${rawToNado(bondRaw.toString())} NADO bond is held while you complete your side. It comes back in full when you lock the ${rawToNado(od.namtRaw.toString())} NADO; if you never do, it goes to the maker.`,
-      rows: [{ k: "Bond", v: rawToNado(bondRaw.toString()) + " NADO" }], confirmText: "Take" })) return;
-    dapp.call("fill", [o, myf, fref], bondRaw > 0n ? bondRaw : null, "Filling #" + o + "…", { otc: o }, { cid: OTC_CID });
+    if (bondRaw > 0n && !await uiConfirm({ title: LT("pTake", "Take this order"),
+      body: LT("bondBody", "A {b} NADO bond is held while you complete your side. It comes back in full when you lock the {n} NADO; if you never do, it goes to the maker.", { b: rawToNado(bondRaw.toString()), n: rawToNado(od.namtRaw.toString()) }),
+      rows: [{ k: LT("rowBond", "Bond"), v: rawToNado(bondRaw.toString()) + " NADO" }], confirmText: LT("take", "Take") })) return;
+    dapp.call("fill", [o, myf, fref], bondRaw > 0n ? bondRaw : null, LT("callFill", "Filling #{o}…", { o }), { otc: o }, { cid: OTC_CID });
     return;
   }
   if (what === "fillintra") {
-    if (!await uiConfirm({ title: `Fill limit order #${o}`,
-      body: "Both sides swap in one transaction — no partial fills.",
-      rows: [{ k: "You give", v: limText(od.wast, od.want) }, { k: "You receive", v: limText(od.gast, od.escRaw) }],
-      confirmText: "Fill" })) return;
-    dapp.call("fill_intra", [o], od.want, "Filling limit order #" + o + "…", { otc: o },
+    if (!await uiConfirm({ title: LT("limFillT", "Fill limit order #{o}", { o }),
+      body: LT("limFillB", "Both sides swap in one transaction — no partial fills."),
+      rows: [{ k: LT("youGive", "You give"), v: limText(od.wast, od.want) }, { k: LT("youGet", "You receive"), v: limText(od.gast, od.escRaw) }],
+      confirmText: LT("fill", "Fill") })) return;
+    dapp.call("fill_intra", [o], od.want, LT("callLimFill", "Filling limit order #{o}…", { o }), { otc: o },
               od.wast !== "0" ? { cid: OTC_CID, asset: od.wast } : { cid: OTC_CID });
     return;
   }
@@ -1850,69 +1861,69 @@ async function otcAction(what, o, btn) {
     const sells = od.kind === OTC_ASK;
     const owes = sells ? od.maker : od.taker;            // ASK: the maker sells NADO; BID: the taker provides it
     const to = sells ? od.taker : od.maker;
-    if (dapp.me !== owes) return alertBar("The NADO side of this swap is not yours to lock.");
-    if (!isAddress(String(to))) return alertBar("The counterparty's NADO address isn't visible yet — wait for their fill to land.");
+    if (dapp.me !== owes) return alertBar(LT("lkNotYours", "The NADO side of this swap is not yours to lock."));
+    if (!isAddress(String(to))) return alertBar(LT("lkNoAddr", "The counterparty's NADO address isn't visible yet — wait for their fill to land."));
     const blocks = Math.max(1, od.expn - (dapp.cursor || 0));
     if (!sells && !(Number(od.expf) > Math.floor(Date.now() / 1000) + blocks * 8 + 7200)) {   // C3, at lock time
-      return alertBar("The maker's foreign deadline no longer sits safely past this order's NADO expiry "
-        + "(judged by your clock, not the chain's). Locking now could let the maker reclaim their lock and still take yours.");
+      return alertBar(LT("lkUnsafe",
+        "The maker's foreign deadline no longer sits safely past this order's NADO expiry (judged by your clock, not the chain's). Locking now could let the maker reclaim their lock and still take yours."));
     }
-    if (!await uiConfirm({ title: "Lock the NADO side",
-      body: sells ? "They can only take it with the swap secret, and only before it expires — after that you reclaim it yourself."
-                  : `Lock ONLY after you have checked the maker's ${coinOf(od)} lock: the agreed amount, this order's hashlock, and a deadline past this order's NADO expiry. The maker holds the secret — if their lock is missing or short, they can take your NADO and give nothing.`,
-      rows: [{ k: "Amount", v: rawToNado(od.namtRaw.toString()) + " NADO" },
-             { k: "Claimable by", v: String(to).slice(0, 16) + "…" },
-             { k: "You can reclaim after", v: blocks + " blocks" }],
-      confirmText: "Lock" })) return;
+    if (!await uiConfirm({ title: LT("lkTitle", "Lock the NADO side"),
+      body: sells ? LT("lkBodyAsk", "They can only take it with the swap secret, and only before it expires — after that you reclaim it yourself.")
+                  : LT("lkBodyBid", "Lock ONLY after you have checked the maker's {c} lock: the agreed amount, this order's hashlock, and a deadline past this order's NADO expiry. The maker holds the secret — if their lock is missing or short, they can take your NADO and give nothing.", { c: coinOf(od) }),
+      rows: [{ k: LT("amount", "Amount"), v: rawToNado(od.namtRaw.toString()) + " NADO" },
+             { k: LT("rowClaimable", "Claimable by"), v: String(to).slice(0, 16) + "…" },
+             { k: LT("rowReclaimAfter", "You can reclaim after"), v: LT("nBlocks", "{n} {n|one:block|other:blocks}", { n: blocks }) }],
+      confirmText: LT("lock", "Lock") })) return;
     dapp.htlcLock({ claimant: to, hashlock: od.hsha, amount: od.namtRaw, blocks }, { otc: o, phase: "htlc_lock" });
     return;
   }
   if (what === "btcsend") {                             // Bitcoin has no wallet extension to call: show where to send
-    const b = btcInfo(od); if (!b) return alertBar("Still deriving the Bitcoin address — try again in a second.");
-    await uiPrompt({ title: `Send exactly ${od.wamt} ${coinOf(od)} to`, body: "From any Bitcoin wallet. The row updates itself once the coin confirms.", value: b.addr, confirmText: "Done" });
+    const b = btcInfo(od); if (!b) return alertBar(LT("btcDeriving", "Still deriving the Bitcoin address — try again in a second."));
+    await uiPrompt({ title: LT("btcSendT", "Send exactly {a} to", { a: `${od.wamt} ${coinOf(od)}` }), body: LT("btcSendB", "From any Bitcoin wallet. The row updates itself once the coin confirms."), value: b.addr, confirmText: LT("sDone", "Done") });
     return;
   }
   if (what === "nadorefund") {                          // the L1 HTLC refund: an L1 tx signed by the wallet
-    if (!od.hid) return alertBar("No NADO lock is recorded on this order.");
+    if (!od.hid) return alertBar(LT("rfNoLock", "No NADO lock is recorded on this order."));
     if (dapp.htlcRefund) return dapp.htlcRefund({ htlcId: od.hid }, { otc: o, phase: "htlc_refund" });
-    return alertBar("Reclaim the NADO lock from your wallet's Swap tab (lock " + od.hid.slice(0, 12) + "…).");
+    return alertBar(LT("rfWallet", "Reclaim the NADO lock from your wallet's Swap tab (lock {h}…).", { h: od.hid.slice(0, 12) }));
   }
   if (what === "release") {
-    if (!await uiConfirm({ title: `Release order #${o}?`,
-      body: "The taker never locked, so their fill ends and the order goes back on the book for anyone to take.",
-      rows: [{ k: "Order", v: terms }], confirmText: "Release", cancelText: "Not now" })) return;
-    return dapp.call("release", [o], null, "Releasing #" + o + "…", { otc: o }, { cid: OTC_CID });
+    if (!await uiConfirm({ title: LT("relTitle", "Release order #{o}?", { o }),
+      body: LT("relBody", "The taker never locked, so their fill ends and the order goes back on the book for anyone to take."),
+      rows: [{ k: LT("rowOrder", "Order"), v: terms }], confirmText: LT("relOk", "Release"), cancelText: LT("notNow", "Not now") })) return;
+    return dapp.call("release", [o], null, LT("callRelease", "Releasing #{o}…", { o }), { otc: o }, { cid: OTC_CID });
   }
   if (what === "nadoclaim") {
     // The NADO leg pays out through an L1 htlc_claim, not through this contract. ASK: the taker claims once
     // the maker revealed the secret on the foreign chain. BID: the maker claims with their own secret — and
     // that reveal is what lets the taker claim the foreign leg.
     const sells = od.kind === OTC_ASK;
-    if (dapp.me !== (sells ? od.taker : od.maker)) return alertBar("The NADO side of this swap is not yours to claim.");
+    if (dapp.me !== (sells ? od.taker : od.maker)) return alertBar(LT("ncNotYours", "The NADO side of this swap is not yours to claim."));
     let s = await otcKnownSecret(od);
     if (!s && sells) {
-      alertBar(`Looking up the revealed secret on ${coinOf(od)}…`);
+      alertBar(LT("lookup", "Looking up the revealed secret on {c}…", { c: coinOf(od) }));
       const ch = chainOf(od);
       s = ch === "btc" ? await btcFoundSecret(od) : ch === "eth" ? await ethFoundSecret(od) : ch === "sol" ? await solFoundSecret(od) : null;
     }
-    if (!s) s = ((await uiPrompt({ title: "Paste the swap secret",
-      body: "The 64-character secret — this page could not find it on any chain yet.", placeholder: "64 hex characters" })) || "").trim().toLowerCase();
-    if (!/^[0-9a-f]{64}$/.test(s || "") || (await sha256Hex(s)) !== od.hsha) return alertBar("That secret does not match this order's hashlock.");
+    if (!s) s = ((await uiPrompt({ title: LT("pasteSecret", "Paste the swap secret"),
+      body: LT("pasteSecretB1", "The 64-character secret — this page could not find it on any chain yet."), placeholder: LT("hex64", "64 hex characters") })) || "").trim().toLowerCase();
+    if (!/^[0-9a-f]{64}$/.test(s || "") || (await sha256Hex(s)) !== od.hsha) return alertBar(LT("secretMismatch", "That secret does not match this order's hashlock."));
     const h = await nadoHtlc(od);
-    if (h && h.status !== "open") return alertBar(`That NADO lock is already ${h.status}.`);
+    if (h && h.status !== "open") return alertBar(LT("ncAlready", "That NADO lock is already {s}.", { s: htlcStatus(h.status) }));
     if (!sells && Number(od.expf) && Math.floor(Date.now() / 1000) > Number(od.expf) - 7200)
-      return alertBar("Too close to your own foreign deadline — claiming now reveals the secret while the taker may no longer have time to claim your lock.");
+      return alertBar(LT("ncTooLate", "Too close to your own foreign deadline — claiming now reveals the secret while the taker may no longer have time to claim your lock."));
     dapp.htlcClaim({ htlcId: od.hid, preimage: s }, { otc: o, phase: "htlc_claim" });
     return;
   }
   if (what === "nadobind") {
-    const id = ((await uiPrompt({ title: "Record your NADO lock",
-      body: "Paste the transaction id of the NADO lock you created, so the counterparty can find and check it.",
-      placeholder: "transaction id" })) || "").trim();
-    if (!/^[0-9a-f]{16,}$/.test(id)) return alertBar("That doesn't look like a transaction id.");
-    return dapp.call("bind", [o, id], null, "Recording the NADO lock…", { otc: o }, { cid: OTC_CID });
+    const id = ((await uiPrompt({ title: LT("bindTitle", "Record your NADO lock"),
+      body: LT("bindBody", "Paste the transaction id of the NADO lock you created, so the counterparty can find and check it."),
+      placeholder: LT("txidPh", "transaction id") })) || "").trim();
+    if (!/^[0-9a-f]{16,}$/.test(id)) return alertBar(LT("bindBad", "That doesn't look like a transaction id."));
+    return dapp.call("bind", [o, id], null, LT("callBind", "Recording the NADO lock…"), { otc: o }, { cid: OTC_CID });
   }
-  if (what === "btccopy") { const b = btcInfo(od); if (b) navigator.clipboard.writeText(b.addr).then(() => alertBar("Address copied.")); return; }
+  if (what === "btccopy") { const b = btcInfo(od); if (b) navigator.clipboard.writeText(b.addr).then(() => alertBar(LT("copied", "Address copied."))); return; }
   if (what === "btcverify") { btcVerifyInto(od, "btcv" + o); return; }
   if (what === "btcclaim") { btcSpendFlow(od, "claim"); return; }
   if (what === "btcrefund") { btcSpendFlow(od, "refund"); return; }
@@ -1925,14 +1936,14 @@ async function otcAction(what, o, btn) {
   if (what === "settle") {
     (async () => {
       let s = await otcKnownSecret(od);                 // own secret, published limbs, or the L1 claim
-      if (!s && chainOf(od) === "btc") { alertBar("Looking up the revealed secret on Bitcoin…"); s = await btcFoundSecret(od); }
-      if (!s && chainOf(od) === "eth") { alertBar("Looking up the revealed secret on Ethereum…"); s = await ethFoundSecret(od); }
-      if (!s && chainOf(od) === "sol") { alertBar("Looking up the revealed secret on Solana…"); s = await solFoundSecret(od); }
-      if (!s) s = ((await uiPrompt({ title: "Paste the swap secret",
-        body: "The 64-character secret revealed when the other leg was claimed — this page could not find it automatically.",
-        placeholder: "64 hex characters" })) || "").trim().toLowerCase();
-      if (!/^[0-9a-f]{64}$/.test(s || "")) return alertBar("A swap secret is exactly 64 hex characters.");
-      dapp.call("settle", [o, ...otcLimbs(s)], null, "Settling #" + o + "…", { otc: o }, { cid: OTC_CID });
+      if (!s && chainOf(od) === "btc") { alertBar(LT("lookup", "Looking up the revealed secret on {c}…", { c: "Bitcoin" })); s = await btcFoundSecret(od); }
+      if (!s && chainOf(od) === "eth") { alertBar(LT("lookup", "Looking up the revealed secret on {c}…", { c: "Ethereum" })); s = await ethFoundSecret(od); }
+      if (!s && chainOf(od) === "sol") { alertBar(LT("lookup", "Looking up the revealed secret on {c}…", { c: "Solana" })); s = await solFoundSecret(od); }
+      if (!s) s = ((await uiPrompt({ title: LT("pasteSecret", "Paste the swap secret"),
+        body: LT("pasteSecretB2", "The 64-character secret revealed when the other leg was claimed — this page could not find it automatically."),
+        placeholder: LT("hex64", "64 hex characters") })) || "").trim().toLowerCase();
+      if (!/^[0-9a-f]{64}$/.test(s || "")) return alertBar(LT("secretLen", "A swap secret is exactly 64 hex characters."));
+      dapp.call("settle", [o, ...otcLimbs(s)], null, LT("callSettle", "Settling #{o}…", { o }), { otc: o }, { cid: OTC_CID });
     })();
   }
 }
@@ -1952,16 +1963,15 @@ function limRow(od) {
   const me = dapp.me, mine = od.maker === me;
   const left = otcLeft(od), expired = left <= 0;
   const acts = [];
-  if (od.st === 1 && !expired && mine) acts.push(`<button class="ghost" data-otc="cancel" data-o="${od.o}">Cancel</button>`);
-  if (od.st === 1 && !expired && mine) acts.push(`<button class="ghost" data-otc="boost" data-o="${od.o}">Tip…</button>`);
-  if (od.st === 1 && !expired && !mine && me) acts.push(`<button class="primary" data-otc="fillintra" data-o="${od.o}">Fill</button>`);
-  if (od.st === 1 && expired && mine) acts.push(`<button class="ghost" data-otc="expire" data-o="${od.o}">Reclaim</button>`);
-  const pill = od.st === 1 ? (expired ? '<span class="pill warn">expired</span>' : '<span class="pill">open</span>')
-                           : `<span class="pill">${OTC_ST[od.st] || od.st}</span>`;
+  if (od.st === 1 && !expired && mine) acts.push(`<button class="ghost" data-otc="cancel" data-o="${od.o}">${esc(LT("bCancel", "Cancel"))}</button>`);
+  if (od.st === 1 && !expired && mine) acts.push(`<button class="ghost" data-otc="boost" data-o="${od.o}">${esc(LT("bTip", "Tip…"))}</button>`);
+  if (od.st === 1 && !expired && !mine && me) acts.push(`<button class="primary" data-otc="fillintra" data-o="${od.o}">${esc(LT("fill", "Fill"))}</button>`);
+  if (od.st === 1 && expired && mine) acts.push(`<button class="ghost" data-otc="expire" data-o="${od.o}">${esc(LT("reclaim", "Reclaim"))}</button>`);
+  const pill = od.st === 1 ? (expired ? `<span class="pill warn">${esc(LT("stExpired", "expired"))}</span>` : `<span class="pill">${esc(LT("stOpen", "open"))}</span>`)
+                           : `<span class="pill">${OTC_ST()[od.st] || od.st}</span>`;
   return `<div class="loan"><div class="loanmain">
-      <div class="loantop">${pill} <b>#${od.o}</b> ${esc(disp(od.maker))} gives ${limSide(od.gast, od.escRaw)}
-        for ${limSide(od.wast, od.want)}</div>
-      <div class="loanterms small dim">${od.bnty > 0n ? `+${rawToNado(od.bnty.toString())} NADO tip · ` : ""}${od.st === 1 && !expired ? `expires in ${left} blocks (~${blocksToTime(left)})` : ""}</div>
+      <div class="loantop">${pill} <b>#${od.o}</b> ${esc(disp(od.maker))} ${LT("limGives", "gives {a} for {b}", { a: limSide(od.gast, od.escRaw), b: limSide(od.wast, od.want) })}</div>
+      <div class="loanterms small dim">${od.bnty > 0n ? esc(LT("rowTip", "+{n} NADO tip", { n: rawToNado(od.bnty.toString()) })) + " · " : ""}${od.st === 1 && !expired ? esc(LT("rowExpires", "expires in {n} {n|one:block|other:blocks} (~{t})", { n: left, t: blocksToTime(left) })) : ""}</div>
     </div><div class="loanacts">${acts.join("")}</div></div>`;
 }
 function renderLimits() {
@@ -1972,7 +1982,7 @@ function renderLimits() {
     .filter((x) => x.st === 1 || (me && x.maker === me && x.st !== 1))
     .sort((a, b) => (a.st - b.st) || (b.o - a.o)).slice(0, 40);
   box.innerHTML = rows.length ? rows.map(limRow).join("")
-    : otcEmpty("No limit orders yet — post one below.");
+    : otcEmpty(esc(LT("limNone", "No limit orders yet — post one below.")));
   box.querySelectorAll("[data-otc]").forEach((el) => {
     el.onclick = (ev) => { ev.preventDefault();
       runAction(el.tagName === "BUTTON" ? el : null, () => otcAction(el.getAttribute("data-otc"), Number(el.getAttribute("data-o")), el)); };
@@ -1984,19 +1994,19 @@ async function limPost() {
   const blocks = Math.floor(Number($("limExpiry").value || 0));
   const amt = (v, asset) => { try { return asset !== "0" ? tokTextRaw(asset, v) : BigInt(nadoToRaw((v || "").trim())); } catch (e) { return 0n; } };
   const gv = amt($("limGiveAmt").value, ga), wv = amt($("limWantAmt").value, wa);
-  if (gv < 0n || wv < 0n) return alertBar(`That token counts at most ${tokDec(gv < 0n ? ga : wa)} decimal places.`);
-  if (gv <= 0n || wv <= 0n) return alertBar("Enter both amounts.");
-  if (ga === "0" && wa === "0") return alertBar("Pick a token on one side — NADO for NADO is not a swap.");
-  if (ga === wa) return alertBar("Pick two different assets.");
-  if (!(blocks >= 20 && blocks <= 900000)) return alertBar(`Expiry must be between 20 blocks (≈ ${blocksToTime(20)}) and 900,000 blocks (≈ ${blocksToTime(900000)}).`);
+  if (gv < 0n || wv < 0n) return alertBar(LT("limDec", "That token counts at most {n} decimal places.", { n: tokDec(gv < 0n ? ga : wa) }));
+  if (gv <= 0n || wv <= 0n) return alertBar(LT("limBoth", "Enter both amounts."));
+  if (ga === "0" && wa === "0") return alertBar(LT("limNadoNado", "Pick a token on one side — NADO for NADO is not a swap."));
+  if (ga === wa) return alertBar(LT("limSame", "Pick two different assets."));
+  if (!(blocks >= 20 && blocks <= 900000)) return alertBar(LT("expRange", "Expiry must be between 20 blocks (≈ {a}) and 900,000 blocks (≈ {b}).", { a: blocksToTime(20), b: blocksToTime(900000) }));
   const o = randId();
-  let gaB, waB; try { gaB = BigInt(ga); waB = BigInt(wa); } catch (e) { return alertBar("Pick a token from the list."); }
-  if (!await uiConfirm({ title: "Post limit order",
-    body: "Your side is escrowed now and comes back if you cancel or the order expires. The first taker swaps both sides in one go.",
-    rows: [{ k: "You give", v: limText(ga, gv) }, { k: "You receive", v: limText(wa, wv) }, { k: "Expires in", v: `≈ ${blocksToTime(blocks)}` }],
-    confirmText: "Post" })) return;
+  let gaB, waB; try { gaB = BigInt(ga); waB = BigInt(wa); } catch (e) { return alertBar(LT("limPick", "Pick a token from the list.")); }
+  if (!await uiConfirm({ title: LT("limPostT", "Post limit order"),
+    body: LT("limPostB", "Your side is escrowed now and comes back if you cancel or the order expires. The first taker swaps both sides in one go."),
+    rows: [{ k: LT("youGive", "You give"), v: limText(ga, gv) }, { k: LT("youGet", "You receive"), v: limText(wa, wv) }, { k: LT("rowExpiresIn", "Expires in"), v: `≈ ${blocksToTime(blocks)}` }],
+    confirmText: LT("post", "Post") })) return;
   dapp.call("post_intra", [o, gaB, gv, waB, wv, (dapp.cursor || 0) + blocks],
-            gv, "Posting limit order #" + o + "…", { otc: o },
+            gv, LT("callLimPost", "Posting limit order #{o}…", { o }), { otc: o },
             gaB !== 0n ? { cid: OTC_CID, asset: ga } : { cid: OTC_CID });
 }
 
@@ -2088,7 +2098,7 @@ const group = (s) => String(s).replace(/^(-?)(\d+)/, (m, sg, d) => sg + d.replac
 const fmtShort = (v) => { const a = Math.abs(v); if (!(a >= 1e5)) return fmtPrice(v);
   const u = [[1e12, "T"], [1e9, "B"], [1e6, "M"], [1e3, "K"]].find(([k]) => a >= k); return (v / u[0]).toFixed(2) + u[1]; };
 const fmtPrice = (v) => v > 0 && v < 1e-6 ? "< 0.000001" : group(v >= 1e15 ? v.toExponential(3) : v >= 1000 ? v.toFixed(2) : v >= 1 ? v.toFixed(4) : v.toPrecision(4));
-const fmtAgo = (ts) => { const s = Math.max(0, (Date.now() - ts) / 1000); return s < 90 ? Math.round(s) + "s ago" : s < 5400 ? Math.round(s / 60) + "m ago" : s < 172800 ? Math.round(s / 3600) + "h ago" : Math.round(s / 86400) + "d ago"; };
+const fmtAgo = (ts) => { const s = Math.max(0, (Date.now() - ts) / 1000); return s < 90 ? LT("agoS", "{n}s ago", { n: Math.round(s) }) : s < 5400 ? LT("agoM", "{n}m ago", { n: Math.round(s / 60) }) : s < 172800 ? LT("agoH", "{n}h ago", { n: Math.round(s / 3600) }) : LT("agoD", "{n}d ago", { n: Math.round(s / 86400) }); };
 
 // ---- the Markets tab: one table, both venues, sortable, click-through -------------------------------
 const vol24 = (key) => (sharedTrades[key] || []).filter((t) => t[0] * 1000 >= Date.now() - 86400000).reduce((a, t) => a + Number(t[1] || 0), 0);
@@ -2103,9 +2113,9 @@ function renderTicker() {
   const live = rows.filter((r) => r.price > 0).length;
   const liq = rows.reduce((a, r) => a + (Number(r.liq) || 0), 0), vol = rows.reduce((a, r) => a + (Number(r.vol) || 0), 0);
   const f = (x) => x >= 1e6 ? (x / 1e6).toFixed(2) + "M" : x >= 1e3 ? (x / 1e3).toFixed(1) + "k" : x.toFixed(x >= 100 ? 0 : 2);
-  el.innerHTML = [["Markets", `${rows.length}<small>· ${live} live</small>`], ["Total liquidity", `${f(liq)}<small>NADO</small>`],
-                  ["24h volume", `${f(vol)}<small>NADO</small>`], ["Swap fee", "0.30%<small>to LPs</small>"]]
-    .map(([l, v]) => `<div><div class="l">${l}</div><div class="v">${v}</div></div>`).join("");
+  el.innerHTML = [[LT("mtsTitle", "Markets"), `${rows.length}<small>· ${esc(LT("tkLive", "{n} live", { n: live }))}</small>`], [LT("tkLiq", "Total liquidity"), `${f(liq)}<small>NADO</small>`],
+                  [LT("st24Vol", "24h volume"), `${f(vol)}<small>NADO</small>`], [LT("stFee", "Swap fee"), `0.30%<small>${esc(LT("tkToLps", "to LPs"))}</small>`]]
+    .map(([l, v]) => `<div><div class="l">${esc(l)}</div><div class="v">${v}</div></div>`).join("");
   el.hidden = false;
 }
 // ================= THE BOARD: every market, its candles and its trades (Dexscreener-style) ====================
@@ -2354,7 +2364,7 @@ function renderMarket() {
   if (pick && lastSto) {
     const opts = ids.map((id) => { const q = poolOf(lastSto, id);
       return `<option value="${q.id}">${esc(tokSym(q.asset))} / NADO — ${esc(tokName(q.asset))}</option>`; }).join("");
-    if (pick.dataset.sig !== opts) { pick.dataset.sig = opts; pick.innerHTML = opts || `<option>no markets yet</option>`; }
+    if (pick.dataset.sig !== opts) { pick.dataset.sig = opts; pick.innerHTML = opts || `<option>${esc(LT("mtNone", "No markets yet."))}</option>`; }
     if (sel) pick.value = String(sel);
   }
   gate({ marketCard: !!sel });
@@ -2382,22 +2392,22 @@ function renderMarket() {
   // stats
   const tvlNado = live ? fromUnits(p.rn * 2n) : "0";       // NADO-side ×2 ≈ total value in NADO
   $("mktStats").innerHTML = [
-    ["1 NADO buys", live ? fmtShort(price) + " " + esc(sym) : "—"],
-    [`1 ${esc(sym)} buys`, live ? fmtShort(1 / price) + " NADO" : "—"],
-    ["24h high", st24 ? fmtShort(st24.hi) : "—"],
-    ["24h low", st24 ? fmtShort(st24.lo) : "—"],
-    ["NADO in pool", group(fromUnits(p.rn))],
-    [esc(sym) + " in pool", fmtShort(Number(tokFromUnits(p.rt, p.asset)))],
-    ["24h volume", ix ? fmtShort(unitsNado(ix.h24.volume)) + " NADO" : vol24(String(p.id)) ? "≈ " + fmtShort(vol24(String(p.id))) + " NADO" : "—"],
-    ["24h trades", ix ? `<span class="up">${ix.h24.buys}</span> / <span class="dn">${ix.h24.sells}</span>` : String(trades24(String(p.id)))],
+    [esc(LT("stBuys", "1 {s} buys", { s: "NADO" })), live ? fmtShort(price) + " " + esc(sym) : "—"],
+    [esc(LT("stBuys", "1 {s} buys", { s: sym })), live ? fmtShort(1 / price) + " NADO" : "—"],
+    [esc(LT("st24Hi", "24h high")), st24 ? fmtShort(st24.hi) : "—"],
+    [esc(LT("st24Lo", "24h low")), st24 ? fmtShort(st24.lo) : "—"],
+    [esc(LT("stInPool", "{s} in pool", { s: "NADO" })), group(fromUnits(p.rn))],
+    [esc(LT("stInPool", "{s} in pool", { s: sym })), fmtShort(Number(tokFromUnits(p.rt, p.asset)))],
+    [esc(LT("st24Vol", "24h volume")), ix ? fmtShort(unitsNado(ix.h24.volume)) + " NADO" : vol24(String(p.id)) ? "≈ " + fmtShort(vol24(String(p.id))) + " NADO" : "—"],
+    [esc(LT("st24Trades", "24h trades")), ix ? `<span class="up">${ix.h24.buys}</span> / <span class="dn">${ix.h24.sells}</span>` : String(trades24(String(p.id)))],
     [esc(LT("mtMakers", "Makers")) + " 24h", ix ? String(ix.makers) : "—"],
     ["FDV", live && tokSupply(p.asset) ? fmtShort(px * tokSupply(p.asset)) + " NADO" : "—"],
     [esc(LT("pairAge", "Pair age")), ix && ix.created ? fmtAge(ix.created) : "—"],
-    ["Pool value", "≈ " + tvlNado + " NADO"],
-    ["LP shares", p.sup.toString()],
-    ["Swap fee", "0.30%"],
+    [esc(LT("stPoolVal", "Pool value")), "≈ " + tvlNado + " NADO"],
+    [esc(LT("stLpShares", "LP shares")), p.sup.toString()],
+    [esc(LT("stFee", "Swap fee")), "0.30%"],
   ].map(([l, v]) => `<div class="stat"><div class="l">${l}</div><div class="v">${v}</div></div>`).join("");
-  const cap = $("depthCap"); if (cap) cap.textContent = "How much the rate moves as your trade gets bigger:";
+  const cap = $("depthCap"); if (cap) cap.textContent = LT("depthAmm", "How much the rate moves as your trade gets bigger:");
   const mc = $("mktCap"); if (mc) mc.textContent = IX.on
     ? LT("capIx", "Candles and trades from every trade this node indexed (finalized blocks, ~5 minutes behind); the live pool price closes the newest candle.")
     : LT("capSamples", "Price-only candles from the node's 30-s samples — this node keeps no trade index.");
@@ -2425,7 +2435,7 @@ function renderChart(key, sym, unit) {
   if (data.length < 2) {
     svg.innerHTML = "";
     empty.classList.remove("hidden");
-    empty.textContent = data.length ? "One price point so far — the line draws once the pool ticks again." : "Collecting live prices — the chart fills in as this pool trades and time passes.";
+    empty.textContent = data.length ? LT("chOnePt", "One price point so far — the line draws once the pool ticks again.") : LT("chCollecting", "Collecting live prices — the chart fills in as this pool trades and time passes.");
     _mktPts = []; return;
   }
   empty.classList.add("hidden");
@@ -2507,8 +2517,8 @@ function renderDepth(p, price) {
   svg.innerHTML =
     `<line x1="${midX}" y1="4" x2="${midX}" y2="${DH - 12}" stroke="var(--border)" stroke-width="1"/>` +
     areaOf(sell, -1, "var(--danger)") + areaOf(buy, 1, "var(--accent2)") +
-    `<text x="8" y="${DH - 2}" fill="var(--danger)" font-size="9.5" font-family="ui-monospace,monospace">← bigger sells get a worse rate</text>` +
-    `<text x="${DW - 8}" y="${DH - 2}" fill="var(--accent2)" font-size="9.5" text-anchor="end" font-family="ui-monospace,monospace">bigger buys get a worse rate →</text>`;
+    `<text x="8" y="${DH - 2}" fill="var(--danger)" font-size="9.5" font-family="ui-monospace,monospace">← ${esc(LT("dpSells", "bigger sells get a worse rate"))}</text>` +
+    `<text x="${DW - 8}" y="${DH - 2}" fill="var(--accent2)" font-size="9.5" text-anchor="end" font-family="ui-monospace,monospace">${esc(LT("dpBuys", "bigger buys get a worse rate"))} →</text>`;
 }
 
 
@@ -2565,7 +2575,7 @@ function wireUI() {
       if (!on && $("otcToken")) $("otcToken").value = "";
     };
     const loadAddr = () => { showTok(); if (addrIn) { addrIn.value = faddrGet(netSel.value); 
-      addrIn.placeholder = `your ${(NETS[netSel.value] || {}).label || ""} address (saved for next time)`; } };
+      addrIn.placeholder = LT("addrSavedPh", "your {n} address (saved for next time)", { n: (NETS[netSel.value] || {}).label || "" }); } };
     netSel.onchange = () => { netSel.dataset.touched = "1"; loadAddr(); kindHint(); };
     // LIVE address feedback: the field says what it thinks as you type — empty, wrong shape for this
     // network, or valid — and Post stays disabled until it is valid. Nobody should learn their address
@@ -2574,11 +2584,11 @@ function wireUI() {
     async function checkAddr() {
       const v = (addrIn.value || "").trim(), n = NETS[netSel.value] || {}, ch = n.chain;
       let ok = false, msg = "";
-      if (!v) msg = `Enter your ${n.label || "network"} address — it is where this swap pays you.`;
-      else if (ch === "eth") { ok = /^0x[0-9a-fA-F]{40}$/.test(v); msg = ok ? "Valid Ethereum address" : "An Ethereum address is 0x followed by 40 hex characters"; }
-      else if (ch === "sol") { ok = isB58Addr(v); msg = ok ? "Valid Solana address" : "A Solana address is 32–44 base58 characters"; }
-      else if (ch === "btc") { try { await addressToScript(v, n.hrp || "bc"); ok = true; msg = `Valid ${n.label} address`; } catch (e) { msg = `Not a ${n.label} address: ${String(e.message || e).slice(0, 60)}`; } }
-      else { ok = v.length > 8; msg = ok ? "" : "Address looks too short"; }
+      if (!v) msg = LT("adEnter", "Enter your {n} address — it is where this swap pays you.", { n: n.label || LT("netWord", "network") });
+      else if (ch === "eth") { ok = /^0x[0-9a-fA-F]{40}$/.test(v); msg = ok ? LT("adValid", "Valid {n} address", { n: "Ethereum" }) : LT("adEthBad", "An Ethereum address is 0x followed by 40 hex characters"); }
+      else if (ch === "sol") { ok = isB58Addr(v); msg = ok ? LT("adValid", "Valid {n} address", { n: "Solana" }) : LT("adSolBad", "A Solana address is 32–44 base58 characters"); }
+      else if (ch === "btc") { try { await addressToScript(v, n.hrp || "bc"); ok = true; msg = LT("adValid", "Valid {n} address", { n: n.label }); } catch (e) { msg = LT("adNot", "Not a {n} address: {m}", { n: n.label, m: String(e.message || e).slice(0, 60) }); } }
+      else { ok = v.length > 8; msg = ok ? "" : LT("adShort", "Address looks too short"); }
       if (addrHint) { addrHint.textContent = msg; addrHint.style.color = !v ? "var(--dim)" : ok ? "var(--accent2)" : "var(--danger)"; }
       addrIn.style.borderColor = !v ? "" : ok ? "var(--accent2)" : "var(--danger)";
       const pb = $("btnOtcPost"); if (pb && !pb.title) pb.disabled = !ok;    // a market-level block (title set) wins
@@ -2603,7 +2613,7 @@ function wireUI() {
       if (!sel || !lastSto || !amt) return;
       const p = poolOf(lastSto, sel), d = ($("dir") || {}).value || "n2t";
       const bal = d === "n2t" ? execUnits() : tokenUnits(p.asset);
-      if (bal == null) return alertBar("Sign in to use your balance.");
+      if (bal == null) return alertBar(LT("signInBal", "Sign in to use your balance."));
       const pct = BigInt(b.getAttribute("data-pct"));
       amt.value = d === "n2t" ? fromUnits(bal * pct / 100n) : tokFromUnits(bal * pct / 100n, p.asset);
       renderSwap();
@@ -2617,9 +2627,9 @@ function wireUI() {
   if (mp) mp.onchange = () => { if (curMode === "cross") xsel = mp.value; else sel = mp.value; syncUrl(true); render(); };
   // the SDK sweeps every select on the page (including lists filled by a later poll); these two only
   // need their search wording set, so they are enhanced eagerly with a better placeholder
-  enhanceSelect($("mktPick"), { searchPlaceholder: "Search markets" });
+  enhanceSelect($("mktPick"), { searchPlaceholder: LT("mtSearch", "Search markets") });
   ["newAsset", "limGiveAsset", "limWantAsset", "otcTokenPick"].forEach((id) =>
-    enhanceSelect($(id), { searchPlaceholder: "Search tokens by name, symbol or id" }));
+    enhanceSelect($(id), { searchPlaceholder: LT("searchTok", "Search tokens by name, symbol or id") }));
   // ONE token control: pick a known token, or pick "another token" and paste it — the paste box checks
   // itself as you type, so no separate button repeats the job.
   const kindSel = $("otcKind");
@@ -2650,37 +2660,37 @@ function wireUI() {
   if (sh) sh.onclick = () => {
     const url = marketUrl(true);
     const pair = sel && lastSto ? symOfPool(poolOf(lastSto, sel)) + "/NADO" : "NADO DEX";
-    share(url, `Trade ${pair} on a post-quantum chain — no listing, no admin, no rake.`, sh, pair + " on NADO DEX");
+    share(url, LT("shareText", "Trade {p} on a post-quantum chain — no listing, no admin, no rake.", { p: pair }), sh, LT("shareTitle", "{p} on NADO DEX", { p: pair }));
   };
 }
 
 dapp.onReturn((pend, ok, err) => {
   if (pend && pend.poolId != null) sel = String(pend.poolId);
   dapp.showReturn(pend, ok, err, {
-    open: "Pool opened — confirming…",
-    fundn: "NADO deposited — confirming…",
-    fundt: "Token deposited — confirming…",
-    join: "Liquidity added — confirming…",
+    open: LT("rtOpen", "Pool opened — confirming…"),
+    fundn: LT("rtFundN", "NADO deposited — confirming…"),
+    fundt: LT("rtFundT", "Token deposited — confirming…"),
+    join: LT("rtJoin", "Liquidity added — confirming…"),
     obuy: LT("swSent", "Swap placed in this block's batch — your coins are collected once it has passed"),
     osell: LT("swSent", "Swap placed in this block's batch — your coins are collected once it has passed"),
-    exit: "Withdrawal sent — confirming…",
-    refund: "Refund sent — confirming…",
-    post: "Order posted — confirming…",
-    post_intra: "Limit order posted — confirming…",
-    fill_intra: "Limit order filled — confirming…",
-    fill: "Order taken — confirming…",
-    settle: "Settle sent — confirming…",
-    expire: "Reclaim sent — confirming…",
-    boost: "Tip attached — confirming…",
-    cancel: "Cancel sent — confirming…",
-    release: "Order released — confirming…",
+    exit: LT("rtExit", "Withdrawal sent — confirming…"),
+    refund: LT("rtRefund", "Refund sent — confirming…"),
+    post: LT("rtPost", "Order posted — confirming…"),
+    post_intra: LT("rtPostIntra", "Limit order posted — confirming…"),
+    fill_intra: LT("rtFillIntra", "Limit order filled — confirming…"),
+    fill: LT("rtFill", "Order taken — confirming…"),
+    settle: LT("rtSettle", "Settle sent — confirming…"),
+    expire: LT("rtExpire", "Reclaim sent — confirming…"),
+    boost: LT("rtBoost", "Tip attached — confirming…"),
+    cancel: LT("rtCancel", "Cancel sent — confirming…"),
+    release: LT("rtRelease", "Order released — confirming…"),
   });
   refresh();
 });
 
 async function boot() {
   try { await dapp.init(); } catch (e) {
-    alertBar("Crypto bundle failed to load — reload.");
+    alertBar(LT("bootFail", "Crypto bundle failed to load — reload."));
     return;
   }
   wireUI(); loadQR();
@@ -2691,13 +2701,13 @@ async function boot() {
   human("otcExpiry", "otcExpiryHuman"); human("limExpiry", "limExpiryHuman"); orderCards(["tradeRow", "liqCard", "poolsCard", "otcLimitCard", "openCard", "otcBookCard", "otcPostCard", "otcMyCard", "walletcard"]);
   window.addEventListener("popstate", () => { wantMarket = null; readUrl(); render(); });
   const modes = installModes(dapp, { modes: [
-    { key: "markets", icon: "", label: "Markets", hint: "Every pair on both venues — price, 24h change, volume, liquidity. Tap a row to trade it.",
+    { key: "markets", icon: "", label: LT("mtsTitle", "Markets"), hint: LT("modeMarketsHint", "Every pair on both venues — price, 24h change, volume, liquidity. Tap a row to trade it."),
       cards: ["marketsCard"] },
-    { key: "swap", icon: "", label: "Swap", hint: "Trade NADO and tokens on the on-chain AMM — live price, depth, and pools.",
+    { key: "swap", icon: "", label: LT("swTitle", "Swap"), hint: LT("modeSwapHint", "Trade NADO and tokens on the on-chain AMM — live price, depth, and pools."),
       // liqCard is the PAGE's to show (keep): a graduated launch's pool takes no liquidity, and a mode that owned the
       // card force-showed it after every render
       cards: ["marketCard", "swapCard", "poolsCard", "otcLimitCard", "openCard"], keep: ["liqCard"] },
-    { key: "cross", icon: "", label: "Cross-chain", hint: "Atomic BTC / ETH / SOL ↔ NADO swaps — no custodian, no wrapped coins.",
+    { key: "cross", icon: "", label: LT("modeCross", "Cross-chain"), hint: LT("modeCrossHint", "Atomic BTC / ETH / SOL ↔ NADO swaps — no custodian, no wrapped coins."),
       cards: ["marketCard", "otcBookCard", "otcPostCard", "otcMyCard"] },
     { key: "launch", icon: "", label: LT("modeLaunch", "Launch"), hint: LT("modeLaunchHint", "Launch a coin with a market from its first block — one price per batch for everyone, no platform or creator fee, liquidity nobody can pull."),
       cards: ["lpFeedCard", "lpCreateCard"], keep: ["lpCoinCard"] },   // the coin card only with a coin selected
@@ -2705,6 +2715,9 @@ async function boot() {
   modesRef = modes;
   curMode = modes.get();                                 // the SDK restores a remembered mode when the URL names none
   render = modes.wrap(doRender);
+  // a language switch rewrites the data-i18n nodes at once; the strings this script writes follow on the same beat
+  // instead of waiting for the next 3-s poll (the who line, the stats, the order rows, the network hint)
+  window.addEventListener("nado-lang", () => { kindHint(); render(); });
   window.addEventListener("popstate", () => {
     const qm = new URLSearchParams(location.search).get("mode"), m = qm === "cross" || qm === "markets" || qm === "launch" ? qm : "swap";
     if (m !== modes.get()) modes.set(m);
