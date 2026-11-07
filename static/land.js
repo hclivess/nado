@@ -90,7 +90,8 @@ const PAINT = {
   28: ["#2e6fd8", 0.06], 29: ["#8e44ad", 0.06], 30: ["#262626", 0.06], 31: ["#f4f4f4", 0.05], 32: ["#e9e6df", 0.05, "marble"],
   33: ["#2a2a2a", 0.3], 34: ["#e8e4da", 0.06, "birch"], 35: ["#24502a", 0.22, "leaves"], 36: ["#6aa83a", 0.2, "leaves"],
   37: ["#7d7570", 0.14, "ore"], 38: ["#6e4a2c", 0.06, "door"], 39: ["#7a5534", 0.08, "beam"], 40: ["#c9a95a", 0.14, "thatch"],
-  41: ["#5a3a22", 0.06, "door"],
+  41: ["#5a3a22", 0.06, "door"], 42: ["#2b2b2d", 0.18, "coal"], 43: ["#7d7570", 0.14, "copper"], 44: ["#7d7570", 0.14, "tin"],
+  45: ["#a5765a", 0.1],
 };
 function paintAtlas() {
   const cv = document.createElement("canvas");
@@ -124,6 +125,9 @@ function paintAtlas() {
       if (kind === "grassSide" && y < 4 + (rnd() < 0.4 ? 1 : 0)) col = new THREE.Color("#5f9e3a").multiplyScalar(k);
       if (kind === "snowSide" && y < 4 + (rnd() < 0.4 ? 1 : 0)) col = new THREE.Color("#f2f6f8").multiplyScalar(k);
       if (kind === "ore" && (x * 5 + y * 7) % 9 < 2) col = new THREE.Color("#9a5a32").multiplyScalar(k);   // rusty specks
+      if (kind === "coal" && (x * 3 + y * 5) % 7 < 1) col = new THREE.Color("#55555c").multiplyScalar(k);    // a dull glint
+      if (kind === "copper" && (x * 5 + y * 3) % 8 < 2) col = new THREE.Color("#3f9a7a").multiplyScalar(k);  // verdigris
+      if (kind === "tin" && (x * 7 + y * 2) % 9 < 2) col = new THREE.Color("#c9ccd2").multiplyScalar(k);     // pale metal
       const a = kind === "glass" && !(x === 0 || y === 0 || x === TILE - 1 || y === TILE - 1) ? 0.25 : t === 6 ? 0.75 : 1;
       g.fillStyle = `rgba(${Math.min(255, col.r * 255) | 0},${Math.min(255, col.g * 255) | 0},${Math.min(255, col.b * 255) | 0},${a})`;
       g.fillRect(x0 + x, y0 + y, 1, 1);

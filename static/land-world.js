@@ -190,9 +190,15 @@ export const BLOCKS = [
   // a window: a timber frame with a cross mullion around a thin pane, made whole (land-mesher.js meshWindow) — set into a
   // wall's frame as in Medieval Dynasty's window walls, not a sheet of blue glass ("windows on the house look weird")
   { key: "window", solid: true, tex: [41, 41, 41] },
+  // BELOW GROUND ("start creating various structures and adding additional recipes and materials ... in a sensible,
+  // realistic yet engaging manner", operator 2026-11-07): coal for fuel, copper and tin for bronze, clay beds in the soil
+  { key: "coal", solid: true, tex: [42, 42, 42] },
+  { key: "copperore", solid: true, tex: [43, 43, 43] },
+  { key: "tinore", solid: true, tex: [44, 44, 44] },
+  { key: "clay", solid: true, tex: [45, 45, 45] },
 ];
 export const B = Object.fromEntries(BLOCKS.map((b, i) => [b.key, i]));
-export const ATLAS_TILES = 42;              // tiles 0..41 (0 unused)
+export const ATLAS_TILES = 46;              // tiles 0..45 (0 unused)
 export const opaque = (id) => BLOCKS[id].solid && !BLOCKS[id].see;
 
 // ---- terrain ---------------------------------------------------------------------------------------------------
@@ -338,9 +344,18 @@ export function terrainBlock(face, u, v, h, colCache) {
   if (h <= col.top) {
     if (h < col.top - col.soil + 1) {
       if (h < 4) return B.bedrock;
-      // IRON ORE in veins through the rock: a 3-D field over a few metres, so a vein runs on as you follow it
-      return noise3(PERM[6], u / 7.3, v / 7.3, h / 4.1 + face * 977) > 0.38 ? B.ironore : B.stone;
+      // ORE VEINS through the rock: ONE 3-D field over a few metres says where a vein runs (so it runs on as you follow
+      // it), and a hash of the ~8 m region it runs through says what it holds — coal most often, then iron, copper, and
+      // tin rarest (bronze is copper with a little tin, as in the world). One noise per rock cell: the mesher reads
+      // every cell of a chunk, and four fields would have cost four times as much.
+      if (!(noise3(PERM[6], u / 7.3, v / 7.3, h / 4.1 + face * 977) > 0.33)) return B.stone;
+      const r = hash32(face + 31, (u >> 3) * 7 + (h >> 3), v >> 3) % 100;
+      return r < 40 ? B.coal : r < 75 ? B.ironore : r < 92 ? B.copperore : B.tinore;
     }
+    // CLAY BEDS in the subsoil (two to four layers down) where a broad field says the ground is clayey — clay is dug,
+    // not conjured from earth and sand
+    if (h < col.top - 1 && h >= col.top - 4 && (col.biome === "grass" || col.biome === "forest" || col.biome === "beach")
+        && noise3(PERM[2], u / 37, v / 37, face * 131) > 0.18) return B.clay;
     if (col.biome === "beach" || col.biome === "desert") return B.sand;
     if (col.biome === "rock") return h === col.top && col.top > SEA + 95 ? B.snow : B.stone;
     if (col.top < SEA) return h === col.top ? B.gravel : B.dirt;
@@ -373,7 +388,7 @@ export function terrainBlock(face, u, v, h, colCache) {
 //   an untouched cell:  height(column) - (h + 0.5), clamped to [-1, 1] — the generator's exact, unrounded ground;
 //   an edited cell:     +1 if a natural material was put there, -1 otherwise (dug out, or a built block, which carves
 //                       its own room in the ground and is drawn crisp).
-export const NATURAL = new Set([B.grass, B.dirt, B.stone, B.sand, B.snow, B.gravel, B.basalt, B.bedrock, B.ironore]);
+export const NATURAL = new Set([B.grass, B.dirt, B.stone, B.sand, B.snow, B.gravel, B.basalt, B.bedrock, B.ironore, B.coal, B.copperore, B.tinore, B.clay]);
 export function fieldOf(col, h, edit) {
   if (edit !== undefined) return NATURAL.has(edit) ? 1 : -1;
   if (h <= 0) return 1;

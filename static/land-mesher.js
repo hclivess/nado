@@ -52,7 +52,7 @@ export function groundWeights(b, up) {          // (static/land.js weighs the fa
   const w = [0, 0, 0, 0, 0, 0];                          // grass, dirt, rock, sand, snow, gravel
   const steep = smoothstep(0.62, 0.38, up);              // 1 on a cliff, 0 on the flat
   if (b === B.grass) { const g = smoothstep(0.62, 0.85, up); w[0] = g; w[1] = 1 - g; }
-  else if (b === B.dirt) w[1] = 1;
+  else if (b === B.dirt || b === B.clay) w[1] = 1;    // clay: earth's texture, its own tint (groundGrain)
   else if (b === B.sand) w[3] = 1;
   else if (b === B.snow) w[4] = 1;
   else if (b === B.gravel) w[5] = 1;
@@ -62,7 +62,14 @@ export function groundWeights(b, up) {          // (static/land.js weighs the fa
   const n = w.reduce((a, x) => a + x, 0) || 1;
   return w.map((x) => x / n);
 }
-const groundGrain = (b, up, u, v, h) => { const j = 0.9 + 0.2 * hash3(u, v, h); return [j, j, j]; };
+// the faint per-place grain, and the colour of what is IN the ground where a dig exposes it — a vein of ore must be
+// seen to be followed (2026-11-07): coal dark, iron rusty, copper verdigris, tin pale, clay a reddish earth
+const ORE_TINT = { [B.coal]: [0.38, 0.38, 0.4], [B.ironore]: [1.12, 0.82, 0.66], [B.copperore]: [0.78, 1.08, 0.92],
+  [B.tinore]: [1.18, 1.18, 1.22], [B.clay]: [1.12, 0.86, 0.72] };
+const groundGrain = (b, up, u, v, h) => {
+  const j = 0.9 + 0.2 * hash3(u, v, h), t = ORE_TINT[b];
+  return t ? [j * t[0], j * t[1], j * t[2]] : [j, j, j];
+};
 
 /** The chunk's cells with the border: block ids and the ground field, index ((k * N) + j) * N + i. */
 function cells(face, cu, cv, ch, edits) {

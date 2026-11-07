@@ -1,6 +1,6 @@
 {
  "about": "Land's gathering and crafting web (doc/land.md 'Gathering, tools, crafting'). ONE file read by the page (static/land.js) and the world server (scripts/land_server.py), so both apply the same rules: 'you must gather resources to make tools to make tools to collect more resources' (operator, 2026-11-06). No eras: every recipe names exactly what it needs. Block ids are static/land-world.js BLOCKS.",
- "version": 2,
+ "version": 3,
  "items": {
   "fiber": {
    "name": "Plant fiber"
@@ -115,6 +115,18 @@
     10,
     120
    ]
+  },
+  "coal": {
+   "name": "Coal"
+  },
+  "copperore": {
+   "name": "Copper ore"
+  },
+  "tinore": {
+   "name": "Tin ore"
+  },
+  "bronze": {
+   "name": "Bronze"
   }
  },
  "tools": {
@@ -152,6 +164,21 @@
    "name": "Iron shovel",
    "class": "shovel",
    "speed": 6
+  },
+  "bronze_axe": {
+   "name": "Bronze axe",
+   "class": "axe",
+   "speed": 4.5
+  },
+  "bronze_pick": {
+   "name": "Bronze pickaxe",
+   "class": "pick",
+   "speed": 4.5
+  },
+  "bronze_shovel": {
+   "name": "Bronze shovel",
+   "class": "shovel",
+   "speed": 4.5
   }
  },
  "stations": {
@@ -460,6 +487,49 @@
      1
     ]
    ]
+  },
+  "41": {
+   "hard": 2.5,
+   "class": "pick",
+   "needs": "pick",
+   "yields": [
+    [
+     "coal",
+     1
+    ]
+   ]
+  },
+  "42": {
+   "hard": 3.0,
+   "class": "pick",
+   "needs": "pick",
+   "yields": [
+    [
+     "copperore",
+     1
+    ]
+   ]
+  },
+  "43": {
+   "hard": 3.0,
+   "class": "pick",
+   "needs": "pick",
+   "yields": [
+    [
+     "tinore",
+     1
+    ]
+   ]
+  },
+  "44": {
+   "hard": 0.8,
+   "class": "shovel",
+   "yields": [
+    [
+     "clay",
+     1
+    ]
+   ]
   }
  },
  "recipes": [
@@ -563,25 +633,6 @@
     [
      "stone",
      4
-    ]
-   ]
-  },
-  {
-   "id": "clay",
-   "makes": [
-    [
-     "clay",
-     2
-    ]
-   ],
-   "uses": [
-    [
-     "dirt",
-     1
-    ],
-    [
-     "sand",
-     1
     ]
    ]
   },
@@ -1118,6 +1169,168 @@
    "with": [
     "workbench",
     "hammer"
+   ]
+  },
+  {
+   "id": "bronze",
+   "makes": [
+    [
+     "bronze",
+     2
+    ]
+   ],
+   "uses": [
+    [
+     "copperore",
+     3
+    ],
+    [
+     "tinore",
+     1
+    ],
+    [
+     "charcoal",
+     2
+    ]
+   ],
+   "with": [
+    "bloomery"
+   ]
+  },
+  {
+   "id": "bronze_coal",
+   "makes": [
+    [
+     "bronze",
+     2
+    ]
+   ],
+   "uses": [
+    [
+     "copperore",
+     3
+    ],
+    [
+     "tinore",
+     1
+    ],
+    [
+     "coal",
+     1
+    ]
+   ],
+   "with": [
+    "bloomery"
+   ]
+  },
+  {
+   "id": "bronze_axe",
+   "makes": [
+    [
+     "bronze_axe",
+     1
+    ]
+   ],
+   "uses": [
+    [
+     "bronze",
+     2
+    ],
+    [
+     "sticks",
+     2
+    ]
+   ],
+   "with": [
+    "bloomery"
+   ]
+  },
+  {
+   "id": "bronze_pick",
+   "makes": [
+    [
+     "bronze_pick",
+     1
+    ]
+   ],
+   "uses": [
+    [
+     "bronze",
+     3
+    ],
+    [
+     "sticks",
+     2
+    ]
+   ],
+   "with": [
+    "bloomery"
+   ]
+  },
+  {
+   "id": "bronze_shovel",
+   "makes": [
+    [
+     "bronze_shovel",
+     1
+    ]
+   ],
+   "uses": [
+    [
+     "bronze",
+     1
+    ],
+    [
+     "sticks",
+     2
+    ]
+   ],
+   "with": [
+    "bloomery"
+   ]
+  },
+  {
+   "id": "iron_coal",
+   "makes": [
+    [
+     "iron",
+     1
+    ]
+   ],
+   "uses": [
+    [
+     "ironore",
+     2
+    ],
+    [
+     "coal",
+     1
+    ]
+   ],
+   "with": [
+    "bloomery"
+   ]
+  },
+  {
+   "id": "lime_coal",
+   "makes": [
+    [
+     "lime",
+     2
+    ]
+   ],
+   "uses": [
+    [
+     "stone",
+     2
+    ],
+    [
+     "coal",
+     1
+    ]
+   ],
+   "with": [
+    "kiln"
    ]
   }
  ],

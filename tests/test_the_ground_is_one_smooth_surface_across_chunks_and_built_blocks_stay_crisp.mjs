@@ -177,9 +177,11 @@ ok(/Wd\.fieldOf\(colAt\(/.test(land) && /fieldOf/.test(readFileSync(join(ROOT, "
   let shallow = 0, n = 0;
   for (let i = 0; i < 48; i += 3) for (let j = 0; j < 48; j += 3) {
     const c = Wd.column(q.face, q.u0 + i, q.v0 + j); n++;
-    if (Wd.terrainBlock(q.face, q.u0 + i, q.v0 + j, c.top - 4) !== Wd.B.dirt) shallow++;
+    // clay beds lie in the subsoil (two to four down): clay is soil, not rock — the property is "no rock this shallow"
+    const b = Wd.terrainBlock(q.face, q.u0 + i, q.v0 + j, c.top - 4);
+    if (b !== Wd.B.dirt && b !== Wd.B.clay) shallow++;
   }
-  ok(shallow === 0, `the meadow's soil is earth at least 4 layers down everywhere (${shallow} of ${n} columns hit rock sooner)`);
+  ok(shallow === 0, `the meadow's soil is earth or clay at least 4 layers down everywhere (${shallow} of ${n} columns hit rock sooner)`);
 }
 
 console.log(fails ? `${fails} FAILED` : "all passed");

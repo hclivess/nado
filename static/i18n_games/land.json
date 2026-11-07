@@ -148,7 +148,14 @@
   "land.levelNoEarth": "Not enough earth to fill the hollows — dig some first.",
   "land.levelling": "Levelling…",
   "land.levelDone": "Level.",
-  "land.levelTrunk": "A tree stands on the site — make an axe to fell it, or the ground stays bumped there."
+  "land.levelTrunk": "A tree stands on the site — make an axe to fell it, or the ground stays bumped there.",
+  "land.i.coal": "Coal",
+  "land.i.copperore": "Copper ore",
+  "land.i.tinore": "Tin ore",
+  "land.i.bronze": "Bronze",
+  "land.t.bronze_axe": "Bronze axe",
+  "land.t.bronze_pick": "Bronze pickaxe",
+  "land.t.bronze_shovel": "Bronze shovel"
  },
  "cs": {
   "land.notYours": "Pozemek {p} patří někomu jinému. Kupte si pozemek, nebo požádejte jeho vlastníka o pozvání.",
@@ -299,7 +306,14 @@
   "land.levelNoEarth": "Na zasypání prohlubní nemáš dost hlíny — nejdřív nějakou vykopej.",
   "land.levelling": "Srovnávám…",
   "land.levelDone": "Srovnáno.",
-  "land.levelTrunk": "Na místě stojí strom — vyrob si sekeru a pokácej ho, jinak tam zůstane hrbol."
+  "land.levelTrunk": "Na místě stojí strom — vyrob si sekeru a pokácej ho, jinak tam zůstane hrbol.",
+  "land.i.coal": "Uhlí",
+  "land.i.copperore": "Měděná ruda",
+  "land.i.tinore": "Cínová ruda",
+  "land.i.bronze": "Bronz",
+  "land.t.bronze_axe": "Bronzová sekera",
+  "land.t.bronze_pick": "Bronzový krumpáč",
+  "land.t.bronze_shovel": "Bronzová lopata"
  },
  "es": {
   "land.notYours": "La parcela {p} pertenece a otra persona. Compra una parcela o pide a su dueño que te invite.",
@@ -450,7 +464,14 @@
   "land.levelNoEarth": "No tienes tierra suficiente para rellenar los huecos: excava primero.",
   "land.levelling": "Nivelando…",
   "land.levelDone": "Nivelado.",
-  "land.levelTrunk": "Hay un árbol en el terreno: fabrica un hacha para talarlo o el suelo quedará abultado ahí."
+  "land.levelTrunk": "Hay un árbol en el terreno: fabrica un hacha para talarlo o el suelo quedará abultado ahí.",
+  "land.i.coal": "Carbón",
+  "land.i.copperore": "Mineral de cobre",
+  "land.i.tinore": "Mineral de estaño",
+  "land.i.bronze": "Bronce",
+  "land.t.bronze_axe": "Hacha de bronce",
+  "land.t.bronze_pick": "Pico de bronce",
+  "land.t.bronze_shovel": "Pala de bronce"
  },
  "pt": {
   "land.notYours": "O lote {p} pertence a outra pessoa. Compre um lote ou peça ao dono que convide você.",
@@ -601,7 +622,14 @@
   "land.levelNoEarth": "Não tem terra suficiente para encher as covas — escave primeiro.",
   "land.levelling": "A nivelar…",
   "land.levelDone": "Nivelado.",
-  "land.levelTrunk": "Há uma árvore no terreno — faça um machado para a abater, ou o chão fica alto ali."
+  "land.levelTrunk": "Há uma árvore no terreno — faça um machado para a abater, ou o chão fica alto ali.",
+  "land.i.coal": "Carvão",
+  "land.i.copperore": "Minério de cobre",
+  "land.i.tinore": "Minério de estanho",
+  "land.i.bronze": "Bronze",
+  "land.t.bronze_axe": "Machado de bronze",
+  "land.t.bronze_pick": "Picareta de bronze",
+  "land.t.bronze_shovel": "Pá de bronze"
  },
  "fr": {
   "land.notYours": "La parcelle {p} appartient à quelqu'un d'autre. Achetez une parcelle ou demandez à son propriétaire de vous inviter.",
@@ -752,7 +780,14 @@
   "land.levelNoEarth": "Pas assez de terre pour combler les creux — creusez-en d'abord.",
   "land.levelling": "Nivellement…",
   "land.levelDone": "C'est de niveau.",
-  "land.levelTrunk": "Un arbre se dresse sur le terrain — fabriquez une hache pour l'abattre, sinon le sol restera bosselé là."
+  "land.levelTrunk": "Un arbre se dresse sur le terrain — fabriquez une hache pour l'abattre, sinon le sol restera bosselé là.",
+  "land.i.coal": "Charbon",
+  "land.i.copperore": "Minerai de cuivre",
+  "land.i.tinore": "Minerai d'étain",
+  "land.i.bronze": "Bronze",
+  "land.t.bronze_axe": "Hache en bronze",
+  "land.t.bronze_pick": "Pioche en bronze",
+  "land.t.bronze_shovel": "Pelle en bronze"
  },
  "de": {
   "land.notYours": "Grundstück {p} gehört jemand anderem. Kauf dir ein Grundstück oder bitte den Besitzer um eine Einladung.",
@@ -903,7 +938,14 @@
   "land.levelNoEarth": "Nicht genug Erde, um die Mulden zu füllen — grab erst welche.",
   "land.levelling": "Ebne ein…",
   "land.levelDone": "Eben.",
-  "land.levelTrunk": "Auf dem Platz steht ein Baum — stell eine Axt her, um ihn zu fällen, sonst bleibt dort eine Beule."
+  "land.levelTrunk": "Auf dem Platz steht ein Baum — stell eine Axt her, um ihn zu fällen, sonst bleibt dort eine Beule.",
+  "land.i.coal": "Kohle",
+  "land.i.copperore": "Kupfererz",
+  "land.i.tinore": "Zinnerz",
+  "land.i.bronze": "Bronze",
+  "land.t.bronze_axe": "Bronzeaxt",
+  "land.t.bronze_pick": "Bronzespitzhacke",
+  "land.t.bronze_shovel": "Bronzeschaufel"
  },
  "it": {
   "land.notYours": "Il lotto {p} appartiene a qualcun altro. Compra un lotto o chiedi al proprietario di invitarti.",
@@ -1054,7 +1096,14 @@
   "land.levelNoEarth": "Non hai abbastanza terra per riempire le buche: scava prima.",
   "land.levelling": "Livellamento…",
   "land.levelDone": "Livellato.",
-  "land.levelTrunk": "Sul terreno c'è un albero: costruisci un'ascia per abbatterlo, o lì il terreno resterà rialzato."
+  "land.levelTrunk": "Sul terreno c'è un albero: costruisci un'ascia per abbatterlo, o lì il terreno resterà rialzato.",
+  "land.i.coal": "Carbone",
+  "land.i.copperore": "Minerale di rame",
+  "land.i.tinore": "Minerale di stagno",
+  "land.i.bronze": "Bronzo",
+  "land.t.bronze_axe": "Ascia di bronzo",
+  "land.t.bronze_pick": "Piccone di bronzo",
+  "land.t.bronze_shovel": "Pala di bronzo"
  },
  "ru": {
   "land.notYours": "Участок {p} принадлежит другому игроку. Купите участок или попросите владельца пригласить вас.",
@@ -1205,7 +1254,14 @@
   "land.levelNoEarth": "Не хватает земли, чтобы засыпать ямы — сначала накопайте.",
   "land.levelling": "Выравниваю…",
   "land.levelDone": "Ровно.",
-  "land.levelTrunk": "На участке стоит дерево — сделайте топор, чтобы срубить его, иначе там останется бугор."
+  "land.levelTrunk": "На участке стоит дерево — сделайте топор, чтобы срубить его, иначе там останется бугор.",
+  "land.i.coal": "Уголь",
+  "land.i.copperore": "Медная руда",
+  "land.i.tinore": "Оловянная руда",
+  "land.i.bronze": "Бронза",
+  "land.t.bronze_axe": "Бронзовый топор",
+  "land.t.bronze_pick": "Бронзовая кирка",
+  "land.t.bronze_shovel": "Бронзовая лопата"
  },
  "zh": {
   "land.notYours": "地块 {p} 属于别人。购买一块地，或请它的所有者邀请你。",
@@ -1356,7 +1412,14 @@
   "land.levelNoEarth": "泥土不够填平洼地——先挖一些。",
   "land.levelling": "正在平整……",
   "land.levelDone": "已平整。",
-  "land.levelTrunk": "场地上有一棵树——做一把斧头把它砍倒，否则那里会留下一个鼓包。"
+  "land.levelTrunk": "场地上有一棵树——做一把斧头把它砍倒，否则那里会留下一个鼓包。",
+  "land.i.coal": "煤",
+  "land.i.copperore": "铜矿石",
+  "land.i.tinore": "锡矿石",
+  "land.i.bronze": "青铜",
+  "land.t.bronze_axe": "青铜斧",
+  "land.t.bronze_pick": "青铜镐",
+  "land.t.bronze_shovel": "青铜铲"
  },
  "ja": {
   "land.notYours": "区画 {p} は他の人のものです。区画を購入するか、所有者に招待してもらいましょう。",
@@ -1507,7 +1570,14 @@
   "land.levelNoEarth": "くぼみを埋める土が足りません。先に掘ってください。",
   "land.levelling": "ならしています…",
   "land.levelDone": "平らになりました。",
-  "land.levelTrunk": "敷地に木が立っています。斧を作って切り倒さないと、そこが盛り上がったままになります。"
+  "land.levelTrunk": "敷地に木が立っています。斧を作って切り倒さないと、そこが盛り上がったままになります。",
+  "land.i.coal": "石炭",
+  "land.i.copperore": "銅鉱石",
+  "land.i.tinore": "錫鉱石",
+  "land.i.bronze": "青銅",
+  "land.t.bronze_axe": "青銅の斧",
+  "land.t.bronze_pick": "青銅のつるはし",
+  "land.t.bronze_shovel": "青銅のシャベル"
  },
  "ko": {
   "land.notYours": "구역 {p}은(는) 다른 사람의 땅입니다. 구역을 사거나 소유자에게 초대를 요청하세요.",
@@ -1658,7 +1728,14 @@
   "land.levelNoEarth": "움푹한 곳을 메울 흙이 모자랍니다. 먼저 파 오세요.",
   "land.levelling": "고르는 중…",
   "land.levelDone": "평평해졌습니다.",
-  "land.levelTrunk": "부지에 나무가 서 있습니다. 도끼를 만들어 베지 않으면 그 자리가 볼록하게 남습니다."
+  "land.levelTrunk": "부지에 나무가 서 있습니다. 도끼를 만들어 베지 않으면 그 자리가 볼록하게 남습니다.",
+  "land.i.coal": "석탄",
+  "land.i.copperore": "구리 광석",
+  "land.i.tinore": "주석 광석",
+  "land.i.bronze": "청동",
+  "land.t.bronze_axe": "청동 도끼",
+  "land.t.bronze_pick": "청동 곡괭이",
+  "land.t.bronze_shovel": "청동 삽"
  },
  "ar": {
   "land.notYours": "القطعة {p} ملك لشخص آخر. اشترِ قطعة، أو اطلب من مالكها أن يدعوك.",
@@ -1809,7 +1886,14 @@
   "land.levelNoEarth": "لا يكفي التراب لردم الحفر — احفر بعضه أولاً.",
   "land.levelling": "جارٍ التسوية…",
   "land.levelDone": "صارت مستوية.",
-  "land.levelTrunk": "تقف شجرة في الموقع — اصنع فأسًا لقطعها، وإلا بقيت الأرض ناتئة هناك."
+  "land.levelTrunk": "تقف شجرة في الموقع — اصنع فأسًا لقطعها، وإلا بقيت الأرض ناتئة هناك.",
+  "land.i.coal": "فحم",
+  "land.i.copperore": "خام النحاس",
+  "land.i.tinore": "خام القصدير",
+  "land.i.bronze": "برونز",
+  "land.t.bronze_axe": "فأس برونزية",
+  "land.t.bronze_pick": "معول برونزي",
+  "land.t.bronze_shovel": "مجرفة برونزية"
  },
  "hi": {
   "land.notYours": "प्लॉट {p} किसी और का है। कोई प्लॉट खरीदें, या उसके मालिक से आपको आमंत्रित करने को कहें।",
@@ -1960,7 +2044,14 @@
   "land.levelNoEarth": "गड्ढे भरने के लिए पर्याप्त मिट्टी नहीं — पहले कुछ खोदें।",
   "land.levelling": "समतल कर रहे हैं…",
   "land.levelDone": "समतल हो गया।",
-  "land.levelTrunk": "जगह पर एक पेड़ खड़ा है — उसे काटने के लिए कुल्हाड़ी बनाएँ, नहीं तो वहाँ ज़मीन उभरी रहेगी।"
+  "land.levelTrunk": "जगह पर एक पेड़ खड़ा है — उसे काटने के लिए कुल्हाड़ी बनाएँ, नहीं तो वहाँ ज़मीन उभरी रहेगी।",
+  "land.i.coal": "कोयला",
+  "land.i.copperore": "तांबा अयस्क",
+  "land.i.tinore": "टिन अयस्क",
+  "land.i.bronze": "कांसा",
+  "land.t.bronze_axe": "कांसे की कुल्हाड़ी",
+  "land.t.bronze_pick": "कांसे की गैंती",
+  "land.t.bronze_shovel": "कांसे का फावड़ा"
  },
  "tr": {
   "land.notYours": "{p} arsası başkasına ait. Bir arsa satın al ya da sahibinden seni davet etmesini iste.",
@@ -2111,7 +2202,14 @@
   "land.levelNoEarth": "Çukurları doldurmaya yetecek toprak yok — önce biraz kaz.",
   "land.levelling": "Düzleniyor…",
   "land.levelDone": "Düzlendi.",
-  "land.levelTrunk": "Alanda bir ağaç var — kesmek için bir balta yap, yoksa orada zemin kabarık kalır."
+  "land.levelTrunk": "Alanda bir ağaç var — kesmek için bir balta yap, yoksa orada zemin kabarık kalır.",
+  "land.i.coal": "Kömür",
+  "land.i.copperore": "Bakır cevheri",
+  "land.i.tinore": "Kalay cevheri",
+  "land.i.bronze": "Tunç",
+  "land.t.bronze_axe": "Tunç balta",
+  "land.t.bronze_pick": "Tunç kazma",
+  "land.t.bronze_shovel": "Tunç kürek"
  },
  "id": {
   "land.notYours": "Petak {p} milik orang lain. Beli sebuah petak, atau minta pemiliknya mengundangmu.",
@@ -2262,7 +2360,14 @@
   "land.levelNoEarth": "Tanah tidak cukup untuk menimbun cekungan — gali dulu.",
   "land.levelling": "Meratakan…",
   "land.levelDone": "Rata.",
-  "land.levelTrunk": "Ada pohon di lahan — buat kapak untuk menebangnya, atau tanah di situ tetap menggunduk."
+  "land.levelTrunk": "Ada pohon di lahan — buat kapak untuk menebangnya, atau tanah di situ tetap menggunduk.",
+  "land.i.coal": "Batu bara",
+  "land.i.copperore": "Bijih tembaga",
+  "land.i.tinore": "Bijih timah",
+  "land.i.bronze": "Perunggu",
+  "land.t.bronze_axe": "Kapak perunggu",
+  "land.t.bronze_pick": "Beliung perunggu",
+  "land.t.bronze_shovel": "Sekop perunggu"
  },
  "vi": {
   "land.notYours": "Mảnh đất {p} thuộc về người khác. Hãy mua một mảnh, hoặc nhờ chủ của nó mời bạn.",
@@ -2413,7 +2518,14 @@
   "land.levelNoEarth": "Không đủ đất để lấp chỗ trũng — hãy đào thêm trước.",
   "land.levelling": "Đang san phẳng…",
   "land.levelDone": "Đã phẳng.",
-  "land.levelTrunk": "Có một cái cây trên khu đất — hãy làm rìu để đốn nó, nếu không chỗ đó sẽ còn gồ lên."
+  "land.levelTrunk": "Có một cái cây trên khu đất — hãy làm rìu để đốn nó, nếu không chỗ đó sẽ còn gồ lên.",
+  "land.i.coal": "Than đá",
+  "land.i.copperore": "Quặng đồng",
+  "land.i.tinore": "Quặng thiếc",
+  "land.i.bronze": "Đồng thau",
+  "land.t.bronze_axe": "Rìu đồng",
+  "land.t.bronze_pick": "Cuốc chim đồng",
+  "land.t.bronze_shovel": "Xẻng đồng"
  },
  "pl": {
   "land.notYours": "Działka {p} należy do kogoś innego. Kup działkę albo poproś jej właściciela o zaproszenie.",
@@ -2564,6 +2676,13 @@
   "land.levelNoEarth": "Za mało ziemi, by zasypać zagłębienia — najpierw trochę wykop.",
   "land.levelling": "Wyrównywanie…",
   "land.levelDone": "Wyrównane.",
-  "land.levelTrunk": "Na terenie stoi drzewo — zrób siekierę, by je ściąć, inaczej zostanie tam garb."
+  "land.levelTrunk": "Na terenie stoi drzewo — zrób siekierę, by je ściąć, inaczej zostanie tam garb.",
+  "land.i.coal": "Węgiel",
+  "land.i.copperore": "Ruda miedzi",
+  "land.i.tinore": "Ruda cyny",
+  "land.i.bronze": "Brąz",
+  "land.t.bronze_axe": "Brązowa siekiera",
+  "land.t.bronze_pick": "Brązowy kilof",
+  "land.t.bronze_shovel": "Brązowa łopata"
  }
 }
