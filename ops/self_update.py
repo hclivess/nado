@@ -111,7 +111,10 @@ def _only_inert(paths) -> bool:
     paths = [p for p in paths if p]
     if not paths:
         return False
-    return all(p.startswith(_INERT_PREFIXES) or p in _INERT_FILES for p in paths)
+    # a markdown file at the repository root (ROADMAP.md, SCHEDULED_CLEANUPS.md…) is documentation like doc/: measured
+    # 2026-11-07, nothing under nado.py / ops / loops / execnode reads one — a roadmap edit restarted the fleet. A .md
+    # inside a code directory (ops/README.md) still restarts: the rule is the root only.
+    return all(p.startswith(_INERT_PREFIXES) or p in _INERT_FILES or ("/" not in p and p.endswith(".md")) for p in paths)
 
 
 def _restart_needed(local: str, remote: str) -> bool:

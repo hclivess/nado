@@ -65,6 +65,16 @@ def test_a_land_game_update_does_not_restart():
     assert not _only_inert(["static/vendor/nado-crypto.js"])
 
 
+def test_root_markdown_does_not_restart():
+    # a roadmap or a cleanup list at the repository root is documentation (nothing the node runs reads one, 2026-11-07)
+    assert _only_inert(["ROADMAP.md", "doc/launchpad.md"])
+    assert _only_inert(["SCHEDULED_CLEANUPS.md", "SECURITY.md"])
+    # …but not a .md that lives among code, nor a file that only ends like one
+    assert not _only_inert(["ops/README.md"])
+    assert not _only_inert(["ROADMAP.md", "protocol.py"])
+    assert not _only_inert(["notes.md.py"])
+
+
 def test_ambiguity_restarts():
     # no information must never be read as "nothing changed"
     assert not _only_inert([])
