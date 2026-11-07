@@ -589,9 +589,15 @@ function buildFar() {
 
 // ---- titles: who holds which plot (the exec node's asset table) -----------------------------------------------------
 async function getJSON(path) { const r = await fetch(base() + path, { cache: "no-store" }); return r.json(); }
+// A title's asset seed is ~3.6·10^23 (land.plot_seed: the LAND tag, the planet, the plot) and the exec API writes it as a
+// JSON NUMBER, which JSON.parse rounds to a float — every title then decoded to no plot and the town read "Wilderness"
+// (2026-11-07, the first wave just minted). Long numbers in a seed field are quoted before parsing, so they reach
+// titleOf (BigInt) exact.
+const exactSeeds = (txt) => JSON.parse(txt.replace(/("seed":\s*)(\d{16,})/g, '$1"$2"'));
+async function getAssets(path) { const r = await fetch(base() + path, { cache: "no-store" }); return exactSeeds(await r.text()); }
 async function refreshTitles() {
   try {
-    const r = await getJSON("/exec/assets?issuer=" + ISSUER);
+    const r = await getAssets("/exec/assets?issuer=" + ISSUER);
     for (const a of r.assets || []) {
       const tt = Wd.titleOf(a.seed);
       if (!tt || tt.planet !== Wd.PLANET) continue;      // another planet's title, or another asset of the issuer
@@ -602,7 +608,7 @@ async function refreshTitles() {
     mine.clear();
     const me = net.me || dapp.me;
     if (me) {
-      const h = await getJSON("/exec/assets?holder=" + encodeURIComponent(me));
+      const h = await getAssets("/exec/assets?holder=" + encodeURIComponent(me));
       for (const a of h.assets || []) {
         if (a.issuer !== ISSUER) continue;
         const tt = Wd.titleOf(a.seed);

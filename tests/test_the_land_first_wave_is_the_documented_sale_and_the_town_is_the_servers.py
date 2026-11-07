@@ -8,6 +8,8 @@ What ran on the live chain is scripts/land_first_wave.py and scripts/land_town.p
   2. every title is registered on the NFT market with the 5 % royalty under one collection, and all but the town are
      listed at 5 NADO; the town is the central 2 x 2 plots around the landing, kept by the server wallet;
   3. the Land page names the deployed title contract (not the placeholder), and the world server reads it from there;
+     and it decodes a title's plot from the exec API's seed EXACTLY — a ~3.6·10^23 JSON number JSON.parse would round
+     (every minted title read as no plot, the town as "Wilderness", until the seeds were parsed exact);
   4. the town builds under the world server's own rules (World.apply / World.boxes — never a write around them), only
      on the town's plots, only after their titles are the server wallet's, with its endowment stated, and it refuses to
      run while the live service holds the world (it would write over the build).
@@ -48,6 +50,23 @@ check("the Land page names the deployed title contract, not the placeholder",
       m and m.group(1) != "0000000000000000000000000000000c", m and m.group(1))
 srv = open(os.path.join(ROOT, "scripts", "land_server.py"), encoding="utf-8").read()
 check("…and the world server reads it from the page", "cid = (src.split('const CID = \"', 1)[1]" in srv)
+import json, subprocess
+sys.path.insert(0, ROOT)
+seed = (0x4C414E44 << 48) | (0 << 32) | 40938864                   # land.plot_seed(40938864): the API's own shape below
+body = '{"assets": [{"issuer": "x", "seed": %d, "name": "Land plot", "id": "1"}]}' % seed
+js = """
+const W = await import(%s);
+const src = (await import("node:fs")).readFileSync(%s, "utf8");
+const exactSeeds = new Function("return " + src.match(/const exactSeeds = ([^;]+);/)[1])();
+const a = exactSeeds(%s).assets[0], naive = JSON.parse(%s).assets[0];
+console.log(JSON.stringify({ exact: W.titleOf(a.seed), naive: (() => { try { return W.titleOf(naive.seed); } catch (e) { return String(e).slice(0, 60); } })() }));
+""" % (json.dumps(os.path.join(ROOT, "static", "land-world.js")), json.dumps(os.path.join(ROOT, "static", "land.js")), json.dumps(body), json.dumps(body))
+r = subprocess.run(["node", "--input-type=module", "-e", js], capture_output=True, text=True, timeout=120)
+out = json.loads(r.stdout.strip().splitlines()[-1]) if r.stdout.strip() else {}
+check("the page decodes a title's plot from the API's seed exactly (a plain JSON.parse does not)",
+      out.get("exact") == {"planet": 0, "plot": 40938864} and out.get("naive") != out.get("exact"), (out, r.stderr[-300:]))
+check("…for both of its title lists (the issuer's, and the player's own)",
+      'await getAssets("/exec/assets?issuer=" + ISSUER)' in page and 'await getAssets("/exec/assets?holder=" + encodeURIComponent(me))' in page)
 # 4
 check("the town builds through the world server's own rules, never around them",
       "await world.apply(WHO, cells[i:i + 2000])" in town and "await world.boxes(WHO, p, bs, [])" in town
