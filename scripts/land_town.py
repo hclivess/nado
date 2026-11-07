@@ -73,9 +73,12 @@ async def true_level(world, T, cols, natural):
             out += ([[0, u, v, T, 0]] if b0 else []) + [[0, u, v, T, DIRT]]
         elif b0 not in natural and b0 != WATER:              # a pond or a basin of the garden stays as it is
             out += ([[0, u, v, T, 0]] if b0 else []) + [[0, u, v, T, DIRT]]
+        # T + 1 must not draw as GROUND: an edited air cell, or anything edited there that is not natural ground — a plant,
+        # a sapling, a tree's log stand there and are drawn as open space (field -1) as air is. A repair once cleared
+        # them all (107 flowers and the orchard's lowest logs, 2026-11-07: restored from the backup taken before the run)
         if k(T + 1) not in edited:
-            out += [[0, u, v, T + 1, DIRT], [0, u, v, T + 1, 0]] if b1 == 0 else [[0, u, v, T + 1, 0]]
-        elif b1 != 0:
+            out += [[0, u, v, T + 1, DIRT], [0, u, v, T + 1, 0]] if b1 == 0 else [[0, u, v, T + 1, 0]] if b1 in natural else []
+        elif b1 in natural:
             out += [[0, u, v, T + 1, 0]]
     return out
 
