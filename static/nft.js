@@ -58,6 +58,57 @@ function mediaTag(uri, cls) {
   // an image first; if it is not one (a video, an audio file), the error handler swaps in a <video>
   return `<img class="${cls}" loading="lazy" src="${esc(u)}" alt="" data-media="${esc(u)}">`;
 }
+// LAND TITLES (#125, "the land plot should have a screenshot attached like in a realtor ad, also plot size etc"): a plot
+// of the Land planet is sold here as a title whose uri is its place in the game (https://land.nadochain.com/?plot=N).
+// Its picture is the world server's aerial photo and its facts are the planet's own (/land/api/card) — shown ONLY once
+// the world server names THIS asset as that plot's title. Anyone can mint an asset whose uri points at a plot; a copy
+// must never borrow the real plot's photo and facts, so a mismatch says plainly that it is not that plot's title.
+const LAND = "https://land.nadochain.com";
+const landPlotOf = (a) => {
+  const m = a && a.sym === "PLOT" && /^https:\/\/land\.nadochain\.com\/\?plot=(\d{1,10})$/.exec(String(a.uri || ""));
+  return m ? Number(m[1]) : null;
+};
+const landCards = {};          // aid -> the verified card | false (the world knows another title for that plot) | null (asking)
+let landRedraw = 0;
+function landCard(aid) {
+  const p = landPlotOf(assets[aid]);
+  if (p === null) return null;
+  if (landCards[aid] === undefined) {
+    landCards[aid] = null;
+    fetch(`${LAND}/land/api/card?plot=${p}`, { cache: "no-cache" }).then((r) => r.json()).then((c) => {
+      landCards[aid] = c && c.plot === p && String(c.aid) === String(aid) ? c : false;
+      clearTimeout(landRedraw);                                  // a grid of titles answers at once: one redraw for them
+      landRedraw = setTimeout(() => { lastRoute = ""; render(); }, 250);
+    }).catch(() => { setTimeout(() => { delete landCards[aid]; }, 30000); });
+  }
+  return landCards[aid];
+}
+function media(aid, uri, cls) {
+  if (landPlotOf(assets[aid]) === null) return mediaTag(uri, cls);
+  const c = landCard(aid);
+  return c && c.shot ? `<img class="${cls}" loading="lazy" src="${esc(LAND + c.shot)}" alt="">`
+    : `<div class="${cls} nomedia">${c ? T("landNoShot", "Its photo is being taken") : T("landPlot", "Land plot")}</div>`;
+}
+const BIOME = { grass: () => T("bGrass", "Meadow"), forest: () => T("bForest", "Forest"), desert: () => T("bDesert", "Desert"),
+                rock: () => T("bRock", "Rocky highland"), snow: () => T("bSnow", "Snowfield"), beach: () => T("bBeach", "Beach") };
+const kv = (k, v) => `<div class="kv"><span class="k">${k}</span><span>${v}</span></div>`;
+function landFacts(aid) {
+  const p = landPlotOf(assets[aid]);
+  if (p === null) return "";
+  const c = landCard(aid);
+  if (c === false) return `<p class="small warnline">${T("landFake", "⚠ Not a Land title: the Land world knows another asset as plot {p}.", { p })}</p>`;
+  if (!c) return `<p class="small dim">${T("landAsking", "Asking the Land world about this plot…")}</p>`;
+  return kv(T("landSize", "Size"), T("landSizeV", "{s} × {s} m · {a} m²", { s: c.size_m, a: c.area_m2 }))
+    + kv(T("landWhere", "Where"), T("landWhereV", "planet {pl} · face {f} · row {r} · column {c}", { pl: c.planet, f: c.face, r: c.row, c: c.col }))
+    + kv(T("landBiome", "Landscape"), esc((BIOME[c.biome] || (() => c.biome))()))
+    + kv(T("landElev", "Elevation"), T("landElevV", "{m} m above the sea ({lo} to {hi} m)", { m: c.mean, lo: c.low, hi: c.high }))
+    + (c.under_sea ? kv(T("landWater", "Under water"), T("landWaterV", "{n} of 256 m²", { n: c.under_sea })) : "")
+    + kv(T("landGrows", "Growing"), T("landTrees", "{n} {n|one:tree|other:trees}", { n: c.trees })
+      + (c.flax ? " · " + T("landFlax", "{n} {n|one:flax plant|other:flax plants}", { n: c.flax }) : ""))
+    + (c.town_hall_m != null ? kv(T("landTown", "Town hall"), c.town_hall_m ? T("landTownV", "{m} m away", { m: c.town_hall_m }) : T("landTownHere", "on this plot")) : "")
+    + (c.built || c.pieces ? kv(T("landBuilt", "Built"), T("landBuiltV", "{b} {b|one:block changed|other:blocks changed} · {p} {p|one:piece|other:pieces}", { b: c.built, p: c.pieces })) : "")
+    + `<a class="small" href="${esc(LAND)}/?plot=${p}" target="_blank" rel="noopener noreferrer">${T("landVisit", "Walk it in Land")}</a>`;
+}
 document.addEventListener("error", (ev) => {
   const el = ev.target;
   if (!el.dataset || !el.dataset.media) return;
@@ -311,7 +362,7 @@ function card(aid) {
   const k = tokenInfo(aid), fl = floorOf(aid), au = auctionsOf(aid).length, du = dutchOf(aid).length;
   const tag = au ? `<span class="pill hot">${T("onAuction", "on auction")}</span>`
     : fl != null ? `<span class="pill">${rawToNado(fl)} NADO</span>` : du ? `<span class="pill">${T("dutchTag", "Dutch")}</span>` : "";
-  return `<a class="nft" href="#token/${esc(aid)}">${mediaTag(k.uri, "thumb")}
+  return `<a class="nft" href="#token/${esc(aid)}">${media(aid, k.uri, "thumb")}
     <div class="nftmeta"><div class="nftname">${esc(k.name)}</div>
     <div class="dim small">${who(k.creator)} · ${k.supply === 1n ? "1/1" : T("eds", "{n} editions", { n: k.supply })}</div>${tag}</div></a>`;
 }
@@ -415,15 +466,17 @@ function viewToken(aid) {
       <div class="row mt"><button class="primary" data-act="offer" data-aid="${esc(aid)}">${T("offerBtn", "Offer")}</button>
       ${k.coll ? `<button data-act="collOffer" data-coll="${k.coll}">${T("collOfferBtn", "Offer on the whole collection")}</button>` : ""}</div>
       <p class="small dim">${T("offerNote", "Your NADO is held by the contract until a holder accepts or you withdraw it.")}</p></div>` : "";
-  return `<div class="detail">${mediaTag(k.uri, "big")}<div class="info">
+  const land = landPlotOf(assets[aid]) !== null;
+  return `<div class="detail">${media(aid, k.uri, "big")}<div class="info">
       <h1>${esc(k.name)}</h1>
+      ${landFacts(aid)}
       <div class="kv"><span class="k">${T("creator", "Creator")}</span><span>${userLink(k.creator)}</span></div>
       ${coll ? `<div class="kv"><span class="k">${T("collection", "Collection")}</span><span>${coll}</span></div>` : ""}
       <div class="kv"><span class="k">${T("editions", "Editions")}</span><span>${k.supply} · ${T("owners", "{n} owners", { n: k.holders })}</span></div>
       <div class="kv"><span class="k">${T("royalty", "Royalty")}</span><span>${pct(k.bps)}</span></div>
       <div class="kv"><span class="k">${T("assetId", "Asset id")}</span><span class="mono small trunc">${esc(aid)}</span></div>
       ${warn.map((w) => `<p class="small warnline">${w}</p>`).join("")}
-      ${mediaUrl(k.uri) ? `<a class="small" href="${esc(mediaUrl(k.uri))}" target="_blank" rel="noopener noreferrer">${T("openMedia", "Open the original")}</a>` : ""}
+      ${mediaUrl(k.uri) && !land ? `<a class="small" href="${esc(mediaUrl(k.uri))}" target="_blank" rel="noopener noreferrer">${T("openMedia", "Open the original")}</a>` : ""}
     </div></div>
     ${regForm}
     ${ls || as || ds ? `<div class="card"><h3>${T("onSale", "On sale")}</h3>${ls}${as}${ds}</div>` : ""}

@@ -23,6 +23,9 @@ API (JSON; doc/land.md "The API for agents"):
   GET  /land/api/me                             -> {address|null, plots: [...], builds: [...]}
   GET  /land/api/plot?plot=                     -> {plot, edits, ver, holder}   (+ salt for its holder and builders)
   GET  /land/api/region?face=&u0=&v0=&u1=&v1=   -> {plots: {plot: {ver, edits}}} for the edited plots in a box
+  GET  /land/api/card?plot=                     -> the plot's listing card: size, place, biome, ground, trees, its title
+                                                   and photo (any origin; a plot without a photo is queued for one)
+  GET  /land/api/shot?plot=                     -> its aerial photo, image/jpeg (any origin)
   POST /land/api/set {cells: [[face, u, v, h, block], ...]}   -> {applied, refused: [[cell, reason], ...]}
   GET  /land/ws                                 -> the live channel (see _ws)
 Auth on the API: the land_session cookie (browser) or `Authorization: Bearer <token>` (agent).
@@ -57,6 +60,13 @@ UNBUILDABLE = {5, 30}             # water, bedrock: never placed (no item in lan
 # fall until they rest on something; they fall through air and water (a vacated cell under water fills with water).
 FALLS = {4, 17, 6}
 PASSABLE = {0, 5}
+# THE LISTING (#125, "the land plot should have a screenshot attached like in a realtor ad, also plot size etc", operator
+# 2026-11-07): every title gets an aerial photo (scripts/land_shot.mjs: the page's photo mode in headless Chrome) and a
+# card of facts read from the planet itself (land_terrain.mjs card). One photo at a time, niced — the browser renders in
+# software on the relay's CPU — re-taken only once a plot has changed AND its photo is SHOT_STALE old.
+TOWN_HALL_PLOT = 40963440         # scripts/land_town.py: the hall stands on plot (5000, 3440) of face 0
+SHOT_STALE = 1800
+SHOT_TIMEOUT = 900
 FALL_REACH = 48                   # cells a column is settled over, below and above the change (bounds one call's work)
 # ECOLOGY ("trees should have a process of reproduction as well as the grass", operator 2026-11-06): a SAPLING (leaves
 # sometimes give one) planted in soil grows into a young tree of its climate after GROW_S; on an owned plot, bare earth
@@ -228,6 +238,10 @@ class World:
             self.offers = {}
         self.odirty = False
         self.http = self.oracle = None
+        self.shots = os.path.join(self.dir, "shots")      # <plot>.jpg + <plot>.json {"ver", "at"} (THE LISTING)
+        os.makedirs(self.shots, exist_ok=True)
+        self.shot_want = []                               # plots asked for, first come first served
+        self.cards = {}                                   # plot -> the untouched planet's facts (they never change)
         self.fires = {}                # (face, u, v, h) -> {"by", "age"}: the fires burning now (FIRE)
         self.burning = {}              # (face, u, v, h) of a cell, or (plot, box key) of a piece -> ticks it has burned
         for f in os.listdir(self.dir):
@@ -374,6 +388,82 @@ class World:
         if "error" in r:
             raise RuntimeError("terrain oracle: " + r["error"])
         return r["cells"]
+
+    async def terrain_card(self, p):
+        """The untouched plot's facts (land_terrain.mjs card): a pure function of the seed, so kept forever."""
+        if p not in self.cards:
+            async with self.oracle_lock:
+                self.oracle.stdin.write((json.dumps({"card": p}) + "\n").encode())
+                await self.oracle.stdin.drain()
+                r = json.loads(await self.oracle.stdout.readline())
+            if "error" in r:
+                raise RuntimeError("terrain oracle: " + r["error"])
+            self.cards[p] = r
+        return self.cards[p]
+
+    def shot_meta(self, p):
+        try:
+            return json.load(open(os.path.join(self.shots, f"{p}.json")))
+        except Exception:
+            return None
+
+    def shot_due(self, p, now=None):
+        """Whether plot p needs a (new) photo: none yet, or it changed since and the photo is SHOT_STALE old."""
+        m = self.shot_meta(p)
+        if not m:
+            return True
+        rec = self.plots.get(p)
+        return bool(rec) and rec["ver"] != m.get("ver") and (now or time.time()) - m.get("at", 0) >= SHOT_STALE
+
+    def next_shot(self):
+        """The next plot to photograph: one asked for, else a title of the issuer's without a current photo."""
+        while self.shot_want:
+            p = self.shot_want.pop(0)
+            if self.shot_due(p):
+                return p
+        return next((p for p in sorted(self.titles) if self.shot_due(p)), None)
+
+    async def shoot(self, p, page):
+        """Photograph plot p (scripts/land_shot.mjs) into shots/<p>.jpg; the photo is swapped in whole or not at all."""
+        ver = (self.plots.get(p) or {}).get("ver", 0)
+        tmp = os.path.join(self.shots, f".{p}.jpg")
+        proc = await asyncio.create_subprocess_exec("nice", "-n", "19", "node", os.path.join(REPO, "scripts", "land_shot.mjs"),
+                                                    f"{page}/?shot={p}", tmp, stdout=asyncio.subprocess.DEVNULL,
+                                                    stderr=asyncio.subprocess.DEVNULL, start_new_session=True)
+        try:
+            ok = await asyncio.wait_for(proc.wait(), SHOT_TIMEOUT) == 0
+        except asyncio.TimeoutError:
+            # its own process group: the browser it started dies with it (killing node alone left Chrome running)
+            try:
+                os.killpg(proc.pid, 9)
+            except ProcessLookupError:
+                pass
+            await proc.wait()
+            ok = False
+        if not ok or not os.path.exists(tmp) or os.path.getsize(tmp) < 2000:
+            try:
+                os.remove(tmp)
+            except OSError:
+                pass
+            return False
+        os.replace(tmp, os.path.join(self.shots, f"{p}.jpg"))
+        self._write(os.path.join("shots", f"{p}.json"), {"ver": ver, "at": int(time.time())})
+        return True
+
+    async def card(self, p):
+        """A plot's listing card (#125): what it is, where, what is on it, its title and its photo."""
+        face, row, col = plot_coords(p)
+        t = await self.terrain_card(p)
+        await self.refresh_titles()
+        rec = self.plots.get(p) or {}
+        hf, hr, hc = plot_coords(TOWN_HALL_PLOT)
+        m = self.shot_meta(p)
+        return {"plot": p, "planet": PLANET, "face": face, "row": row, "col": col, "size_m": PLOT, "area_m2": PLOT * PLOT,
+                "u0": col * PLOT, "v0": row * PLOT, **t,
+                "town_hall_m": round(((hr - row) ** 2 + (hc - col) ** 2) ** 0.5 * PLOT) if hf == face else None,
+                "built": len(rec.get("edits") or {}), "pieces": len(rec.get("boxes") or []), "ver": rec.get("ver", 0),
+                "aid": self.titles.get(p), "holder": await self.holder(p),
+                "shot": f"/land/api/shot?plot={p}&v={m['at']}" if m else None, "shot_at": m and m["at"]}
 
     async def blocks_at(self, cells):
         """What each [face, u, v, h] holds now — its plot's edit, else the untouched planet (one oracle round trip)."""
@@ -1152,12 +1242,14 @@ class Hub:
                 pass
 
 
-def make_app(world, hub, site_origin, wallet_url, secure_cookies=True):
+def make_app(world, hub, site_origin, wallet_url, secure_cookies=True, shot_page=None):
     async def on_start(app):
         world.http = ClientSession(timeout=ClientTimeout(total=10))
         await world.start_oracle()
         app["bg"] = [asyncio.ensure_future(_flusher()), asyncio.ensure_future(_mover()), asyncio.ensure_future(_regrower()),
                      asyncio.ensure_future(_ecology()), asyncio.ensure_future(_fire())]
+        if shot_page:
+            app["bg"].append(asyncio.ensure_future(_photographer()))
 
     async def on_stop(app):
         for t in app.get("bg", []):
@@ -1167,6 +1259,23 @@ def make_app(world, hub, site_origin, wallet_url, secure_cookies=True):
         if world.oracle and world.oracle.returncode is None:
             world.oracle.kill()
             await world.oracle.wait()                         # reaped here, not by a finalizer after the loop is gone
+
+    async def _photographer():
+        """THE LISTING: one plot's photo at a time, asked-for plots first, then every title without a current one."""
+        await asyncio.sleep(30)
+        while True:
+            try:
+                await world.refresh_titles()
+                p = world.next_shot()
+                if p is None:
+                    await asyncio.sleep(60)
+                    continue
+                await world.shoot(p, shot_page)
+            except asyncio.CancelledError:
+                raise
+            except Exception:
+                pass
+            await asyncio.sleep(5)
 
     async def _regrower():
         while True:
@@ -1280,6 +1389,33 @@ def make_app(world, hub, site_origin, wallet_url, secure_cookies=True):
         out["holder"] = await world.holder(p)
         out["may_build"] = may
         return web.json_response(out)
+
+    # THE LISTING is public and read across origins (the NFT market's page shows a title's photo and card), so these two
+    # answer any origin; they never read a session
+    LISTING_CORS = {"Access-Control-Allow-Origin": "*", "Cache-Control": "public, max-age=60"}
+
+    def _plot_q(request):
+        try:
+            p = int(request.query["plot"])
+        except Exception:
+            raise web.HTTPBadRequest(text="?plot=<id>")
+        if not 0 <= p < 6 * FACE_N * FACE_N:
+            raise web.HTTPBadRequest(text="no such plot")
+        return p
+
+    async def card(request):
+        p = _plot_q(request)
+        out = await world.card(p)
+        if world.shot_due(p) and p not in world.shot_want and len(world.shot_want) < 64:
+            world.shot_want.append(p)                         # asked for (a sale opens with this): photographed next
+        return web.json_response(out, headers=LISTING_CORS)
+
+    async def shot(request):
+        p = _plot_q(request)
+        path = os.path.join(world.shots, f"{p}.jpg")
+        if not os.path.exists(path):
+            raise web.HTTPNotFound(text="not photographed yet", headers=LISTING_CORS)
+        return web.FileResponse(path, headers=dict(LISTING_CORS, **{"Content-Type": "image/jpeg"}))
 
     async def region(request):
         try:
@@ -1481,6 +1617,8 @@ def make_app(world, hub, site_origin, wallet_url, secure_cookies=True):
         web.get("/land/api/me", me),
         web.get("/land/api/plot", plot),
         web.get("/land/api/region", region),
+        web.get("/land/api/card", card),
+        web.get("/land/api/shot", shot),
         web.post("/land/api/set", set_cells),
         web.post("/land/api/boxes", boxes),
         web.get("/land/api/inventory", inventory),
@@ -1502,11 +1640,13 @@ def main():
     ap.add_argument("--exec", default="http://127.0.0.1:9273")
     ap.add_argument("--site", default="https://land.nadochain.com")
     ap.add_argument("--wallet", default="https://get.nadochain.com")
+    ap.add_argument("--shot-page", default="", help="the Land page the photographer opens (default: --site; 'off' = none)")
     a = ap.parse_args()
     src = open(os.path.join(REPO, "static", "land.js")).read()
     cid = (src.split('const CID = "', 1)[1].split('"', 1)[0]) if 'const CID = "' in src else ""
     world = World(a.data, a.exec, cid)
-    web.run_app(make_app(world, Hub(), a.site.rstrip("/"), a.wallet.rstrip("/")), host="127.0.0.1", port=a.port, access_log=None)
+    page = None if a.shot_page == "off" else (a.shot_page or a.site).rstrip("/")
+    web.run_app(make_app(world, Hub(), a.site.rstrip("/"), a.wallet.rstrip("/"), shot_page=page), host="127.0.0.1", port=a.port, access_log=None)
 
 
 if __name__ == "__main__":

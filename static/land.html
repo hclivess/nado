@@ -84,6 +84,7 @@
   #console.open #conIn{display:block}#console.open #conLog{pointer-events:auto}
   body.touch #console{bottom:150px}
   #help{position:fixed;inset:0;display:grid;place-items:center;z-index:6;pointer-events:none}
+  body.shot > :not(#world){display:none!important}   /* PHOTO MODE (?shot=): the world, nothing of the page */
   #help .card{pointer-events:auto;max-width:420px;margin:16px;background:rgba(19,26,35,.94);border:1px solid var(--border);border-radius:14px;padding:18px 20px;font-size:13.5px;line-height:1.6}
   #help h2{margin:0 0 8px;font-size:17px}#help kbd{font:11px var(--mono);border:1px solid var(--border);border-radius:5px;padding:1px 5px;background:#0b0f14}
   #help .go{margin-top:12px;font-weight:800;color:var(--accent2)}

@@ -12,6 +12,10 @@
 //   {"grow": [face, u, v, h]}          ->  {"cells": [[face, u, v, h, id], ...]}  — the young tree a sapling planted at
 //       that cell grows into (land-world saplingTree): its trunk from that cell up, its crown, as land-world treeCell
 //       draws a tree. The server writes only the cells that are still air. (ECOLOGY, scripts/land_server.py)
+//   {"card": plot}                     ->  {"biome", "low", "high", "mean", "under_sea", "trees", "flax"}  — the untouched
+//       plot's facts for its market listing (#125): its commonest biome, its ground in metres above the sea (lowest,
+//       highest, mean), how many of its 256 columns lie under the sea, its trees and its flax. A listing states what
+//       the planet IS there, so it is read from the generator, never estimated.
 import { createInterface } from "node:readline";
 import { fileURLToPath } from "node:url";
 import { dirname, join } from "node:path";
@@ -48,6 +52,21 @@ function grow(f, u, v, h) {
   }
   return out;
 }
+function card(p) {
+  if (!(Number.isInteger(p) && p >= 0 && p < W.PLOT_MAX)) throw new Error("bad plot");
+  const q = W.plotCoords(p), biomes = {};
+  let low = Infinity, high = -Infinity, sum = 0, under = 0, trees = 0, flax = 0;
+  for (let du = 0; du < W.PLOT; du++) for (let dv = 0; dv < W.PLOT; dv++) {
+    const u = q.u0 + du, v = q.v0 + dv, c = col(q.face, u, v), e = c.top - W.SEA;
+    biomes[c.biome] = (biomes[c.biome] || 0) + 1;
+    low = Math.min(low, e); high = Math.max(high, e); sum += e;
+    if (c.top < W.SEA) under++;
+    if (W.treeAt(q.face, u, v, c)) trees++;
+    if (W.litterAt(q.face, u, v, c) === W.B.flax) flax++;
+  }
+  const biome = Object.keys(biomes).sort((a, b) => biomes[b] - biomes[a] || (a < b ? -1 : 1))[0];
+  return { biome, low, high, mean: Math.round(sum / (W.PLOT * W.PLOT)), under_sea: under, trees, flax };
+}
 const rl = createInterface({ input: process.stdin });
 rl.on("line", (line) => {
   let out;
@@ -55,6 +74,7 @@ rl.on("line", (line) => {
     const req = JSON.parse(line);
     if (req.fell) out = { cells: fell(...req.fell) };
     else if (req.grow) out = { cells: grow(...req.grow) };
+    else if ("card" in req) out = card(req.card);
     else out = { blocks: req.cells.map(([f, u, v, h]) => {
       if (!(f >= 0 && f < 6 && u >= 0 && u < W.W && v >= 0 && v < W.W && Number.isInteger(h))) return -1;
       return h < 0 ? W.B.bedrock : h >= W.H ? W.B.air : W.terrainBlock(f, u, v, h, col);

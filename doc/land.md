@@ -188,6 +188,33 @@ holds the title. A sale voids the old owner's invitations with no cleanup call; 
 **Upgrades.** The contract is upgradable by its deployer and keeps its cid and storage across an upgrade. The field
 numbers and K_B are a live storage layout: add fields, never renumber or reuse one.
 
+## Selling a plot: the listing and its photo (#125, #126)
+
+A title is sold on the NFT market (static/nft.js, execnode/games/nft.py) like any other asset, and its listing reads
+like an estate agent's ad: an aerial photo of the plot and its facts.
+
+**The facts** are the planet's, never estimated: `GET /land/api/card?plot=` (any origin) runs land_terrain.mjs `card`
+over the plot's 256 columns — commonest biome, ground above the sea (lowest, highest, mean), columns under the sea,
+trees, flax — and adds its size (16 × 16 m, 256 m²), place, distance to the town hall, what is built on it, the title
+the chain holds for it and its holder.
+
+**The photo** is the Land page in photo mode (`?shot=<plot>`: the page hidden, the camera off the plot's south-west
+corner 16 m up at the plot's noon, nothing drawn until the world has meshed and settled, then the title "shot-ready"),
+captured by scripts/land_shot.mjs in a headless browser ($LAND_SHOT_BROWSER, else Brave, else Chrome). The world server's
+photographer takes one at a time, niced, into `<data>/shots/<plot>.jpg`: plots asked for first (a card request queues
+its plot), then every title without a current photo. A photo is retaken only once its plot has changed and the photo is
+30 minutes old; a failed capture never replaces one. `GET /land/api/shot?plot=` serves it (any origin). On this host a
+photo takes about three minutes of software rendering.
+
+**The market shows them only for the real title.** Anyone can mint an asset whose uri points at a plot. nft.js shows a
+`PLOT` asset's photo and facts only when the card names THAT asset as the plot's title, and otherwise says it is not a
+Land title.
+
+**Selling from inside Land.** Standing on your plot, *Sell* asks a price and lists the title on the market in one wallet
+approval (`list` with the title as the call's value; the market's cid is read from /static/nft.js at run time, never
+copied). On your own listing the HUD offers *Change price* (`reprice`) and *Take off sale* (`unlist`). Opening the sale
+asks for the plot's card, which puts the plot first in line for a new photo when its last one is out of date.
+
 ## A plot's commitment
 
 A plot's data is its edit list over the generated terrain — `[x, z, y, block]` per changed cell (x, z in 0..15 within

@@ -32,7 +32,7 @@ import { walk, trunkAt, TRUNK_R, restorePlace } from "./land-walk.js";
 import { snapBox, piecesFor, restOnGround } from "./land-snap.js";
 import { levelOps, earthNeeded, trunkIn, siteLayer, topFirst } from "./land-level.js";
 import { groundWeights } from "./land-mesher.js";
-import { NadoDapp, wireWallet, renderWallet, alertBar, notify, uiConfirm, uiPrompt, isAddress, esc, base, disp, rawToNado, $ } from "./nadodapp.js";
+import { NadoDapp, wireWallet, renderWallet, alertBar, notify, uiConfirm, uiPrompt, isAddress, esc, base, disp, rawToNado, nadoToRaw, randId, $ } from "./nadodapp.js";
 
 const CID = "e7dfe9aa3cbb4b0c9293caeaf992a041";      // the land title contract (deployed 2026-11-07, scripts/land_first_wave.py); redeploy.py wire() repoints it
 const ISSUER = "3cc4c44a94a900f79716dc6d3822a81603b1ce7862ce03572f";   // land.py ISSUER — every title's issuer
@@ -632,7 +632,7 @@ async function holderOf(plot) {
     t.sale = null;
     if (t.holder && /^[0-9a-f]{32}$/.test(t.holder)) {
       const st = await listingsOf(t.holder), lid = Object.keys(st.l_asset || {}).find((k) => String(st.l_asset[k]) === String(t.aid) && Number((st.l_left || {})[k]) > 0);
-      if (lid) t.sale = { price: BigInt((st.l_price || {})[lid] || 0) };
+      if (lid) t.sale = { price: BigInt((st.l_price || {})[lid] || 0), lid: Number(lid), seller: (st.l_seller || {})[lid] || null, market: t.holder };
     }
   } catch (e) {}
   return t.holder;
@@ -675,6 +675,64 @@ async function invite(plot) {
   if (!a) return;
   if (!isAddress(a) || a === dapp.me) return alertBar(T("inviteBad", "That is not someone else's NADO address."));
   dapp.call("allow", [plot, a], 1n, T("inviting", "Inviting a builder to plot {p}…", { p: plotLabel(plot) }), { phase: "allow", plot }, { asset: t.aid });
+}
+
+// ---- selling a plot, from where you stand (#126, "users should be able to put up their land for sale in an automated
+// process including the screenshot", operator 2026-11-07): one price, one wallet approval, and the title is listed on
+// the NFT market — whose page shows the world server's photo of the plot and its facts (/land/api/card). Asking for the
+// card here also puts the plot first in line for a new photo when its last one is out of date. Taking it off sale and
+// changing the price are the market's own seller calls, offered here on the plot you have listed.
+let marketCid = null;
+async function market() {
+  // the market's contract is the one its own page names (execnode/games/redeploy.py wires it there at every deploy):
+  // read, never copied here, so a redeploy cannot leave this page listing on a dead contract
+  if (!marketCid) {
+    const m = (await (await fetch("/static/nft.js", { cache: "no-cache" })).text()).match(/^const CID = "([0-9a-f]{32})";/m);
+    marketCid = m ? m[1] : null;
+  }
+  return marketCid;
+}
+async function askPrice(title, body, value) {
+  const v = await uiPrompt({ title, body, value, placeholder: T("sellPrice", "Price in NADO"), confirmText: T("sellNext", "Next") });
+  if (v == null || !String(v).trim()) return null;
+  const raw = nadoToRaw(v);
+  if (!raw) { alertBar(T("sellBad", "Enter a price above zero, in NADO.")); return null; }
+  return raw;
+}
+async function sell(plot) {
+  const t = titles.get(plot);
+  if (!t || !mine.has(plot)) return explainNoBuild(plot);
+  const cid = await market().catch(() => null);
+  if (!cid) return alertBar(T("noMarket", "The market cannot be reached right now — try again in a minute."));
+  let card = null;
+  try { card = await (await fetch("/land/api/card?plot=" + plot, { cache: "no-store" })).json(); } catch (e) {}
+  const price = await askPrice(T("sellTitle", "Sell plot {p}", { p: plotLabel(plot) }),
+    T("sellBody", "Your price, in NADO. The market keeps the title until someone buys it or you take it off sale; the listing shows the plot's photo and its facts."));
+  if (!price) return;
+  const rows = [{ k: T("sellAsk", "Price"), v: rawToNado(price) + " NADO" }, { k: T("sellSize", "Size"), v: "16 × 16 m · 256 m²" }];
+  if (card) rows.push({ k: T("sellPhoto", "Photo"), v: card.shot ? T("sellPhotoAt", "taken {d}", { d: new Date(card.shot_at * 1000).toLocaleString() }) : T("sellPhotoSoon", "being taken — it appears on the listing by itself") });
+  if (!await uiConfirm({ title: T("sellConfirm", "List plot {p} for sale?", { p: plotLabel(plot) }), rows,
+    body: T("sellRoyalty", "When it sells, the plot's creator receives its royalty and you receive the rest, in one step."),
+    confirmText: T("sellGo", "List for sale") })) return;
+  dapp.call("list", [randId(), BigInt(t.aid), price], 1n, T("selling", "Listing plot {p} for {n} NADO…", { p: plotLabel(plot), n: rawToNado(price) }),
+    { phase: "list", plot }, { cid, asset: t.aid, confirm: true });
+}
+async function reprice(plot) {
+  const t = titles.get(plot);
+  if (!t || !t.sale || t.sale.seller !== (net.me || dapp.me)) return;
+  const price = await askPrice(T("repriceTitle", "New price for plot {p}", { p: plotLabel(plot) }),
+    T("repriceBody", "It stays on sale; only its price changes."), rawToNado(t.sale.price));
+  if (!price) return;
+  dapp.call("reprice", [t.sale.lid, price], null, T("repricing", "Repricing plot {p} to {n} NADO…", { p: plotLabel(plot), n: rawToNado(price) }),
+    { phase: "reprice", plot }, { cid: t.sale.market, confirm: true });
+}
+async function unlist(plot) {
+  const t = titles.get(plot);
+  if (!t || !t.sale || t.sale.seller !== (net.me || dapp.me)) return;
+  if (!await uiConfirm({ title: T("unlistTitle", "Take plot {p} off sale?", { p: plotLabel(plot) }),
+    body: T("unlistBody", "The title comes back to your wallet."), confirmText: T("unlistGo", "Take off sale") })) return;
+  dapp.call("unlist", [t.sale.lid], null, T("unlisting", "Taking plot {p} off sale…", { p: plotLabel(plot) }),
+    { phase: "unlist", plot }, { cid: t.sale.market, confirm: true });
 }
 
 // ---- the live world (scripts/land_server.py, behind /land/ on land.nadochain.com) --------------------------------------
@@ -812,13 +870,18 @@ function hud() {
   const signIn = net.online && !net.me ? ` <a class="btn" href="/land/api/login">${esc(T("signInBuild", "Sign in to build"))}</a>` : "";
   if (!t) html = `<span class="pill">${esc(T("wild", "Wilderness"))}</span> <span class="dim">${esc(T("wildOpen", "Unowned: anyone may gather and build here. Own a plot to protect what you build."))}</span>${signIn}`;
   else if (builds.has(plot) && !mine.has(plot)) html = `<span class="pill ok">${esc(T("invited", "You may build here"))}</span> <span class="dim">${esc(t.holder ? T("owned", "Owned by {o}", { o: disp(t.holder) }) : "")}</span>`;
-  else if (mine.has(plot)) html = `<span class="pill ok">${esc(T("yours", "Your plot"))}</span> <button id="btnAnchor" class="ghost">${esc(T("anchorBtn", "Anchor build"))}</button> <button id="btnInvite" class="ghost">${esc(T("inviteBtn", "Invite a builder"))}</button>`;
+  else if (mine.has(plot)) html = `<span class="pill ok">${esc(T("yours", "Your plot"))}</span> <button id="btnAnchor" class="ghost">${esc(T("anchorBtn", "Anchor build"))}</button> <button id="btnInvite" class="ghost">${esc(T("inviteBtn", "Invite a builder"))}</button> <button id="btnSell" class="ghost">${esc(T("sellBtn", "Sell"))}</button>`;
+  // your own listing: the market holds the title (so it is not in `mine`), and only its seller may reprice or withdraw it
+  else if (t.sale && t.sale.seller && t.sale.seller === (net.me || dapp.me)) html = `<span class="pill ok">${esc(T("yourSale", "Your plot · for sale at {p} NADO", { p: rawToNado(t.sale.price.toString()) }))}</span> <button id="btnReprice" class="ghost">${esc(T("repriceBtn", "Change price"))}</button> <button id="btnUnlist" class="ghost">${esc(T("unlistBtn", "Take off sale"))}</button> <a class="btn" target="_blank" rel="noopener" href="${NFT_URL}#token/${esc(t.aid)}">${esc(T("seeListing", "See the listing"))}</a>`;
   else if (t.sale) html = `<span class="pill">${esc(T("forSale", "For sale · {p} NADO", { p: rawToNado(t.sale.price.toString()) }))}</span> <a class="btn" target="_blank" rel="noopener" href="${NFT_URL}#token/${esc(t.aid)}">${esc(T("buyMarket", "Buy on the market"))}</a>${signIn}`;
   else html = `<span class="pill">${esc(t.holder ? T("owned", "Owned by {o}", { o: disp(t.holder) }) : T("titled", "Titled"))}</span> <a class="btn" target="_blank" rel="noopener" href="${NFT_URL}#token/${esc(t.aid)}">${esc(T("market", "View on the market"))}</a>${signIn}`;
   if (st.dataset.html !== html) {
     st.innerHTML = html; st.dataset.html = html;
     const b = $("btnAnchor"); if (b) b.onclick = () => anchor(plot);
     const iv = $("btnInvite"); if (iv) iv.onclick = () => invite(plot);
+    const sl = $("btnSell"); if (sl) sl.onclick = () => sell(plot);
+    const rp = $("btnReprice"); if (rp) rp.onclick = () => reprice(plot);
+    const ul = $("btnUnlist"); if (ul) ul.onclick = () => unlist(plot);
   }
 }
 // ---- names: every item, tool and station through i18n (keys land.i.<id>, land.t.<id>, land.s.<id>) ---------------------
@@ -1727,6 +1790,7 @@ function torchTick(now, cam) {
   });
 }
 function frame(now) {
+  if (shotTick(now)) return;
   const dt = Math.min(0.05, (now - lastT) / 1000 || 0); lastT = now;
   step(dt);
   breakTick(dt);
@@ -1781,9 +1845,41 @@ function slow() {
   if (++tick % 20 === 0) save();
 }
 
+// ---- PHOTO MODE (#125, "the land plot should have a screenshot attached like in a realtor ad"): ?shot=<plot> shows the
+// plot as an aerial photo — from off its south-west corner, 16 m up, at the moment the sun stands highest over it — with
+// nothing of the page on it, and says "shot-ready" in the title once the world around it has meshed and settled. The
+// world server photographs plots this way (scripts/land_shot.mjs) for their market listing.
+const SHOT = (() => { const s = new URLSearchParams(location.search).get("shot"); return s && /^\d{1,10}$/.test(s) && Number(s) < Wd.PLOT_MAX ? Number(s) : null; })();
+let shotBusyAt = 0, shotFrames = 0;
+function shotSetup() {
+  const q = Wd.plotCoords(SHOT), cu = q.u0 + 8, cv = q.v0 + 8, top = Wd.column(q.face, cu, cv).top;
+  P.face = q.face; P.u = q.u0 - 7; P.v = q.v0 - 11; P.h = top + 16; P.fly = true; P.vh = P.vu = P.vv = 0;
+  P.yaw = Math.atan2(cu - P.u, cv - P.v);
+  P.pitch = -Math.atan2(P.h + EYE - top, Math.hypot(cu - P.u, cv - P.v));
+  const up = Wd.frameOf(q.face, cu, cv).up, now = Date.now() / 1000;
+  let best = now, high = -2;
+  for (let k = 0; k < 120; k++) {
+    const t = now + (k * Cosmos.DAY_S) / 120, d = Cosmos.sunFrom(Wd.PLANET, t - Cosmos.EPOCH).dir, e = d[0] * up[0] + d[1] * up[1] + d[2] * up[2];
+    if (e > high) { high = e; best = t; }
+  }
+  const real = Date.now.bind(Date), off = best * 1000 - real();
+  Date.now = () => real() + off;                     // the plot's noon (the photo takes a minute; the sun barely moves)
+  document.body.classList.add("shot");
+  viewDist = 3;                                      // the plot and its neighbours in full; the far land draws the rest
+}
+// true = skip drawing this frame: until the world has meshed and stayed settled 4 s nothing is drawn — a headless
+// browser draws in software, and every frame drawn while loading only slowed the meshing (a photo took ~10 minutes)
+function shotTick(now) {
+  if (SHOT === null || document.title === "shot-ready") return false;
+  if (queue.length || inflight.size || !chunks.size) { shotBusyAt = now; return true; }
+  if (now - shotBusyAt < 4000) return true;
+  if (++shotFrames > 3) document.title = "shot-ready";             // a few frames drawn first: shaders compiled, shadows cast
+  return false;
+}
 // ---- start -----------------------------------------------------------------------------------------------------
 async function start() {
   load();
+  if (SHOT !== null) shotSetup();
   RULES = await (await fetch("/static/land-recipes.json", { cache: "no-cache" })).json();
   const canvas = $("world");
   renderer = new THREE.WebGPURenderer({ canvas, antialias: true });
@@ -1875,7 +1971,9 @@ async function start() {
   setInterval(refreshTitles, 30000);
 }
 dapp.onReturn((pend, ok, err, err2) => {
-  dapp.showReturn(pend, ok, err, { anchor: T("anchorSent", "Anchoring — confirming…"), allow: T("inviteSent", "Invitation sent — confirming…") });
+  dapp.showReturn(pend, ok, err, { anchor: T("anchorSent", "Anchoring — confirming…"), allow: T("inviteSent", "Invitation sent — confirming…"),
+    list: T("sellSent", "Listed — confirming…"), reprice: T("repriceSent", "New price sent — confirming…"), unlist: T("unlistSent", "Taking it off sale — confirming…") });
+  listingCache.clear();                                    // a sale call just changed the market: read it again
   refreshTitles();
 });
 start().catch((e) => {

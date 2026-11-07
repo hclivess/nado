@@ -69,7 +69,7 @@ check("…for both of its title lists (the issuer's, and the player's own)",
       'await getAssets("/exec/assets?issuer=" + ISSUER)' in page and 'await getAssets("/exec/assets?holder=" + encodeURIComponent(me))' in page)
 check("a plot on sale says so — its price and a way to buy it — instead of naming the market that escrows it",
       "if (t.holder && /^[0-9a-f]{32}$/.test(t.holder))" in page and 'String(st.l_asset[k]) === String(t.aid) && Number((st.l_left || {})[k]) > 0' in page
-      and 'T("forSale", "For sale · {p} NADO"' in page and 'T("buyMarket", "Buy on the market")' in page and "rawToNado, $ } from" in page)
+      and 'T("forSale", "For sale · {p} NADO"' in page and 'T("buyMarket", "Buy on the market")' in page and "rawToNado, nadoToRaw, randId, $ } from" in page)
 # 4
 check("the town builds through the world server's own rules, never around them",
       "await world.apply(WHO, cells[i:i + 2000])" in town and "await world.boxes(WHO, p, bs, [])" in town
