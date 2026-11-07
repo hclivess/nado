@@ -84,6 +84,9 @@
   .mt-table th{font-size:10.5px;text-transform:uppercase;letter-spacing:.06em;color:var(--faint);text-align:right;padding:6px 10px;white-space:nowrap;cursor:pointer;user-select:none;border-bottom:1px solid var(--border)}
   .mt-table th:first-child,.mt-table td:first-child{text-align:left}
   .mt-table th.on{color:var(--text)}
+  #marketsCard .mt-table{min-width:1040px}
+  #marketsCard .mt-table td:first-child{position:sticky;left:0;background:var(--elev);z-index:1}
+  .mt-table.trades{min-width:520px}.mt-table.trades th{cursor:default}.mt-table.trades td{padding:6px 10px}
   .mt-table td{padding:10px;text-align:right;font-family:var(--mono);font-size:12.5px;border-bottom:1px solid var(--border);white-space:nowrap}
   .mt-table td:first-child{font-family:inherit;font-weight:700}
   .mt-table tr.mrow{cursor:pointer}
@@ -394,6 +397,7 @@
       <button data-range="604800" aria-pressed="false">1W</button>
       <button data-range="0" aria-pressed="false">ALL</button>
     </div>
+    <div class="rangebtns hidden" id="mktTf" role="group" aria-label="Timeframe"></div>
     <div class="chartwrap"><svg id="mktChart" preserveAspectRatio="none"></svg>
       <div class="tt" id="mktTt"></div>
       <div class="chart-empty hidden" id="mktEmpty"></div>
@@ -401,6 +405,7 @@
     <div class="small dim" style="margin-top:8px" id="depthCap">How much the rate moves as your trade gets bigger:</div>
     <div class="depthwrap"><svg id="mktDepth" preserveAspectRatio="none"></svg></div>
     <div class="stats" id="mktStats"></div>
+    <div class="hidden" id="mktTradesWrap"><h3 class="mt" data-i18n="dex.tTitle">Recent trades</h3><div id="mktTrades"></div></div>
     <div class="mkt-empty" id="mktNone"><b>No market to chart yet</b>Open the first pool below and seed it — the chart, depth curve and stats appear with the first liquidity.</div>
     <div class="small dim mt" id="mktCap">Live price, straight from the pool. Nothing is back-filled — a gap means no trading happened.</div>
     <div class="small mt hidden" id="xReq" aria-live="polite"></div>

@@ -71,7 +71,7 @@ async function refreshAssets() {
     ]);
     const map = {};
     for (const a of (reg.assets || [])) map[akey(a.id)] = { sym: a.sym, name: a.name, dec: Number(a.dec) || 0,
-      id: String(a.id), bal: null };
+      id: String(a.id), bal: null, supply: String(a.supply || "0"), holders: Number(a.holders) || 0 };
     for (const a of ((mine && mine.assets) || []))
       if (map[akey(a.id)]) map[akey(a.id)].bal = a.balance != null ? String(a.balance) : null;
     if (Object.keys(map).length || !Object.keys(assetReg).length) assetReg = map;
@@ -130,13 +130,14 @@ function renderPools() {
     const p = poolOf(lastSto, id);
     const on = String(p.id) === String(sel) ? " sel" : "";
     const sym = tokSym(p.asset), live = livePool(p);
-    const price = live ? midPrice(p) : 0;
-    const st = live ? stats24(p.id, price) : null;
-    const chg = st ? (st.pct >= 0 ? "+" : "") + st.pct.toFixed(2) + "%" : "—";
-    const cls = st ? (Math.abs(st.pct) < 0.005 ? "" : st.pct > 0 ? "up" : "dn") : "";
+    const price = live ? nadoPerTok(p) : 0;            // NADO per coin, as the header says (it showed tokens per NADO)
+    const st = live ? stats24(p.id, midPrice(p)) : null;
+    const pc = live ? (ixChange(p.id, "h24", price, p.asset) ?? (st ? (1 / (1 + st.pct / 100) - 1) * 100 : null)) : null;
+    const chg = pc != null ? (pc >= 0 ? "+" : "") + pc.toFixed(2) + "%" : "—";
+    const cls = pc != null ? (Math.abs(pc) < 0.005 ? "" : pc > 0 ? "up" : "dn") : "";
     return `<div class="poolrow${on}" data-pool="${p.id}" style="cursor:pointer">
       <div class="pmain"><span class="tok" aria-hidden="true">${esc(tokIni(sym))}</span><div><b>${esc(sym)} / NADO</b><div class="small dim">${live ? fromUnits(p.rn) + " NADO liquidity" : "empty — needs liquidity"}</div></div></div>
-      <div class="num">${live ? fmtShort(price) + " " + esc(sym) : "—"}</div>
+      <div class="num">${live ? fmtShort(price) + " NADO" : "—"}</div>
       <div class="chgc ${cls}">${chg}</div>
     </div>`;
   }).join("");
@@ -414,12 +415,15 @@ function renderLpCoin() {
       <div class="bar mt" style="height:8px;border-radius:6px;background:var(--line);overflow:hidden"><i id="lpBar" style="display:block;height:100%;background:var(--accent);width:0"></i></div>
       <div class="small dim mt" id="lpProg"></div>
       <div id="lpFair" class="small mt"></div>
+      <div class="rangebtns mt" id="lpTf" role="group" aria-label="${esc(LT("tf", "Timeframe"))}"></div>
+      <div class="chartwrap"><svg id="lpChart" preserveAspectRatio="none"></svg><div class="tt" id="lpTt"></div><div class="chart-empty hidden" id="lpEmpty"></div></div>
       <div id="lpTrade" class="mt">
         <div class="row"><select id="lpSide" aria-label="${esc(LT("side", "Buy or sell"))}"><option value="1">${esc(LT("buy", "Buy"))}</option><option value="2">${esc(LT("sell", "Sell"))}</option></select>
           <input id="lpAmt" inputmode="decimal" autocomplete="off" aria-label="${esc(LT("amount", "Amount"))}">
           <button id="lpGo" class="btn">${esc(LT("place", "Place order"))}</button></div>
         <div class="small dim mt" id="lpQuote"></div></div>
-      <h3 class="mt">${esc(LT("yourOrders", "Your orders"))}</h3><div id="lpMine"></div>`;
+      <h3 class="mt">${esc(LT("yourOrders", "Your orders"))}</h3><div id="lpMine"></div>
+      <h3 class="mt">${esc(LT("tTitle", "Recent trades"))}</h3><div id="lpTrades"></div>`;
     $("lpSide").onchange = () => renderLpCoin(); $("lpAmt").oninput = () => renderLpCoin();
     $("lpGo").onclick = () => lpOrder();
   }
@@ -449,6 +453,8 @@ function renderLpCoin() {
       <button class="ghost" data-claim="${o.oid}">${esc(LT("claim", "Claim"))}</button></div>`).join("")
     : `<p class="small dim">${esc(LT("noOrders", "No open orders on this coin."))}</p>`);
   box.querySelectorAll("[data-claim]").forEach((b) => { b.onclick = () => lpClaim(Number(b.getAttribute("data-claim")), c); });
+  // its chart and trades: a curve's fills land at the block its batch cleared, at that batch's one price
+  renderPairBoard(c.id, c.asset, lpSpot(c) ? lpPrice(c) : 0, c.kind, { tf: "lpTf", svg: "lpChart", tt: "lpTt", empty: "lpEmpty", trades: "lpTrades" });
 }
 
 async function lpOrder() {
@@ -1045,6 +1051,7 @@ function bookOf(net) {
 function renderXMarket() {
   if (wantMarket) { const hit = xMarkets("main").concat(xMarkets("test")).find((m) => m.coin.toUpperCase() === wantMarket);
     if (hit) { setEnv(envOf(hit.net)); xsel = hit.key; wantMarket = null; } }
+  boardFor(false);
   const seg = $("envSeg");
   if (seg) { seg.classList.remove("hidden"); seg.querySelectorAll("button").forEach((b) => { b.classList.toggle("on", b.dataset.env === xEnv); b.setAttribute("aria-selected", String(b.dataset.env === xEnv)); }); }
   const mkts = xMarkets(), keys = mkts.map((m) => m.key);
@@ -2053,17 +2060,77 @@ function renderTicker() {
     .map(([l, v]) => `<div><div class="l">${l}</div><div class="v">${v}</div></div>`).join("");
   el.hidden = false;
 }
-const MT_COLS = [
-  ["name", "Market"], ["price", "Price (NADO)"], ["chg", "24h"], ["vol", "24h volume"], ["liq", "Liquidity"], ["n", "Trades / orders"],
+// ================= THE BOARD: every market, its candles and its trades (Dexscreener-style) ====================
+// "a DEX price/chart dashboard like Dexscreener" (operator, 2026-11-07). The numbers come from the exec node's trade
+// index (execnode/dex_trades.py: /exec/dex_stats, /exec/dex_candles, /exec/dex_trades) — EXACT trades from the
+// contract's own state, finalized blocks only, so a trade shows there ~5 minutes after it lands; the live spot (read
+// from the pool every 3 s) closes the newest candle meanwhile. Before the index existed, the node's 30-s price samples
+// (prices.json) are all there is: they draw price-only candles and the estimated volume, and the note says so.
+// PRICES ARE NADO PER COIN everywhere on the board — the AMM used to read "tokens per NADO" while the cross-chain book
+// read NADO per coin, under one "Price (NADO)" header.
+const IX = { on: null, stats: {}, statsAt: 0, now: 0, candles: {}, trades: {} };
+const TFS = [[60, "1m"], [300, "5m"], [900, "15m"], [3600, "1h"], [14400, "4h"], [86400, "1D"]];
+let ixTf = (() => { const v = Number(lpRead("nado_dex_tf", 300)); return TFS.some(([t]) => t === v) ? v : 300; })();
+async function ixGet(path) {
+  const r = await fetch(base() + "/exec/" + path + (path.includes("?") ? "&" : "?") + "ns=" + dapp.ns + "&cid=" + CID, { cache: "no-store" });
+  return r.ok ? r.json() : null;
+}
+async function ixStats() {
+  if (Date.now() - IX.statsAt < 15000) return;
+  IX.statsAt = Date.now();
+  // an exec node without the index (older, or opted out) answers 404 or enabled:false — both read "no index here"
+  try { const r = await ixGet("dex_stats"); IX.on = !!(r && r.enabled); IX.stats = (r && r.pools) || {}; IX.now = (r && r.now) || 0; } catch (e) {}
+}
+async function ixFetch(kind, pid, q) {               // candles / trades of one pool, cached 15 s per (pool, query)
+  const key = kind + ":" + pid + ":" + q, c = IX[kind][key];
+  if (c && Date.now() - c.at < 15000) return c.rows;
+  IX[kind][key] = { at: Date.now(), rows: c ? c.rows : null };
+  try {
+    const r = await ixGet(kind === "candles" ? `dex_candles?pid=${pid}&tf=${q}&limit=300` : `dex_trades?pid=${pid}&limit=${q}`);
+    IX[kind][key].rows = !r ? [] : kind === "candles" ? r.candles || [] : r.trades || [];   // never a spinner forever
+  } catch (e) {}
+  return IX[kind][key].rows;
+}
+// a coin's price from a (pn, pt) spot: NADO-units per coin-unit over the coin's scale = NADO per whole coin
+const pxOf = (pn, pt, asset) => (pt ? Number(pn) / Number(pt) / pScale(asset) : 0);
+const nadoPerTok = (p) => (p.rt > 0n ? Number(p.rn) / Number(p.rt) / pScale(p.asset) : 0);
+const tokSupply = (asset) => { const m = tokMeta(asset); return m ? Number(m.supply || 0) / 10 ** (m.dec || 0) : 0; };
+const unitsNado = (u) => Number(u) / 100;                            // contract UNITs -> NADO (display)
+const unitsTok = (u, asset) => Number(u) * 1e8 / 10 ** tokDec(asset);
+function ixChange(pid, w, now, asset) {                              // % over a window, from the index; null = unknown
+  const s = IX.stats[String(pid)], then = s && s[w] && s[w].then;
+  if (!then || !now) return null;
+  const p0 = pxOf(then[0], then[1], asset);
+  return p0 > 0 ? (now / p0 - 1) * 100 : null;
+}
+const fmtAge = (ts) => { const s = Math.max(0, Date.now() / 1000 - ts);
+  return s < 3600 ? Math.max(1, Math.round(s / 60)) + LT("ageM", "m") : s < 172800 ? Math.round(s / 3600) + LT("ageH", "h") : Math.round(s / 86400) + LT("ageD", "d"); };
+const shortAddr = (a) => (a ? String(a).slice(0, 6) + "…" + String(a).slice(-4) : "—");
+
+// ---- the Markets tab: one table, both venues and the launches, sortable, click-through -------------------------
+const MT_COLS = () => [
+  ["name", LT("mtPair", "Pair")], ["price", LT("mtPrice", "Price (NADO)")], ["age", LT("mtAge", "Age")], ["txns", LT("mtTxns", "Txns")],
+  ["vol", LT("mtVol", "Volume")], ["makers", LT("mtMakers", "Makers")], ["m5", "5M"], ["h1", "1H"], ["h6", "6H"], ["h24", "24H"],
+  ["liq", LT("mtLiq", "Liquidity")], ["fdv", "FDV"],
 ];
 function marketRows() {
   const rows = [];
-  for (const id of (lastSto ? poolIds(lastSto) : [])) {
-    const p = poolOf(lastSto, id), live = livePool(p), price = live ? midPrice(p) : 0;
-    const st = live ? stats24(p.id, price) : null;
-    rows.push({ venue: "swap", key: String(p.id), name: `${tokSym(p.asset)} / NADO`, sub: tokName(p.asset), env: "main",
-      price, chg: st ? st.pct : null, vol: vol24(String(p.id)), liq: live ? Number(fromUnits(p.rn * 2n).replace(/,/g, "")) : 0,
-      n: trades24(String(p.id)), nLabel: "trades" });
+  const ids = lastSto ? Object.keys(_m(lastSto, "ast") || {}) : [];
+  for (const id of ids) {
+    const kind = Number((_m(lastSto, "kind") || {})[id] || 0), c = curveOf(lastSto, id);
+    const live = kind === 1 ? c.ct > 0n : livePool(c);
+    if (!live) continue;
+    const price = kind === 1 ? lpPrice(c) : nadoPerTok(c), s = IX.stats[String(id)];
+    let vol = s ? unitsNado(s.h24.volume) : null, txns = s ? s.h24.buys + s.h24.sells : null, h24 = ixChange(id, "h24", price, c.asset);
+    if (!s && kind !== 1) {                                         // no index yet: the samples' estimate (tokens/NADO, inverted)
+      const st = stats24(c.id, midPrice(c)); h24 = st ? (1 / (1 + st.pct / 100) - 1) * 100 : null;
+      vol = vol24(String(c.id)) || null; txns = trades24(String(c.id)) || null;
+    }
+    rows.push({ venue: kind === 1 ? "launch" : "swap", key: String(id), kind, name: `${tokSym(c.asset)} / NADO`, sub: tokName(c.asset), env: "main",
+      price, age: s && s.created ? s.created : null, txns, buys: s ? s.h24.buys : null, sells: s ? s.h24.sells : null, vol,
+      makers: s ? s.makers : null, m5: ixChange(id, "m5", price, c.asset), h1: ixChange(id, "h1", price, c.asset),
+      h6: ixChange(id, "h6", price, c.asset), h24,
+      liq: kind === 1 ? unitsNado(c.cn) : unitsNado(c.rn * 2n), fdv: price * tokSupply(c.asset) || null });
   }
   for (const m of xMarkets("main").concat(xMarkets("test"))) {
     const b = bookOf(m.key), st = stats24(XKEY(m.key), b.mid);
@@ -2071,14 +2138,19 @@ function marketRows() {
     const liq = open.reduce((a, x) => a + Number(x.od.namtRaw) / 1e10, 0);
     if (!open.length && !vol24(XKEY(m.key)) && m.token) continue;          // a token book nobody has used yet
     rows.push({ venue: "cross", key: m.key, name: `${m.coin} / NADO`, sub: m.label, env: envOf(m.net), blocked: !!xMarketBlocker(m),
-      price: b.mid || 0, chg: st && b.mid ? st.pct : null, vol: vol24(XKEY(m.key)), liq, n: open.length, nLabel: "open orders" });
+      price: b.mid || 0, age: null, txns: open.length || null, vol: vol24(XKEY(m.key)) || null, makers: null,
+      m5: null, h1: null, h6: null, h24: st && b.mid ? st.pct : null, liq, fdv: null });
   }
   return rows;
 }
+const pctCell = (v) => (v == null || Number.isNaN(v) ? `<td class="dim">—</td>`
+  : Math.abs(v) < 0.005 ? `<td>0.00%</td>`                                     // flat: never "-0.00%"
+  : `<td class="${v > 0 ? "up" : "dn"}">${(v >= 0 ? "+" : "") + (Math.abs(v) >= 1000 ? fmtShort(v) : v.toFixed(2))}%</td>`);
 function renderMarkets() {
   const head = $("mtHead"), body = $("mtBody");
   if (!head || !body || curMode !== "markets") return;
-  head.innerHTML = `<tr>${MT_COLS.map(([k, l]) => `<th data-k="${k}" class="${mtSort.k === k ? "on" : ""}" aria-sort="${mtSort.k === k ? (mtSort.d > 0 ? "ascending" : "descending") : "none"}">${l}${mtSort.k === k ? (mtSort.d > 0 ? " ▲" : " ▼") : ""}</th>`).join("")}</tr>`;
+  const cols = MT_COLS();
+  head.innerHTML = `<tr>${cols.map(([k, l]) => `<th data-k="${k}" class="${mtSort.k === k ? "on" : ""}" aria-sort="${mtSort.k === k ? (mtSort.d > 0 ? "ascending" : "descending") : "none"}">${esc(l)}${mtSort.k === k ? (mtSort.d > 0 ? " ▲" : " ▼") : ""}</th>`).join("")}</tr>`;
   head.querySelectorAll("th").forEach((th) => { th.onclick = () => {
     const k = th.dataset.k; mtSort = { k, d: mtSort.k === k ? -mtSort.d : (k === "name" ? 1 : -1) };
     try { localStorage.setItem("nado_dex_mtsort", JSON.stringify(mtSort)); } catch (e) {}
@@ -2086,27 +2158,133 @@ function renderMarkets() {
   const q = (($("mtSearch") || {}).value || "").trim().toLowerCase();
   let rows = marketRows().filter((r) => !q || r.name.toLowerCase().includes(q) || (r.sub || "").toLowerCase().includes(q));
   const nul = (v) => v == null || Number.isNaN(v);
-  rows.sort((a, b) => { const k = mtSort.k, av = a[k], bv = b[k];
+  rows.sort((a, b) => { const k = mtSort.k, av = k === "age" && a.age ? -a.age : a[k], bv = k === "age" && b.age ? -b.age : b[k];
     if (k === "name") return mtSort.d * String(av).localeCompare(String(bv));
     if (nul(av) && nul(bv)) return 0; if (nul(av)) return 1; if (nul(bv)) return -1;          // "—" always sinks
     return mtSort.d * (Number(av) - Number(bv)) || String(a.name).localeCompare(String(b.name)); });
-  if (!lastSto && !otcSto) { body.innerHTML = `<tr><td colspan="6" class="dim"><span class="spin"></span> Loading markets…</td></tr>`; return; }
-  body.innerHTML = rows.length ? rows.map((r) => {
-    const chg = r.chg == null ? `<td class="dim">—</td>` : `<td class="${Math.abs(r.chg) < 0.005 ? "" : r.chg > 0 ? "up" : "dn"}">${(r.chg >= 0 ? "+" : "") + r.chg.toFixed(2)}%</td>`;
-    return `<tr class="mrow" data-venue="${r.venue}" data-key="${esc(r.key)}" data-env="${r.env}" tabindex="0" role="link" aria-label="Open ${esc(r.name)}">
-      <td><span class="tok" aria-hidden="true">${esc(tokIni(r.name))}</span><span><span class="mname">${esc(r.name)}</span><span class="venue">${r.venue === "swap" ? "AMM" : r.env === "test" ? "cross · testnet" : "cross-chain"}</span>${r.blocked ? '<span class="venue">soon</span>' : ""}<div class="small dim" style="font-weight:400">${esc(r.sub || "")}</div></span></td>
-      <td${r.price ? "" : ' class="dim"'}>${r.price ? fmtShort(r.price) : "—"}</td>${chg}
-      <td${r.vol ? "" : ' class="dim"'}>${r.vol ? group(fmtShort(r.vol)) : "—"}</td>
-      <td${r.liq ? "" : ' class="dim"'}>${r.liq ? fmtShort(r.liq) + " NADO" : "—"}</td>
-      <td${r.n ? "" : ' class="dim"'}>${r.n} ${r.nLabel}</td></tr>`; }).join("")
-    : `<tr><td colspan="6" class="dim">${q ? "No market matches that." : "No markets yet."}</td></tr>`;
+  if (!lastSto && !otcSto) { body.innerHTML = `<tr><td colspan="${cols.length}" class="dim"><span class="spin"></span> ${esc(LT("mtLoading", "Loading markets…"))}</td></tr>`; return; }
+  const venue = (r) => r.venue === "swap" ? (r.kind === 2 ? LT("vGrad", "graduated") : "AMM") : r.venue === "launch" ? LT("vLaunch", "launch") : r.env === "test" ? LT("vCrossTest", "cross · testnet") : LT("vCross", "cross-chain");
+  const num = (v, f) => (v == null || !v ? `<td class="dim">—</td>` : `<td>${f(v)}</td>`);
+  body.innerHTML = rows.length ? rows.map((r) => `<tr class="mrow" data-venue="${r.venue}" data-key="${esc(r.key)}" data-env="${r.env}" tabindex="0" role="link" aria-label="${esc(LT("mtOpen", "Open {m}", { m: r.name }))}">
+      <td><span class="tok" aria-hidden="true">${esc(tokIni(r.name))}</span><span><span class="mname">${esc(r.name)}</span><span class="venue">${esc(venue(r))}</span>${r.blocked ? `<span class="venue">${esc(LT("vSoon", "soon"))}</span>` : ""}<div class="small dim" style="font-weight:400">${esc(r.sub || "")}</div></span></td>
+      ${num(r.price, fmtShort)}${num(r.age, fmtAge)}
+      ${r.txns ? `<td>${r.txns}${r.buys != null ? `<div class="small"><span class="up">${r.buys}</span>/<span class="dn">${r.sells}</span></div>` : ""}</td>` : `<td class="dim">—</td>`}
+      ${num(r.vol, (v) => fmtShort(v))}${num(r.makers, String)}${pctCell(r.m5)}${pctCell(r.h1)}${pctCell(r.h6)}${pctCell(r.h24)}
+      ${num(r.liq, (v) => fmtShort(v) + " NADO")}${num(r.fdv, (v) => fmtShort(v))}</tr>`).join("")
+    : `<tr><td colspan="${cols.length}" class="dim">${esc(q ? LT("mtNoMatch", "No market matches that.") : LT("mtNone", "No markets yet."))}</td></tr>`;
   const go = (tr) => { const v = tr.dataset.venue, k = tr.dataset.key;
-    if (v === "swap") sel = k; else { setEnv(tr.dataset.env); xsel = k; }
+    if (v === "swap") sel = k; else if (v === "launch") lpSel = k; else { setEnv(tr.dataset.env); xsel = k; }
     modesRef && modesRef.set(v);                     // onChange → curMode, URL, render
     window.scrollTo({ top: 0, behavior: "smooth" }); };
   body.querySelectorAll("tr.mrow").forEach((tr) => { tr.onclick = () => go(tr); tr.onkeydown = (e) => { if (e.key === "Enter" || e.key === " ") { e.preventDefault(); go(tr); } }; });
-  const note = $("mtNote"); if (note) note.textContent = "Price = pool mid (AMM) or order-book mid (cross-chain), in NADO per coin. 24h volume is NADO turned over: AMM pools estimated from reserve moves sampled every 30 s, cross-chain from settled swaps. Liquidity = pool value (AMM) or NADO across open orders (cross-chain).";
+  const note = $("mtNote");
+  if (note) note.textContent = IX.on
+    ? LT("mtNoteIx", "Prices are NADO per coin. Txns, volume, makers and the % changes are exact, from every trade this node indexed (finalized blocks: the newest trades appear about 5 minutes after they land). Liquidity = pool value, or NADO raised on a launch curve. FDV = price × supply.")
+    : LT("mtNoteEst", "Prices are NADO per coin. This node keeps no trade index, so volume is estimated from reserve moves sampled every 30 s. Liquidity = pool value, or NADO raised on a launch curve. FDV = price × supply.");
 }
+
+// ---- candles: OHLC bodies, wicks and a volume band, crosshair + tooltip ------------------------------------------
+// The index's candles (NADO-units per coin-unit) scaled to NADO per coin; the live spot closes the newest candle; with
+// no index history, the 30-s samples (tokens per NADO, inverted) make price-only candles.
+function candlesFor(pid, asset, spot, kind) {
+  const tf = ixTf, now = Math.floor(Date.now() / 1000), sc = pScale(asset);
+  const rows = IX.candles["candles:" + pid + ":" + tf];
+  let cs = (rows && rows.rows || []).map((c) => [c[0], c[1] / sc, c[2] / sc, c[3] / sc, c[4] / sc, unitsNado(c[5]), c[6], c[7]]);
+  if (cs.length < 2 && kind !== 1) {                                   // the samples, before the index existed
+    const pts = priceSeriesAll(pid).filter((x) => x[1] > 0).map((x) => [Math.floor(x[0] / 1000), 1 / x[1]]);
+    const byT = new Map();
+    for (const [t, v] of pts) { const b = t - t % tf, c = byT.get(b);
+      if (!c) byT.set(b, [b, v, v, v, v, 0, 0, 0]); else { c[2] = Math.max(c[2], v); c[3] = Math.min(c[3], v); c[4] = v; } }
+    const sam = [...byT.values()].sort((a, b) => a[0] - b[0]);
+    for (let i = 1; i < sam.length; i++) { sam[i][1] = sam[i - 1][4]; sam[i][2] = Math.max(sam[i][2], sam[i][1]); sam[i][3] = Math.min(sam[i][3], sam[i][1]); }
+    if (sam.length > cs.length) cs = sam.slice(-300);
+  }
+  if (spot > 0) {
+    const b = now - now % tf, last = cs[cs.length - 1];
+    if (last && last[0] === b) { last[2] = Math.max(last[2], spot); last[3] = Math.min(last[3], spot); last[4] = spot; }
+    else if (!last || Math.abs(last[4] - spot) / spot > 1e-9 || cs.length < 2) {
+      const o = last ? last[4] : spot; cs.push([b, o, Math.max(o, spot), Math.min(o, spot), spot, 0, 0, 0]);
+    }
+  }
+  return cs;
+}
+const _cBound = new Set();
+function renderCandles(svgId, ttId, emptyId, cs) {
+  const svg = $(svgId), empty = $(emptyId);
+  if (!svg) return;
+  svg.parentElement.classList.toggle("empty", cs.length < 2);
+  if (cs.length < 2) { svg.innerHTML = ""; if (empty) { empty.classList.remove("hidden"); empty.textContent = LT("cEmpty", "No trades to chart yet — candles appear as this market trades."); } svg._cs = null; return; }
+  if (empty) empty.classList.add("hidden");
+  const W = CW, H = CH, VH = 34, PT = CMT, PB = H - CMB - VH - 4;           // price band, then the volume band
+  let lo = Infinity, hi = -Infinity, vmax = 0;
+  for (const c of cs) { lo = Math.min(lo, c[3]); hi = Math.max(hi, c[2]); vmax = Math.max(vmax, c[5]); }
+  const pad = Math.max((hi - lo) * 0.08, hi * 0.005, 1e-18); lo -= pad; hi += pad;
+  const n = cs.length, step = (W - CML - CMR) / n, bw = Math.max(1, Math.min(14, step * 0.7));
+  const X = (i) => CML + (i + 0.5) * step, Y = (v) => PT + (1 - (v - lo) / (hi - lo || 1)) * (PB - PT);
+  let g = "";
+  for (let i = 0; i <= 4; i++) { const gy = PT + i / 4 * (PB - PT), gv = hi - i / 4 * (hi - lo);
+    g += `<line x1="${CML}" y1="${gy.toFixed(1)}" x2="${W - CMR}" y2="${gy.toFixed(1)}" stroke="var(--border)" stroke-width="1" opacity="0.5"/>`
+       + `<text x="${W - CMR + 6}" y="${(gy + 3.5).toFixed(1)}" fill="var(--faint)" font-size="10" font-family="ui-monospace,monospace">${fmtShort(gv)}</text>`; }
+  let bars = "";
+  cs.forEach((c, i) => {
+    const up = c[4] >= c[1], col = up ? "var(--accent2)" : "var(--danger)", x = X(i);
+    const y1 = Y(Math.max(c[1], c[4])), y2 = Y(Math.min(c[1], c[4]));
+    bars += `<line x1="${x.toFixed(1)}" y1="${Y(c[2]).toFixed(1)}" x2="${x.toFixed(1)}" y2="${Y(c[3]).toFixed(1)}" stroke="${col}" stroke-width="1"/>`
+         + `<rect x="${(x - bw / 2).toFixed(1)}" y="${y1.toFixed(1)}" width="${bw.toFixed(1)}" height="${Math.max(1, y2 - y1).toFixed(1)}" fill="${col}"/>`;
+    if (vmax > 0 && c[5] > 0) { const vh = c[5] / vmax * VH;
+      bars += `<rect x="${(x - bw / 2).toFixed(1)}" y="${(H - CMB - vh).toFixed(1)}" width="${bw.toFixed(1)}" height="${vh.toFixed(1)}" fill="${col}" opacity="0.35"/>`; }
+  });
+  const tl = (t, a, x) => `<text x="${x}" y="${H - 6}" fill="var(--faint)" font-size="10" text-anchor="${a}" font-family="ui-monospace,monospace">${fmtAgo(t * 1000)}</text>`;
+  svg.setAttribute("viewBox", `0 0 ${W} ${H}`);
+  svg.innerHTML = g + bars + tl(cs[0][0], "start", CML) + tl(cs[n - 1][0], "end", W - CMR)
+    + `<line class="cx" x1="0" y1="${PT}" x2="0" y2="${H - CMB}" stroke="var(--dim)" stroke-width="1" stroke-dasharray="3 3" opacity="0"/>`;
+  svg._cs = { cs, X, step };
+  if (_cBound.has(svgId)) return;
+  _cBound.add(svgId);
+  const tt = $(ttId);
+  svg.addEventListener("mousemove", (e) => {
+    const d = svg._cs; if (!d || !tt) return;
+    const r = svg.getBoundingClientRect(), vx = (e.clientX - r.left) / r.width * CW;
+    const i = Math.max(0, Math.min(d.cs.length - 1, Math.floor((vx - CML) / d.step))), c = d.cs[i], x = d.X(i);
+    const cx = svg.querySelector(".cx"); if (cx) { cx.setAttribute("x1", x); cx.setAttribute("x2", x); cx.setAttribute("opacity", "1"); }
+    tt.style.opacity = "1"; tt.style.left = (x / CW * r.width) + "px"; tt.style.top = "8px";
+    tt.innerHTML = `O <b>${fmtPrice(c[1])}</b> H <b>${fmtPrice(c[2])}</b><br>L <b>${fmtPrice(c[3])}</b> C <b>${fmtPrice(c[4])}</b>`
+      + (c[5] ? `<br>${esc(LT("cVol", "Vol {v} NADO · {b} buys / {s} sells", { v: fmtShort(c[5]), b: c[6], s: c[7] }))}` : "")
+      + `<br><span style="color:var(--faint)">${fmtAgo(c[0] * 1000)}</span>`;
+  });
+  svg.addEventListener("mouseleave", () => { if (tt) tt.style.opacity = "0"; const cx = svg.querySelector(".cx"); if (cx) cx.setAttribute("opacity", "0"); });
+}
+function tfButtons(id, onPick) {
+  const el = $(id); if (!el) return;
+  const sig = TFS.map(([t]) => t).join() + ":" + ixTf;
+  if (el.dataset.sig === sig) return;
+  el.dataset.sig = sig;
+  el.innerHTML = TFS.map(([t, l]) => `<button data-tf="${t}" class="${t === ixTf ? "on" : ""}" aria-pressed="${t === ixTf}">${l}</button>`).join("");
+  el.querySelectorAll("button").forEach((b) => { b.onclick = () => { ixTf = Number(b.dataset.tf); lpWrite("nado_dex_tf", ixTf); onPick(); }; });
+}
+// ---- recent trades: the newest the index holds, with who and at what price -------------------------------------
+function renderTrades(boxId, pid, asset, sym) {
+  const box = $(boxId); if (!box) return;
+  const rows = IX.trades["trades:" + pid + ":40"];
+  const list = rows && rows.rows;
+  if (IX.on === false) { box.innerHTML = `<p class="small dim">${esc(LT("tOff", "This node keeps no trade index, so it cannot list trades."))}</p>`; return; }
+  if (!list) { box.innerHTML = `<p class="small dim"><span class="spin"></span></p>`; return; }
+  if (!list.length) { box.innerHTML = `<p class="small dim">${esc(LT("tNone", "No trades indexed yet."))}</p>`; return; }
+  const lbl = { buy: LT("tBuy", "Buy"), sell: LT("tSell", "Sell"), add: LT("tAdd", "Add"), remove: LT("tRemove", "Remove"), launch: LT("tLaunch", "Launch"), graduate: LT("tGrad", "Graduated") };
+  box.innerHTML = `<div class="mtwrap"><table class="mt-table trades"><thead><tr><th>${esc(LT("tTime", "Time"))}</th><th>${esc(LT("tType", "Type"))}</th><th>${esc(LT("mtPrice", "Price (NADO)"))}</th><th>NADO</th><th>${esc(sym)}</th><th>${esc(LT("tMaker", "Maker"))}</th></tr></thead><tbody>`
+    + list.map((t) => { const cl = t.side === "buy" || t.side === "add" ? "up" : t.side === "sell" || t.side === "remove" ? "dn" : "";
+      return `<tr><td class="dim">${esc(fmtAgo(t.ts * 1000))}</td><td class="${cl}">${esc(lbl[t.side] || t.side)}</td><td>${t.pt ? fmtPrice(pxOf(t.pn, t.pt, asset)) : "—"}</td>
+        <td>${t.nado ? fmtShort(unitsNado(t.nado)) : "—"}</td><td>${t.tokens ? fmtShort(unitsTok(t.tokens, asset)) : "—"}</td>
+        <td class="dim" title="${esc(t.trader || "")}">${esc(shortAddr(t.trader))}</td></tr>`; }).join("") + `</tbody></table></div>`;
+}
+// the pair's chart + trades, fetched then drawn (used by the Swap tab's market card and the Launch tab's coin card)
+function renderPairBoard(pid, asset, spot, kind, ids) {
+  tfButtons(ids.tf, () => renderPairBoard(pid, asset, spot, kind, ids));
+  const draw = () => { renderCandles(ids.svg, ids.tt, ids.empty, candlesFor(pid, asset, spot, kind)); renderTrades(ids.trades, pid, asset, tokSym(asset)); };
+  draw();
+  Promise.all([ixFetch("candles", pid, ixTf), ixFetch("trades", pid, 40)]).then(draw).catch(() => {});
+}
+
 function renderMarket() {
   const card = $("marketCard");
   if (!card) return;
@@ -2137,19 +2315,21 @@ function renderMarket() {
   if (!sel || !lastSto) return;
   const p = poolOf(lastSto, sel);
   const live = livePool(p);
-  const price = live ? midPrice(p) : 0;               // in the token's own decimals, like every other figure
+  const price = live ? midPrice(p) : 0;               // tokens per NADO, in the token's own decimals ("1 NADO buys")
+  const px = live ? nadoPerTok(p) : 0;                // the headline: NADO per coin, as on the board and the book
   const sym = tokSym(p.asset);
+  boardFor(true);
   $("mktPair").textContent = `${sym} / NADO`;
-  $("mktPrice").textContent = live ? fmtShort(price) : "—";
-  $("mktPrice").title = live ? fmtPrice(price) + " " + sym + " per NADO" : "";
-  // 24h change (or first point in range) from the observed series
-  const st24 = live ? stats24(p.id, price) : null;
+  $("mktPrice").textContent = live ? fmtShort(px) + " NADO" : "—";
+  $("mktPrice").title = live ? LT("pxTitle", "1 {s} = {p} NADO", { s: sym, p: fmtPrice(px) }) : "";
+  // 24h change: exact from the trade index; before it, from the samples (tokens per NADO, so inverted)
+  const st24 = live ? stats24(p.id, price) : null, ix = IX.stats[String(p.id)];
+  const pct = live ? (ixChange(p.id, "h24", px, p.asset) ?? (st24 ? (1 / (1 + st24.pct / 100) - 1) * 100 : null)) : null;
   const chgEl = $("mktChg");
-  if (st24) {
-    const pct = st24.pct;
+  if (pct != null) {
     chgEl.textContent = (pct >= 0 ? "+" : "") + pct.toFixed(2) + "%  24h";
     chgEl.className = "chg " + (Math.abs(pct) < 0.005 ? "flat" : pct > 0 ? "up" : "dn");
-  } else { chgEl.textContent = "no trades yet"; chgEl.className = "chg flat"; }
+  } else { chgEl.textContent = LT("noTrades", "no trades yet"); chgEl.className = "chg flat"; }
   // stats
   const tvlNado = live ? fromUnits(p.rn * 2n) : "0";       // NADO-side ×2 ≈ total value in NADO
   $("mktStats").innerHTML = [
@@ -2159,19 +2339,31 @@ function renderMarket() {
     ["24h low", st24 ? fmtShort(st24.lo) : "—"],
     ["NADO in pool", group(fromUnits(p.rn))],
     [esc(sym) + " in pool", fmtShort(Number(tokFromUnits(p.rt, p.asset)))],
-    ["24h volume", vol24(String(p.id)) ? fmtShort(vol24(String(p.id))) + " NADO" : "—"],
-    ["24h trades", String(trades24(String(p.id)))],
+    ["24h volume", ix ? fmtShort(unitsNado(ix.h24.volume)) + " NADO" : vol24(String(p.id)) ? "≈ " + fmtShort(vol24(String(p.id))) + " NADO" : "—"],
+    ["24h trades", ix ? `<span class="up">${ix.h24.buys}</span> / <span class="dn">${ix.h24.sells}</span>` : String(trades24(String(p.id)))],
+    [esc(LT("mtMakers", "Makers")) + " 24h", ix ? String(ix.makers) : "—"],
+    ["FDV", live && tokSupply(p.asset) ? fmtShort(px * tokSupply(p.asset)) + " NADO" : "—"],
+    [esc(LT("pairAge", "Pair age")), ix && ix.created ? fmtAge(ix.created) : "—"],
     ["Pool value", "≈ " + tvlNado + " NADO"],
     ["LP shares", p.sup.toString()],
     ["Swap fee", "0.30%"],
   ].map(([l, v]) => `<div class="stat"><div class="l">${l}</div><div class="v">${v}</div></div>`).join("");
   const cap = $("depthCap"); if (cap) cap.textContent = "How much the rate moves as your trade gets bigger:";
-  const mc = $("mktCap"); if (mc) mc.textContent = "Live price, straight from the pool. Nothing is back-filled — a gap means no trading happened.";
-  renderChart(p.id, sym);
+  const mc = $("mktCap"); if (mc) mc.textContent = IX.on
+    ? LT("capIx", "Candles and trades from every trade this node indexed (finalized blocks, ~5 minutes behind); the live pool price closes the newest candle.")
+    : LT("capSamples", "Price-only candles from the node's 30-s samples — this node keeps no trade index.");
+  renderPairBoard(p.id, p.asset, px, p.kind, { tf: "mktTf", svg: "mktChart", tt: "mktTt", empty: "mktEmpty", trades: "mktTrades" });
   renderDepth(p, price);
   syncUrl(false);
 }
 
+// the market card serves both venues: candles, timeframes and trades for an AMM pool; the line chart and its ranges for
+// the cross-chain book (whose prices are order-book mids, not trades)
+function boardFor(amm) {
+  const show = (id, on) => { const e = $(id); if (e) e.classList.toggle("hidden", !on); };
+  show("mktTf", amm); show("mktTradesWrap", amm); show("mktRanges", !amm);
+  const svg = $("mktChart"); if (svg && svg._amm !== amm) { svg._amm = amm; svg.innerHTML = ""; svg._cs = null; }
+}
 // --- the price line chart: SVG, crosshair + tooltip (dataviz interaction layer) ---
 const CW = 600, CH = 220, CML = 6, CMR = 54, CMT = 12, CMB = 20;
 let _mktBound = false, _mktPts = [], _ttSym = "token", _ttUnit = "";
@@ -2179,6 +2371,7 @@ function renderChart(key, sym, unit) {
   _ttSym = sym; _ttUnit = unit || "";
   const svg = $("mktChart"), empty = $("mktEmpty");
   const data = priceSeries(key);
+  svg._cs = null;                                     // a line chart now: the candle tooltip stands down
   svg.parentElement.classList.toggle("empty", data.length < 2);
   if (data.length < 2) {
     svg.innerHTML = "";
@@ -2222,7 +2415,7 @@ function renderChart(key, sym, unit) {
     _mktBound = true;
     const wrap = svg.parentElement, tt = $("mktTt");
     svg.addEventListener("mousemove", (e) => {
-      if (!_mktPts.length) return;
+      if (!_mktPts.length || svg._cs) return;              // candles drawn here now (an AMM pool): theirs is the tooltip
       const r = svg.getBoundingClientRect(), vx = (e.clientX - r.left) / r.width * CW;
       let best = _mktPts[0]; for (const q of _mktPts) if (Math.abs(q[0] - vx) < Math.abs(best[0] - vx)) best = q;
       const cr = svg.querySelector("#mktCross"), dt = svg.querySelector("#mktDot");
@@ -2282,6 +2475,7 @@ async function refresh() {
     } catch (e) { /* transient relay blip — keep the last good view rather than blanking the page */ }
     await refreshAssets();
     await refreshSharedPrices();
+    await ixStats();
     samplePrices(lastSto);
     await otcRefresh();
     render();

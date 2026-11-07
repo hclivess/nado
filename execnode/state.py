@@ -292,6 +292,11 @@ class ExecState:
     # tests/test_the_asset_history_index_changes_no_consensus_value.py pins all of that.
     asset_sink = None
     _hist_buf = None
+    # NODE-LOCAL DEX TRADE INDEX (execnode/dex_trades.py) — NOT CONSENSUS, the same rules as asset_sink: a CLASS
+    # attribute (None on every clone, WitnessState, replay and test), attached only to the exec node's own finalized
+    # states; its before()/after() READ the contract's slots around a `call` blob and never write. INVARIANT: a failure in
+    # either is swallowed here (_call_capture) and apply_blob's return value never depends on it.
+    call_sink = None
 
     def __init__(self, path):
         """Initialise every state component empty, then load() the last snapshot from `path` if one
@@ -1250,6 +1255,9 @@ class ExecState:
             sink = self.asset_sink
             if sink is not None:
                 self._hist_buf = []        # per BLOB: a revert drops it whole (_hist_drop)
+            csink, pre = self.call_sink, None
+            if csink is not None and isinstance(payload, dict) and payload.get("op") == "call":
+                pre = self._call_capture(csink.before, payload)
             try:
                 return self._apply_blob_inner(payload, sender, txid)
             finally:
@@ -1258,6 +1266,20 @@ class ExecState:
                     buf, self._hist_buf = self._hist_buf, None
                     if buf:
                         self._emit_history(sink, buf, payload, sender, txid)
+                if pre is not None:
+                    self._call_capture(csink.after, payload, sender, txid, pre)
+
+    def _call_capture(self, fn, payload, *rest):
+        """Run one DEX-index capture step (execnode/dex_trades.DexCallSink). NEVER RAISES — a raise here would escape
+        apply_blob's `finally` into block dispatch — and never touches state (the sink only reads)."""
+        try:
+            return fn(self, payload, *rest)
+        except Exception as e:
+            try:
+                print(f"[execnode] dex index: capture failed ({type(e).__name__}: {e})", flush=True)
+            except Exception:
+                pass
+            return None
 
     def _emit_history(self, sink, buf, payload, sender, txid):
         """Hand one blob's asset moves to the node-local history sink. NEVER RAISES and never touches state: the index

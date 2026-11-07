@@ -34,7 +34,7 @@ of it is still open.
 |---|---|---|---|
 | **Fungible asset primitive** | SPL token | **BUILT** (was ABSENT) — state-level ledger committed in the settled root, derived ids a contract computes in-circuit, 5 zkVM opcodes, asset-denominated call value ([`doc/assets.md`](doc/assets.md)). Open: wallet UI, settlement-by-proof | Keystone. Was blocking everything below. |
 | **Launchpad** | $144M (42%) — Pump.fun, Bags, LetsBonk | **BUILT** (2026-11-07) — in the DEX contract, upgraded in place, and its Launch tab; [`doc/launchpad.md`](doc/launchpad.md) §8 | Upload of coin images from the DEX host waits on an nginx route |
-| **Trading terminals** | $79M — Axiom, Photon, BullX, GMGN, Trojan | **ABSENT** — no charts, no indexer, no price history | Needs markets + indexer |
+| **Trading terminals** | $79M — Axiom, Photon, BullX, GMGN, Trojan | **PARTIAL** (2026-11-07) — the DEX page's board: every pair with exact txns, volume, makers and 5M/1H/6H/24H change, candles and recent trades, from a trade index INSIDE the exec node (`execnode/dex_trades.py`, `/exec/dex_trades` · `dex_candles` · `dex_stats`). Open: per-address P&L, watchlist, a terminal page | Phase 5 below |
 | **Wallet swaps** | $49.6M — Phantom | **PARTIAL** — wallet has send/receive/stake/deploy/HTLC lock, but the "swap" UI is a raw HTLC lock/claim/refund form: no pair, no price, no counterparty discovery | Needs AMM + router |
 | **AMM / DEX** | Raydium, Orca, Meteora, Pumpswap | **SHIPPED (AMM + order book)** — the constant-product AMM (`execnode/games/dex.py`) and the cross-chain OTC order book (`execnode/games/otc.py`, dex-bridge phase 1, live 2026-08-26 as the dex dApp's Cross-chain mode) are both on-chain; router still open | Needs asset primitive |
 | **Aggregator/router** | Jupiter, $812B routed in 2025 | **ABSENT** | Needs ≥2 venues |
@@ -354,8 +354,12 @@ should not pretend to. What we can offer instead, and should build the terminal 
   venue can say a trade was *proven* correct, not just observed.
 
 **Deliverables**
-- Indexer service (sibling to `forum/server.py`): trades, OHLCV candles, holder counts, new-launch
-  feed, per-address P&L. Reads exec state; no new trust.
+- ~~Indexer service (sibling to `forum/server.py`)~~ — BUILT INSIDE THE EXEC NODE instead (2026-11-07), because work
+  that only reads the chain runs inside the node (doc/jobs.md: a hand-started sibling process is how the price chart
+  froze for two days): `execnode/dex_trades.py` records every swap, liquidity change, launch fill (at the block its
+  batch cleared) and graduation with exact amounts, sharing the asset-history index's lifecycle; served at
+  `/exec/dex_trades`, `/exec/dex_candles`, `/exec/dex_stats`. Holder counts come from `/exec/assets`. Open:
+  per-address P&L (the trades endpoint already filters by `?trader=`).
 - `static/terminal.html`: launch feed, chart, one-click buy/sell, portfolio, watchlist, i18n via the
   `merge_games.py` T_GAMES pipeline.
 - Public read API so third parties can build competing terminals — a plural terminal layer is what

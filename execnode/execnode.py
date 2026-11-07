@@ -1017,6 +1017,13 @@ _settle_skip_logged = {}
 ASSET_HISTORY_PATH = STATE_PATH + ".asset_history.sqlite"
 _ASSET_HISTORY_ON = os.environ.get("NADO_EXEC_ASSET_HISTORY", "1").strip().lower() not in ("0", "false", "no", "off")
 _asset_history = None
+# the DEX contract(s) the trade index follows: the page's own CID (static/dex.js), read once — the same source the price
+# sampler (ops/dex_prices.py) uses, so the index and the page never disagree about which contract is the DEX
+try:
+    from execnode.dex_trades import dex_cids as _dex_cids
+    _DEX_CIDS = _dex_cids()
+except Exception:
+    _DEX_CIDS = set()
 
 
 def _asset_history_attach():
@@ -1028,11 +1035,16 @@ def _asset_history_attach():
         try:
             if store is None or store.disabled:
                 st.asset_sink = None
+                st.call_sink = None
                 continue
             store.trim(ns, st.cursor)
             st.asset_sink = store.sink(ns)
+            # the DEX trade index rides the same store (execnode/dex_trades.py): same trim, same flush, same file
+            from execnode.dex_trades import DexCallSink
+            st.call_sink = DexCallSink(store, ns, _DEX_CIDS)
         except Exception as e:
             st.asset_sink = None
+            st.call_sink = None
             print(f"[execnode] asset history: attach ns={ns} failed ({type(e).__name__}: {e})", flush=True)
 
 
@@ -1052,12 +1064,13 @@ def _asset_history_enable(path=None):
     return _asset_history
 
 
-def _asset_history_flush(h):
-    """Block `h` applied to the finalized states: write what it moved (one transaction). Never raises."""
+def _asset_history_flush(h, ts=0):
+    """Block `h` applied to the finalized states: write what it moved (one transaction). Never raises. `ts`: the block's
+    timestamp, the DEX index's time axis (display only)."""
     store = _asset_history
     if store is not None:
         try:
-            store.flush_block(h, list(states))
+            store.flush_block(h, list(states), ts)
         except Exception as e:
             print(f"[execnode] asset history: flush {h} failed ({type(e).__name__}: {e})", flush=True)
 
@@ -3094,7 +3107,7 @@ async def tail_loop():
                     applied += 1
                     # ASSET HISTORY (non-consensus): write what block h moved, one transaction, never raising. Only the
                     # FINALIZED tail flushes — the provisional clones carry no sink.
-                    _asset_history_flush(h)
+                    _asset_history_flush(h, block.get("block_timestamp") or 0)
                     # REMEMBER THIS ROOT POINT (per ns): exit proofs must verify against the root L1
                     # SETTLED, which trails the live root by a settle cadence; the ring lets the proof
                     # handlers serve ?root=<settled> instead of forcing wallets to wait for the live root
@@ -3888,6 +3901,79 @@ async def h_asset_history(request):
                               "next_before": next_before, "cursor": st.cursor, "enabled": True})
 
 
+def _dex_query(request):
+    """(ns, state, store, cid, error response): the common front of the DEX index endpoints. ?cid= defaults to the
+    page's DEX contract."""
+    ns = request.query.get("ns", "default")
+    st = states.get(ns)
+    if st is None:
+        return ns, None, None, None, _NS404()
+    cid = request.query.get("cid") or (sorted(_DEX_CIDS)[0] if _DEX_CIDS else "")
+    if cid not in _DEX_CIDS:
+        return ns, st, None, cid, web.json_response({"error": "not an indexed DEX contract"}, status=404)
+    store = _asset_history
+    return ns, st, (None if store is None or store.disabled else store), cid, None
+
+
+async def h_dex_trades(request):
+    """The DEX's trades, newest first (?pid= one pool, ?trader= one address, ?limit= up to 1000, ?before=<cursor>,<seq>
+    to page): swaps, liquidity adds and removes, launch-curve fills (at the block their batch cleared), launches and
+    graduations, each with its exact NADO and coin amounts (UNITs) and the pool's spot after it (pn/pt). NODE-LOCAL and
+    NOT consensus (execnode/dex_trades.py); FINALIZED blocks only, so the newest trades appear ~5 minutes after they
+    land; `indexed_from` is the first cursor whose history is complete."""
+    ns, st, store, cid, err = _dex_query(request)
+    if err is not None:
+        return err
+    try:
+        pid = request.query.get("pid")
+        pid = None if pid in (None, "") else int(pid)
+        limit = int(request.query.get("limit", 200))
+        before = request.query.get("before")
+        before = [int(x) for x in before.split(",")][:2] if before else None
+        if before is not None and len(before) != 2:
+            raise ValueError
+    except ValueError:
+        return web.json_response({"error": "pid and limit are integers; before is <cursor>,<seq>"}, status=400)
+    if store is None:
+        return web.json_response({"cid": cid, "trades": [], "next_before": None, "indexed_from": None,
+                                  "cursor": st.cursor, "enabled": False})
+    rows, nb = await asyncio.get_running_loop().run_in_executor(
+        None, store.dex_trades, ns, cid, pid, limit, before, request.query.get("trader") or None)
+    return web.json_response({"cid": cid, "trades": rows, "next_before": nb, "indexed_from": store.indexed_from(ns),
+                              "cursor": st.cursor, "enabled": True})
+
+
+async def h_dex_candles(request):
+    """One pool's candles (?pid=, ?tf= seconds: 60 300 900 3600 14400 86400, ?limit= up to 1500): [t, open, high, low,
+    close, volume, buys, sells], oldest first, from the trade index (see h_dex_trades: node-local, finalized only)."""
+    ns, st, store, cid, err = _dex_query(request)
+    if err is not None:
+        return err
+    try:
+        pid, tf, limit = int(request.query["pid"]), int(request.query.get("tf", 300)), int(request.query.get("limit", 500))
+    except (KeyError, ValueError):
+        return web.json_response({"error": "pid (and tf, limit) are integers"}, status=400)
+    if store is None:
+        return web.json_response({"cid": cid, "pid": pid, "tf": tf, "candles": [], "enabled": False})
+    rows = await asyncio.get_running_loop().run_in_executor(None, store.dex_candles, ns, cid, pid, tf, limit)
+    return web.json_response({"cid": cid, "pid": pid, "tf": tf, "candles": rows, "indexed_from": store.indexed_from(ns),
+                              "enabled": True})
+
+
+async def h_dex_stats(request):
+    """Every pool's market statistics in one call — buys, sells and volume over 5 m / 1 h / 6 h / 24 h, the spot at the
+    start of each window (`then`, for the change), makers over 24 h, and when it was first and last traded — from the
+    trade index (node-local, finalized only)."""
+    ns, st, store, cid, err = _dex_query(request)
+    if err is not None:
+        return err
+    if store is None:
+        return web.json_response({"cid": cid, "pools": {}, "enabled": False})
+    rows = await asyncio.get_running_loop().run_in_executor(None, store.dex_stats, ns, cid)
+    return web.json_response({"cid": cid, "pools": {str(k): v for k, v in rows.items()}, "now": int(time.time()),
+                              "indexed_from": store.indexed_from(ns), "enabled": True})
+
+
 async def h_allowances(request):
     """Delegated-spend authorizations (doc/assets.md §7a). Filters: ?owner= (approvals I GRANTED),
     ?spender= (approvals granted TO me), ?asset= (narrow to one asset). A wallet renders both of its
@@ -4325,6 +4411,9 @@ async def main():
                     web.get("/exec/assets", h_assets),
                     web.get("/exec/asset", h_asset),
                     web.get("/exec/asset_history", h_asset_history),
+                    web.get("/exec/dex_trades", h_dex_trades),
+                    web.get("/exec/dex_candles", h_dex_candles),
+                    web.get("/exec/dex_stats", h_dex_stats),
                     web.get("/exec/allowances", h_allowances),
                     web.get("/exec/withdrawal_proof", h_withdrawal_proof),
                     web.get("/exec/withdrawals", h_withdrawals),

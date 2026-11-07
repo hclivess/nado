@@ -24,6 +24,8 @@ import json
 import sqlite3
 import threading
 
+from execnode import dex_trades as DX
+
 LIMIT_DEFAULT = 500
 LIMIT_MAX = 2000
 
@@ -34,7 +36,10 @@ _SCHEMA = (
     "CREATE INDEX IF NOT EXISTS moves_by_asset ON moves (ns, aid, cursor, seq)",
     # indexed_from: the first cursor of the complete history; last: the newest cursor flushed (gap detection)
     "CREATE TABLE IF NOT EXISTS meta (ns TEXT PRIMARY KEY, indexed_from INTEGER NOT NULL, last INTEGER NOT NULL)",
-)
+) + DX.SCHEMA                    # the DEX trade index (execnode/dex_trades.py) lives in this file and shares its lifecycle
+# every table holding rows of a namespace by cursor: a gap, a trim, a reset or a re-application treats them ALL alike
+# (INVARIANT: a table added here that is left out of _NS_TABLES would keep an abandoned branch's rows after a rewind)
+_NS_TABLES = ("moves",) + DX.TABLES
 
 
 def _log(msg):
@@ -53,6 +58,7 @@ class AssetHistoryStore:
         self.disabled = False
         self._lock = threading.RLock()
         self._pending = {}             # ns -> [record, ...] buffered by the sinks until the block is flushed
+        self._pending_dex = {}         # ns -> [DEX record, ...] (execnode/dex_trades.DexCallSink), likewise
         self._meta = {}                # ns -> (indexed_from, last), mirror of the meta table
         self._db = None
         try:
@@ -73,6 +79,7 @@ class AssetHistoryStore:
         _log(f"{what} failed ({type(e).__name__}: {e}) — index DISABLED, block application unaffected")
         self.disabled = True
         self._pending = {}
+        self._pending_dex = {}
         try:
             if self._db is not None:
                 self._db.close()
@@ -100,14 +107,27 @@ class AssetHistoryStore:
                 self._pending.setdefault(ns, []).extend(records)
         return _sink
 
-    def flush_block(self, h, namespaces):
+    def dex_sink(self, ns, records):
+        """Buffer one call's DEX records (execnode/dex_trades.DexCallSink) until flush_block."""
+        if self.disabled:
+            return
+        with self._lock:
+            self._pending_dex.setdefault(ns, []).extend(records)
+
+    def flush_block(self, h, namespaces, ts=0):
         """Write block `h` for every namespace in ONE transaction: its buffered records (seq = order within the block),
-        and `last = h`. A namespace whose last flushed block is not h-1 restarts its index at h (see the module note)."""
+        and `last = h`. A namespace whose last flushed block is not h-1 restarts its index at h (see the module note).
+        `ts`: the block's timestamp (seconds) — the DEX index's time axis; display only, never consensus."""
         if self.disabled:
             return
         h = int(h)
+        try:
+            ts = int(ts or 0)
+        except (TypeError, ValueError):
+            ts = 0
         with self._lock:
             pending, self._pending = self._pending, {}
+            pending_dex, self._pending_dex = self._pending_dex, {}
             try:
                 db = self._db
                 db.execute("BEGIN")
@@ -122,14 +142,16 @@ class AssetHistoryStore:
                         frm = h
                     elif h <= m[1]:
                         frm = m[0]                     # re-application without a trim: replace what h.. held
-                        db.execute("DELETE FROM moves WHERE ns=? AND cursor>=?", (ns, h))
+                        for t in _NS_TABLES:
+                            db.execute(f"DELETE FROM {t} WHERE ns=? AND cursor>=?", (ns, h))
                         if h < frm:
                             frm = h
                     elif h == m[1] + 1:
                         frm = m[0]
                     else:
                         _log(f"ns={ns}: gap {m[1] + 1}..{h - 1} — history restarts at {h}")
-                        db.execute("DELETE FROM moves WHERE ns=?", (ns,))
+                        for t in _NS_TABLES:
+                            db.execute(f"DELETE FROM {t} WHERE ns=?", (ns,))
                         frm = h
                     if recs:
                         db.executemany(
@@ -138,6 +160,9 @@ class AssetHistoryStore:
                             [(ns, h, i, r.get("txid", ""), r.get("sender", ""), r.get("op", ""), r.get("method", ""),
                               json.dumps(r.get("args") or []), r.get("value", "0"), r.get("call_asset", ""),
                               str(r["aid"]), str(r["holder"]), str(r["delta"])) for i, r in enumerate(recs)])
+                    drecs = [r for r in pending_dex.get(ns, ()) if int(r.get("cursor", -2)) == h]
+                    if drecs:
+                        DX.write_block(db, ns, h, ts, drecs)
                     db.execute("INSERT OR REPLACE INTO meta (ns, indexed_from, last) VALUES (?,?,?)", (ns, frm, h))
                     new_meta[ns] = (frm, h)
                 db.execute("COMMIT")
@@ -153,6 +178,7 @@ class AssetHistoryStore:
         """Forget records of a block that did not complete (nothing of it is flushed)."""
         with self._lock:
             self._pending = {}
+            self._pending_dex = {}
 
     # ---- exactness across restart and rewind ----------------------------------------------------------------------
     def trim(self, ns, cursor):
@@ -163,10 +189,12 @@ class AssetHistoryStore:
         cursor = int(cursor)
         with self._lock:
             self._pending.pop(ns, None)
+            self._pending_dex.pop(ns, None)
             try:
                 db = self._db
                 db.execute("BEGIN")
-                db.execute("DELETE FROM moves WHERE ns=? AND cursor>?", (ns, cursor))
+                for t in _NS_TABLES:
+                    db.execute(f"DELETE FROM {t} WHERE ns=? AND cursor>?", (ns, cursor))
                 m = self._meta.get(ns)
                 nm = m
                 if m is not None:
@@ -195,9 +223,11 @@ class AssetHistoryStore:
             return
         with self._lock:
             self._pending.pop(ns, None)
+            self._pending_dex.pop(ns, None)
             if ns not in self._meta:
                 try:
-                    if self._db.execute("SELECT 1 FROM moves WHERE ns=? LIMIT 1", (ns,)).fetchone() is None:
+                    if all(self._db.execute(f"SELECT 1 FROM {t} WHERE ns=? LIMIT 1", (ns,)).fetchone() is None
+                           for t in _NS_TABLES):
                         return             # nothing indexed: the common case on a pruned cold start, kept cheap
                 except Exception as e:
                     self._fail(f"reset ns={ns}", e)
@@ -205,7 +235,8 @@ class AssetHistoryStore:
             try:
                 db = self._db
                 db.execute("BEGIN")
-                db.execute("DELETE FROM moves WHERE ns=?", (ns,))
+                for t in _NS_TABLES:
+                    db.execute(f"DELETE FROM {t} WHERE ns=?", (ns,))
                 db.execute("DELETE FROM meta WHERE ns=?", (ns,))
                 db.execute("COMMIT")
                 self._meta.pop(ns, None)
@@ -261,6 +292,27 @@ class AssetHistoryStore:
             ev["moves"].append({"holder": holder, "delta": delta})
         out.reverse()                         # rows ran oldest first; events go out newest first
         return out, (lo if len(groups) >= limit else None)
+
+
+    # ---- DEX reads (execnode/dex_trades.py) — the same failure rule: a broken query disables the store ----------------
+    def _dex(self, fn, empty, *a):
+        if self.disabled:
+            return empty
+        with self._lock:
+            try:
+                return fn(self._db, *a)
+            except Exception as e:
+                self._fail("dex query", e)
+                return empty
+
+    def dex_trades(self, ns, cid, pid=None, limit=DX.LIMIT_DEFAULT, before=None, trader=None):
+        return self._dex(DX.trades, ([], None), ns, cid, pid, limit, before, trader)
+
+    def dex_candles(self, ns, cid, pid, tf, limit=500):
+        return self._dex(DX.candles, [], ns, cid, pid, tf, limit)
+
+    def dex_stats(self, ns, cid, now=None):
+        return self._dex(DX.stats, {}, ns, cid, now)
 
 
 def open_store(path):

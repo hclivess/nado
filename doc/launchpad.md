@@ -33,7 +33,7 @@ written for the zkVM in zkpy, beside `execnode/games/dex.py`.
 | | today | after this |
 |---|---|---|
 | constant-product AMM, add/remove liquidity, slippage `minOut` | **yes** — `execnode/games/dex.py` | unchanged |
-| price chart, markets table, live price sampling | **yes** — `static/dex.js`, `ops/dex_prices.py` (sampler inside `nado.py`) | curves sampled too |
+| price chart, markets table, live price sampling | **yes** — `static/dex.js`, `ops/dex_prices.py` (sampler inside `nado.py`) | curves charted from the exec node's trade index (`execnode/dex_trades.py`): every fill at its batch's one price, candles and recent trades on the coin card — BUILT 2026-11-07 |
 | cross-chain BTC/ETH/SOL swaps (HTLC order book) | **yes, ours only** — `execnode/games/otc.py`, [`dex-bridge.md`](dex-bridge.md) | unchanged |
 | bonding-curve market for a new coin | no | **yes** |
 | "create a coin" that is tradeable at once, fair by construction | no — issuing (`asset_create`) and seeding a pool are separate, by hand | **yes** |
