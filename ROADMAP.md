@@ -33,7 +33,7 @@ of it is still open.
 | Layer | Solana Q1'26 | NADO status | Blocker |
 |---|---|---|---|
 | **Fungible asset primitive** | SPL token | **BUILT** (was ABSENT) — state-level ledger committed in the settled root, derived ids a contract computes in-circuit, 5 zkVM opcodes, asset-denominated call value ([`doc/assets.md`](doc/assets.md)). Open: wallet UI, settlement-by-proof | Keystone. Was blocking everything below. |
-| **Launchpad** | $144M (42%) — Pump.fun, Bags, LetsBonk | **ABSENT** | Needs asset primitive |
+| **Launchpad** | $144M (42%) — Pump.fun, Bags, LetsBonk | **DESIGN** — plan in [`doc/launchpad.md`](doc/launchpad.md) (2026-11-07) | Asset primitive and AMM are built; the operator's fee decisions (§6 there) come first |
 | **Trading terminals** | $79M — Axiom, Photon, BullX, GMGN, Trojan | **ABSENT** — no charts, no indexer, no price history | Needs markets + indexer |
 | **Wallet swaps** | $49.6M — Phantom | **PARTIAL** — wallet has send/receive/stake/deploy/HTLC lock, but the "swap" UI is a raw HTLC lock/claim/refund form: no pair, no price, no counterparty discovery | Needs AMM + router |
 | **AMM / DEX** | Raydium, Orca, Meteora, Pumpswap | **SHIPPED (AMM + order book)** — the constant-product AMM (`execnode/games/dex.py`) and the cross-chain OTC order book (`execnode/games/otc.py`, dex-bridge phase 1, live 2026-08-26 as the dex dApp's Cross-chain mode) are both on-chain; router still open | Needs asset primitive |
@@ -277,6 +277,16 @@ swaps both directions, adds/removes liquidity, and proves reserves and fees cons
 ---
 
 ## Phase 3 — Launchpad (the 42%)
+
+> **Status: DESIGN — the plan is [`doc/launchpad.md`](doc/launchpad.md)** (2026-11-07). It was prompted by a request
+> to deploy `higherdotfun/launchpad-template`, a pump.fun clone for Solana that cannot run on NADO as-is; we take its
+> product, not its code. Two corrections to the mechanic below, forced by what is built: (a) creating is the creator's
+> two steps in one flow — `asset_create` with a fixed supply, then `launch` carrying all of it — because a call carries
+> one asset and only a contract's deployer may issue *for* it; the page calls a coin a fair launch only when the settled
+> root proves `mintable == false` and the curve holds 100 % of the supply; (b) graduation cannot seed a Phase-2 pool
+> (no cross-contract calls), so the curve contract itself becomes a constant-product pool — nobody holds its shares, so
+> its liquidity is locked forever by construction. Next step: the operator's decisions on fees, creator share,
+> creation fee, graduation threshold and image hosting (§6 of the plan).
 
 **Goal:** the Pump.fun analogue — one-click asset creation with an instant market, no listing, no
 liquidity bootstrap problem.
@@ -708,7 +718,7 @@ honestly is rarer than it should be.
 |---|---|---|---|
 | 1 | **Asset primitive** | — | Keystone — **chain half BUILT**; wallet UI + proof settlement open |
 | 2 | **AMM** | 1 | Price discovery; the venue everything routes into |
-| 3 | **Launchpad** | 1, 2 | 42% of app revenue on the reference chain |
+| 3 | **Launchpad** | 1, 2 | 42% of app revenue on the reference chain — **DESIGN**, [`doc/launchpad.md`](doc/launchpad.md) |
 | 4 | **Router + wallet swap** | 2, 3 | 15% of app revenue; highest-converting surface |
 | 5 | **Indexer + terminal** | 2, 3 | 23% of app revenue; pure front-end leverage |
 | 6 | **Liquid staking** | 1 | Unfreezes bonded capital; composability |
