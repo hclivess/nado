@@ -42,3 +42,25 @@ export function earthNeeded(ops, w) {
 
 /** Does a tree trunk stand in column (u, v) just above layer T? (levelling without an axe leaves it) */
 export const trunkIn = (w, u, v, T) => [1, 2].some((d) => TREE_WOOD.has(w.block(u, v, T + d)));
+
+/** The layer a site is levelled to: the AVERAGE of its columns' surface layers (each column's highest natural cell), so a
+ *  site comes out at its middle height and pressing again on the same site keeps it — it used to take the aimed cell's
+ *  layer, which went up and down with every press on a slope ("it keeps levelling up and down like stupid", 2026-11-07). */
+export function siteLayer(w, u0, v0, r) {
+  let sum = 0, n = 0;
+  for (let du = -r; du <= r; du++) for (let dv = -r; dv <= r; dv++) {
+    const u = u0 + du, v = v0 + dv;
+    for (let h = Math.min(H - 1, w.top(u, v) + 3); h > 0; h--) if (NATURAL.has(w.block(u, v, h))) { sum += h; n++; break; }
+  }
+  return n ? Math.round(sum / n) : w.top(u0, v0);
+}
+
+/** THE TOP LAYER FIRST (aiming at the ground): the column's top cell (snow, grass, sand) often lies partly above the drawn
+ *  surface — its field under 1 — and a ray meets the cell beneath it, so a dig took the earth under the snow and the snow
+ *  stayed ("i kept digging in snow but the snow stays put and i dig under it", 2026-11-07). The cell above the hit is the
+ *  target when it is natural and partly above the surface; one cell up only, so a cliff face's cells (field 1) are dug
+ *  where they are hit. isNatural(cell), field(cell): the page's own block and field at a cell [u, v, h]. */
+export function topFirst(hit, isNatural, field) {
+  const up = [hit[0], hit[1], hit[2] + 1];
+  return isNatural(up) && field(up) < 0.999 ? up : hit;
+}

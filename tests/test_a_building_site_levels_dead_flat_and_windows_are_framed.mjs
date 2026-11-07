@@ -5,6 +5,8 @@
  *      and filling, a tree on it felled — leaves the drawn ground across the site's interior at exactly T + 1 (the smooth
  *      surface, as meshed); without an axe a trunk on the site is left and reported;
  *   2. its ops are only digs and earth placements, and it asks for earth only when the digging does not give enough back;
+ *      the site levels to its AVERAGE surface layer and a second press changes nothing; a dig takes the top layer (snow,
+ *      turf) first when the ray meets the cell under it;
  *   3. a window is drawn as a timber frame (two jambs, sill, head, a cross mullion) in the frame's material and a thin pane
  *      in glass — not a box of blue tile — and the page draws the frame in wood and the glass clear;
  *   4. a window is a unit made at the workbench from glass, planks and nails, reachable from bare hands.
@@ -17,7 +19,7 @@ import { fileURLToPath } from "node:url";
 const ROOT = join(dirname(fileURLToPath(import.meta.url)), "..");
 const Wd = await import(join(ROOT, "static", "land-world.js"));
 const M = await import(join(ROOT, "static", "land-mesher.js"));
-const { levelOps, earthNeeded, trunkIn } = await import(join(ROOT, "static", "land-level.js"));
+const { levelOps, earthNeeded, trunkIn, siteLayer, topFirst } = await import(join(ROOT, "static", "land-level.js"));
 const R = JSON.parse(readFileSync(join(ROOT, "static", "land-recipes.json"), "utf8"));
 let fails = 0;
 const ok = (c, m) => { console.log((c ? "ok   " : "FAIL ") + m); if (!c) fails++; };
@@ -26,12 +28,16 @@ function levelSite(face, cu, cv, label) {
   const edits = new Map(), k = (u, v, h) => face + ":" + u + ":" + v + ":" + h;
   const w = { block: (u, v, h) => { const e = edits.get(k(u, v, h)); return e !== undefined ? e : Wd.terrainBlock(face, u, v, h); },
               edited: (u, v, h) => edits.has(k(u, v, h)), top: (u, v) => Wd.column(face, u, v).top };
-  const T = w.top(cu, cv), all = [];
+  // the site's layer is its AVERAGE surface (the aimed cell's layer went up and down with every press on a slope)
+  const T = siteLayer(w, cu, cv, 2), all = [];
   for (let du = -2; du <= 2; du++) for (let dv = -2; dv <= 2; dv++) {
     const ops = levelOps(w, cu + du, cv + dv, T, 3, true);           // a player with an axe: trunks on the site are felled
     for (const [u, v, h, b] of ops) edits.set(k(u, v, h), b);                 // the server applies them in order
     all.push(...ops);
   }
+  let again = 0;
+  for (let du = -2; du <= 2; du++) for (let dv = -2; dv <= 2; dv++) again += levelOps(w, cu + du, cv + dv, siteLayer(w, cu, cv, 2), 3, true).length;
+  ok(siteLayer(w, cu, cv, 2) === T && again === 0, `${label}: levelled again, the site keeps its layer ${T} and nothing more is dug or filled`);
   let lo = Infinity, hi = -Infinity, n = 0;
   const pu = Math.floor(cu / 16), pv = Math.floor(cv / 16);
   for (const ch of new Set([Math.floor((T - 1) / 16), Math.floor(T / 16), Math.floor((T + 1) / 16)])) {
@@ -70,6 +76,18 @@ ok(slope.all.some(([, , , b]) => b === Wd.B.air) && slope.all.some(([, , , b]) =
   const w = { block: (u, v, h) => (u === 0 && v === 0 && h === 11 ? Wd.B.log : h <= 10 ? Wd.B.grass : Wd.B.air), edited: () => false, top: () => 10 };
   ok(!levelOps(w, 0, 0, 10, 3, false).some(([, , h]) => h === 11) && levelOps(w, 0, 0, 10, 3, true).some(([, , h, b]) => h === 11 && b === Wd.B.air) && trunkIn(w, 0, 0, 10),
      "a trunk on the site is felled only by a player with an axe, and is reported otherwise");
+}
+// the site's layer is the average of its columns' surfaces, not the aimed one's
+{
+  const tops = [[10, 10, 10], [11, 11, 11], [12, 12, 12]], w = { block: (u, v, h) => (h <= tops[v + 1][u + 1] ? Wd.B.grass : Wd.B.air), top: (u, v) => tops[v + 1][u + 1] };
+  ok(siteLayer(w, 0, 0, 1) === 11, `a site rising 10, 11, 12 levels to its average layer 11 (got ${siteLayer(w, 0, 0, 1)})`);
+}
+// the top layer is dug first: a ray meeting the earth under snow that lies partly above the surface digs the snow
+{
+  const isNat = (c) => c[2] <= 11, field = (c) => (c[2] === 11 ? -0.2 : 1);
+  ok(topFirst([5, 5, 10], isNat, field).join() === "5,5,11", "a dig meeting the earth under a partly-above-surface snow cell takes the snow first");
+  ok(topFirst([5, 5, 9], isNat, (c) => 1).join() === "5,5,9", "…but a cliff face's cell (wholly solid above) is dug where it is hit");
+  ok(topFirst([5, 5, 11], isNat, field).join() === "5,5,11", "…and the top cell itself stays the target");
 }
 // 2
 ok(flat.all.every(([, , , b]) => b === Wd.B.air || b === Wd.B.dirt), "levelling is only digs and earth placements");

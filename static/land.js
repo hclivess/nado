@@ -30,7 +30,7 @@ import * as Wd from "./land-world.js";
 import * as Cosmos from "./land-cosmos.js";
 import { walk, trunkAt, TRUNK_R, restorePlace } from "./land-walk.js";
 import { snapBox, piecesFor } from "./land-snap.js";
-import { levelOps, earthNeeded, trunkIn } from "./land-level.js";
+import { levelOps, earthNeeded, trunkIn, siteLayer, topFirst } from "./land-level.js";
 import { groundWeights } from "./land-mesher.js";
 import { NadoDapp, wireWallet, renderWallet, alertBar, notify, uiConfirm, uiPrompt, isAddress, esc, base, disp, $ } from "./nadodapp.js";
 
@@ -272,6 +272,8 @@ function aim() {
         if (fq > 0 && Wd.NATURAL.has(blockAt(P.face, q[0], q[1], q[2])) && fq > best) { best = fq; hit = q; }
       }
       if (!hit) continue;
+      // the top layer first: snow or turf partly above the drawn surface is dug before the earth under it (land-level.js)
+      hit = topFirst(hit, (c) => Wd.NATURAL.has(blockAt(P.face, c[0], c[1], c[2])), (c) => fieldCell(P.face, c[0], c[1], c[2]));
     }
     if (!hit) continue;
     // where a block goes: the nearest cell back along the ray that is really EMPTY (air or water) — on smooth ground the
@@ -978,7 +980,7 @@ function startLevel() {
   if (!hasClass("shovel")) return notify(T("levelNeedsShovel", "Levelling needs a shovel."));
   const a = aim();
   if (!a || !a.hit || a.box) return notify(T("levelAim", "Aim at the ground to level it."));
-  const [u0, v0, T0] = a.hit, cols = [];
+  const [u0, v0] = a.hit, T0 = siteLayer(levelWorld, u0, v0, LEVEL_R), cols = [];
   let trunk = false;
   for (let du = -LEVEL_R; du <= LEVEL_R; du++) for (let dv = -LEVEL_R; dv <= LEVEL_R; dv++) {
     const u = u0 + du, v = v0 + dv, plot = Wd.plotOf(P.face, u, v);
