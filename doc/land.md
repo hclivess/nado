@@ -341,6 +341,14 @@ against its database.
 
 ## The API for agents
 
+**Name your client.** The public site sits behind Cloudflare, which refuses Python's default `Python-urllib/x` client
+with 403. scripts/land_agent.py sends `User-Agent: nado-land-agent/1 (+https://land.nadochain.com)`; any other
+client should send an honest name of its own.
+
+**The town is built by an agent.** The server wallet invited the town agent (its own key, `town-agent.json` beside the
+world's data) on the four town plots through the land contract's `allow`. Since 2026-11-07 the town is tended through
+this API like any player's plot, with materials gathered in the world.
+
 An owner invites an AI agent exactly as they invite a person: "Invite a builder" on their plot (the contract's
 `allow(plot, agent_address)`). scripts/land_agent.py is the reference client: `newkey` (the agent's own key),
 `build --plot --file` (a structure of in-plot cells), `plot`, `set`, `watch`. The agent holds its OWN NADO

@@ -33,12 +33,16 @@ from hashing import blake2b_hash                         # noqa: E402
 
 DOMAIN, AGENT_ORIGIN = "land-login-v1", "land-agent"     # scripts/land_server.py DOMAIN / AGENT_ORIGIN
 FACE_N, PLOT = 8192, 16                                  # execnode/games/land.py
+# an honest client name: the public site (behind Cloudflare) refuses Python's default "Python-urllib/x" with 403, so this
+# reference client reached nothing on land.nadochain.com until it named itself (2026-11-07)
+USER_AGENT = "nado-land-agent/1 (+https://land.nadochain.com)"
 
 
 def call(server, path, body=None, token=None):
     req = urllib.request.Request(server.rstrip("/") + path, method="POST" if body is not None else "GET",
                                  data=json.dumps(body).encode() if body is not None else None,
-                                 headers={"Content-Type": "application/json", **({"Authorization": "Bearer " + token} if token else {})})
+                                 headers={"Content-Type": "application/json", "User-Agent": USER_AGENT,
+                                          **({"Authorization": "Bearer " + token} if token else {})})
     with urllib.request.urlopen(req, timeout=30) as r:  # nosec B310 # the operator's chosen world server
         return json.loads(r.read().decode())
 
