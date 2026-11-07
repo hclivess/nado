@@ -111,8 +111,11 @@ gets its own tools:
 
 ## Phases (each its own issue, each shipped and tested alone)
 
-1. **The deep crust** (shell 0, to 2 km): negative layers in the generator, mesher, walker and server; silver and gold;
-   breakable bedrock with a drill; the deep region store.
+1. **The deep crust** (shell 0, to 2 km) — **built (#129).** Negative layers down to `DEEP_MIN` (−2048) in the
+   generator, mesher, walker and server; silver and gold below `DEEP_RICH` (−300); bedrock broken only by an iron drill.
+   Deep edits are kept in the plot record above them, not in a separate region store; they are never part of its
+   commitment and never grow back. A place saved underground is restored once that plot's edits arrive.
+   Built pieces (1 cm boxes) are not yet allowed below layer 0, only blocks.
 2. **Expedition tools:** the drill, the lift and heat gear.
 3. **The mantle:** basalt, olivine, diamond pipes, magma pockets (light, fire, blocking).
 4. **Shells and the core:** shell boundaries in the mesher, walker and server, molten iron with the core shield,

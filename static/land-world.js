@@ -215,9 +215,12 @@ export const BLOCKS = [
   // FIRE (#124): a burning cell — flames in the air beside something that burns (scripts/land_server.py FIRE); it glows,
   // lights the night and is walked through (and hurts nothing yet)
   { key: "fire", solid: false, see: true, glow: true, tex: [23, 23, 23] },
+  // THE DEEP (#129, doc/land-core.md): veins below 300 m of the deep crust hold silver and gold
+  { key: "silverore", solid: true, tex: [46, 46, 46] },
+  { key: "goldore", solid: true, tex: [47, 47, 47] },
 ];
 export const B = Object.fromEntries(BLOCKS.map((b, i) => [b.key, i]));
-export const ATLAS_TILES = 46;              // tiles 0..45 (0 unused)
+export const ATLAS_TILES = 48;              // tiles 0..47 (0 unused)
 export const opaque = (id) => BLOCKS[id].solid && !BLOCKS[id].see;
 
 // ---- terrain ---------------------------------------------------------------------------------------------------
@@ -372,9 +375,24 @@ export function litterAt(face, u, v, col) {
   return 0;
 }
 
+// ---- THE DEEP (#129, doc/land-core.md phase 1): below layer 0 — under the crust's bedrock floor (layers 0..3) — lies the
+// deep crust, down to DEEP_MIN, still on the surface grid (shell 0 reaches 41.8 km; no shell boundary is needed yet).
+// Stone, threaded by the same kind of veins as the rock above; below DEEP_RICH layers the veins also hold silver and
+// gold. Under DEEP_MIN the floor of what is built so far is bedrock again (the mantle is phase 3).
+export const DEEP_MIN = -2048;               // a whole number of chunks (CHUNK), so a chunk is never half deep
+export const DEEP_RICH = -300;
+export function deepBlock(face, u, v, h) {
+  if (h < DEEP_MIN) return B.bedrock;
+  if (!(noise3(PERM[6], u / 7.3, v / 7.3, h / 4.1 + face * 977) > 0.33)) return B.stone;
+  const r = hash32(face + 31, (u >> 3) * 7 + (h >> 3), v >> 3) % 100;
+  if (h > DEEP_RICH) return r < 40 ? B.coal : r < 75 ? B.ironore : r < 92 ? B.copperore : B.tinore;
+  return r < 30 ? B.coal : r < 56 ? B.ironore : r < 70 ? B.copperore : r < 80 ? B.tinore : r < 93 ? B.silverore : B.goldore;
+}
+
 /** The untouched block at (face, u, v, h) — u, v integers on the face. */
 export function terrainBlock(face, u, v, h, colCache) {
-  if (h <= 0) return B.bedrock;
+  if (h < 0) return deepBlock(face, u, v, h);
+  if (h === 0) return B.bedrock;
   const col = colCache ? colCache(face, u, v) : column(face, u, v);
   if (h <= col.top) {
     if (h < col.top - col.soil + 1) {
@@ -423,7 +441,8 @@ export function terrainBlock(face, u, v, h, colCache) {
 //   an untouched cell:  height(column) - (h + 0.5), clamped to [-1, 1] — the generator's exact, unrounded ground;
 //   an edited cell:     +1 if a natural material was put there, -1 otherwise (dug out, or a built block, which carves
 //                       its own room in the ground and is drawn crisp).
-export const NATURAL = new Set([B.grass, B.dirt, B.stone, B.sand, B.snow, B.gravel, B.basalt, B.bedrock, B.ironore, B.coal, B.copperore, B.tinore, B.clay]);
+export const NATURAL = new Set([B.grass, B.dirt, B.stone, B.sand, B.snow, B.gravel, B.basalt, B.bedrock, B.ironore, B.coal, B.copperore, B.tinore, B.clay,
+  B.silverore, B.goldore]);
 export function fieldOf(col, h, edit) {
   if (edit !== undefined) return NATURAL.has(edit) ? 1 : -1;
   if (h <= 0) return 1;
@@ -483,7 +502,8 @@ const enc = new TextEncoder();
  *  material u8 and its shape u8 (v3: shapes; no title had been minted, so no v2 anchor exists to keep).
  *  scripts/land_server.py builds the same bytes (commitment_bytes; the server test checks the two agree). */
 export function commitmentBytes(plot, salt, edits, boxes = []) {
-  const tag = enc.encode("nado-land-plot-v3"), ce = canonicalEdits(edits), cb = canonicalBoxes(boxes);
+  // the deep below a plot is the commons, not the plot's build: never committed (scripts/land_server.py agrees)
+  const tag = enc.encode("nado-land-plot-v3"), ce = canonicalEdits(edits.filter((e) => e[2] >= 0)), cb = canonicalBoxes(boxes);
   if (!(salt instanceof Uint8Array) || salt.length !== 32) throw new Error("salt must be 32 bytes");
   const out = new Uint8Array(tag.length + 4 + 32 + 4 + ce.length * 5 + 4 + cb.length * 14);
   out.set(tag, 0);

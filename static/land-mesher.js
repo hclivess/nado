@@ -19,7 +19,7 @@
 // Cells are generated with a one-cell border (wrapped across face seams by land-world.wrap). A surface edge is drawn by
 // the chunk that holds its LOWER cell, so every edge of the world belongs to exactly one chunk (no gaps, no doubles).
 // Positions are metres RELATIVE TO THE CHUNK'S ANCHOR; the page places each mesh at anchor - camera in doubles.
-import { CHUNK, H, R0, W, B, BLOCKS, ATLAS_TILES, NATURAL, CM, TREE_WOOD, TREE_LEAVES, isTree, opaque, dirOf, frameOf, wrap, column, terrainBlock, fieldOf, treeAt, treeCell, LITTER, shapeOf } from "./land-world.js";
+import { CHUNK, H, R0, W, B, BLOCKS, ATLAS_TILES, NATURAL, CM, DEEP_MIN, TREE_WOOD, TREE_LEAVES, isTree, opaque, dirOf, frameOf, wrap, column, terrainBlock, fieldOf, treeAt, treeCell, LITTER, shapeOf } from "./land-world.js";
 import { treeModel, leafCellModel, twigModel, flaxModel, saplingModel } from "./land-trees.js";
 
 const N = CHUNK + 2;                                     // cells with the border: real index r in -1..16 is r + 1
@@ -66,7 +66,7 @@ export function groundWeights(b, up) {          // (static/land.js weighs the fa
 // the faint per-place grain, and the colour of what is IN the ground where a dig exposes it — a vein of ore must be
 // seen to be followed (2026-11-07): coal dark, iron rusty, copper verdigris, tin pale, clay a reddish earth
 const ORE_TINT = { [B.coal]: [0.38, 0.38, 0.4], [B.ironore]: [1.12, 0.82, 0.66], [B.copperore]: [0.78, 1.08, 0.92],
-  [B.tinore]: [1.18, 1.18, 1.22], [B.clay]: [1.12, 0.86, 0.72] };
+  [B.tinore]: [1.18, 1.18, 1.22], [B.clay]: [1.12, 0.86, 0.72], [B.silverore]: [1.3, 1.32, 1.38], [B.goldore]: [1.35, 1.15, 0.55] };
 const groundGrain = (b, up, u, v, h) => {
   const j = 0.9 + 0.2 * hash3(u, v, h), t = ORE_TINT[b];
   return t ? [j * t[0], j * t[1], j * t[2]] : [j, j, j];
@@ -83,8 +83,9 @@ function cells(face, cu, cv, ch, edits) {
     for (let k = 0; k < N; k++) {
       const h = h0 + k, x = (k * N + j) * N + i;
       const e = edits ? edits.get(w.face + ":" + w.u + ":" + w.v + ":" + h) : undefined;
-      blk[x] = e !== undefined ? e : h < 0 ? B.bedrock : h >= H ? B.air : terrainBlock(w.face, w.u, w.v, h, colCache);
-      fld[x] = h < 0 ? 1 : h >= H ? -1 : fieldOf(col, h, e);
+      // the deep (#129) is ground like any other down to DEEP_MIN; under it, solid bedrock
+      blk[x] = e !== undefined ? e : h < DEEP_MIN ? B.bedrock : h >= H ? B.air : terrainBlock(w.face, w.u, w.v, h, colCache);
+      fld[x] = h < DEEP_MIN ? 1 : h >= H ? -1 : fieldOf(col, h, e);
       if (e === B.air && h <= col.top) dug[x] = 1;          // ground someone dug out (not a tree or litter above it)
     }
   }

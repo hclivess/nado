@@ -91,7 +91,7 @@ const PAINT = {
   33: ["#2a2a2a", 0.3], 34: ["#e8e4da", 0.06, "birch"], 35: ["#24502a", 0.22, "leaves"], 36: ["#6aa83a", 0.2, "leaves"],
   37: ["#7d7570", 0.14, "ore"], 38: ["#6e4a2c", 0.06, "door"], 39: ["#7a5534", 0.08, "beam"], 40: ["#c9a95a", 0.14, "thatch"],
   41: ["#5a3a22", 0.06, "door"], 42: ["#2b2b2d", 0.18, "coal"], 43: ["#7d7570", 0.14, "copper"], 44: ["#7d7570", 0.14, "tin"],
-  45: ["#a5765a", 0.1],
+  45: ["#a5765a", 0.1], 46: ["#7d7570", 0.14, "silver"], 47: ["#7d7570", 0.14, "gold"],
 };
 function paintAtlas() {
   const cv = document.createElement("canvas");
@@ -128,6 +128,8 @@ function paintAtlas() {
       if (kind === "coal" && (x * 3 + y * 5) % 7 < 1) col = new THREE.Color("#55555c").multiplyScalar(k);    // a dull glint
       if (kind === "copper" && (x * 5 + y * 3) % 8 < 2) col = new THREE.Color("#3f9a7a").multiplyScalar(k);  // verdigris
       if (kind === "tin" && (x * 7 + y * 2) % 9 < 2) col = new THREE.Color("#c9ccd2").multiplyScalar(k);     // pale metal
+      if (kind === "silver" && (x * 3 + y * 7) % 8 < 2) col = new THREE.Color("#e4e8ee").multiplyScalar(k);  // bright metal
+      if (kind === "gold" && (x * 5 + y * 2) % 8 < 2) col = new THREE.Color("#e8c547").multiplyScalar(k);    // gold flecks
       const a = kind === "glass" && !(x === 0 || y === 0 || x === TILE - 1 || y === TILE - 1) ? 0.25 : t === 6 ? 0.75 : 1;
       g.fillStyle = `rgba(${Math.min(255, col.r * 255) | 0},${Math.min(255, col.g * 255) | 0},${Math.min(255, col.b * 255) | 0},${a})`;
       g.fillRect(x0 + x, y0 + y, 1, 1);
@@ -146,7 +148,7 @@ const colAt = (f, u, v) => {
 };
 const key = (f, u, v, h) => f + ":" + u + ":" + v + ":" + h;
 function blockAt(f, u, v, h) {
-  if (h < 0) return B.bedrock;
+  if (h < Wd.DEEP_MIN) return B.bedrock;                 // THE DEEP (#129) is ground down to DEEP_MIN
   if (h >= H) return B.air;
   const w = Wd.wrap(f, u, v), e = edits.get(key(w.face, w.u, w.v, h));
   return e !== undefined ? e : Wd.terrainBlock(w.face, w.u, w.v, h, colAt);
@@ -156,7 +158,7 @@ function blockAt(f, u, v, h) {
 // build stays a crisp cell, and a log is a solid cell inside its round trunk; leaves can be walked through.
 const crispB = (b) => b !== B.air && !Wd.NATURAL.has(b) && !Wd.isTree(b) && !BLOCKS[b].liquid;
 function fieldCell(f, u, v, h) {
-  if (h < 0) return 1;
+  if (h < Wd.DEEP_MIN) return 1;
   if (h >= H) return -1;
   const w = Wd.wrap(f, u, v);
   return Wd.fieldOf(colAt(w.face, w.u, w.v), h, edits.get(key(w.face, w.u, w.v, h)));
@@ -252,7 +254,8 @@ function step(dt) {
     P.vh = up ? CLIMB : down && !P.ground ? -CLIMB : 0;
   }
   walk(P, [wu, wv], keys.has("Space") || !!(touch && touch.up), dt, collides, { GRAV, JUMP, STEP });
-  if (P.h < 1) { P.h = groundAt(P.face, P.u, P.v); P.vh = 0; }
+  // fell out of the world: only below the deep (#129) — it was "below layer 1", which threw a miner back to the surface
+  if (P.h < Wd.DEEP_MIN + 1) { P.h = groundAt(P.face, P.u, P.v); P.vh = 0; }
   if (P.h > H + 400) P.h = H + 400;
   // leaving the face: continue on the neighbouring face, keeping the world direction the player faces
   if (P.u < 0 || P.v < 0 || P.u >= W || P.v >= W) {
@@ -347,8 +350,8 @@ function setBlock(f, u, v, h, b) {
   if (!net.online) return notify(T("offline", "The world server is out of reach — you can explore, but not gather or build."));
   const w = Wd.wrap(f, u, v), plot = Wd.plotOf(w.face, w.u, w.v);
   if (!net.me) return explainNoBuild(plot);
-  if (!mayBuild(plot)) return explainNoBuild(plot);
-  if (h <= 0 || h >= H) return false;
+  if (h >= 0 && !mayBuild(plot)) return explainNoBuild(plot);   // the deep (h < 0) is everyone's (#129)
+  if (h < Wd.DEEP_MIN || h >= H) return false;
   putCell(w.face, w.u, w.v, h, b);
   net.send({ t: "set", cells: [[w.face, w.u, w.v, h, b]], req: ++net.req });
   net.pending.set(net.req, plot);
@@ -378,7 +381,14 @@ function load() {
   if (d && d.piece && [d.piece.w, d.piece.d, d.piece.h].every((x) => Number.isInteger(x) && x >= 1 && x <= Wd.PLOT_CM) && SNAPS.includes(d.piece.snap)) piece = d.piece;
   const at = d && restorePlace(d.p, W, (f, u, v, h) => { const pf = P.face; P.face = f; const c = collides(u, v, h); P.face = pf; return c; },
     (f, u, v) => colAt(f, Math.floor(u), Math.floor(v)).height, (f, u, v) => { const pf = P.face; P.face = f; const g = groundAt(f, u, v); P.face = pf; return g; });
-  if (at) { [P.face, P.u, P.v, P.h, P.yaw, P.pitch] = at; return; }
+  if (at) {
+    [P.face, P.u, P.v, P.h, P.yaw, P.pitch] = at;
+    // A PLACE UNDERGROUND (a mine, THE DEEP #129) is solid rock until its plot's edits arrive from the world server, so
+    // restorePlace puts the player on the surface. Keep the saved place and take it back once that plot's edits show it
+    // open (applyPlot) — reloading in your mine leaves you in your mine. Without the server, the surface stays.
+    if (at[3] !== d.p[3]) pendingPlace = d.p.slice(0, 6);
+    return;
+  }
   const sp = Wd.plotCoords(Wd.plotId(Wd.SPAWN_FACE, Wd.SPAWN_PLOT_ROW + 5, Wd.SPAWN_PLOT_COL + 5));
   P.face = sp.face; P.u = sp.u0 + 0.5; P.v = sp.v0 - 6.5;            // amid the first wave of plots
   P.h = groundAt(P.face, P.u, P.v);
@@ -386,6 +396,7 @@ function load() {
 
 // ---- chunks: a pool of mesher workers ---------------------------------------------------------------------------
 const chunks = new Map();                      // "face:cu:cv:ch" -> { meshes: [], anchor, busy, dirty }
+let pendingPlace = null;                       // a saved place underground, until its plot's edits arrive (load)
 const workers = [], queue = [], inflight = new Map();
 let reqId = 0;
 function startWorkers() {
@@ -515,7 +526,7 @@ function updateChunks() {
     }
     const top = colAt(face, cu * CHUNK + 8, cv * CHUNK + 8).top;
     let lo = Math.max(0, Math.floor((Math.min(top, Wd.SEA) - 10) / CHUNK)), hi = Math.min(H / CHUNK - 1, Math.floor((top + 14) / CHUNK));
-    if (Math.abs(dx) <= 2 && Math.abs(dy) <= 2) { lo = Math.min(lo, Math.max(0, Math.floor(P.h / CHUNK) - 1)); hi = Math.max(hi, Math.min(H / CHUNK - 1, Math.floor(P.h / CHUNK) + 1)); }
+    if (Math.abs(dx) <= 2 && Math.abs(dy) <= 2) { lo = Math.min(lo, Math.max(Wd.DEEP_MIN / CHUNK, Math.floor(P.h / CHUNK) - 1)); hi = Math.max(hi, Math.min(H / CHUNK - 1, Math.floor(P.h / CHUNK) + 1)); }
     const pb = plotBoxes.get(Wd.plotId(face, cv, cu));
     if (pb && pb.list.length) for (const b of pb.list) { lo = Math.min(lo, Math.floor(b[2] / (CHUNK * Wd.CM))); hi = Math.max(hi, Math.min(H / CHUNK - 1, Math.floor((b[2] + b[5] - 1) / (CHUNK * Wd.CM)))); }
     const dd = Math.max(Math.abs(dx), Math.abs(dy)), lodNow = dd <= 2 ? (touch ? 1 : 0) : dd <= 3 ? 1 : 2;
@@ -830,7 +841,14 @@ function applyPlot(plot, list) {
   if (old) for (const lk of old.keys()) { const [x, z, y] = lk.split(":").map(Number); edits.delete(key(q.face, q.u0 + x, q.v0 + z, y)); }
   plotEdit.delete(plot);
   for (const [x, z, y, b] of list) putCell(q.face, q.u0 + x, q.v0 + z, y, b);
-  if (old) for (let ch = 0; ch < H / CHUNK; ch++) { const k = q.face + ":" + q.u0 / CHUNK + ":" + q.v0 / CHUNK + ":" + ch; if (chunks.has(k)) request(k); }
+  if (pendingPlace && Wd.plotOf(pendingPlace[0], Math.floor(pendingPlace[1]), Math.floor(pendingPlace[2])) === plot) {
+    const [f, u, v, h, yaw, pitch] = pendingPlace, pf = P.face;
+    pendingPlace = null;
+    P.face = f;
+    if (!collides(u, v, h)) { [P.u, P.v, P.h, P.yaw, P.pitch] = [u, v, h, yaw, Number.isFinite(pitch) ? pitch : P.pitch]; P.vh = 0; }
+    else P.face = pf;
+  }
+  if (old) for (let ch = Wd.DEEP_MIN / CHUNK; ch < H / CHUNK; ch++) { const k = q.face + ":" + q.u0 / CHUNK + ":" + q.v0 / CHUNK + ":" + ch; if (chunks.has(k)) request(k); }
 }
 async function resync(plot) {
   try { const r = await (await fetch("/land/api/plot?plot=" + plot, { cache: "no-store", credentials: "same-origin" })).json(); applyPlot(plot, r.edits || []); setPlotBoxes(plot, r.boxes || []); } catch (e) {}
@@ -1269,7 +1287,8 @@ function act(place, mouse) {
   } else {
     if (a.box) return startTakeDown(a.box, mouse);
     const [u, v, h] = a.hit;
-    if (blockAt(P.face, u, v, h) === B.bedrock) return;
+    // bedrock (the crust's floor, and under the deep) gives way only to a drill, and never under DEEP_MIN
+    if (blockAt(P.face, u, v, h) === B.bedrock && (h < 0 || !hasClass("drill"))) return notify(T("needsDrill", "Bedrock — only a drill breaks it."));
     startBreak(a.hit, mouse);
   }
 }

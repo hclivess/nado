@@ -91,7 +91,7 @@ rl.on("line", (line) => {
     else if ("trees" in req) out = { roots: trees(req.trees) };
     else out = { blocks: req.cells.map(([f, u, v, h]) => {
       if (!(f >= 0 && f < 6 && u >= 0 && u < W.W && v >= 0 && v < W.W && Number.isInteger(h))) return -1;
-      return h < 0 ? W.B.bedrock : h >= W.H ? W.B.air : W.terrainBlock(f, u, v, h, col);
+      return h < W.DEEP_MIN ? W.B.bedrock : h >= W.H ? W.B.air : W.terrainBlock(f, u, v, h, col);   // the deep too (#129)
     }) };
   } catch (e) { out = { error: String(e && e.message || e) }; }
   process.stdout.write(JSON.stringify(out) + "\n");

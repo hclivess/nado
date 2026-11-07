@@ -228,6 +228,18 @@
   "linen_cloak": {
    "name": "Linen cloak",
    "wear": "back"
+  },
+  "silverore": {
+   "name": "Silver ore"
+  },
+  "goldore": {
+   "name": "Gold ore"
+  },
+  "silver": {
+   "name": "Silver"
+  },
+  "gold": {
+   "name": "Gold"
   }
  },
  "tools": {
@@ -300,6 +312,11 @@
    "name": "Needle",
    "class": "needle",
    "speed": 1
+  },
+  "drill": {
+   "name": "Iron drill",
+   "class": "drill",
+   "speed": 2
   }
  },
  "stations": {
@@ -764,6 +781,34 @@
   "55": {
    "hard": 0.1,
    "yields": []
+  },
+  "30": {
+   "hard": 8.0,
+   "class": "drill",
+   "needs": "drill",
+   "yields": []
+  },
+  "56": {
+   "hard": 4.0,
+   "class": "pick",
+   "needs": "pick",
+   "yields": [
+    [
+     "silverore",
+     1
+    ]
+   ]
+  },
+  "57": {
+   "hard": 4.0,
+   "class": "pick",
+   "needs": "pick",
+   "yields": [
+    [
+     "goldore",
+     1
+    ]
+   ]
   }
  },
  "recipes": [
@@ -2019,6 +2064,77 @@
    ],
    "with": [
     "needle"
+   ]
+  },
+  {
+   "id": "drill",
+   "makes": [
+    [
+     "drill",
+     1
+    ]
+   ],
+   "uses": [
+    [
+     "iron",
+     6
+    ],
+    [
+     "sticks",
+     2
+    ],
+    [
+     "cordage",
+     2
+    ]
+   ],
+   "with": [
+    "anvil",
+    "hammer"
+   ]
+  },
+  {
+   "id": "silver",
+   "makes": [
+    [
+     "silver",
+     1
+    ]
+   ],
+   "uses": [
+    [
+     "silverore",
+     2
+    ],
+    [
+     "charcoal",
+     2
+    ]
+   ],
+   "with": [
+    "bloomery"
+   ]
+  },
+  {
+   "id": "gold",
+   "makes": [
+    [
+     "gold",
+     1
+    ]
+   ],
+   "uses": [
+    [
+     "goldore",
+     2
+    ],
+    [
+     "charcoal",
+     2
+    ]
+   ],
+   "with": [
+    "bloomery"
    ]
   }
  ],

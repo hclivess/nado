@@ -49,12 +49,16 @@ AGENT_ORIGIN = "land-agent"       # the origin an agent's challenge names (a bro
 CHALLENGE_TTL = 300
 SESSION_TTL = 7 * 86400
 FACE_N, PLOT, W, H = L.FACE_N, L.PLOT, L.FACE_N * L.PLOT, 256
-N_BLOCKS = 56                     # static/land-world.js BLOCKS.length (tests/test_the_land_planet_… checks the two agree)
+N_BLOCKS = 58                     # static/land-world.js BLOCKS.length (tests/test_the_land_planet_… checks the two agree)
 DOOR = 37                         # static/land-world.js B.door: a piece that swings open and shut ("door" op)
 CHEST = 54                        # static/land-world.js B.chest: a piece that keeps items on its plot ("chest" op, #114)
 CHEST_MAX = 2000                  # items one chest holds
 TREE_WOOD = {7, 31}                # static/land-world.js TREE_WOOD (log, birchlog): cutting one fells its tree above
 UNBUILDABLE = {5, 30}             # water, bedrock: never placed (no item in land-recipes.json places them either)
+# THE DEEP (#129, doc/land-core.md): layers below 0, down to DEEP_MIN (static/land-world.js DEEP_MIN), are the deep crust.
+# Nobody owns them — anyone signed in digs and builds there, under an owned plot too — and a dug deep cell never grows
+# back: a mine stays a mine. The deep is kept with the plot above it but is never part of that plot's commitment.
+DEEP_MIN = -2048
 # GRAVITY ("can we add some basic gravity", operator 2026-11-06; "i kept digging in snow but the snow stays put and i dig
 # under it"): sand, gravel and snow (static/land-world.js B) are LOOSE — dug out from under, or placed over a hole, they
 # fall until they rest on something; they fall through air and water (a vacated cell under water fills with water).
@@ -149,7 +153,8 @@ def commitment_bytes(plot, salt, edits, boxes=()):
     """land-world.js commitmentBytes, byte for byte (v3: the ground's cell edits, then the built pieces with their shapes)."""
     if len(salt) != 32:
         raise ValueError("salt must be 32 bytes")
-    ce, cb = canonical_edits(edits), sorted({tuple(normal_box(b)) for b in boxes})
+    # the deep below a plot is the commons, not the plot's build: never committed (land-world.js commitmentBytes agrees)
+    ce, cb = canonical_edits([e for e in edits if e[2] >= 0]), sorted({tuple(normal_box(b)) for b in boxes})
     if not all(box_ok(list(b)) for b in cb):
         raise ValueError("bad box")
     out = bytearray(b"nado-land-plot-v3") + plot.to_bytes(4, "big") + salt + len(ce).to_bytes(4, "big")
@@ -510,7 +515,7 @@ class World:
         (FALLS) with something passable under it drops onto the first thing that holds it, in order, so a column of sand
         comes down as a column. One terrain round trip for the window; only the cells that changed are written (as edits
         that regrow like any other in the commons). Returns the number of cells moved."""
-        lo, hi = max(1, h - FALL_REACH), min(H - 1, h + FALL_REACH)
+        lo, hi = max(DEEP_MIN, h - FALL_REACH), min(H - 1, h + FALL_REACH)
         fc, fr = p % FACE_N, (p // FACE_N) % FACE_N
         key = lambda hh: (u - fc * PLOT, v - fr * PLOT, hh)
         edits = rec["edits"]
@@ -539,7 +544,7 @@ class World:
                 continue
             k = key(hh)
             edits[k] = out[hh]
-            if not titled:
+            if not titled and hh >= 0:                       # the deep never grows back (THE DEEP)
                 rec.setdefault("exp", {})[k] = time.time() + RULES["wilderness_regrow_s"]
             applied.setdefault(p, []).append([face, u, v, hh, out[hh]])
             moved += 1
@@ -634,7 +639,7 @@ class World:
                 face, u, v, h, b = (int(x) for x in c)
             except Exception:
                 refused.append([c, "a cell is [face, u, v, h, block]"]); continue
-            if not (0 <= face < 6 and 0 <= u < W and 0 <= v < W and 1 <= h < H and 0 <= b < N_BLOCKS) or b in UNBUILDABLE:
+            if not (0 <= face < 6 and 0 <= u < W and 0 <= v < W and DEEP_MIN <= h < H and 0 <= b < N_BLOCKS) or b in UNBUILDABLE:
                 refused.append([c, "out of the world, or not a block you can place"]); continue
             parsed.append((face, u, v, h, b, c))
         # what is there now: an edit, else the untouched planet
@@ -655,6 +660,8 @@ class World:
             if p not in titled_ok:
                 titled_ok[p] = (await self.holder(p)) is not None, await self.may_build(p, who)
             titled, may = titled_ok[p]
+            if h < 0:                                               # THE DEEP: nobody's, and it does not grow back
+                titled, may = False, True
             if b == 0 and cur == FIRE:                              # ---- beat out a fire: it goes, nothing is gathered
                 self.fires.pop((face, u, v, h), None)
                 rec = self.plot(p)
@@ -682,7 +689,7 @@ class World:
                 rec = self.plot(p)
                 rec["edits"][k] = 0
                 (rec.get("grow") or {}).pop(k, None)               # a sapling pulled up grows no more
-                if not titled:                                     # the commons regrows: the cell comes back later
+                if not titled and h >= 0:                          # the commons regrows (not the deep: a mine stays)
                     rec.setdefault("exp", {})[k] = time.time() + RULES["wilderness_regrow_s"]
                 if cur in TREE_WOOD:
                     # FELLING ("can we add some basic gravity", operator 2026-11-06): a cut trunk brings down everything
@@ -913,7 +920,7 @@ class World:
             face, u, v, h = (int(x) for x in cell)
         except Exception:
             return {}, "a cell is [face, u, v, h]"
-        if not (0 <= face < 6 and 0 <= u < W and 0 <= v < W and 1 <= h < H):
+        if not (0 <= face < 6 and 0 <= u < W and 0 <= v < W and DEEP_MIN <= h < H):
             return {}, "out of the world"
         pl = self.player(who)
         if not self._has_class(pl, "fire"):
@@ -988,7 +995,7 @@ class World:
                         self.dirty.add(p)
                         burnt.setdefault(p, []).append(b)
         # the cells the fires caught: only where open air is, and only where the starter may build
-        pend = [c for c, f in self.fires.items() if f.get("pending") and 0 <= c[1] < W and 0 <= c[2] < W and 1 <= c[3] < H]
+        pend = [c for c, f in self.fires.items() if f.get("pending") and 0 <= c[1] < W and 0 <= c[2] < W and DEEP_MIN <= c[3] < H]
         for c in [c for c, f in self.fires.items() if f.get("pending") and c not in pend]:
             self.fires.pop(c, None)
         if pend:

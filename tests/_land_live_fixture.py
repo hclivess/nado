@@ -7,7 +7,8 @@ under /land/) and a fake exec node (/exec/*) that says OWNER holds plot PA and h
                                 session cookie the test sets is exactly what /land/api/login_callback would have set)
   GET /fixture/agent_build   -> AGENT signs in with ITS OWN key and builds a 3 x 3 wall through POST /land/api/set
   GET /fixture/plot          -> {plot, owner, agent, other_plot, other}
-  GET /fixture/seed?who=owner|agent&items={json}  -> stocks that player's inventory (what gathering would have given)
+  GET /fixture/seed?who=owner|agent&items={json}[&tools=[json]]  -> stocks that player's inventory (what gathering and
+                                crafting would have given)
 """
 import os, sys, tempfile
 os.environ["HOME"] = tempfile.mkdtemp(prefix="nado-test-land-live-")       # CLAUDE.md rule 4
@@ -83,6 +84,9 @@ async def main():
     async def seed(req):
         who = {"owner": OWNER, "agent": AGENT}[req.query["who"]]["address"]
         world.player(who)["items"].update(json.loads(req.query["items"]))
+        for t in json.loads(req.query.get("tools", "[]")):                # tools a walk needs (a drill to reach the deep)
+            if t not in world.player(who)["tools"]:
+                world.player(who)["tools"].append(t)
         await hub.inv(world, who)
         return web.json_response(world.inv_json(who))
 

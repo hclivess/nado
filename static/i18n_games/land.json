@@ -249,7 +249,13 @@
   "land.wTakeOff": "Take off",
   "land.wNothing": "nothing",
   "land.wWear": "Wear {i}",
-  "land.wHint": "Sew clothes from linen with a needle — make them in the bag (E). What you wear is what others see."
+  "land.wHint": "Sew clothes from linen with a needle — make them in the bag (E). What you wear is what others see.",
+  "land.needsDrill": "Bedrock — only a drill breaks it.",
+  "land.i.silverore": "Silver ore",
+  "land.i.goldore": "Gold ore",
+  "land.i.silver": "Silver",
+  "land.i.gold": "Gold",
+  "land.t.drill": "Iron drill"
  },
  "cs": {
   "land.notYours": "Pozemek {p} patří někomu jinému. Kupte si pozemek, nebo požádejte jeho vlastníka o pozvání.",
@@ -501,7 +507,13 @@
   "land.wTakeOff": "Svléknout",
   "land.wNothing": "nic",
   "land.wWear": "Obléct: {i}",
-  "land.wHint": "Šijte oblečení ze lnu jehlou — vyrobíte ho v batohu (E). Co nosíte, vidí i ostatní."
+  "land.wHint": "Šijte oblečení ze lnu jehlou — vyrobíte ho v batohu (E). Co nosíte, vidí i ostatní.",
+  "land.needsDrill": "Podloží — prorazí ho jen vrták.",
+  "land.i.silverore": "Stříbrná ruda",
+  "land.i.goldore": "Zlatá ruda",
+  "land.i.silver": "Stříbro",
+  "land.i.gold": "Zlato",
+  "land.t.drill": "Železný vrták"
  },
  "es": {
   "land.notYours": "La parcela {p} pertenece a otra persona. Compra una parcela o pide a su dueño que te invite.",
@@ -753,7 +765,13 @@
   "land.wTakeOff": "Quitar",
   "land.wNothing": "nada",
   "land.wWear": "Ponerse: {i}",
-  "land.wHint": "Cose ropa de lino con una aguja: hazla en la bolsa (E). Lo que llevas es lo que ven los demás."
+  "land.wHint": "Cose ropa de lino con una aguja: hazla en la bolsa (E). Lo que llevas es lo que ven los demás.",
+  "land.needsDrill": "Roca madre: solo un taladro la rompe.",
+  "land.i.silverore": "Mena de plata",
+  "land.i.goldore": "Mena de oro",
+  "land.i.silver": "Plata",
+  "land.i.gold": "Oro",
+  "land.t.drill": "Taladro de hierro"
  },
  "pt": {
   "land.notYours": "O lote {p} pertence a outra pessoa. Compre um lote ou peça ao dono que convide você.",
@@ -1005,7 +1023,13 @@
   "land.wTakeOff": "Tirar",
   "land.wNothing": "nada",
   "land.wWear": "Vestir: {i}",
-  "land.wHint": "Costure roupa de linho com uma agulha — faça-a no saco (E). O que veste é o que os outros veem."
+  "land.wHint": "Costure roupa de linho com uma agulha — faça-a no saco (E). O que veste é o que os outros veem.",
+  "land.needsDrill": "Rocha-mãe — só uma broca a parte.",
+  "land.i.silverore": "Minério de prata",
+  "land.i.goldore": "Minério de ouro",
+  "land.i.silver": "Prata",
+  "land.i.gold": "Ouro",
+  "land.t.drill": "Broca de ferro"
  },
  "fr": {
   "land.notYours": "La parcelle {p} appartient à quelqu'un d'autre. Achetez une parcelle ou demandez à son propriétaire de vous inviter.",
@@ -1257,7 +1281,13 @@
   "land.wTakeOff": "Enlever",
   "land.wNothing": "rien",
   "land.wWear": "Porter : {i}",
-  "land.wHint": "Cousez des vêtements en lin avec une aiguille — fabriquez-les dans le sac (E). Ce que vous portez, les autres le voient."
+  "land.wHint": "Cousez des vêtements en lin avec une aiguille — fabriquez-les dans le sac (E). Ce que vous portez, les autres le voient.",
+  "land.needsDrill": "Socle rocheux — seule une foreuse le brise.",
+  "land.i.silverore": "Minerai d’argent",
+  "land.i.goldore": "Minerai d’or",
+  "land.i.silver": "Argent",
+  "land.i.gold": "Or",
+  "land.t.drill": "Foreuse en fer"
  },
  "de": {
   "land.notYours": "Grundstück {p} gehört jemand anderem. Kauf dir ein Grundstück oder bitte den Besitzer um eine Einladung.",
@@ -1509,7 +1539,13 @@
   "land.wTakeOff": "Ausziehen",
   "land.wNothing": "nichts",
   "land.wWear": "Anziehen: {i}",
-  "land.wHint": "Näh Kleidung aus Leinen mit einer Nadel — herstellen im Beutel (E). Was du trägst, sehen die anderen."
+  "land.wHint": "Näh Kleidung aus Leinen mit einer Nadel — herstellen im Beutel (E). Was du trägst, sehen die anderen.",
+  "land.needsDrill": "Grundgestein — nur ein Bohrer bricht es.",
+  "land.i.silverore": "Silbererz",
+  "land.i.goldore": "Golderz",
+  "land.i.silver": "Silber",
+  "land.i.gold": "Gold",
+  "land.t.drill": "Eisenbohrer"
  },
  "it": {
   "land.notYours": "Il lotto {p} appartiene a qualcun altro. Compra un lotto o chiedi al proprietario di invitarti.",
@@ -1761,7 +1797,13 @@
   "land.wTakeOff": "Togli",
   "land.wNothing": "niente",
   "land.wWear": "Indossa: {i}",
-  "land.wHint": "Cuci vestiti di lino con un ago: preparali nella borsa (E). Ciò che indossi è ciò che vedono gli altri."
+  "land.wHint": "Cuci vestiti di lino con un ago: preparali nella borsa (E). Ciò che indossi è ciò che vedono gli altri.",
+  "land.needsDrill": "Roccia madre: solo un trapano la rompe.",
+  "land.i.silverore": "Minerale d’argento",
+  "land.i.goldore": "Minerale d’oro",
+  "land.i.silver": "Argento",
+  "land.i.gold": "Oro",
+  "land.t.drill": "Trapano di ferro"
  },
  "ru": {
   "land.notYours": "Участок {p} принадлежит другому игроку. Купите участок или попросите владельца пригласить вас.",
@@ -2013,7 +2055,13 @@
   "land.wTakeOff": "Снять",
   "land.wNothing": "ничего",
   "land.wWear": "Надеть: {i}",
-  "land.wHint": "Шейте одежду из льна иглой — делается в сумке (E). Что вы носите, то видят другие."
+  "land.wHint": "Шейте одежду из льна иглой — делается в сумке (E). Что вы носите, то видят другие.",
+  "land.needsDrill": "Коренная порода — её пробьёт только бур.",
+  "land.i.silverore": "Серебряная руда",
+  "land.i.goldore": "Золотая руда",
+  "land.i.silver": "Серебро",
+  "land.i.gold": "Золото",
+  "land.t.drill": "Железный бур"
  },
  "zh": {
   "land.notYours": "地块 {p} 属于别人。购买一块地，或请它的所有者邀请你。",
@@ -2265,7 +2313,13 @@
   "land.wTakeOff": "脱下",
   "land.wNothing": "无",
   "land.wWear": "穿上{i}",
-  "land.wHint": "用针把亚麻布缝成衣服——在背包（E）里制作。你穿什么，别人就看到什么。"
+  "land.wHint": "用针把亚麻布缝成衣服——在背包（E）里制作。你穿什么，别人就看到什么。",
+  "land.needsDrill": "基岩——只有钻机能凿开。",
+  "land.i.silverore": "银矿石",
+  "land.i.goldore": "金矿石",
+  "land.i.silver": "银",
+  "land.i.gold": "金",
+  "land.t.drill": "铁钻"
  },
  "ja": {
   "land.notYours": "区画 {p} は他の人のものです。区画を購入するか、所有者に招待してもらいましょう。",
@@ -2517,7 +2571,13 @@
   "land.wTakeOff": "脱ぐ",
   "land.wNothing": "なし",
   "land.wWear": "{i}を着る",
-  "land.wHint": "針で亜麻布から服を縫いましょう。バッグ（E）で作れます。着ているものが他の人に見えます。"
+  "land.wHint": "針で亜麻布から服を縫いましょう。バッグ（E）で作れます。着ているものが他の人に見えます。",
+  "land.needsDrill": "岩盤 — ドリルでしか壊せません。",
+  "land.i.silverore": "銀鉱石",
+  "land.i.goldore": "金鉱石",
+  "land.i.silver": "銀",
+  "land.i.gold": "金",
+  "land.t.drill": "鉄のドリル"
  },
  "ko": {
   "land.notYours": "구역 {p}은(는) 다른 사람의 땅입니다. 구역을 사거나 소유자에게 초대를 요청하세요.",
@@ -2769,7 +2829,13 @@
   "land.wTakeOff": "벗기",
   "land.wNothing": "없음",
   "land.wWear": "{i} 입기",
-  "land.wHint": "바늘로 리넨 옷을 지으세요 — 가방(E)에서 만듭니다. 입은 옷이 다른 사람에게 보입니다."
+  "land.wHint": "바늘로 리넨 옷을 지으세요 — 가방(E)에서 만듭니다. 입은 옷이 다른 사람에게 보입니다.",
+  "land.needsDrill": "기반암 — 드릴로만 깰 수 있습니다.",
+  "land.i.silverore": "은광석",
+  "land.i.goldore": "금광석",
+  "land.i.silver": "은",
+  "land.i.gold": "금",
+  "land.t.drill": "철 드릴"
  },
  "ar": {
   "land.notYours": "القطعة {p} ملك لشخص آخر. اشترِ قطعة، أو اطلب من مالكها أن يدعوك.",
@@ -3021,7 +3087,13 @@
   "land.wTakeOff": "اخلع",
   "land.wNothing": "لا شيء",
   "land.wWear": "ارتدِ {i}",
-  "land.wHint": "خِط الملابس من الكتان بإبرة — اصنعها في الحقيبة (E). ما ترتديه هو ما يراه الآخرون."
+  "land.wHint": "خِط الملابس من الكتان بإبرة — اصنعها في الحقيبة (E). ما ترتديه هو ما يراه الآخرون.",
+  "land.needsDrill": "صخر الأساس — لا يكسره إلا المثقاب.",
+  "land.i.silverore": "خام الفضة",
+  "land.i.goldore": "خام الذهب",
+  "land.i.silver": "فضة",
+  "land.i.gold": "ذهب",
+  "land.t.drill": "مثقاب حديدي"
  },
  "hi": {
   "land.notYours": "प्लॉट {p} किसी और का है। कोई प्लॉट खरीदें, या उसके मालिक से आपको आमंत्रित करने को कहें।",
@@ -3273,7 +3345,13 @@
   "land.wTakeOff": "उतारें",
   "land.wNothing": "कुछ नहीं",
   "land.wWear": "{i} पहनें",
-  "land.wHint": "सुई से लिनन के कपड़े सिलें — थैले (E) में बनाएँ। आप जो पहनते हैं, वही दूसरे देखते हैं।"
+  "land.wHint": "सुई से लिनन के कपड़े सिलें — थैले (E) में बनाएँ। आप जो पहनते हैं, वही दूसरे देखते हैं।",
+  "land.needsDrill": "आधार-शैल — इसे केवल ड्रिल तोड़ती है।",
+  "land.i.silverore": "चाँदी का अयस्क",
+  "land.i.goldore": "सोने का अयस्क",
+  "land.i.silver": "चाँदी",
+  "land.i.gold": "सोना",
+  "land.t.drill": "लोहे की ड्रिल"
  },
  "tr": {
   "land.notYours": "{p} arsası başkasına ait. Bir arsa satın al ya da sahibinden seni davet etmesini iste.",
@@ -3525,7 +3603,13 @@
   "land.wTakeOff": "Çıkar",
   "land.wNothing": "hiçbir şey",
   "land.wWear": "Giy: {i}",
-  "land.wHint": "Ketenden iğneyle giysi dikin — çantada (E) yapılır. Ne giyerseniz başkaları onu görür."
+  "land.wHint": "Ketenden iğneyle giysi dikin — çantada (E) yapılır. Ne giyerseniz başkaları onu görür.",
+  "land.needsDrill": "Ana kaya — onu yalnızca matkap kırar.",
+  "land.i.silverore": "Gümüş cevheri",
+  "land.i.goldore": "Altın cevheri",
+  "land.i.silver": "Gümüş",
+  "land.i.gold": "Altın",
+  "land.t.drill": "Demir matkap"
  },
  "id": {
   "land.notYours": "Petak {p} milik orang lain. Beli sebuah petak, atau minta pemiliknya mengundangmu.",
@@ -3777,7 +3861,13 @@
   "land.wTakeOff": "Lepas",
   "land.wNothing": "tidak ada",
   "land.wWear": "Pakai {i}",
-  "land.wHint": "Jahit pakaian dari linen dengan jarum — buat di tas (E). Apa yang Anda pakai itulah yang dilihat orang lain."
+  "land.wHint": "Jahit pakaian dari linen dengan jarum — buat di tas (E). Apa yang Anda pakai itulah yang dilihat orang lain.",
+  "land.needsDrill": "Batuan dasar — hanya bor yang bisa memecahnya.",
+  "land.i.silverore": "Bijih perak",
+  "land.i.goldore": "Bijih emas",
+  "land.i.silver": "Perak",
+  "land.i.gold": "Emas",
+  "land.t.drill": "Bor besi"
  },
  "vi": {
   "land.notYours": "Mảnh đất {p} thuộc về người khác. Hãy mua một mảnh, hoặc nhờ chủ của nó mời bạn.",
@@ -4029,7 +4119,13 @@
   "land.wTakeOff": "Cởi ra",
   "land.wNothing": "không có",
   "land.wWear": "Mặc {i}",
-  "land.wHint": "Dùng kim may quần áo từ vải lanh — làm trong túi (E). Bạn mặc gì thì người khác thấy nấy."
+  "land.wHint": "Dùng kim may quần áo từ vải lanh — làm trong túi (E). Bạn mặc gì thì người khác thấy nấy.",
+  "land.needsDrill": "Đá gốc — chỉ máy khoan mới phá được.",
+  "land.i.silverore": "Quặng bạc",
+  "land.i.goldore": "Quặng vàng",
+  "land.i.silver": "Bạc",
+  "land.i.gold": "Vàng",
+  "land.t.drill": "Máy khoan sắt"
  },
  "pl": {
   "land.notYours": "Działka {p} należy do kogoś innego. Kup działkę albo poproś jej właściciela o zaproszenie.",
@@ -4281,6 +4377,12 @@
   "land.wTakeOff": "Zdejmij",
   "land.wNothing": "nic",
   "land.wWear": "Załóż: {i}",
-  "land.wHint": "Szyj ubrania z lnu igłą — zrobisz je w torbie (E). To, co nosisz, widzą inni."
+  "land.wHint": "Szyj ubrania z lnu igłą — zrobisz je w torbie (E). To, co nosisz, widzą inni.",
+  "land.needsDrill": "Skała macierzysta — rozbije ją tylko wiertło.",
+  "land.i.silverore": "Ruda srebra",
+  "land.i.goldore": "Ruda złota",
+  "land.i.silver": "Srebro",
+  "land.i.gold": "Złoto",
+  "land.t.drill": "Żelazne wiertło"
  }
 }
