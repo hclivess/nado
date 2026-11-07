@@ -781,6 +781,16 @@ class Hub:
                     except Exception:
                         pass
 
+    async def chat(self, sender, who, text):
+        """A chat line to every socket whose watched plots meet the sender's (its own included)."""
+        near = sender["watch"]
+        for ws, st in list(self.socks.items()):
+            if st is sender or st["watch"] & near:
+                try:
+                    await ws.send_json({"t": "chat", "who": who, "text": text})
+                except Exception:
+                    pass
+
     async def boxes(self, p, added, removed, by):
         """Pieces added or taken down on plot `p`: every socket watching it, the builder's included."""
         if not (added or removed):
@@ -1059,6 +1069,17 @@ def make_app(world, hub, site_origin, wallet_url, secure_cookies=True):
                     await hub.edits(applied, addr)
                     if changed:
                         await hub.inv(world, addr)
+                elif t == "chat":
+                    # the console's chat: one line to every socket watching any plot the sender watches (the players
+                    # around them), signed-in only, one line a second, 200 characters, no control characters
+                    if not addr:
+                        await ws.send_json({"t": "chat_ok", "error": "sign in to chat"})
+                        continue
+                    text = "".join(ch for ch in str(m.get("text") or "")[:200] if ch >= " " and ch != "\x7f").strip()
+                    if not text or time.time() - st.get("chat_at", 0) < 1.0:
+                        continue
+                    st["chat_at"] = time.time()
+                    await hub.chat(st, addr, text)
                 elif t == "boxes":
                     if not addr:
                         await ws.send_json({"t": "boxes_ok", "req": m.get("req"), "added": 0, "removed": 0, "refused": [[None, "sign in to build"]]})

@@ -73,6 +73,16 @@
   .tradeform input,.tradeform select{font:inherit;font-size:12.5px;color:var(--txt);background:#0b0f14;border:1px solid var(--border);border-radius:7px;padding:4px 6px}
   .tradeform input[type=number]{width:62px}.tradeform #gvTo{flex:1;min-width:160px}
   button:disabled{opacity:.45;cursor:default}
+  #console{position:fixed;left:14px;bottom:96px;z-index:7;width:min(560px,calc(100vw - 28px));pointer-events:none}
+  #conLog{font:500 13px var(--mono);color:#fff;text-shadow:0 1px 2px #000;display:none;flex-direction:column;gap:2px}
+  #conLog.show{display:flex}
+  /* no scroller (a scrolling layer drew blank in the headless check): the last 16 lines open, the last 6 while playing */
+  #conLog div:not(:nth-last-child(-n+16)){display:none}#console:not(.open) #conLog div:not(:nth-last-child(-n+6)){display:none}
+  #conLog div{background:rgba(11,15,20,.55);padding:2px 8px;border-radius:6px;align-self:flex-start;max-width:100%;overflow-wrap:anywhere}
+  #conLog .me{color:var(--dim)}#conLog .err{color:#ff9b8a}
+  #conIn{display:none;width:100%;margin-top:6px;font:500 14px var(--mono);color:var(--txt);background:rgba(11,15,20,.92);border:1px solid var(--border);border-radius:8px;padding:8px 10px;pointer-events:auto}
+  #console.open #conIn{display:block}#console.open #conLog{pointer-events:auto}
+  body.touch #console{bottom:150px}
   #help{position:fixed;inset:0;display:grid;place-items:center;z-index:6;pointer-events:none}
   #help .card{pointer-events:auto;max-width:420px;margin:16px;background:rgba(19,26,35,.94);border:1px solid var(--border);border-radius:14px;padding:18px 20px;font-size:13.5px;line-height:1.6}
   #help h2{margin:0 0 8px;font-size:17px}#help kbd{font:11px var(--mono);border:1px solid var(--border);border-radius:5px;padding:1px 5px;background:#0b0f14}
@@ -108,6 +118,7 @@
 <div id="pickup" aria-live="polite"></div>
 <div id="hotwrap"><div id="hotName"></div><div id="pieceInfo"></div><div id="hotbar"></div></div>
 <div id="hudGpu"></div>
+<div id="console"><div id="conLog" aria-live="polite"></div><input id="conIn" maxlength="200" autocomplete="off" spellcheck="false" aria-label="Command or chat" data-i18n-ph="land.cPlaceholder" placeholder="/help — or say something"></div>
 <div id="help"><div class="card">
   <h2 data-i18n="land.helpTitle">Welcome to the planet</h2>
   <div data-i18n="land.helpBody2">Gather from the wilderness with your hands, make tools, and with them gather what your hands could not. Every plot is a title you can own: build on yours, and trade what you gather.</div>

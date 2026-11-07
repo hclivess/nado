@@ -404,7 +404,7 @@ function request(k) {
   const pb = plotBoxes.get(Wd.plotId(face, cv, cu));        // a chunk column IS a plot (CHUNK == PLOT)
   const dist = Math.max(Math.abs(cu - Math.floor(P.u / CHUNK)), Math.abs(cv - Math.floor(P.v / CHUNK)));
   c.lod = dist <= 2 ? (touch ? 1 : 0) : dist <= 3 ? 1 : 2;        // 0: grass too (not on a phone); 2: small pieces skipped
-  queue.push({ id: ++reqId, k, face, cu, cv, ch, edits: editsFor(face, cu, cv), boxes: pb ? pb.list : null, lod: c.lod, grass: !touch });   // no blades on a phone
+  queue.push({ id: ++reqId, k, face, cu, cv, ch, edits: editsFor(face, cu, cv), boxes: pb ? pb.list : null, lod: c.lod, grass: !touch && !!SET.grass });   // no blades on a phone, or with /set grass 0
   pump();
 }
 function pump() {
@@ -674,6 +674,10 @@ function connect() {
       setPlotBoxes(m.plot, list);                       // re-meshes the old and new pieces' heights alike
     } else if (m.t === "boxes_ok") {
       if (m.refused && m.refused.length) { notify(String(m.refused[0][1])); if (m.plot !== undefined) resync(m.plot); }
+    } else if (m.t === "chat") {
+      conLine(`<${String(m.who || "").slice(0, 10)}…> ${String(m.text || "")}`);
+    } else if (m.t === "chat_ok" && m.error) {
+      conLine(T("cSignIn", "Sign in to chat."), "err");
     } else if (m.t === "edit") {
       for (const [f, u, v, h, b] of m.cells || []) putCell(f, u, v, h, b);
     } else if (m.t === "revert") {
@@ -1057,12 +1061,103 @@ function act(place, mouse) {
     startBreak(a.hit, mouse);
   }
 }
+// ---- the console ("there should be also a console like in minecraft to send commands", "also add configurable setting
+// along with the console (command line)", operator 2026-11-06): / opens it with a command, Enter with chat, Escape
+// closes it. A line without a slash is chat to the players around you (the world server relays it to whoever watches
+// the plots you watch). SETTINGS are this viewer's own, remembered in this browser — a convenience, nothing shared.
+const LS_SET = "nado_land_settings";
+const SET_DEF = { fov: 72, sens: 1, invert: 0, grass: 1, shadows: 1, effects: 1 };
+const SET_RANGE = { fov: [50, 110], sens: [0.2, 4], invert: [0, 1], grass: [0, 1], shadows: [0, 1], effects: [0, 1] };
+const SET = (() => {
+  let s = {};
+  try { s = JSON.parse(localStorage.getItem(LS_SET) || "{}") || {}; } catch (e) {}
+  const o = { ...SET_DEF };
+  for (const k in SET_DEF) if (typeof s[k] === "number" && s[k] >= SET_RANGE[k][0] && s[k] <= SET_RANGE[k][1]) o[k] = s[k];
+  return o;
+})();
+let conOpen = false, conHist = [], conHi = 0;
+function conLine(text, cls) {
+  const log = $("conLog");
+  if (!log) return;
+  const d = document.createElement("div");
+  d.textContent = text;
+  if (cls) d.className = cls;
+  log.appendChild(d);
+  while (log.childNodes.length > 80) log.removeChild(log.firstChild);
+  log.scrollTop = log.scrollHeight;
+  log.classList.add("show");
+  clearTimeout(conLine.t);
+  if (!conOpen) conLine.t = setTimeout(() => log.classList.remove("show"), 9000);   // chat fades while you play
+}
+function conShow(open, prefill) {
+  conOpen = open;
+  $("console").classList.toggle("open", open);
+  $("conLog").classList.toggle("show", open);
+  const inp = $("conIn");
+  if (open) { if (document.pointerLockElement) document.exitPointerLock(); inp.value = prefill || ""; setTimeout(() => inp.focus(), 0); }
+  else inp.blur();
+  $("help").classList.toggle("hidden", open || locked);
+}
+function applySetting(k) {
+  if (k === "fov" && camera) { camera.fov = SET.fov; camera.updateProjectionMatrix(); }
+  if (k === "grass") for (const key of chunks.keys()) request(key);           // re-mesh with or without the blades
+}
+const CMDS = {
+  help: () => [["/help", T("cHelp", "this list")], ["/pos", T("cPos", "where you are")], ["/tp spawn | /tp <u> <v>", T("cTp", "go to the landing, or to a column of this face")],
+    ["/fly", T("cFly", "fly or walk")], ["/settings", T("cSettings", "your settings")], ["/set <name> <value>", T("cSet", "change one (e.g. /set fov 90)")],
+    ["/clear", T("cClear", "clear this log")], ["…", T("cChat", "anything else is chat to the players around you")]].forEach(([c, d]) => conLine(c + " — " + d)),
+  pos: () => conLine(`${T("cFace", "face")} ${P.face} · u ${Math.floor(P.u)} · v ${Math.floor(P.v)} · h ${P.h.toFixed(1)} · ${T("cPlot", "plot")} ${Wd.plotOf(P.face, Math.floor(P.u), Math.floor(P.v))}`),
+  tp: (a) => {
+    let u, v;
+    if (a[0] === "spawn") { const sp = Wd.plotCoords(Wd.plotId(Wd.SPAWN_FACE, Wd.SPAWN_PLOT_ROW + 5, Wd.SPAWN_PLOT_COL + 5)); P.face = sp.face; u = sp.u0; v = sp.v0 - 7; }
+    else { u = Number(a[0]); v = Number(a[1]); }
+    if (!(Number.isInteger(u) && Number.isInteger(v) && u >= 0 && v >= 0 && u < W && v < W)) return conLine(T("cTpBad", "Usage: /tp spawn, or /tp <u> <v> with whole numbers from 0 to {w}", { w: W - 1 }), "err");
+    P.u = u + 0.5; P.v = v + 0.5; P.h = groundAt(P.face, P.u, P.v); P.vu = P.vv = P.vh = 0;
+    save(); conLine(T("cTpOk", "Moved to u {u}, v {v}.", { u, v }));
+  },
+  fly: () => { P.fly = !P.fly; P.vh = 0; conLine(P.fly ? T("flyOn", "Flying — Space up, C down, Shift fast") : T("flyOff", "Walking")); },
+  settings: () => Object.keys(SET_DEF).forEach((k) => conLine(`${k} = ${SET[k]}  (${SET_RANGE[k][0]}–${SET_RANGE[k][1]}${k === "sens" ? "" : ""})`)),
+  set: (a) => {
+    const k = a[0], v = Number(a[1]);
+    if (!(k in SET_DEF)) return conLine(T("cSetBad", "Unknown setting — /settings lists them."), "err");
+    if (!(Number.isFinite(v) && v >= SET_RANGE[k][0] && v <= SET_RANGE[k][1])) return conLine(T("cSetRange", "{k} takes a number from {a} to {b}.", { k, a: SET_RANGE[k][0], b: SET_RANGE[k][1] }), "err");
+    SET[k] = v;
+    try { localStorage.setItem(LS_SET, JSON.stringify(SET)); } catch (e) {}
+    applySetting(k);
+    conLine(k === "effects" ? T("cSetReload", "{k} = {v} — reload the page to apply it.", { k, v }) : `${k} = ${v}`);
+  },
+  clear: () => { $("conLog").textContent = ""; },
+};
+function conRun(line) {
+  const text = String(line || "").trim();
+  if (!text) return;
+  conHist.push(text); if (conHist.length > 50) conHist.shift(); conHi = conHist.length;
+  if (text[0] === "/") {
+    const [cmd, ...args] = text.slice(1).split(/\s+/);
+    const f = CMDS[cmd.toLowerCase()];
+    conLine("> " + text, "me");
+    return f ? f(args) : conLine(T("cUnknown", "Unknown command — /help lists them."), "err");
+  }
+  if (!net.me || !net.online) return conLine(T("cSignIn", "Sign in to chat."), "err");
+  net.send({ t: "chat", text: text.slice(0, 200) });
+}
+function wireConsole() {
+  const inp = $("conIn");
+  inp.addEventListener("keydown", (e) => {
+    if (e.key === "Enter") { e.preventDefault(); const v = inp.value; conShow(false); conRun(v); }
+    else if (e.key === "Escape") { e.preventDefault(); conShow(false); }
+    else if (e.key === "ArrowUp" && conHi > 0) { e.preventDefault(); inp.value = conHist[--conHi]; }
+    else if (e.key === "ArrowDown") { e.preventDefault(); conHi = Math.min(conHist.length, conHi + 1); inp.value = conHist[conHi] || ""; }
+    e.stopPropagation();
+  });
+}
 function wireInput(canvas) {
+  wireConsole();
   canvas.addEventListener("click", () => { if (!locked && !touch) canvas.requestPointerLock(); });
-  document.addEventListener("pointerlockchange", () => { locked = document.pointerLockElement === canvas; $("help").classList.toggle("hidden", locked); });
+  document.addEventListener("pointerlockchange", () => { locked = document.pointerLockElement === canvas; $("help").classList.toggle("hidden", locked || conOpen); });
   document.addEventListener("mousemove", (e) => {
     if (!locked) return;
-    P.yaw += e.movementX * 0.0024; P.pitch = Math.max(-1.55, Math.min(1.55, P.pitch - e.movementY * 0.0024));
+    P.yaw += e.movementX * 0.0024 * SET.sens; P.pitch = Math.max(-1.55, Math.min(1.55, P.pitch - e.movementY * 0.0024 * SET.sens * (SET.invert ? -1 : 1)));
   });
   document.addEventListener("mousedown", (e) => { if (!locked) return; if (e.button === 0) { mouseHeld = true; act(false, true); } else if (e.button === 2) act(true); });
   document.addEventListener("mouseup", (e) => { if (e.button === 0) mouseHeld = false; });
@@ -1070,6 +1165,8 @@ function wireInput(canvas) {
   document.addEventListener("wheel", (e) => { if (!locked || !hot.length) return; slot = (slot + (e.deltaY > 0 ? 1 : hot.length - 1)) % hot.length; hotbar(); }, { passive: true });
   document.addEventListener("keydown", (e) => {
     if (e.target && /INPUT|TEXTAREA/.test(e.target.tagName)) return;
+    if (!conOpen && e.code === "Slash") { e.preventDefault(); keys.clear(); return conShow(true, "/"); }
+    if (!conOpen && (e.code === "Enter" || e.code === "NumpadEnter") && $("palette").classList.contains("hidden")) { e.preventDefault(); keys.clear(); return conShow(true, ""); }
     keys.add(e.code);
     if (/^Digit[1-9]$/.test(e.code) && Number(e.code.slice(5)) <= hot.length) { slot = Number(e.code.slice(5)) - 1; hotbar(); }
     if (e.code === "KeyR") { const i = PRESETS.findIndex((x) => x[0] === piece.w && x[1] === piece.d && x[2] === piece.h); [piece.w, piece.d, piece.h] = PRESETS[(i + 1) % PRESETS.length]; pieceInfo(); }
@@ -1394,7 +1491,7 @@ function grade(img) {
   return TSL.vec4(c.mul(vig), img.a);
 }
 function buildPipeline() {
-  if (touch || new URLSearchParams(location.search).has("plain")) return null;
+  if (touch || !SET.effects || new URLSearchParams(location.search).has("plain")) return null;
   try {
     const pl = new THREE.RenderPipeline(renderer);
     const pre = TSL.pass(scene, camera);
@@ -1467,7 +1564,7 @@ function sky(fr) {
   sun.intensity = 2.4 * Math.min(1.6, star.flux) * day;
   // shadows only once the sun is well up: at a grazing sun the shadow map streaks the ground (acne), and real dusk
   // shadows are long and faint anyway
-  sun.castShadow = elev > 0.12;
+  sun.castShadow = elev > 0.12 && !!SET.shadows;
   moon.position.copy(sd).multiplyScalar(-150);
   moon.intensity = 0.35 * (1 - day);
   hemi.position.copy(up);                                   // three's hemisphere light assumes +Y; here "up" is radial
@@ -1603,7 +1700,7 @@ async function start() {
   $("hudGpu").textContent = renderer.backend && renderer.backend.isWebGPUBackend ? "WebGPU" : "WebGL2";
   scene = new THREE.Scene();
   scene.fog = new THREE.Fog(0xb7d6ef, viewDist * CHUNK * 0.9, 2900);
-  camera = new THREE.PerspectiveCamera(72, innerWidth / innerHeight, 0.08, 4000);
+  camera = new THREE.PerspectiveCamera(SET.fov, innerWidth / innerHeight, 0.08, 4000);
   camera.position.set(0, 0, 0);
   sun = new THREE.DirectionalLight(0xfff4e0, 3);
   sun.shadow.mapSize.set(2048, 2048);
