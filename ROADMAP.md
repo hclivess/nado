@@ -285,8 +285,11 @@ swaps both directions, adds/removes liquidity, and proves reserves and fees cons
 > one asset and only a contract's deployer may issue *for* it; the page calls a coin a fair launch only when the settled
 > root proves `mintable == false` and the curve holds 100 % of the supply; (b) graduation cannot seed a Phase-2 pool
 > (no cross-contract calls), so the curve contract itself becomes a constant-product pool — nobody holds its shares, so
-> its liquidity is locked forever by construction. Next step: the operator's decisions on fees, creator share,
-> creation fee, graduation threshold and image hosting (§6 of the plan).
+> its liquidity is locked forever by construction. **Adapted to NADO's philosophy, the vision kept** (operator,
+> 2026-11-07): no platform fee and no creator cut — the curve's trade fee and the creation fee are burned; an opening
+> batch and then one uniform price per block, so first-block sniping, txid grinding and sandwiches earn nothing; no
+> per-wallet caps (fairness from the uniform price, not from counting identities); no admin, no pause, no curation;
+> content-addressed images. Next step: confirm the parameter values (§6 of the plan) and build L1.
 
 **Goal:** the Pump.fun analogue — one-click asset creation with an instant market, no listing, no
 liquidity bootstrap problem.
@@ -297,8 +300,9 @@ liquidity bootstrap problem.
    one and no LP required.
 3. At a market-cap threshold the token **graduates**: curve reserves are deposited into a Phase-2 AMM
    pool and the **LP is permanently locked/burned** (this is what makes a launchpad not a rug).
-4. Fees: creation fee, and a trade fee on the curve. Split: **burn + creator**, both declared,
-   creator share capped, all visible pre-signature.
+4. Fees: creation fee, and a trade fee on the curve, **both burned** — no creator share (the creator earns as an early
+   holder, at the opening window's one price like everyone; [`doc/launchpad.md`](doc/launchpad.md) §2a). Declared,
+   visible pre-signature.
 
 **Anti-rug rules baked into the contract, not the UI** — these are our differentiator vs. every
 launchpad that lets a deployer drain:
