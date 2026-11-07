@@ -52,6 +52,9 @@ REAL_TESTS = [
     # retired in G9 with BLAKE_EXEC_HEIGHT (no gen-28 exec state can be staged any more)
     "tests/test_bet_book_beside_the_tote.py",
     "tests/test_dex.py",
+    # the DEX launchpad (2026-11-07): every path — prelaunch, launch, buy, sell, both clearing branches (net buy, net
+    # sell), graduation with its burn, claims — must PROVE: an out-of-budget DIVMODW is an unprovable trace, not a revert
+    "tests/test_the_dex_launchpad_clears_every_batch_at_one_price_and_graduates_into_locked_liquidity.py",
     "tests/test_reserve.py",
     "tests/test_a_gen29_pet_previews_the_combine_the_contract_rolls.py",
 ]

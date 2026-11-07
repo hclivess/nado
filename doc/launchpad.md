@@ -1,6 +1,9 @@
 # Launchpad — a fair launch with an instant market, on our own machinery
 
-> **Status: DESIGN — nothing here is built.** This is the plan for [ROADMAP Phase 3](../ROADMAP.md#phase-3--launchpad-the-42).
+> **Status: BUILT (2026-11-07), in `execnode/games/dex.py`, upgraded in place** — operator: "create it now, i think by
+> upgrading the existing dex contract and updating it in place, then adding functionalities to the gui". The Launch tab
+> is in `static/dex.html`/`dex.js`. What changed from the plan below while building it is in §8. This is the plan for
+> [ROADMAP Phase 3](../ROADMAP.md#phase-3--launchpad-the-42).
 > **Revised the same day to NADO's philosophy, the vision kept** (operator: "design should be adopted to the nado
 > philosophy with the vision kept"): §2a states how; the operator's open questions became decided principles, and
 > only parameter values remain (§6).
@@ -152,3 +155,35 @@ A **Launch** tab in `static/dex.html` / `static/dex.js`:
 
 **Size:** about 1–2 weeks with tests. The contract is the risk, not the UI. **The coins are real:** no path that moves
 funds ships before it has been run end to end (ROADMAP §12).
+
+## 8. As built (2026-11-07)
+
+- **In the DEX contract, upgraded in place.** A launch is a pool with `KIND = 1`; its new fields (12–34) sit beside the
+  pools', so every existing pool, position and share kept its slots. Graduation turns it into `KIND = 2`: a pool at the
+  curve's own price with **no shares** — the existing `swapn`/`swapt` trade it; `join` refuses to seed it (or any curve),
+  `exit` has nothing to withdraw. Methods: `prelaunch`, `launch(pid, units, vn)`, `buy`, `sell`, `settle`, `claim`.
+- **The creator chooses the scale** (`vn` = the graduation target / 4, within `VN_MIN` 1 NADO .. `VN_MAX` ~671k NADO;
+  the page's default target is 2,000 NADO). A fixed 500-NADO virtual reserve made every coin need a 2,000-NADO raise —
+  wrong for a small community coin, and untestable live for a few NADO.
+- **Batches.** The opening window (10 blocks) is one batch; after it each block is one. The first `buy`/`sell`/`claim`/
+  `settle` in a later block clears the batch: buys and sells net at the curve's spot price, the remainder trades through
+  the curve, every buyer gets one price and every seller another; a claim pays `amount · total // sum`. A batch closes
+  when the cursor merely *differs* from its key, so a carried chain (cursor restarted lower) closes it.
+- **Fees.** Native NADO has no burn address (removed from the protocol), so the NADO fees — the 10-NADO creation fee
+  and 1 % of every buy — are **sealed**: the contract keeps them, no method pays them out, `FEEB` counts them in public.
+  A sell's 1 % is burned in the coin (`ABURN`). The creator and the protocol take nothing.
+- **Three approvals to launch.** Issue the coin (fixed supply), pay the fee (`prelaunch`, reserving the id), send the
+  supply (`launch`) — the wallet's one-approval follow-up (`opts.then`) is value-free by design (wallet audit) and two of
+  these carry value. The order strands nothing; the page reads each step's completion from the chain.
+- **Images** are `ipfs://` links shown through the NFT host's gateway (content-addressed). Upload from the DEX page
+  needs `/upload` and `/ipfs/` routed on dex.nadochain.com — an nginx change waiting for the operator's yes.
+- **In-block ordering.** A gated reorder by `hash(set digest, txid)` was scoped (2026-11-07) and NOT shipped: the
+  mempool is shared in a leaderless chain, so a sender can grind a txid against the known set (≈N tries to go first, N²
+  to sandwich). An unbiasable order needs a seed revealed after the set is fixed — the RANDAO beacon with execution
+  delayed — a consensus design of its own. The launchpad does not depend on it: a uniform price per batch makes position
+  inside a batch worthless.
+- **Tests:** `tests/test_the_dex_launchpad_clears_every_batch_at_one_price_and_graduates_into_locked_liquidity.py`
+  (money: one price per batch vs an independent model, solvency, fees, graduation, carry); every launchpad method is
+  proven by the Stwo prover (`tests/test_a_stwo_proof_of_contract_execution_…`, which records it);
+  `tests/test_the_dex_launch_tab_quotes_what_the_contract_pays_and_speaks_every_language.mjs` (the page's quote equals
+  the contract's payout; 17 languages); the live run is `scripts/live/_launch_e2e.py`.

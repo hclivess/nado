@@ -11,6 +11,7 @@
 //  * The quote recomputes out = RT·dxf/(RN+dxf), dxf = dx·9970/10000, EXACTLY as the contract does, in
 //    BigInt. A float quote would drift from the chain and mis-set minOut, turning a good swap into a revert.
 import { htlcScript, p2wshAddress } from "./btcleg.js";
+import { blake2s, personOf, bytesWord, hashWords } from "./blake2s.js";
 import { claimTx, refundTx, addressToScript, genKeypair } from "./btcsign.js";
 import { htlcAbi, htlcErc20Abi, erc20Abi, erc20Meta, toUnitsDec, fromUnitsDec, ethKeypair } from "./ethsign.js";
 import { NadoDapp, rawToNado, nadoToRaw, _m, $, gate, wireWallet, financeLabels, stickyInputs, alertBar, loadQR, isAddress,
@@ -80,14 +81,19 @@ let sel = null;                       // selected pool id
 let render = () => {};
 
 // ---- reads (dex storage schema: ast/rn/rt/sup keyed by pool id) -------------------------------------
-const poolIds = (sto) => Object.keys(_m(sto, "ast") || {});
+const poolIds = (sto) => Object.keys(_m(sto, "ast") || {}).filter((id) => !curveRunning(sto, id));   // curves: Launch tab
 const poolOf = (sto, id) => ({
   id: Number(id),
   asset: String((_m(sto, "ast") || {})[id] || ""),
   rn: BigInt((_m(sto, "rn") || {})[id] || 0),
   rt: BigInt((_m(sto, "rt") || {})[id] || 0),
   sup: BigInt((_m(sto, "sup") || {})[id] || 0),
+  kind: Number((_m(sto, "kind") || {})[id] || 0),       // 0 pool · 1 a launch's curve · 2 a graduated launch
 });
+// LIVE: reserves on both sides and either LP shares or a graduated launch's locked liquidity (no shares by design —
+// doc/launchpad.md: nobody can ever withdraw it). A curve still on its bonding curve trades in the Launch tab.
+const livePool = (p) => p.rn > 0n && p.rt > 0n && (p.sup > 0n || p.kind === 2);
+const curveRunning = (sto, id) => Number((_m(sto, "kind") || {})[id] || 0) === 1;
 
 // The EXACT contract formula, in BigInt. Drift here shows up as a swap that reverts on minOut.
 function quoteOut(inUnits, resIn, resOut) {
@@ -123,7 +129,7 @@ function renderPools() {
   box.innerHTML = ids.map((id) => {
     const p = poolOf(lastSto, id);
     const on = String(p.id) === String(sel) ? " sel" : "";
-    const sym = tokSym(p.asset), live = p.sup > 0n && p.rn > 0n;
+    const sym = tokSym(p.asset), live = livePool(p);
     const price = live ? midPrice(p) : 0;
     const st = live ? stats24(p.id, price) : null;
     const chg = st ? (st.pct >= 0 ? "+" : "") + st.pct.toFixed(2) + "%" : "—";
@@ -149,7 +155,8 @@ function renderLiq() {
 function renderSwap() {
   const card = $("swapCard");
   if (!card) return;
-  gate({ swapCard: !!sel, liqCard: !!sel });
+  // a graduated launch's pool takes no liquidity (its seeding is refused on chain): no add/remove card for it
+  gate({ swapCard: !!sel, liqCard: !!sel && !(lastSto && poolOf(lastSto, sel).kind === 2) });
   if (!sel || !lastSto) return;
   const p = poolOf(lastSto, sel);
   const sym = tokSym(p.asset);
@@ -226,6 +233,7 @@ function doRender() {
   renderLiq();
   renderOtc();
   renderLimits();
+  renderLaunch();
   refreshPickers();                                   // option lists change every poll — keep the labels honest
 }
 
@@ -318,6 +326,208 @@ async function doSwap() {
   }
 }
 
+
+// ================= LAUNCHPAD (the same contract, upgraded in place — doc/launchpad.md) ===================
+// "create it now, i think by upgrading the existing dex contract and updating it in place, then adding functionalities
+// to the gui" (operator, 2026-11-07). What the contract imposes on this UI:
+//  * a launch is THREE approvals, in the order that strands nothing: issue the coin (asset_create, fixed supply), pay
+//    the launch fee (prelaunch — it reserves the id), send the whole supply into the curve (launch). The wallet's
+//    one-approval follow-up (opts.then) carries no value by design, and two of these carry value. Progress is read
+//    FROM THE CHAIN (coin issued? id reserved? curve live?), never from callbacks, so a reload resumes it.
+//  * trades are ORDERS into a batch: everyone in the opening window, then everyone in a block, gets one price; the
+//    coins (or NADO) are claimed once the batch has closed. A quote is what the order alone would get — the honest
+//    estimate; the batch price is the same for every order in it.
+//  * no admin, no curation: the feed is ordered by on-chain facts only.
+const LT = (k, en, v) => (typeof window !== "undefined" && window.t ? window.t("dex." + k, en, v || {})
+  : String(en).replace(/\{(\w+)\}/g, (_, x) => (v && v[x] != null ? v[x] : "")));
+const LP_CREATE_FEE = 1000n, LP_WINDOW = 10, LP_FEE = 100n, LP_MIN_SUPPLY = 1000n, LP_VN0 = 50000n;   // dex.py
+const LP_VN_MIN = 100n, LP_VN_MAX = 1n << 26n;                                                       // dex.py VN_MIN/MAX
+const LS_LP = "nado_dex_launch", LS_LPO = "nado_dex_orders";
+const IPFS_GW = "https://nft.nadochain.com/ipfs/";          // the NFT host's gateway (content-addressed: ipfs://<cid>)
+let lpSel = null, lpAssets = {};
+const lpRead = (k, d) => { try { return JSON.parse(localStorage.getItem(k) || "null") || d; } catch (e) { return d; } };
+const lpWrite = (k, v) => { try { localStorage.setItem(k, JSON.stringify(v)); } catch (e) {} };
+const curveOf = (sto, id) => {
+  const f = (k) => BigInt((_m(sto, k) || {})[id] || 0);
+  return Object.assign(poolOf(sto, id), { cn: f("cn"), ct: f("ct"), vn: f("vn"), grad: f("grad"), lblk: Number(f("lblk")),
+    open: f("open"), creator: String((_m(sto, "creator") || {})[id] || "") });
+};
+const curveIds = (sto) => Object.keys(_m(sto, "kind") || {}).filter((id) => Number((_m(sto, "kind") || {})[id]) > 0);
+// the curve's spot price, NADO per coin unit (both sides counted in 1e8-raw units, as the contract does)
+const lpSpot = (c) => (c.kind === 2 ? (c.rt > 0n ? Number(c.rn) / Number(c.rt) : 0) : (c.ct > 0n ? Number(c.vn + c.cn) / Number(c.ct) : 0));
+// NADO per WHOLE coin: the unit ratio over the token's scale (a pool unit is 1e8 raw of each side — pScale, as midPrice)
+const lpPrice = (c) => lpSpot(c) / pScale(c.asset);
+const lpSupply = (c) => c.grad * 5n;                         // launch supply (GRAD = supply // 5) — display only
+const lpSold = (c) => (c.kind === 2 ? 100 : Math.max(0, Math.min(100, Number(lpSupply(c) - c.ct) * 100 / Number(lpSupply(c) || 1n) * 1.25)));
+const lpInWindow = (c) => dapp.cursor != null && c.kind === 1 && dapp.cursor - c.lblk < LP_WINDOW && dapp.cursor >= c.lblk;
+// what an order alone would get — the exact curve formula of dex.py _clear, net of the 1 % fee
+function lpQuote(c, side, units) {
+  const net = units - units / LP_FEE;
+  if (net <= 0n || c.ct <= 0n) return 0n;
+  const x = c.vn + c.cn;
+  return side === 1 ? (c.ct * net) / (x + net) : (x * net) / (c.ct + net);
+}
+async function lpAsset(aid) {                                // the coin's ledger row (issuer, supply, mintable, uri)
+  const k = akey(aid);
+  if (lpAssets[k] && Date.now() - lpAssets[k].at < 30000) return lpAssets[k].a;
+  try { const a = await (await fetch(base() + "/exec/asset?ns=" + dapp.ns + "&id=" + encodeURIComponent(aid), { cache: "no-store" })).json();
+        lpAssets[k] = { a, at: Date.now() }; return a; } catch (e) { return null; }
+}
+const lpImg = (uri) => {
+  const u = String(uri || "");
+  if (u.startsWith("ipfs://")) { const cid = u.slice(7).replace(/^ipfs\//, ""); return /^[A-Za-z0-9]+$/.test(cid) ? IPFS_GW + cid : ""; }
+  return /^https:\/\/[^\s"'<>]+$/.test(u) ? u : "";
+};
+
+function renderLaunch() {
+  if (curMode !== "launch") return;
+  gate({ lpFeedCard: true, lpCreateCard: true, lpCoinCard: !!lpSel });
+  const feed = $("lpFeed");
+  if (!feed) return;
+  if (!lastSto) { feed.innerHTML = `<p class="small dim"><span class="spin"></span> ${esc(LT("loading", "Loading launches…"))}</p>`; return; }
+  // on-chain facts only: live curves by how far they have sold, then the graduated
+  const cs = curveIds(lastSto).map((id) => curveOf(lastSto, id))
+    .sort((a, b) => (a.kind - b.kind) || (lpSold(b) - lpSold(a)) || (b.id - a.id));
+  feed.innerHTML = cs.length ? cs.map((c) => {
+    const sym = tokSym(c.asset), st = c.kind === 2 ? LT("graduated", "Graduated · locked pool") : lpInWindow(c) ? LT("opening", "Opening batch") : LT("live", "On its curve");
+    return `<div class="poolrow${String(c.id) === String(lpSel) ? " sel" : ""}" data-lp="${c.id}" style="cursor:pointer">
+      <div class="pmain"><span class="tok" aria-hidden="true">${esc(tokIni(sym))}</span><div><b>${esc(sym)}</b> <span class="small dim">${esc(tokName(c.asset))}</span>
+        <div class="small dim">${esc(st)} · ${esc(LT("raised", "{n} NADO raised", { n: fromUnits(c.kind === 2 ? c.rn : c.cn) }))}</div></div></div>
+      <div class="num">${lpSpot(c) ? esc(fmtPrice(lpPrice(c))) + " NADO" : "—"}</div>
+      <div class="chgc">${Math.round(lpSold(c))}%</div></div>`;
+  }).join("") : `<p class="small dim">${esc(LT("none", "No launches yet — be the first."))}</p>`;
+  feed.querySelectorAll("[data-lp]").forEach((el) => { el.onclick = () => { lpSel = el.getAttribute("data-lp"); render(); }; });
+  renderLpCoin();
+  renderLpCreate();
+}
+
+function renderLpCoin() {
+  const box = $("lpCoin");
+  if (!box || !lpSel || !lastSto) return;
+  const c = curveOf(lastSto, lpSel), sym = tokSym(c.asset);
+  const mine = lpRead(LS_LPO, []).filter((o) => String(o.pid) === String(c.id) && !o.done);
+  const side = Number(($("lpSide") || {}).value || 1);
+  const inputs = box.dataset.for === String(c.id);
+  if (!inputs) {
+    box.dataset.for = String(c.id);
+    box.innerHTML = `<div id="lpHead"></div>
+      <div class="bar mt" style="height:8px;border-radius:6px;background:var(--line);overflow:hidden"><i id="lpBar" style="display:block;height:100%;background:var(--accent);width:0"></i></div>
+      <div class="small dim mt" id="lpProg"></div>
+      <div id="lpFair" class="small mt"></div>
+      <div id="lpTrade" class="mt">
+        <div class="row"><select id="lpSide" aria-label="${esc(LT("side", "Buy or sell"))}"><option value="1">${esc(LT("buy", "Buy"))}</option><option value="2">${esc(LT("sell", "Sell"))}</option></select>
+          <input id="lpAmt" inputmode="decimal" autocomplete="off" aria-label="${esc(LT("amount", "Amount"))}">
+          <button id="lpGo" class="btn">${esc(LT("place", "Place order"))}</button></div>
+        <div class="small dim mt" id="lpQuote"></div></div>
+      <h3 class="mt">${esc(LT("yourOrders", "Your orders"))}</h3><div id="lpMine"></div>`;
+    $("lpSide").onchange = () => renderLpCoin(); $("lpAmt").oninput = () => renderLpCoin();
+    $("lpGo").onclick = () => lpOrder();
+  }
+  const set = (id, h) => { const e = $(id); if (e) e.innerHTML = h; };
+  set("lpHead", `<b>${esc(sym)}</b> · ${esc(tokName(c.asset))} · ${esc(LT("price", "1 {s} = {p} NADO", { s: sym, p: lpSpot(c) ? fmtPrice(lpPrice(c)) : "—" }))}`);
+  const bar = $("lpBar"); if (bar) bar.style.width = Math.round(lpSold(c)) + "%";
+  set("lpProg", c.kind === 2 ? esc(LT("gradNote", "Graduated: trades on its own pool, whose liquidity nobody can withdraw. Swap it in the Swap tab."))
+    : esc(LT("prog", "{p}% of the way to graduation · {n} NADO raised{w}", { p: Math.round(lpSold(c)), n: fromUnits(c.cn),
+      w: lpInWindow(c) ? " · " + LT("window", "opening batch: every order until block {b} gets one price", { b: c.lblk + LP_WINDOW }) : "" })));
+  gate({ lpTrade: c.kind === 1 });
+  // fairness, as the settled root states it: never mintable, and the creator's own holding
+  lpAsset(c.asset).then((a) => {
+    if (!a || String(lpSel) !== String(c.id)) return;
+    const img = lpImg(a.uri);
+    set("lpFair", `${img ? `<img src="${esc(img)}" alt="" style="max-width:96px;max-height:96px;border-radius:10px;float:right;margin-left:8px">` : ""}
+      ${a.mintable === false ? "✓ " + esc(LT("fixed", "Fixed supply — it can never be minted again")) : "⚠ " + esc(LT("mintable", "This coin is MINTABLE — its supply can grow"))}<br>
+      ${esc(LT("issuer", "Issued by {a}", { a: String(a.issuer || "").slice(0, 16) + "…" }))}`);
+  });
+  const amtEl = $("lpAmt");
+  if (amtEl) amtEl.placeholder = side === 1 ? LT("inNado", "NADO to spend") : LT("inCoin", "{s} to sell", { s: sym });
+  const u = side === 1 ? toUnits((amtEl && amtEl.value || "").trim()) : tokToUnits(amtEl && amtEl.value, c.asset);
+  const q = c.kind === 1 && u > 0n ? lpQuote(c, side, u) : 0n;
+  set("lpQuote", u > 0n ? esc(LT("quote", "Alone in its batch this order gets ≈ {q}. Everyone in the same batch gets the same price; 1 % fee ({f}).",
+    { q: side === 1 ? tokFromUnits(q, c.asset) + " " + sym : fromUnits(q) + " NADO", f: side === 1 ? LT("feeSealed", "sealed NADO") : LT("feeBurned", "burned coins") })) : "");
+  set("lpMine", mine.length ? mine.map((o) => `<div class="row small"><span>${esc(o.side === 1 ? LT("buy", "Buy") : LT("sell", "Sell"))} ·
+      ${esc(o.side === 1 ? fromUnits(BigInt(o.units)) + " NADO" : tokFromUnits(BigInt(o.units), c.asset) + " " + sym)} · ${esc(LT("block", "block {b}", { b: o.at }))}</span>
+      <button class="ghost" data-claim="${o.oid}">${esc(LT("claim", "Claim"))}</button></div>`).join("")
+    : `<p class="small dim">${esc(LT("noOrders", "No open orders on this coin."))}</p>`);
+  box.querySelectorAll("[data-claim]").forEach((b) => { b.onclick = () => lpClaim(Number(b.getAttribute("data-claim")), c); });
+}
+
+async function lpOrder() {
+  if (!dapp.me) return alertBar(LT("signIn", "Sign in with your NADO wallet first."));
+  const c = curveOf(lastSto, lpSel), side = Number($("lpSide").value || 1), sym = tokSym(c.asset);
+  const u = side === 1 ? toUnits(($("lpAmt").value || "").trim()) : tokToUnits($("lpAmt").value, c.asset);
+  if (u < LP_FEE) return alertBar(LT("tooSmall", "An order is at least {n}.", { n: side === 1 ? fromUnits(LP_FEE) + " NADO" : tokFromUnits(LP_FEE, c.asset) + " " + sym }));
+  if (u >= 1n << 31n) return alertBar(LT("tooBig", "That order is too large for one batch — split it."));
+  const oid = randId();
+  const os = lpRead(LS_LPO, []); os.push({ oid, pid: c.id, side, units: String(u), at: dapp.cursor, asset: c.asset }); lpWrite(LS_LPO, os);
+  if (side === 1) dapp.call("buy", [c.id, oid, Number(u)], u * UNIT, LT("callBuy", "buy {s} with {n} NADO", { s: sym, n: fromUnits(u) }), { phase: "lpbuy", id: oid });
+  else dapp.call("sell", [c.id, oid, Number(u)], u * UNIT, LT("callSell", "sell {n} {s}", { s: sym, n: tokFromUnits(u, c.asset) }), { phase: "lpsell", id: oid }, { asset: c.asset });
+}
+
+function lpClaim(oid, c) {
+  const os = lpRead(LS_LPO, []), o = os.find((x) => Number(x.oid) === oid);
+  if (o && dapp.cursor != null && Number(o.at) === dapp.cursor) return alertBar(LT("notYet", "Its batch is still open — claim from the next block on."));
+  if (o && c.kind === 1 && lpInWindow(c) && Number(o.at) >= c.lblk && Number(o.at) < c.lblk + LP_WINDOW)
+    return alertBar(LT("notYetWin", "The opening batch is still open — claim after block {b}.", { b: c.lblk + LP_WINDOW }));
+  dapp.call("claim", [oid, BigInt(c.asset)], null, LT("callClaim", "claim order {o}", { o: oid }), { phase: "lpclaim", id: oid });
+  if (o) { o.done = true; lpWrite(LS_LPO, os); }
+}
+
+// ---- create: three steps, each read back from the chain ----
+// the coin's id before it exists: execnode/state.asset_id = the VM hash over (the issuer's address digest, seed) — the
+// same function as static/nft.js assetId, pinned against the Python by tests/test_an_nft_mints_with_its_royalty_in_one_approval.py
+const LP_PERSON = personOf("NADOvmA1");
+function lpAssetId(addr, seed) {
+  const digest = bytesWord(blake2s(new TextEncoder().encode(JSON.stringify(["zkvmaddr", String(addr)])), LP_PERSON));
+  return hashWords([digest, BigInt(seed)]);
+}
+let lpStepAt = 0;
+async function renderLpCreate() {
+  const st = $("lpSteps");
+  if (!st) return;
+  const job = lpRead(LS_LP, null);
+  if (!job || !dapp.me || job.me !== dapp.me) { st.innerHTML = ""; gate({ lpForm: true }); return; }
+  gate({ lpForm: false });
+  if (Date.now() - lpStepAt < 2500 && st.dataset.done) return;
+  lpStepAt = Date.now();
+  const aid = String(lpAssetId(dapp.me, job.seed)), a = await lpAsset(aid);
+  const reserved = lastSto && String((_m(lastSto, "creator") || {})[job.pid] || "") !== "", live = lastSto && curveRunning(lastSto, job.pid);
+  const step = live ? 4 : reserved ? 3 : a && a.id ? 2 : 1;
+  const row = (n, txt) => `<div class="small">${step > n ? "✓" : step === n ? "▶" : "·"} ${esc(txt)}</div>`;
+  st.dataset.done = "1";
+  st.innerHTML = row(1, LT("step1", "1. Issue {s}: {n} coins, fixed supply", { s: job.sym, n: job.units }))
+    + row(2, LT("step2", "2. Pay the launch fee ({f} NADO, sealed) — reserves the launch"))
+    + row(3, LT("step3", "3. Send the whole supply into its curve"))
+    + (step === 4 ? `<p class="small mt">${esc(LT("launched", "Launched! It is in the list above."))}</p><button class="ghost" id="lpDone">${esc(LT("another", "Launch another"))}</button>`
+                  : `<button class="btn mt" id="lpNext">${esc(LT("continue", "Continue: step {n}", { n: step }))}</button> <button class="ghost mt" id="lpForget">${esc(LT("forget", "Start over"))}</button>`);
+  if (step === 4 && job.pid) lpSel = String(job.pid);
+  const nx = $("lpNext"); if (nx) nx.onclick = () => lpStep(step, job, aid);
+  const dn = $("lpDone"); if (dn) dn.onclick = () => { lpWrite(LS_LP, null); render(); };
+  const fg = $("lpForget"); if (fg) fg.onclick = () => { lpWrite(LS_LP, null); render(); };
+}
+function lpStep(step, job, aid) {
+  if (step === 1)
+    dapp.signBlob({ op: "asset_create", seed: job.seed, name: job.name, sym: job.sym, dec: 8, supply: BigInt(job.units) * UNIT, mintable: false, ...(job.uri ? { uri: job.uri } : {}) },
+      LT("callIssue", "issue {s} · {n} coins · fixed supply", { s: job.sym, n: job.units }), { phase: "lpissue", id: job.seed }, { confirm: true });
+  else if (step === 2)
+    dapp.call("prelaunch", [job.pid], LP_CREATE_FEE * UNIT, LT("callFee", "launch fee for {s} ({f} NADO, sealed)", { s: job.sym, f: fromUnits(LP_CREATE_FEE) }), { phase: "lpfee", id: job.pid });
+  else if (step === 3)
+    dapp.call("launch", [job.pid, Number(job.units), Number(job.vn || LP_VN0)], BigInt(job.units) * UNIT, LT("callLaunch", "send all {n} {s} into its curve", { n: job.units, s: job.sym }),
+              { phase: "lplaunch", id: job.pid }, { asset: aid });
+}
+function lpCreate() {
+  if (!dapp.me) return alertBar(LT("signIn", "Sign in with your NADO wallet first."));
+  const name = ($("lpName").value || "").trim(), sym = ($("lpSym").value || "").trim().toUpperCase(), uri = ($("lpUri").value || "").trim();
+  const units = BigInt(String(($("lpSupply").value || "").replace(/[\s_,]/g, "")) || "0");
+  if (!name || name.length > 32) return alertBar(LT("needName", "Name the coin (at most 32 characters)."));
+  if (!/^[A-Z0-9]{2,10}$/.test(sym)) return alertBar(LT("needSym", "A symbol is 2 to 10 letters or digits."));
+  if (units < LP_MIN_SUPPLY || units >= 1n << 31n) return alertBar(LT("needSupply", "Supply is between {a} and {b} coins.", { a: LP_MIN_SUPPLY, b: (1n << 31n) - 1n }));
+  if (uri && (!lpImg(uri) || uri.length > 128)) return alertBar(LT("needUri", "The image is an ipfs:// or https:// link (at most 128 characters)."));
+  // the curve's scale: VN (virtual NADO, in units) = the graduation target / 4 — dex.py VN_MIN..VN_MAX
+  const target = toUnits(String(($("lpTarget").value || "").trim())), vn = target / 4n;
+  if (vn < LP_VN_MIN || vn >= LP_VN_MAX) return alertBar(LT("needTarget", "The graduation target is between {a} and {b} NADO.", { a: fromUnits(LP_VN_MIN * 4n), b: fromUnits((LP_VN_MAX - 1n) * 4n) }));
+  lpWrite(LS_LP, { me: dapp.me, seed: randId(), pid: randId(), name, sym, units: String(units), uri, vn: String(vn) });
+  render();
+}
 
 // ================= CROSS-CHAIN ORDER BOOK (otc contract — doc/dex-bridge.md §4) =========================
 // Same page, DIFFERENT contract: the book is its own tiny escrow contract beside the AMM (no shared state,
@@ -1849,7 +2059,7 @@ const MT_COLS = [
 function marketRows() {
   const rows = [];
   for (const id of (lastSto ? poolIds(lastSto) : [])) {
-    const p = poolOf(lastSto, id), live = p.sup > 0n && p.rn > 0n, price = live ? midPrice(p) : 0;
+    const p = poolOf(lastSto, id), live = livePool(p), price = live ? midPrice(p) : 0;
     const st = live ? stats24(p.id, price) : null;
     rows.push({ venue: "swap", key: String(p.id), name: `${tokSym(p.asset)} / NADO`, sub: tokName(p.asset), env: "main",
       price, chg: st ? st.pct : null, vol: vol24(String(p.id)), liq: live ? Number(fromUnits(p.rn * 2n).replace(/,/g, "")) : 0,
@@ -1926,7 +2136,7 @@ function renderMarket() {
   const rq0 = $("xReq"); if (rq0) rq0.classList.add("hidden");     // so does the wallet-requirement line
   if (!sel || !lastSto) return;
   const p = poolOf(lastSto, sel);
-  const live = p.rn > 0n && p.rt > 0n && p.sup > 0n;
+  const live = livePool(p);
   const price = live ? midPrice(p) : 0;               // in the token's own decimals, like every other figure
   const sym = tokSym(p.asset);
   $("mktPair").textContent = `${sym} / NADO`;
@@ -2085,6 +2295,7 @@ function wireUI() {
   wireWallet(dapp, render);
   stickyInputs(dapp, ["addN", "addT", "slip", "otcNado", "otcFAmt", "otcExpiry", "limGiveAsset", "limGiveAmt", "limWantAsset", "limWantAmt", "limExpiry"]);
   $("btnOpen").onclick = (e) => runAction(e.currentTarget, openPool);
+  $("lpCreate").onclick = (e) => runAction(e.currentTarget, lpCreate);
   $("btnFundN").onclick = (e) => runAction(e.currentTarget, fundNative);
   $("btnFundT").onclick = (e) => runAction(e.currentTarget, fundToken);
   $("btnJoin").onclick = (e) => runAction(e.currentTarget, joinPool);
@@ -2239,15 +2450,19 @@ async function boot() {
     { key: "markets", icon: "", label: "Markets", hint: "Every pair on both venues — price, 24h change, volume, liquidity. Tap a row to trade it.",
       cards: ["marketsCard"] },
     { key: "swap", icon: "", label: "Swap", hint: "Trade NADO and tokens on the on-chain AMM — live price, depth, and pools.",
-      cards: ["marketCard", "swapCard", "liqCard", "poolsCard", "otcLimitCard", "openCard"] },
+      // liqCard is the PAGE's to show (keep): a graduated launch's pool takes no liquidity, and a mode that owned the
+      // card force-showed it after every render
+      cards: ["marketCard", "swapCard", "poolsCard", "otcLimitCard", "openCard"], keep: ["liqCard"] },
     { key: "cross", icon: "", label: "Cross-chain", hint: "Atomic BTC / ETH / SOL ↔ NADO swaps — no custodian, no wrapped coins.",
       cards: ["marketCard", "otcBookCard", "otcPostCard", "otcMyCard"] },
+    { key: "launch", icon: "", label: LT("modeLaunch", "Launch"), hint: LT("modeLaunchHint", "Launch a coin with a market from its first block — one price per batch for everyone, no platform or creator fee, liquidity nobody can pull."),
+      cards: ["lpFeedCard", "lpCreateCard"], keep: ["lpCoinCard"] },   // the coin card only with a coin selected
   ], onChange: (k) => { curMode = k; syncUrl(true); render(); } });   // redraw NOW: the market card, its picker, chart and stats belong to the new mode
   modesRef = modes;
   curMode = modes.get();                                 // the SDK restores a remembered mode when the URL names none
   render = modes.wrap(doRender);
   window.addEventListener("popstate", () => {
-    const qm = new URLSearchParams(location.search).get("mode"), m = qm === "cross" || qm === "markets" ? qm : "swap";
+    const qm = new URLSearchParams(location.search).get("mode"), m = qm === "cross" || qm === "markets" || qm === "launch" ? qm : "swap";
     if (m !== modes.get()) modes.set(m);
   });
   readUrl();

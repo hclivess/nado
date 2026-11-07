@@ -506,6 +506,30 @@
   </div>
 
   <!-- CROSS-CHAIN ORDER BOOK (otc contract, doc/dex-bridge.md) -->
+  <!-- THE LAUNCHPAD (doc/launchpad.md): the feed, the selected coin, and the three-step create -->
+  <div class="card hidden" id="lpFeedCard">
+    <h2 data-i18n="dex.lpFeedTitle">Launches</h2>
+    <p class="small dim" data-i18n="dex.lpFeedHint">Every order in a coin's opening batch, and then in each block, gets one price — no sniping, no front-running. No platform or creator fee: 1 % of each trade is sealed or burned. A coin that sells 80 % of its supply graduates into a pool whose liquidity nobody can pull.</p>
+    <div id="lpFeed" class="mt"></div>
+  </div>
+  <div class="card hidden" id="lpCoinCard">
+    <div id="lpCoin"></div>
+  </div>
+  <div class="card hidden" id="lpCreateCard">
+    <h2 data-i18n="dex.lpCreateTitle">Launch a coin</h2>
+    <div id="lpForm">
+      <div class="row"><input id="lpName" maxlength="32" autocomplete="off" placeholder="Name" data-i18n-ph="dex.lpName" aria-label="Name">
+        <input id="lpSym" maxlength="10" autocomplete="off" placeholder="SYMBOL" data-i18n-ph="dex.lpSym" aria-label="Symbol" style="max-width:120px"></div>
+      <div class="row mt"><input id="lpSupply" inputmode="numeric" autocomplete="off" placeholder="Supply, e.g. 1000000000" data-i18n-ph="dex.lpSupply" aria-label="Supply">
+        <input id="lpUri" autocomplete="off" placeholder="Image: ipfs://… (optional)" data-i18n-ph="dex.lpUri" aria-label="Image"></div>
+      <div class="row mt"><label class="small dim" for="lpTarget" data-i18n="dex.lpTargetLbl">Graduates once it has raised (NADO)</label>
+        <input id="lpTarget" inputmode="numeric" value="2000" autocomplete="off" style="max-width:140px" aria-label="Graduation target"></div>
+      <p class="small dim mt" data-i18n="dex.lpCreateHint">Three approvals: issue the coin with a fixed supply, pay the 10 NADO launch fee (sealed — nobody receives it), send the whole supply into its curve. You get no allocation and no fee: buy in the opening batch at the same price as everyone.</p>
+      <button class="btn mt" id="lpCreate" data-i18n="dex.lpCreateBtn">Start the launch</button>
+    </div>
+    <div id="lpSteps" class="mt"></div>
+  </div>
+
   <div class="card hidden" id="otcBookCard">
     <h2>Cross-chain order book</h2>
     <p class="small dim lead">Swap NADO against real <b>BTC, ETH or SOL</b> — no custodian, no wrapped coins. <b>ETH needs an Ethereum wallet extension (MetaMask), SOL a Solana one (Phantom); BTC needs nothing extra.</b> New: check every figure and start small.</p>
