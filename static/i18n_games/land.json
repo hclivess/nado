@@ -192,7 +192,9 @@
   "land.chestHint": "Click: one · Shift+click: all",
   "land.chestIn": "In the chest",
   "land.chestBag": "In your bag",
-  "land.chestEmpty": "empty"
+  "land.chestEmpty": "empty",
+  "land.forSale": "For sale · {p} NADO",
+  "land.buyMarket": "Buy on the market"
  },
  "cs": {
   "land.notYours": "Pozemek {p} patří někomu jinému. Kupte si pozemek, nebo požádejte jeho vlastníka o pozvání.",
@@ -387,7 +389,9 @@
   "land.chestHint": "Klik: jeden · Shift+klik: vše",
   "land.chestIn": "V truhle",
   "land.chestBag": "Ve vaku",
-  "land.chestEmpty": "prázdné"
+  "land.chestEmpty": "prázdné",
+  "land.forSale": "Na prodej · {p} NADO",
+  "land.buyMarket": "Koupit na trhu"
  },
  "es": {
   "land.notYours": "La parcela {p} pertenece a otra persona. Compra una parcela o pide a su dueño que te invite.",
@@ -582,7 +586,9 @@
   "land.chestHint": "Clic: uno · Mayús+clic: todos",
   "land.chestIn": "En el cofre",
   "land.chestBag": "En tu bolsa",
-  "land.chestEmpty": "vacío"
+  "land.chestEmpty": "vacío",
+  "land.forSale": "En venta · {p} NADO",
+  "land.buyMarket": "Comprar en el mercado"
  },
  "pt": {
   "land.notYours": "O lote {p} pertence a outra pessoa. Compre um lote ou peça ao dono que convide você.",
@@ -777,7 +783,9 @@
   "land.chestHint": "Clique: um · Shift+clique: todos",
   "land.chestIn": "No baú",
   "land.chestBag": "Na sua bolsa",
-  "land.chestEmpty": "vazio"
+  "land.chestEmpty": "vazio",
+  "land.forSale": "À venda · {p} NADO",
+  "land.buyMarket": "Comprar no mercado"
  },
  "fr": {
   "land.notYours": "La parcelle {p} appartient à quelqu'un d'autre. Achetez une parcelle ou demandez à son propriétaire de vous inviter.",
@@ -972,7 +980,9 @@
   "land.chestHint": "Clic : un · Maj+clic : tout",
   "land.chestIn": "Dans le coffre",
   "land.chestBag": "Dans votre sac",
-  "land.chestEmpty": "vide"
+  "land.chestEmpty": "vide",
+  "land.forSale": "À vendre · {p} NADO",
+  "land.buyMarket": "Acheter sur le marché"
  },
  "de": {
   "land.notYours": "Grundstück {p} gehört jemand anderem. Kauf dir ein Grundstück oder bitte den Besitzer um eine Einladung.",
@@ -1167,7 +1177,9 @@
   "land.chestHint": "Klick: eins · Umschalt+Klick: alle",
   "land.chestIn": "In der Truhe",
   "land.chestBag": "In deiner Tasche",
-  "land.chestEmpty": "leer"
+  "land.chestEmpty": "leer",
+  "land.forSale": "Zu verkaufen · {p} NADO",
+  "land.buyMarket": "Auf dem Markt kaufen"
  },
  "it": {
   "land.notYours": "Il lotto {p} appartiene a qualcun altro. Compra un lotto o chiedi al proprietario di invitarti.",
@@ -1362,7 +1374,9 @@
   "land.chestHint": "Clic: uno · Maiusc+clic: tutti",
   "land.chestIn": "Nel baule",
   "land.chestBag": "Nella tua borsa",
-  "land.chestEmpty": "vuoto"
+  "land.chestEmpty": "vuoto",
+  "land.forSale": "In vendita · {p} NADO",
+  "land.buyMarket": "Compra sul mercato"
  },
  "ru": {
   "land.notYours": "Участок {p} принадлежит другому игроку. Купите участок или попросите владельца пригласить вас.",
@@ -1557,7 +1571,9 @@
   "land.chestHint": "Клик: один · Shift+клик: все",
   "land.chestIn": "В сундуке",
   "land.chestBag": "В сумке",
-  "land.chestEmpty": "пусто"
+  "land.chestEmpty": "пусто",
+  "land.forSale": "Продаётся · {p} NADO",
+  "land.buyMarket": "Купить на рынке"
  },
  "zh": {
   "land.notYours": "地块 {p} 属于别人。购买一块地，或请它的所有者邀请你。",
@@ -1752,7 +1768,9 @@
   "land.chestHint": "点击：一个 · Shift+点击：全部",
   "land.chestIn": "箱子里",
   "land.chestBag": "你的背包里",
-  "land.chestEmpty": "空"
+  "land.chestEmpty": "空",
+  "land.forSale": "出售中 · {p} NADO",
+  "land.buyMarket": "在市场购买"
  },
  "ja": {
   "land.notYours": "区画 {p} は他の人のものです。区画を購入するか、所有者に招待してもらいましょう。",
@@ -1947,7 +1965,9 @@
   "land.chestHint": "クリック：1つ · Shift+クリック：すべて",
   "land.chestIn": "チェストの中",
   "land.chestBag": "バッグの中",
-  "land.chestEmpty": "空"
+  "land.chestEmpty": "空",
+  "land.forSale": "販売中 · {p} NADO",
+  "land.buyMarket": "マーケットで購入"
  },
  "ko": {
   "land.notYours": "구역 {p}은(는) 다른 사람의 땅입니다. 구역을 사거나 소유자에게 초대를 요청하세요.",
@@ -2142,7 +2162,9 @@
   "land.chestHint": "클릭: 하나 · Shift+클릭: 전부",
   "land.chestIn": "상자 안",
   "land.chestBag": "가방 안",
-  "land.chestEmpty": "비어 있음"
+  "land.chestEmpty": "비어 있음",
+  "land.forSale": "판매 중 · {p} NADO",
+  "land.buyMarket": "마켓에서 구매"
  },
  "ar": {
   "land.notYours": "القطعة {p} ملك لشخص آخر. اشترِ قطعة، أو اطلب من مالكها أن يدعوك.",
@@ -2337,7 +2359,9 @@
   "land.chestHint": "نقرة: واحد · Shift+نقرة: الكل",
   "land.chestIn": "في الصندوق",
   "land.chestBag": "في حقيبتك",
-  "land.chestEmpty": "فارغ"
+  "land.chestEmpty": "فارغ",
+  "land.forSale": "للبيع · {p} NADO",
+  "land.buyMarket": "اشترِ من السوق"
  },
  "hi": {
   "land.notYours": "प्लॉट {p} किसी और का है। कोई प्लॉट खरीदें, या उसके मालिक से आपको आमंत्रित करने को कहें।",
@@ -2532,7 +2556,9 @@
   "land.chestHint": "क्लिक: एक · Shift+क्लिक: सब",
   "land.chestIn": "संदूक में",
   "land.chestBag": "आपके थैले में",
-  "land.chestEmpty": "खाली"
+  "land.chestEmpty": "खाली",
+  "land.forSale": "बिक्री के लिए · {p} NADO",
+  "land.buyMarket": "बाज़ार में ख़रीदें"
  },
  "tr": {
   "land.notYours": "{p} arsası başkasına ait. Bir arsa satın al ya da sahibinden seni davet etmesini iste.",
@@ -2727,7 +2753,9 @@
   "land.chestHint": "Tık: bir · Shift+tık: hepsi",
   "land.chestIn": "Sandıkta",
   "land.chestBag": "Çantanda",
-  "land.chestEmpty": "boş"
+  "land.chestEmpty": "boş",
+  "land.forSale": "Satılık · {p} NADO",
+  "land.buyMarket": "Pazarda satın al"
  },
  "id": {
   "land.notYours": "Petak {p} milik orang lain. Beli sebuah petak, atau minta pemiliknya mengundangmu.",
@@ -2922,7 +2950,9 @@
   "land.chestHint": "Klik: satu · Shift+klik: semua",
   "land.chestIn": "Di dalam peti",
   "land.chestBag": "Di tas Anda",
-  "land.chestEmpty": "kosong"
+  "land.chestEmpty": "kosong",
+  "land.forSale": "Dijual · {p} NADO",
+  "land.buyMarket": "Beli di pasar"
  },
  "vi": {
   "land.notYours": "Mảnh đất {p} thuộc về người khác. Hãy mua một mảnh, hoặc nhờ chủ của nó mời bạn.",
@@ -3117,7 +3147,9 @@
   "land.chestHint": "Nhấp: một · Shift+nhấp: tất cả",
   "land.chestIn": "Trong rương",
   "land.chestBag": "Trong túi của bạn",
-  "land.chestEmpty": "trống"
+  "land.chestEmpty": "trống",
+  "land.forSale": "Đang bán · {p} NADO",
+  "land.buyMarket": "Mua trên chợ"
  },
  "pl": {
   "land.notYours": "Działka {p} należy do kogoś innego. Kup działkę albo poproś jej właściciela o zaproszenie.",
@@ -3312,6 +3344,8 @@
   "land.chestHint": "Klik: jeden · Shift+klik: wszystko",
   "land.chestIn": "W skrzyni",
   "land.chestBag": "W twojej torbie",
-  "land.chestEmpty": "pusto"
+  "land.chestEmpty": "pusto",
+  "land.forSale": "Na sprzedaż · {p} NADO",
+  "land.buyMarket": "Kup na rynku"
  }
 }

@@ -32,7 +32,7 @@ import { walk, trunkAt, TRUNK_R, restorePlace } from "./land-walk.js";
 import { snapBox, piecesFor, restOnGround } from "./land-snap.js";
 import { levelOps, earthNeeded, trunkIn, siteLayer, topFirst } from "./land-level.js";
 import { groundWeights } from "./land-mesher.js";
-import { NadoDapp, wireWallet, renderWallet, alertBar, notify, uiConfirm, uiPrompt, isAddress, esc, base, disp, $ } from "./nadodapp.js";
+import { NadoDapp, wireWallet, renderWallet, alertBar, notify, uiConfirm, uiPrompt, isAddress, esc, base, disp, rawToNado, $ } from "./nadodapp.js";
 
 const CID = "e7dfe9aa3cbb4b0c9293caeaf992a041";      // the land title contract (deployed 2026-11-07, scripts/land_first_wave.py); redeploy.py wire() repoints it
 const ISSUER = "3cc4c44a94a900f79716dc6d3822a81603b1ce7862ce03572f";   // land.py ISSUER — every title's issuer
@@ -625,8 +625,25 @@ async function holderOf(plot) {
     const r = await getJSON("/exec/asset?id=" + t.aid);
     const hs = r.holders || {};                        // /exec/asset: { asset, holders: { address: balance }, cursor }
     t.holder = Object.keys(hs).find((a) => Number(hs[a]) > 0) || null;
+    // A TITLE ON SALE is held by the market contract that escrows it: the HUD said "Owned by b0162eda…" and nothing about
+    // buying it (the first wave, 2026-11-07). A holder that is a contract (32 hex, not an address) is asked for the
+    // listing that holds this title: if there is one, the plot is for sale at its price.
+    t.sale = null;
+    if (t.holder && /^[0-9a-f]{32}$/.test(t.holder)) {
+      const st = await listingsOf(t.holder), lid = Object.keys(st.l_asset || {}).find((k) => String(st.l_asset[k]) === String(t.aid) && Number((st.l_left || {})[k]) > 0);
+      if (lid) t.sale = { price: BigInt((st.l_price || {})[lid] || 0) };
+    }
   } catch (e) {}
   return t.holder;
+}
+const listingCache = new Map();                      // contract -> { at, st }: one storage read a minute per market
+async function listingsOf(cid) {
+  const c = listingCache.get(cid);
+  if (c && Date.now() - c.at < 60000) return c.st;
+  const r = exactSeeds(await (await fetch(base() + "/exec/contract?cid=" + cid, { cache: "no-store" })).text());
+  const st = r.storage || {};
+  listingCache.set(cid, { at: Date.now(), st });
+  return st;
 }
 
 // ---- anchoring a plot's build on chain ------------------------------------------------------------------------------
@@ -793,6 +810,7 @@ function hud() {
   if (!t) html = `<span class="pill">${esc(T("wild", "Wilderness"))}</span> <span class="dim">${esc(T("wildOpen", "Unowned: anyone may gather and build here. Own a plot to protect what you build."))}</span>${signIn}`;
   else if (builds.has(plot) && !mine.has(plot)) html = `<span class="pill ok">${esc(T("invited", "You may build here"))}</span> <span class="dim">${esc(t.holder ? T("owned", "Owned by {o}", { o: disp(t.holder) }) : "")}</span>`;
   else if (mine.has(plot)) html = `<span class="pill ok">${esc(T("yours", "Your plot"))}</span> <button id="btnAnchor" class="ghost">${esc(T("anchorBtn", "Anchor build"))}</button> <button id="btnInvite" class="ghost">${esc(T("inviteBtn", "Invite a builder"))}</button>`;
+  else if (t.sale) html = `<span class="pill">${esc(T("forSale", "For sale · {p} NADO", { p: rawToNado(t.sale.price.toString()) }))}</span> <a class="btn" target="_blank" rel="noopener" href="${NFT_URL}#token/${esc(t.aid)}">${esc(T("buyMarket", "Buy on the market"))}</a>${signIn}`;
   else html = `<span class="pill">${esc(t.holder ? T("owned", "Owned by {o}", { o: disp(t.holder) }) : T("titled", "Titled"))}</span> <a class="btn" target="_blank" rel="noopener" href="${NFT_URL}#token/${esc(t.aid)}">${esc(T("market", "View on the market"))}</a>${signIn}`;
   if (st.dataset.html !== html) {
     st.innerHTML = html; st.dataset.html = html;
