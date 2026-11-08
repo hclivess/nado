@@ -44,7 +44,7 @@ for (let pr = 0; pr < 40 && spots.length < 3; pr++) {
   if (ok) spots.push([f, u, v, c.top]);
 }
 const t0 = spots[0] && W.saplingTree(f, spots[0][1], spots[0][2], W.column(f, spots[0][1], spots[0][2]));
-console.log(JSON.stringify({ spots, tree: t0, B: { sapling: B.sapling, grass: B.grass, dirt: B.dirt, log: B.log, birchlog: B.birchlog, leaves: B.leaves, needles: B.needles, stone: B.stone, air: B.air, planks: B.planks } }));
+console.log(JSON.stringify({ spots, tree: t0, B: { sapling: B.sapling, grass: B.grass, dirt: B.dirt, log: B.log, birchlog: B.birchlog, leaves: B.leaves, needles: B.needles, fronds: B.fronds, stone: B.stone, air: B.air, planks: B.planks } }));
 """ % json.dumps(os.path.join(ROOT, "static", "land-world.js"))
 P = json.loads(subprocess.run(["node", "--input-type=module", "-e", js], capture_output=True, text=True, timeout=900).stdout)
 B = P["B"]
@@ -99,6 +99,18 @@ async def main():
     check("…written only on its own plot", all(S.plot_of(c[0], c[1], c[2]) == p for c in cells))
     pk = (u + 1 - (p % S.FACE_N) * S.PLOT, v - ((p // S.FACE_N) % S.FACE_N) * S.PLOT, crown_h)
     check("…never over a build: the plank block in its crown stays", w.plots[p]["edits"][pk] == B["planks"])
+    # a sapling grown under a neighbour's crown: its trunk goes through the neighbour's leaves (the town orchard grew a
+    # birch with a gap in its trunk where an earlier tree's leaves were, 2026-11-08)
+    (fx, ux, vx, topx) = P["spots"][2]
+    px = S.plot_of(fx, ux, vx)
+    kx = lambda h: (ux - (px % S.FACE_N) * S.PLOT, vx - ((px // S.FACE_N) % S.FACE_N) * S.PLOT, h)
+    pl["items"]["sapling"] = pl["items"].get("sapling", 0) + 1
+    _, refx, _ = await w.apply(WHO, [[fx, ux, vx, topx + 1, B["sapling"]]])
+    w.plots[px]["edits"][kx(topx + 3)] = B["leaves"]                    # a neighbour's leaf where the trunk will rise
+    grownx = await w.grow(w.plots[px]["grow"][kx(topx + 1)] + 1)
+    trunkx = w.plots[px]["edits"].get(kx(topx + 3))
+    check("a trunk grows through a neighbour's leaves (no gap in it)", not refx and trunkx in (B["log"], B["birchlog"]), (refx, trunkx))
+    check("…and the world server's leaves are the page's", set(S.TREE_LEAVES) == {B["leaves"], B["needles"], P["B"].get("fronds", 33)}, S.TREE_LEAVES)
     check("…and it stays: no regrow timer on the grown cells, even in the commons",
           not any((c[1] - (p % S.FACE_N) * S.PLOT, c[2] - ((p // S.FACE_N) % S.FACE_N) * S.PLOT, c[3]) in w.plots[p].get("exp", {}) for c in cells))
     p2 = S.plot_of(f2, u2, v2)

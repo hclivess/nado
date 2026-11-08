@@ -54,6 +54,7 @@ DOOR = 37                         # static/land-world.js B.door: a piece that sw
 CHEST = 54                        # static/land-world.js B.chest: a piece that keeps items on its plot ("chest" op, #114)
 CHEST_MAX = 2000                  # items one chest holds
 TREE_WOOD = {7, 31}                # static/land-world.js TREE_WOOD (log, birchlog): cutting one fells its tree above
+TREE_LEAVES = {8, 32, 33}         # static/land-world.js TREE_LEAVES (leaves, needles, fronds) — a test checks they agree
 UNBUILDABLE = {30}                # bedrock: never placed (no item in land-recipes.json places it either)
 # WATER is carried in a bucket (land-recipes.json: a bucket scoops a cell of it, a bucketful places one) and placed only
 # where something holds it — on a block or on more water — so a pond, a basin or a fountain holds; it does not flow.
@@ -771,7 +772,9 @@ class World:
                 here = await self.blocks_at([c[:4] for c in cells])
                 for f, cu, cv, ch, b in cells:
                     ck = (cu - col * PLOT, cv - row * PLOT, ch)
-                    if here[(f, cu, cv, ch)] not in (0, SAPLING):
+                    # a tree's own TRUNK goes through a neighbour's leaves (leaves are no build): saplings 4 m apart grew
+                    # under each other's crowns and one got a trunk with a gap (the town orchard, 2026-11-08)
+                    if here[(f, cu, cv, ch)] not in (0, SAPLING) and not (b in TREE_WOOD and here[(f, cu, cv, ch)] in TREE_LEAVES):
                         continue
                     rec["edits"][ck] = b
                     rec.get("exp", {}).pop(ck, None)

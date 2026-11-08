@@ -19,7 +19,7 @@
 // Cells are generated with a one-cell border (wrapped across face seams by land-world.wrap). A surface edge is drawn by
 // the chunk that holds its LOWER cell, so every edge of the world belongs to exactly one chunk (no gaps, no doubles).
 // Positions are metres RELATIVE TO THE CHUNK'S ANCHOR; the page places each mesh at anchor - camera in doubles.
-import { CHUNK, H, R0, W, B, BLOCKS, ATLAS_TILES, NATURAL, CM, DEEP_MIN, TREE_WOOD, TREE_LEAVES, isTree, opaque, dirOf, frameOf, wrap, column, terrainBlock, fieldOf, treeAt, treeCell, LITTER, shapeOf, FLOWERS } from "./land-world.js";
+import { CHUNK, H, R0, W, B, BLOCKS, ATLAS_TILES, NATURAL, CM, DEEP_MIN, TREE_WOOD, TREE_LEAVES, isTree, opaque, dirOf, frameOf, wrap, column, terrainBlock, fieldOf, treeAt, treeCell, LITTER, shapeOf, FLOWERS, saplingTree } from "./land-world.js";
 import { treeModel, leafCellModel, twigModel, flaxModel, saplingModel, flowerModel } from "./land-trees.js";
 
 const N = CHUNK + 2;                                     // cells with the border: real index r in -1..16 is r + 1
@@ -318,6 +318,41 @@ export function meshChunk(face, cu, cv, ch, edits, boxes, lod, grassOn = true) {
     };
     gone.cut = cutAt;
     placeTree(t, face, gu, gv, col.height, lod, place, bark, foliage, gone);
+  }
+  // ---- PLANTED TREES: a tree grown from a sapling (scripts/land_server.py grow) is edits, not the planet's, and was drawn
+  // as stacked logs and leaf clusters — now as its species' grown model too ("can you regenerate existing trees?",
+  // operator 2026-11-08). Its root is a log edit standing on soil whose whole trunk is the one that column's sapling
+  // grows into (land-world saplingTree — the very function the world server grew it by); the model stands on the cell's
+  // floor, and a crown cell picked since is left out of it as a natural tree's is. A cut trunk, or a pillar of logs
+  // someone built, is no such tree: it stays drawn as its cells.
+  if (edits) for (const [ek, eb] of edits) {
+    if (!TREE_WOOD.has(eb)) continue;
+    const [ef, gu, gv, gh] = ek.split(":").map(Number);
+    if (ef !== face || gu < u0 - 3 || gu >= u0 + CHUNK + 3 || gv < v0 - 3 || gv >= v0 + CHUNK + 3) continue;
+    const under = edits.get(face + ":" + gu + ":" + gv + ":" + (gh - 1));
+    const soil = under !== undefined ? under : terrainBlock(face, gu, gv, gh - 1, colCache);
+    if (soil !== B.grass && soil !== B.dirt) continue;                      // not the foot of a trunk
+    const t = saplingTree(face, gu, gv, colCache(face, gu, gv)), g0 = gh - 1;  // treeCell's dh counts from its ground layer
+    let whole = true;
+    // (a trunk cell holding a neighbour's leaves still counts: a sapling grown under another's crown — the neighbour's
+    // model draws those leaves; land_server.py grow now puts the trunk through them)
+    for (let dh = 1; dh <= t.height && whole; dh++) {
+      const e = edits.get(face + ":" + gu + ":" + gv + ":" + (g0 + dh));
+      whole = e === treeCell(t, 0, 0, dh) || (dh > 1 && TREE_LEAVES.has(e));
+    }
+    if (!whole) continue;
+    if (g0 + t.height + 2 < h0 - 1 || g0 > h0 + CHUNK) continue;
+    const i = gu - u0, j = gv - v0;
+    for (let du = -2; du <= 2; du++) for (let dv = -2; dv <= 2; dv++) for (let dh = 1; dh <= t.height + 2; dh++) {
+      const pi = i + du + 1, pj = j + dv + 1, pk = g0 + dh - h0 + 1, b = treeCell(t, du, dv, dh);
+      if (pi < 0 || pj < 0 || pk < 0 || pi >= N || pj >= N || pk >= N || !b) continue;
+      const x = (pk * N + pj) * N + pi;
+      if (blk[x] === b) modelled[x] = 1;                                   // still the tree's own cell
+    }
+    if (i < 0 || j < 0 || i >= CHUNK || j >= CHUNK || g0 < h0 || g0 >= h0 + CHUNK) continue;
+    const gone = (cu, cv, ch) => { const b = treeCell(t, cu - gu, cv - gv, ch - g0); return !!b && edits.get(face + ":" + cu + ":" + cv + ":" + ch) !== b; };
+    gone.cut = Infinity;
+    placeTree(t, face, gu, gv, gh, lod, place, bark, foliage, gone);
   }
   // litter: a loose stone is a small rough rock in its own part, drawn with the ground's material (its weights all rock);
   // a fallen stick is a short forked branch in the bark mesh. Both lie on the drawn surface.
