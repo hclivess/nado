@@ -253,6 +253,20 @@ try {
   let box = null;
   for (let t = 0; t < 20 && !box; t++) { await sleep(500); box = ((await plotEdits()).boxes || []).find((b) => b[6] === Wd.B.planks) || null; }
   ok(box && Math.abs(box[2] - floor * 100) <= 12, `a plank piece goes onto the pit's floor (${floor * 100} cm), not the untouched ground's height (${Math.round(mid.height * 100)} cm): ` + JSON.stringify(box));
+  // 3b. SHAPE AND TURN ON A PHONE: box / slope / stairs and a quarter turn were keys only (G, T) — on a phone every piece
+  // was a box facing one way (building the town pavilion by hand, 2026-11-08). The bag has buttons for both.
+  await evl(B, "document.getElementById('tPal').click(), true");
+  ok(await until(B, "!!document.querySelector('[data-shape=\"2\"]') && !!document.getElementById('pzTurn')", 8000), "the bag has shape buttons and a Turn button");
+  await evl(B, "document.querySelector('[data-shape=\"2\"]').click(), true");
+  ok(await until(B, "/stairs/.test(document.getElementById('pieceInfo').textContent)", 5000), "…Stairs makes the piece a flight of stairs: " + await evl(B, "document.getElementById('pieceInfo').textContent"));
+  const dims = async () => (await evl(B, "document.getElementById('pieceInfo').textContent")).match(/(\d+) × (\d+) × (\d+)/).slice(1).map(Number);
+  await evl(B, "document.getElementById('pzW').value = 200; document.getElementById('pzW').dispatchEvent(new Event('change')); true");
+  const d0 = await dims();
+  await evl(B, "document.getElementById('pzTurn').click(), true");
+  const d1 = await dims();
+  ok(d0[0] === d1[1] && d0[1] === d1[0] && d0[0] !== d0[1], `…and Turn turns it a quarter: ${d0.join("×")} -> ${d1.join("×")}`);
+  await evl(B, "document.querySelector('[data-shape=\"0\"]').click(), document.getElementById('palClose').click(), true");
+
   // 4. REAL TIME AT A LOW FRAME RATE: a frame's time was cut to 0.05 s, so below 20 fps everything ran in slow motion — on
   // the live page at 2 fps, nine seconds of walking moved about a metre ("very laggy on a phone", 2026-11-08). With the
   // processor slowed fourfold, holding Forward for 3 s walks most of the 13.8 m a walker covers in that time.

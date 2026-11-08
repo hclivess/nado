@@ -891,7 +891,9 @@ function connect() {
     } else if (m.t === "inv") {
       if (invSeen) pickup(inv.items, m.items || {}, inv.tools, m.tools || [], inv.stations, m.stations || []);
       invSeen = true;
-      inv.items = m.items || {}; inv.tools = m.tools || []; inv.stations = m.stations || [];
+      // vol: what is left of blocks a piece was cut from (cm³) — sent all along and never kept, so the page counted only
+      // whole blocks and refused a piece the leftover would pay for (2026-11-08)
+      inv.items = m.items || {}; inv.tools = m.tools || []; inv.stations = m.stations || []; inv.vol = m.vol || {};
       inv.worn = m.worn || {}; inv.look = m.look || { skin: 0, hair: 0 };
       fillHot(); hotbar(); if (bagOpen()) renderBag(); if (!$("wardPanel").classList.contains("hidden")) renderWard();
     } else if (m.t === "offers") {
@@ -1046,7 +1048,8 @@ function pickup(was, now, wasTools, tools, wasSt, st) {
 /** Keep the hotbar on what the player can place: what they chose first, then anything placeable they hold. */
 function fillHot() {
   if (!RULES) return;
-  hot = hot.filter((id) => placeable(id));
+  // an item spent to the last leaves the bar ("Wood 0" kept its slot after the wood ran out, 2026-11-08)
+  hot = hot.filter((id) => placeable(id) && haveCm3(id) > 0);
   for (const id of Object.keys(inv.items)) if (placeable(id) && inv.items[id] > 0 && !hot.includes(id) && hot.length < 9) hot.push(id);
   if (slot >= Math.max(1, hot.length)) slot = 0;
 }
@@ -1104,6 +1107,9 @@ function renderBag() {
     <div class="tradeform"><span>W</span><input id="pzW" type="number" min="1" max="1600" value="${piece.w}"><span>D</span><input id="pzD" type="number" min="1" max="1600" value="${piece.d}">
       <span>H</span><input id="pzH" type="number" min="1" max="25600" value="${piece.h}"><span>cm · ${esc(T("snap", "snap"))}</span>
       <select id="pzS">${SNAPS.map((x) => `<option value="${x}"${x === piece.snap ? " selected" : ""}>${x} cm</option>`).join("")}</select></div>
+    <div class="tradeform">${[T("shapeBox", "box"), T("shapeSlope", "slope"), T("shapeStairs", "stairs")].map((n, i) =>
+      `<button class="chip pl${(piece.shape || 0) === i ? " tool" : ""}" data-shape="${i}" aria-pressed="${(piece.shape || 0) === i}">${esc(n)}</button>`).join("")}
+      <button class="chip pl" id="pzTurn">${esc(T("turnPiece", "Turn ↻"))}</button></div>
     <h3>${esc(T("make", "Make"))}</h3>
     <div class="recipes">${RULES.recipes.map((r) => {
       const out = r.makes.map(([id, n]) => (RULES.items[id] ? n + " " : "") + nameOf(id)).join(", ");
@@ -1130,6 +1136,10 @@ function renderBag() {
   g.querySelectorAll("[data-accept]").forEach((b) => { b.onclick = () => req({ t: "accept", id: b.dataset.accept }); });
   g.querySelectorAll("[data-cancel]").forEach((b) => { b.onclick = () => req({ t: "cancel_offer", id: b.dataset.cancel }); });
   g.querySelectorAll("[data-preset]").forEach((b) => { b.onclick = () => { [piece.w, piece.d, piece.h] = PRESETS[Number(b.dataset.preset)]; pieceInfo(); renderBag(); }; });
+  // SHAPE AND TURN ON A TOUCH SCREEN: box / slope / stairs and a quarter turn were keys only (G, T), so on a phone every
+  // piece was a box facing one way — no roof, no stairs, no door turned (building the town pavilion by hand, 2026-11-08)
+  g.querySelectorAll("[data-shape]").forEach((b) => { b.onclick = () => { piece.shape = Number(b.dataset.shape); pieceInfo(); renderBag(); }; });
+  $("pzTurn").onclick = () => { turnPiece(); renderBag(); };
   const size = () => {
     const v = (id, max) => Math.max(1, Math.min(max, Math.round(Number($(id).value) || 1)));
     piece = { w: v("pzW", Wd.PLOT_CM), d: v("pzD", Wd.PLOT_CM), h: v("pzH", Wd.H_CM), snap: Number($("pzS").value), shape: piece.shape, rot: piece.rot, turned: piece.turned };
@@ -1346,6 +1356,13 @@ function levelTick(now) {
 const haveCm3 = (id) => (inv.items[id] || 0) * 1e6 + ((inv.vol || {})[id] || 0);
 // UNIT ITEMS (a door): placed whole at their own size, either way round (T turns it), one item per piece
 const unitOf = (m) => { const id = RULES && Object.keys(RULES.items).find((k) => RULES.items[k].places === m); return id ? RULES.items[id].unit : null; };
+/** A quarter turn (T, or Turn in the bag): the footprint swaps width and depth (a door turns), and a slope or a flight of
+ *  stairs rises the next way round. */
+function turnPiece() {
+  [piece.w, piece.d] = [piece.d, piece.w]; piece.turned = !piece.turned;
+  if (piece.shape) piece.rot = ((piece.rot || 0) + 1) % 4;
+  pieceInfo();
+}
 function pieceDims() {
   const it = RULES && hot[slot] && RULES.items[hot[slot]];
   if (it && it.unit) return piece.turned ? [it.unit[1], it.unit[0], it.unit[2]] : [it.unit[0], it.unit[1], it.unit[2]];
@@ -1519,13 +1536,12 @@ function wireInput(canvas) {
     keys.add(e.code);
     if (/^Digit[1-9]$/.test(e.code) && Number(e.code.slice(5)) <= hot.length) { slot = Number(e.code.slice(5)) - 1; hotbar(); }
     if (e.code === "KeyR") { const i = PRESETS.findIndex((x) => x[0] === piece.w && x[1] === piece.d && x[2] === piece.h); [piece.w, piece.d, piece.h] = PRESETS[(i + 1) % PRESETS.length]; pieceInfo(); }
-    if (e.code === "KeyT") { [piece.w, piece.d] = [piece.d, piece.w]; piece.turned = !piece.turned; pieceInfo(); }
+    if (e.code === "KeyT") turnPiece();
     if (e.code === "KeyQ") useDoor();
     if (e.code === "KeyX") ignite();
     if (e.code === "KeyV") wardrobe($("wardPanel").classList.contains("hidden"));
     if (e.code === "KeyL") startLevel();
     if (e.code === "KeyG") { piece.shape = ((piece.shape || 0) + 1) % 3; pieceInfo(); }
-    if (e.code === "KeyT" && piece.shape) piece.rot = ((piece.rot || 0) + 1) % 4;
     if (e.code === "BracketLeft" || e.code === "BracketRight") { const i = SNAPS.indexOf(piece.snap); piece.snap = SNAPS[Math.max(0, Math.min(SNAPS.length - 1, (i < 0 ? 2 : i) + (e.code === "BracketRight" ? 1 : -1)))]; pieceInfo(); }
     if (e.code === "KeyF") { P.fly = !P.fly; P.vh = 0; notify(P.fly ? T("flyOn", "Flying — Space up, C down, Shift fast") : T("flyOff", "Walking"), 1600); }
     if (e.code === "KeyE") palette($("palette").classList.contains("hidden"));

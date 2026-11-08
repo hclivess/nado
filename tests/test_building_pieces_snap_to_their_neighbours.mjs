@@ -41,6 +41,11 @@ ok(s[1] === 20 && s[2] === 300, "the axis it was placed against keeps; the other
 // 5
 s = snapBox([800, 800, 300, 10, 10, 10, WOOD], [pole]);
 ok(s.join() === [800, 800, 300, 10, 10, 10, WOOD].join(), "nothing far away moves it");
+// the fourth corner post of a 3 m frame lines up with the posts across it — they are 2.3-2.6 m away, and with a 2 m reach
+// it stood 20 cm out of line (the pavilion built by hand on the live page, 2026-11-08)
+const BEAM = 38, posts = [[1010, 810, 13710, 15, 15, 240, BEAM], [1270, 810, 13710, 15, 15, 240, BEAM], [1270, 1070, 13710, 15, 15, 240, BEAM]];
+s = snapBox([1030, 1060, 13710, 15, 15, 240, BEAM], posts);
+ok(s[0] === 1010 && s[1] === 1070, `the fourth post of a 3 m frame lines up with the others (x ${s[0]}, z ${s[1]})`);
 const wall = [[0, 0, 0, 100, 100, 100, BRICK], [104, 0, 0, 100, 100, 100, BRICK]];
 s = snapBox([110, 0, 0, 100, 100, 100, BRICK], [wall[0]]);
 ok(s[0] === 100, "a brick 10 cm from its neighbour closes the gap");

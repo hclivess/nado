@@ -64,6 +64,10 @@ ok(/moon\.intensity = 0\.9 \* \(1 - day\)/.test(skyFn) && /hemi\.intensity = 1\.
    && /hemi\.color\.copy\(SKY\.moonFill\)\.lerp\(SKY\.horizon, day\)/.test(skyFn) && /moonFill: new THREE\.Color\(0x4a5f8a\)/.test(land),
    "night is lit by the moon and a blue sky fill, not left black");
 
+// the page keeps what is left of a cut block (the server's vol) and drops a spent item from the hotbar (2026-11-08)
+ok(land.includes("inv.vol = m.vol || {};") && /hot = hot\.filter\(\(id\) => placeable\(id\) && haveCm3\(id\) > 0\);/.test(land),
+   "the page keeps the leftover volume and drops spent items from the hotbar");
+
 // 6: the finished picture is colour-graded ("we need professional color grading too"): S-curve, saturation, split toning,
 // a vignette — after tone mapping, before anti-aliasing
 const gr = land.slice(land.indexOf("function grade("), land.indexOf("function buildPipeline"));

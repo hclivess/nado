@@ -8,7 +8,10 @@
 // planks' faces in line), the opposite edge (flush against it, no gap), or the centres — if that shift is small: up to
 // SAME_TOL for a neighbour of the same material, OTHER_TOL for any other. The axis it was placed against (its face on a
 // piece's face) is already exact and keeps. A shift that would make the piece overlap anything is not taken.
-export const SAME_TOL = 20, OTHER_TOL = 6, NEAR = 200, FLUSH_BIAS = 4;     // cm
+// NEAR: how far away a piece still counts as a neighbour. It was 2 m, so the corner posts of a 3 m frame — 2.3-2.6 m
+// apart — never lined up with one another: the fourth post of a pavilion went 20 cm out of line (built by hand on the
+// live page, 2026-11-08). A row's other end is a neighbour; the shift stays at most SAME_TOL / OTHER_TOL.
+export const SAME_TOL = 20, OTHER_TOL = 6, NEAR = 400, FLUSH_BIAS = 4;     // cm
 
 const overlap = (a, b) => a[0] < b[0] + b[3] && b[0] < a[0] + a[3] && a[1] < b[1] + b[4] && b[1] < a[1] + a[4] && a[2] < b[2] + b[5] && b[2] < a[2] + a[5];
 const gap = (a, b, i) => Math.max(0, b[i] - (a[i] + a[i + 3]), a[i] - (b[i] + b[i + 3]));
@@ -35,7 +38,11 @@ export function snapBox(box, list, fixed = -1) {
     for (const o of near) {
       const tol = o[6] === box[6] ? SAME_TOL : OTHER_TOL;
       const lo = out[i], hi = out[i] + out[i + 3], olo = o[i], ohi = o[i] + o[i + 3];
-      for (const [s, flush] of [[olo - lo, 0], [ohi - hi, 0], [ohi - lo, 1], [olo - hi, 1], [(olo + ohi) / 2 - (lo + hi) / 2, 0]]) {
+      // flush against it only when they would touch: side by side on the other two axes. Across a 3 m frame "flush with
+      // the far post's far face" was the smallest shift, and pulled a corner post 5 cm the wrong way
+      const touch = [0, 1, 2].every((j) => j === i || gap(out, o, j) === 0);
+      const cands = [[olo - lo, 0], [ohi - hi, 0], [(olo + ohi) / 2 - (lo + hi) / 2, 0]].concat(touch ? [[ohi - lo, 1], [olo - hi, 1]] : []);
+      for (const [s, flush] of cands) {
         const shift = Math.round(s);
         if (Math.abs(shift) > tol) continue;
         // the smaller shift wins; a same-material neighbour wins a tie; lining up the SAME edge beats sitting flush on the
