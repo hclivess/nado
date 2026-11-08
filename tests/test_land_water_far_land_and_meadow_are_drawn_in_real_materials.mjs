@@ -52,6 +52,17 @@ ok(/NATURAL_ITEMS\.has\(id\)[\s\S]{0,2000}!roomFor\(a\.prev\)\) return;[\s\S]{0,
 // world server picks them up into the bag (test_land_players_gather_make_tools_craft_and_trade.py)
 const pc = land.slice(land.indexOf("function placeCell("), land.indexOf("function entryFace("));
 ok(/Wd\.SWEPT\.has\(b\) && !!held && !Wd\.SWEPT\.has\(held\) && held !== B\.sapling/.test(pc), "a block aimed at loose litter takes its cell");
+// …and the last resort is the cell right on top of the aimed one or nothing: it climbed two cells, and a sapling aimed at a
+// flowery spot was outlined floating over the flower (found with /aim on the live page, 2026-11-08)
+ok(/const top = \[hit\[0\], hit\[1\], hit\[2\] \+ 1\];\s*\/\/[^\n]*\n\s*return free\(top\) \? top : null;/.test(pc) && !/up <= 2/.test(pc),
+   "a block never goes higher than the cell right on top of the one aimed at");
+
+// a night you can find your way in: away from the lamps the ground measured 6 of 255 at night, all but black (live,
+// 2026-11-08); moonlight and a blue sky fill brought the same view to 19
+const skyFn = land.slice(land.indexOf("function sky("), land.indexOf("function sky(") + 3000);
+ok(/moon\.intensity = 0\.9 \* \(1 - day\)/.test(skyFn) && /hemi\.intensity = 1\.1 \+ 1\.1 \* day/.test(skyFn)
+   && /hemi\.color\.copy\(SKY\.moonFill\)\.lerp\(SKY\.horizon, day\)/.test(skyFn) && /moonFill: new THREE\.Color\(0x4a5f8a\)/.test(land),
+   "night is lit by the moon and a blue sky fill, not left black");
 
 // 6: the finished picture is colour-graded ("we need professional color grading too"): S-curve, saturation, split toning,
 // a vignette — after tone mapping, before anti-aliasing

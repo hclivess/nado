@@ -344,7 +344,7 @@ function aim() {
  *  times below, and sometimes both", operator 2026-11-08: it was the first empty cell met walking back along the ray in
  *  steps of 30 cm and more, which on smooth ground came out beside, above or below the aimed cell with the angle, and
  *  nothing drew it.) That cell holding something (turf standing above the drawn surface): the cell beyond the face of the
- *  aimed cell the look comes in through, then the first empty cell on top of it.
+ *  aimed cell the look comes in through, then the cell right on top of it — never higher, or nowhere.
  *  It may be the player's own cell: looking down at your feet the block goes under you and lifts you onto it (act). */
 function placeCell(o, d, hit, p) {
   // empty: air, water, or loose litter the block in hand takes the place of (land-world.js SWEPT; the world server picks
@@ -358,8 +358,8 @@ function placeCell(o, d, hit, p) {
   if (free(at)) return at;
   const n = entryFace(o, d, hit), side = [hit[0] + n[0], hit[1] + n[1], hit[2] + n[2]];
   if (free(side)) return side;
-  for (let up = 1; up <= 2; up++) { const q = [hit[0], hit[1], hit[2] + up]; if (free(q)) return q; }
-  return null;
+  const top = [hit[0], hit[1], hit[2] + 1];                   // only ever the cell right on top: two up, a block floated
+  return free(top) ? top : null;                              // over the flower between ("/aim", 2026-11-08)
 }
 /** The face of cell c that a ray from o along d enters it through, as the step to the neighbour beyond it: the face whose
  *  plane the ray crosses last on its way in (the slab test). */
@@ -719,15 +719,18 @@ async function holderOf(plot) {
   try {
     const r = await getJSON("/exec/asset?id=" + t.aid);
     const hs = r.holders || {};                        // /exec/asset: { asset, holders: { address: balance }, cursor }
-    t.holder = Object.keys(hs).find((a) => Number(hs[a]) > 0) || null;
+    const holder = Object.keys(hs).find((a) => Number(hs[a]) > 0) || null;
     // A TITLE ON SALE is held by the market contract that escrows it: the HUD said "Owned by b0162eda…" and nothing about
     // buying it (the first wave, 2026-11-07). A holder that is a contract (32 hex, not an address) is asked for the
     // listing that holds this title: if there is one, the plot is for sale at its price.
-    t.sale = null;
-    if (t.holder && /^[0-9a-f]{32}$/.test(t.holder)) {
-      const st = await listingsOf(t.holder), lid = Object.keys(st.l_asset || {}).find((k) => String(st.l_asset[k]) === String(t.aid) && Number((st.l_left || {})[k]) > 0);
-      if (lid) t.sale = { price: BigInt((st.l_price || {})[lid] || 0), lid: Number(lid), seller: (st.l_seller || {})[lid] || null, market: t.holder };
+    // The holder and the sale change TOGETHER, once both are known: set one at a time, the HUD drawn while the listing
+    // was still being read said "Owned by b0162eda…" again on every refresh, flickering with "For sale" (2026-11-08)
+    let sale = null;
+    if (holder && /^[0-9a-f]{32}$/.test(holder)) {
+      const st = await listingsOf(holder), lid = Object.keys(st.l_asset || {}).find((k) => String(st.l_asset[k]) === String(t.aid) && Number((st.l_left || {})[k]) > 0);
+      if (lid) sale = { price: BigInt((st.l_price || {})[lid] || 0), lid: Number(lid), seller: (st.l_seller || {})[lid] || null, market: holder };
     }
+    t.holder = holder; t.sale = sale;
   } catch (e) {}
   return t.holder;
 }
@@ -1452,7 +1455,11 @@ const CMDS = {
   aim: () => {
     const a = aim();
     if (!a) return conLine(T("cAimNone", "Nothing within reach."));
-    const named = (b) => { const id = RULES && Object.keys(RULES.items).find((k) => RULES.items[k].places === b); return id ? nameOf(id) : BLOCKS[b].key; };
+    // a block by the item that places it, or the item of its own name (ores, clay, flax), or its own name (land.b.*)
+    const named = (b) => {
+      const k = BLOCKS[b].key, id = RULES && Object.keys(RULES.items).find((i) => RULES.items[i].places === b);
+      return id ? nameOf(id) : RULES && RULES.items[k] ? nameOf(k) : T("b." + k, k);
+    };
     const at = a.box ? [Wd.plotCoords(a.box.plot).u0 + Math.floor(a.box.b[0] / Wd.CM), Wd.plotCoords(a.box.plot).v0 + Math.floor(a.box.b[1] / Wd.CM), Math.floor(a.box.b[2] / Wd.CM)] : a.hit;
     conLine(T("cAimAt", "Aiming at {b} — u {u} · v {v} · h {h}.", { b: named(a.box ? a.box.b[6] : blockAt(P.face, at[0], at[1], at[2])), u: at[0], v: at[1], h: at[2] }));
     if (a.prev) conLine(T("cAimPut", "A block goes to u {u} · v {v} · h {h}.", { u: a.prev[0], v: a.prev[1], h: a.prev[2] }));
@@ -1869,7 +1876,7 @@ function buildPipeline() {
 // a deep zenith over a pale horizon by day, a glow around the sun as it sets, stars at night — and the fog takes the
 // horizon's colour so the land melts into the sky instead of ending at a wall.
 const SKY = { zenith: new THREE.Color(0x2f6fc8), horizon: new THREE.Color(0xb7d6ef), nightZ: new THREE.Color(0x03060d),
-  nightH: new THREE.Color(0x0b1424), dusk: new THREE.Color(0xf0874a), duskZ: new THREE.Color(0x29386d), white: new THREE.Color(0xfff8ee) };
+  nightH: new THREE.Color(0x0b1424), moonFill: new THREE.Color(0x4a5f8a), dusk: new THREE.Color(0xf0874a), duskZ: new THREE.Color(0x29386d), white: new THREE.Color(0xfff8ee) };
 let moon, dome, sunDisc, sunGlow, sunHalo, stars, skyAt = 0;
 const SKY_R = 3200;                          // the dome's radius: everything celestial is drawn at its true ANGLE on it
 const smooth01 = (a, b, x) => { const t = Math.max(0, Math.min(1, (x - a) / (b - a))); return t * t * (3 - 2 * t); };
@@ -1919,11 +1926,14 @@ function sky(fr) {
   // shadows are long and faint anyway
   sun.castShadow = elev > 0.12 && !!SET.shadows;
   moon.position.copy(sd).multiplyScalar(-150);
-  moon.intensity = 0.35 * (1 - day);
+  // A NIGHT YOU CAN FIND YOUR WAY IN: half of every 40-minute day is night, and it was all but black — the ground at
+  // 6 of 255 away from the town's lamps, no tree to be found to fell (walking the live page as the town agent,
+  // 2026-11-08). Moonlight and a blue sky fill now light it the way a game's night reads: dim, blue, readable.
+  moon.intensity = 0.9 * (1 - day);
   hemi.position.copy(up);                                   // three's hemisphere light assumes +Y; here "up" is radial
-  hemi.intensity = 0.6 + 1.6 * day;                         // the sky lights what the sun does not reach: a wall in its own
+  hemi.intensity = 1.1 + 1.1 * day;                         // the sky lights what the sun does not reach: a wall in its own
                                                             // shade is dim, never black (the first house render was)
-  hemi.color.copy(SKY.nightH).lerp(SKY.horizon, day);
+  hemi.color.copy(SKY.moonFill).lerp(SKY.horizon, day);
   const zen = SKY.nightZ.clone().lerp(SKY.zenith, day).lerp(SKY.duskZ, dusk * 0.5);
   const hor = SKY.nightH.clone().lerp(SKY.horizon, day).lerp(SKY.dusk, dusk * 0.6);
   scene.fog.color.copy(hor); waterSky.copy(hor);
