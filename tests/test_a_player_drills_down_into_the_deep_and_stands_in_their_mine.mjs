@@ -54,7 +54,7 @@ const PORT = 9300 + ((process.pid + 491) % 600);
 const prof = mkdtempSync(join(tmpdir(), "cdp-landlive-"));
 let chrome = null, ver = null;
 const tried = [];
-for (const bin of [process.env.CHROME, "chromium-browser", "chromium", "google-chrome", "google-chrome-stable"].filter(Boolean)) {
+for (const bin of [process.env.CHROME, "google-chrome", "google-chrome-stable", "chromium-browser", "chromium"].filter(Boolean)) {
   const c = spawn(bin, ["--headless", "--disable-gpu", "--no-sandbox", "--use-angle=swiftshader", "--remote-debugging-port=" + PORT,
     "--user-data-dir=" + prof, "about:blank"], { stdio: "ignore" });
   let gone = false;

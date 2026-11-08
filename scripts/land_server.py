@@ -50,6 +50,7 @@ DOMAIN = "land-login-v1"          # static/interface.js DOMAIN_LAND_LOGIN — a 
 AGENT_ORIGIN = "land-agent"       # the origin an agent's challenge names (a browser's names the site): not interchangeable
 CHALLENGE_TTL = 300
 SESSION_TTL = 7 * 86400
+sid = lambda token: hashlib.blake2b(token.encode(), digest_size=32).hexdigest()   # a session's name on disk (World.sessions)
 FACE_N, PLOT, W, H = L.FACE_N, L.PLOT, L.FACE_N * L.PLOT, 256
 N_BLOCKS = 64                     # static/land-world.js BLOCKS.length (tests/test_the_land_planet_… checks the two agree)
 DOOR = 37                         # static/land-world.js B.door: a piece that swings open and shut ("door" op)
@@ -62,6 +63,7 @@ UNBUILDABLE = {30}                # bedrock: never placed (no item in land-recip
 # where something holds it — on a block or on more water — so a pond, a basin or a fountain holds; it does not flow.
 WATER = 5
 FLOWERS = {58, 59, 60, 61}        # static/land-world.js FLOWERS: picked by hand, planted in soil like a sapling
+SWEPT = {34, 35, 51} | FLOWERS    # static/land-world.js SWEPT: pebble, twigs, flax, flowers — a placed block takes their place
 # THE DEEP (#129, doc/land-core.md): layers below 0, down to DEEP_MIN (static/land-world.js DEEP_MIN), are the deep crust.
 # Nobody owns them — anyone signed in digs and builds there, under an owned plot too — and a dug deep cell never grows
 # back: a mine stays a mine. The deep is kept with the plot above it but is never part of that plot's commitment.
@@ -255,7 +257,15 @@ class World:
         self.holders = {}                     # plot -> (holder, at)
         self.grants = {}                      # (plot, addr) -> (grantor digest or 0, at)
         self.challenges = {}                  # nonce -> {"issued", "origin", "bind"}
-        self.sessions = {}                    # token -> {"address", "until"}
+        # SIGNED IN ACROSS A RESTART: sessions lived only in memory, so every restart of this server (every Land deploy)
+        # signed every player and agent out mid-game (found walking the live page, 2026-11-08). They are kept in
+        # sessions.json under the token's hash — never the token itself, so the file signs nobody in.
+        self.sessions = {}                    # blake2b(token) -> {"address", "until"}
+        try:
+            now = time.time()
+            self.sessions = {k: v for k, v in json.load(open(os.path.join(self.dir, "sessions.json"))).items() if v["until"] > now}
+        except Exception:
+            pass
         self.buckets = {}                     # caller -> [tokens, at]
         self.workb = {}                       # caller -> [seconds of work banked, at]
         self.players, self.pdirty = {}, set()  # address -> {"items", "tools", "stations"}; who changed since the flush
@@ -737,8 +747,11 @@ class World:
                 # "you can build anywhere unless it is owned" (operator, 2026-11-06): unowned land is open to everyone
                 if titled and not may:
                     refused.append([c, "not your plot — only its owner and the builders they invite build here"]); continue
+                swept = None
                 if cur == FIRE:                                     # earth, sand or a block put on a fire smothers it
                     self.fires.pop((face, u, v, h), None)
+                elif cur in SWEPT and b not in SWEPT and b != SAPLING:
+                    swept = cur                                     # picked up below, once the block is paid for
                 elif cur not in (0, 5):
                     refused.append([c, "something is already there"]); continue
                 if (b == SAPLING or b in FLOWERS) and (await self.blocks_at([[face, u, v, h - 1]]))[(face, u, v, h - 1)] not in (GRASS, DIRT):
@@ -749,6 +762,9 @@ class World:
                 if not item or pl["items"].get(item, 0) < 1:
                     refused.append([c, f"you have no {RULES['items'][item]['name'].lower() if item else 'such block'} to place"]); continue
                 pl["items"][item] -= 1
+                # the litter it takes the place of goes into the placer's bag, as picking it up would have (SWEPT)
+                for got, n in ((RULES["breaking"].get(str(swept)) or {"yields": []})["yields"] if swept else []):
+                    pl["items"][got] = pl["items"].get(got, 0) + n
                 changed = True
                 rec = self.plot(p)
                 rec["edits"][k] = b
@@ -1299,8 +1315,15 @@ class World:
             raise web.HTTPUnauthorized(text="signature verification failed")
         self.challenges.pop(nonce, None)                       # single use
         token = secrets.token_urlsafe(32)
-        self.sessions[token] = {"address": address, "until": time.time() + SESSION_TTL}
+        now = time.time()
+        self.sessions = {k: v for k, v in self.sessions.items() if v["until"] > now}
+        self.sessions[sid(token)] = {"address": address, "until": now + SESSION_TTL}
+        self._write("sessions.json", self.sessions)
         return token
+
+    def end_session(self, token):
+        if self.sessions.pop(sid(token or ""), None):
+            self._write("sessions.json", self.sessions)
 
     def who(self, request):
         tok = request.cookies.get("land_session") or ""
@@ -1308,7 +1331,7 @@ class World:
         if auth.startswith("Bearer "):
             tok = auth[7:].strip()
         tok = tok or request.query.get("token", "")
-        s = self.sessions.get(tok)
+        s = self.sessions.get(sid(tok)) if tok else None
         if not s or s["until"] < time.time():
             return None
         return s["address"]
@@ -1530,7 +1553,7 @@ def make_app(world, hub, site_origin, wallet_url, secure_cookies=True, shot_page
 
     async def logout(request):
         tok = request.cookies.get("land_session")
-        world.sessions.pop(tok, None)
+        world.end_session(tok)
         resp = web.json_response({"ok": True})
         resp.del_cookie("land_session", path="/")
         return resp

@@ -362,6 +362,11 @@ export function treeCell(t, du, dv, dh) {
 // a function of place like everything else, and like every gathered cell in the commons it lies there again later.
 export const FLOWERS = [B.poppy, B.cornflower, B.daisy, B.buttercup];
 export const LITTER = new Set([B.pebble, B.twigs, B.flax, B.sapling, ...FLOWERS]);   // drawn as models, walked through
+// A BLOCK TAKES THE PLACE OF LOOSE LITTER (a pebble, twigs, flax, a wild flower) and the placer picks it up, as in every
+// block game's tall grass: they filled the meadow's air cells, so a block aimed at a flowery spot went into the empty
+// cell over it, a metre up ("sometimes it places it above", 2026-11-08). A planted sapling is someone's — never swept.
+// scripts/land_server.py SWEPT is the same set.
+export const SWEPT = new Set([B.pebble, B.twigs, B.flax, ...FLOWERS]);
 // WHAT BURNS (#124), and what it leaves: a cell of grass burns to bare earth, wood, leaves, litter and plants to air; a
 // built piece of these materials burns down whole (scripts/land_server.py FIRE). Stone, earth, sand, brick, metal,
 // glass and water do not burn — they are what stops a fire.

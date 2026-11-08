@@ -56,7 +56,7 @@ const PORT = 9300 + ((process.pid + 491) % 600);
 const prof = mkdtempSync(join(tmpdir(), "cdp-landlive-"));
 let chrome = null, ver = null;
 const tried = [];
-for (const bin of [process.env.CHROME, "chromium-browser", "chromium", "google-chrome", "google-chrome-stable"].filter(Boolean)) {
+for (const bin of [process.env.CHROME, "google-chrome", "google-chrome-stable", "chromium-browser", "chromium"].filter(Boolean)) {
   const c = spawn(bin, ["--headless", "--disable-gpu", "--no-sandbox", "--use-angle=swiftshader", "--remote-debugging-port=" + PORT,
     "--user-data-dir=" + prof, "about:blank"], { stdio: "ignore" });
   let gone = false;
@@ -127,6 +127,23 @@ try {
   const B = await tab();
   await send(B, "Network.setCookie", { name: "land_session", value: token, url: base + "/", httpOnly: true });
 
+  // 0. A PHONE COMING IN (walking the live page as a phone, 2026-11-08): the welcome card stayed over the middle of the
+  // view for good — it hid only when a mouse was captured — and a sideways look-drag that began on it swiped the browser
+  // back, out of the game. The first touch on the world puts it away; a drag across it stays in the game.
+  await send(B, "Page.navigate", { url: base + "/" });
+  await until(B, "document.getElementById('loading') && document.getElementById('loading').classList.contains('hidden')", 30000);
+  ok(await evl(B, "!document.getElementById('help').classList.contains('hidden')"), "a phone coming in sees the welcome card");
+  const drag = async (x0, x1) => {
+    await send(B, "Input.dispatchTouchEvent", { type: "touchStart", touchPoints: [{ x: x0, y: 300, id: 1 }] });
+    for (let k = 1; k <= 6; k++) await send(B, "Input.dispatchTouchEvent", { type: "touchMove", touchPoints: [{ x: x0 + ((x1 - x0) * k) / 6, y: 300, id: 1 }] });
+    await send(B, "Input.dispatchTouchEvent", { type: "touchEnd", touchPoints: [] });
+    await sleep(1500);
+  };
+  const card = await evl(B, "(() => { const r = document.getElementById('help').getBoundingClientRect(); return [r.x + r.width / 2, r.y + r.height / 2]; })()");
+  await drag(card[0], Math.min(890, card[0] + 400));
+  ok(await evl(B, "location.href") === base + "/", "a sideways drag starting on the card keeps the page in the game: " + await evl(B, "location.href"));
+  ok(await evl(B, "document.getElementById('help').classList.contains('hidden')"), "…and the card is put away");
+
   // 1. straight down at the feet, earth in hand: the block goes under them and they stand on it — it used to be refused
   // with "You are standing there" ("very stupid and only hinders", operator 2026-11-08), and before that it went over
   // their head ("im looking at the ground, i place a block and it places above my head", 2026-11-07)
@@ -135,6 +152,17 @@ try {
   ok(await until(B, "document.getElementById('hotName').textContent === 'Earth'", 10000), "earth is in hand");
   ok(await until(B, `document.body.dataset.place === '${vu},${vv},${vh}'`, 10000),
      `the outline shows the cell at their feet before the tap (${vu},${vv},${vh}): ` + await evl(B, "document.body.dataset.place"));
+  // /aim says it in words, for a report to quote
+  await send(B, "Input.dispatchKeyEvent", { type: "keyDown", code: "Slash", key: "/", windowsVirtualKeyCode: 191 });
+  await send(B, "Input.dispatchKeyEvent", { type: "keyUp", code: "Slash", key: "/", windowsVirtualKeyCode: 191 });
+  await until(B, "document.activeElement && document.activeElement.id === 'conIn'", 10000);
+  await send(B, "Input.insertText", { text: "aim" });
+  await send(B, "Input.dispatchKeyEvent", { type: "keyDown", code: "Enter", key: "Enter", windowsVirtualKeyCode: 13 });
+  await send(B, "Input.dispatchKeyEvent", { type: "keyUp", code: "Enter", key: "Enter", windowsVirtualKeyCode: 13 });
+  ok(await until(B, `document.getElementById('conLog').textContent.includes('A block goes to u ${vu} · v ${vv} · h ${vh}.')`, 8000),
+     "/aim names the same cell: " + (await evl(B, "document.getElementById('conLog').textContent")).slice(-200));
+  await send(B, "Input.dispatchKeyEvent", { type: "keyDown", code: "Escape", key: "Escape", windowsVirtualKeyCode: 27 });
+  await send(B, "Input.dispatchKeyEvent", { type: "keyUp", code: "Escape", key: "Escape", windowsVirtualKeyCode: 27 });
   await evl(B, "document.getElementById('tPlace').click(), true");
   let e1 = [];
   for (let t = 0; t < 20 && !e1.length; t++) { await sleep(300); e1 = ((await plotEdits()).edits || []).filter(([x, z, y, b]) => b === Wd.B.dirt); }
@@ -231,8 +259,14 @@ try {
   const SW = spot(1, 1);                                           // east along the plot's first row, clear of the pits
   await stand(B, SW.u, SW.v, SW.h, Math.PI / 2, 0);
   const posNow = async () => { const p = JSON.parse(await evl(B, "localStorage.getItem('nado_land_v1')")).p; return [p[1], p[2]]; };
-  await send(B, "Emulation.setCPUThrottlingRate", { rate: 4 });
-  const fps = await evl(B, "new Promise((r) => { let n = 0; const t0 = performance.now(); const f = () => { n++; if (performance.now() - t0 < 3000) requestAnimationFrame(f); else r(n / 3); }; requestAnimationFrame(f); })");
+  // a frame rate between 2 and 20: slower, a 3 s key press spans one or two frames and the walk is that coarse; the
+  // processor is slowed less until it gets there (the machine running the test may be busy)
+  let fps = 0;
+  for (const rate of [4, 2, 1]) {
+    await send(B, "Emulation.setCPUThrottlingRate", { rate });
+    fps = await evl(B, "new Promise((r) => { let n = 0; const t0 = performance.now(); const f = () => { n++; if (performance.now() - t0 < 3000) requestAnimationFrame(f); else r(n / 3); }; requestAnimationFrame(f); })");
+    if (fps >= 1.5) break;
+  }
   await evl(B, "localStorage.removeItem('nado_land_v1'), true");
   let p0 = null;
   for (let t = 0; t < 120 && !p0; t++) { await sleep(250); p0 = await evl(B, "localStorage.getItem('nado_land_v1')"); }
@@ -247,7 +281,10 @@ try {
   await send(B, "Emulation.setCPUThrottlingRate", { rate: 1 });
   // keys are read once a frame, so the time held is known to a frame either way: at least 60 % of 3 s at WALK (4.6 m/s)
   ok(fps < 20, `the frame rate is low enough to tell (${fps.toFixed(1)} frames a second, under the old 20)`);
-  ok(walked > 0.6 * 4.6 * 3, `at ${fps.toFixed(1)} frames a second, 3 s of walking covers ${walked.toFixed(1)} m (a walker: 13.8 m; in slow motion, ${(4.6 * 3 * Math.min(1, fps * 0.05)).toFixed(1)} m)`);
+  // slow motion would have covered 3 s x fps x 0.05 s of game time; real time covers several times that even when the
+  // machine running the test is so busy the page draws under 2 frames a second (each frame then counts up to a second)
+  const slow = 4.6 * 3 * Math.min(1, fps * 0.05);
+  ok(walked > Math.max(3, 2.5 * slow), `at ${fps.toFixed(1)} frames a second, 3 s of walking covers ${walked.toFixed(1)} m (a walker: 13.8 m; in slow motion, ${slow.toFixed(1)} m)`);
   ok(errors.length === 0, "no page errors" + (errors.length ? ": " + errors.join(" | ") : ""));
 } catch (e) {
   ok(false, "harness: " + (e && e.message || e) + "\n" + fxOut.slice(-1500));

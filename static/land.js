@@ -347,7 +347,13 @@ function aim() {
  *  aimed cell the look comes in through, then the first empty cell on top of it.
  *  It may be the player's own cell: looking down at your feet the block goes under you and lifts you onto it (act). */
 function placeCell(o, d, hit, p) {
-  const free = (q) => { const b = blockAt(P.face, q[0], q[1], q[2]); return b === B.air || BLOCKS[b].liquid; };
+  // empty: air, water, or loose litter the block in hand takes the place of (land-world.js SWEPT; the world server picks
+  // it up into the bag) — a flower, a pebble, flax no longer push a block up into the cell over them
+  const held = RULES && RULES.items[hot[slot]] && RULES.items[hot[slot]].places;
+  const free = (q) => {
+    const b = blockAt(P.face, q[0], q[1], q[2]);
+    return b === B.air || BLOCKS[b].liquid || (Wd.SWEPT.has(b) && !!held && !Wd.SWEPT.has(held) && held !== B.sapling);
+  };
   const at = [p[0] - d[0] * 0.07, p[1] - d[1] * 0.07, p[2] - d[2] * 0.07].map(Math.floor);   // a march step back: air side
   if (free(at)) return at;
   const n = entryFace(o, d, hit), side = [hit[0] + n[0], hit[1] + n[1], hit[2] + n[2]];
@@ -1422,7 +1428,7 @@ function conShow(open, prefill) {
   const inp = $("conIn");
   if (open) { if (document.pointerLockElement) document.exitPointerLock(); inp.value = prefill || ""; setTimeout(() => inp.focus(), 0); }
   else inp.blur();
-  $("help").classList.toggle("hidden", open || locked);
+  $("help").classList.toggle("hidden", open || locked || !!touch);      // a phone, once in, never sees it again (wireInput)
 }
 function applySetting(k) {
   if (k === "fov" && camera) { camera.fov = SET.fov; camera.updateProjectionMatrix(); }
@@ -1430,7 +1436,7 @@ function applySetting(k) {
 }
 const CMDS = {
   help: () => [["/help", T("cHelp", "this list")], ["/pos", T("cPos", "where you are")], ["/tp spawn | /tp <u> <v>", T("cTp", "go to the landing, or to a column of this face")],
-    ["/fly", T("cFly", "fly or walk")], ["/settings", T("cSettings", "your settings")], ["/set <name> <value>", T("cSet", "change one (e.g. /set fov 90)")],
+    ["/aim", T("cAim", "what you aim at, and where a block would go")], ["/fly", T("cFly", "fly or walk")], ["/settings", T("cSettings", "your settings")], ["/set <name> <value>", T("cSet", "change one (e.g. /set fov 90)")],
     ["/clear", T("cClear", "clear this log")], ["…", T("cChat", "anything else is chat to the players around you")]].forEach(([c, d]) => conLine(c + " — " + d)),
   pos: () => conLine(`${T("cFace", "face")} ${P.face} · u ${Math.floor(P.u)} · v ${Math.floor(P.v)} · h ${P.h.toFixed(1)} · ${T("cPlot", "plot")} ${Wd.plotOf(P.face, Math.floor(P.u), Math.floor(P.v))}`),
   tp: (a) => {
@@ -1440,6 +1446,16 @@ const CMDS = {
     if (!(Number.isInteger(u) && Number.isInteger(v) && u >= 0 && v >= 0 && u < W && v < W)) return conLine(T("cTpBad", "Usage: /tp spawn, or /tp <u> <v> with whole numbers from 0 to {w}", { w: W - 1 }), "err");
     P.u = u + 0.5; P.v = v + 0.5; P.h = groundAt(P.face, P.u, P.v); P.vu = P.vv = P.vh = 0;
     save(); conLine(T("cTpOk", "Moved to u {u}, v {v}.", { u, v }));
+  },
+  // /aim: what the crosshair is on and the cell a block goes into — what the outline shows, in words a report can quote
+  // ("it is impossible to judge what will happen upon placing a block", operator 2026-11-08)
+  aim: () => {
+    const a = aim();
+    if (!a) return conLine(T("cAimNone", "Nothing within reach."));
+    const named = (b) => { const id = RULES && Object.keys(RULES.items).find((k) => RULES.items[k].places === b); return id ? nameOf(id) : BLOCKS[b].key; };
+    const at = a.box ? [Wd.plotCoords(a.box.plot).u0 + Math.floor(a.box.b[0] / Wd.CM), Wd.plotCoords(a.box.plot).v0 + Math.floor(a.box.b[1] / Wd.CM), Math.floor(a.box.b[2] / Wd.CM)] : a.hit;
+    conLine(T("cAimAt", "Aiming at {b} — u {u} · v {v} · h {h}.", { b: named(a.box ? a.box.b[6] : blockAt(P.face, at[0], at[1], at[2])), u: at[0], v: at[1], h: at[2] }));
+    if (a.prev) conLine(T("cAimPut", "A block goes to u {u} · v {v} · h {h}.", { u: a.prev[0], v: a.prev[1], h: a.prev[2] }));
   },
   fly: () => { P.fly = !P.fly; P.vh = 0; conLine(P.fly ? T("flyOn", "Flying — Space up, C down, Shift fast") : T("flyOff", "Walking")); },
   settings: () => Object.keys(SET_DEF).forEach((k) => conLine(`${k} = ${SET[k]}  (${SET_RANGE[k][0]}–${SET_RANGE[k][1]}${k === "sens" ? "" : ""})`)),
@@ -1535,6 +1551,12 @@ function wireInput(canvas) {
     });
     const hold = (id, k) => { const el = $(id); el.addEventListener("touchstart", (e) => { touch[k] = true; e.preventDefault(); }, { passive: false }); el.addEventListener("touchend", () => { touch[k] = false; }); };
     hold("tJump", "up"); hold("tDown", "down");
+    // THE WELCOME CARD ON A PHONE: it hid only when the mouse was captured, which a touch screen never does — so on a phone
+    // it stayed over the middle of the view for good (walking the live page as a phone, 2026-11-08). The first touch on
+    // the world, or on the card, puts it away.
+    const welcome = $("help"), away = () => welcome.classList.add("hidden");
+    canvas.addEventListener("touchstart", away, { passive: true });
+    welcome.addEventListener("touchstart", (e) => { away(); e.preventDefault(); }, { passive: false });
     $("tFly").onclick = () => { P.fly = !P.fly; P.vh = 0; };
     $("tBreak").onclick = () => act(false, false);
     $("tPlace").onclick = () => act(true);

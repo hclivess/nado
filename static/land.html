@@ -22,7 +22,9 @@
   :root{--bg:#0b0f14;--elev:#131a23;--border:#243140;--txt:#e6edf3;--dim:#93a1b0;--accent:#00ad93;--accent2:#00c9a7;
     --mono:ui-monospace,SFMono-Regular,Menlo,Consolas,monospace;--sans:system-ui,-apple-system,"Segoe UI",Roboto,Helvetica,Arial,sans-serif}
   *{box-sizing:border-box}
-  html,body{margin:0;height:100%;overflow:hidden;background:var(--bg);color:var(--txt);font-family:var(--sans)}
+  /* overscroll-behavior: a sideways look-drag that began on a panel swiped the phone's browser BACK, out of the game
+     (found walking the live page as a phone, 2026-11-08) */
+  html,body{margin:0;height:100%;overflow:hidden;overscroll-behavior:none;background:var(--bg);color:var(--txt);font-family:var(--sans)}
   #world{position:fixed;inset:0;width:100%;height:100%;display:block;touch-action:none}
   header{position:fixed;top:0;left:0;right:0;display:flex;align-items:center;gap:10px;padding:10px 14px;
     background:linear-gradient(rgba(11,15,20,.72),rgba(11,15,20,0));pointer-events:none;z-index:5}

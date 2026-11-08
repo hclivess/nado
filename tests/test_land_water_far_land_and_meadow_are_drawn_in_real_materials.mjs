@@ -48,6 +48,11 @@ ok(/NATURAL_ITEMS\.has\(id\)[\s\S]{0,2000}!roomFor\(a\.prev\)\) return;[\s\S]{0,
    && /const roomFor = \(c\) => !inBody\(c\) \|\| \(c\[2\] < P\.h \+ FEET && !collides\(P\.u, P\.v, c\[2\] \+ 1\)\)/.test(land),
    "a natural block never goes into the player: at their feet it lifts them onto it, elsewhere in their body it is not placed");
 
+// a flower, a pebble, flax under the aim are taken over by a placed block (land-world.js SWEPT), not climbed over — the
+// world server picks them up into the bag (test_land_players_gather_make_tools_craft_and_trade.py)
+const pc = land.slice(land.indexOf("function placeCell("), land.indexOf("function entryFace("));
+ok(/Wd\.SWEPT\.has\(b\) && !!held && !Wd\.SWEPT\.has\(held\) && held !== B\.sapling/.test(pc), "a block aimed at loose litter takes its cell");
+
 // 6: the finished picture is colour-graded ("we need professional color grading too"): S-curve, saturation, split toning,
 // a vignette — after tone mapping, before anti-aliasing
 const gr = land.slice(land.indexOf("function grade("), land.indexOf("function buildPipeline"));

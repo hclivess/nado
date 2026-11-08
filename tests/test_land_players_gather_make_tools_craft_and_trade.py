@@ -136,6 +136,21 @@ async def main():
     check("by hand, a loose stone on the ground gives a stone", r["applied"] == 1 and inv(A["address"])["items"].get("stone", 0) == n0.get("stone", 0) + 1, r)
     r = await setc([CELLS["twigs"] + [0]], ha)
     check("by hand, a fallen stick gives two sticks", r["applied"] == 1 and inv(A["address"])["items"].get("sticks", 0) == n0.get("sticks", 0) + 2, r)
+    # A BLOCK TAKES THE PLACE OF LITTER ("sometimes it places it above", 2026-11-08): a daisy planted where the stone lay,
+    # then earth placed into that cell — the earth goes in and the daisy comes back into the bag, as picking it would
+    world.player(A["address"])["items"].update({"daisy": 1, "dirt": 1})
+    r = await setc([CELLS["pebble"] + [60]], ha)
+    check("a wild flower is planted where the stone lay", r["applied"] == 1 and inv(A["address"])["items"].get("daisy", 0) == 0, r)
+    world.player(A["address"])["items"]["daisy"] = 1
+    r = await setc([CELLS["pebble"] + [60]], ha)
+    check("…a flower is not planted over a flower", r["applied"] == 0 and "already" in r["refused"][0][1], r)
+    r = await setc([CELLS["pebble"] + [2]], ha)
+    check("…earth placed there takes the flower's place, and the flower goes into the bag",
+          r["applied"] == 1 and inv(A["address"])["items"].get("daisy", 0) == 2 and inv(A["address"])["items"].get("dirt", 0) == 0, (r, inv(A["address"])["items"]))
+    world.player(A["address"])["items"].update({"sapling": 1, "dirt": 1})
+    r = await setc([CELLS["twigs"] + [52]], ha)
+    r2 = await setc([CELLS["twigs"] + [2]], ha)
+    check("…but a planted sapling is never swept away", r["applied"] == 1 and r2["applied"] == 0 and "already" in r2["refused"][0][1], (r, r2))
     r = await setc([CELLS["log"] + [0]], ha)
     check("a log cannot be broken by hand", r["applied"] == 0 and "axe" in r["refused"][0][1], r)
     r = await setc([CELLS["rock"] + [0]], ha)
