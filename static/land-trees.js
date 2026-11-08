@@ -8,12 +8,17 @@
 // atlas (static/land.js paintLeaves), every vertex weighted for the wind. A tree someone has cut into is drawn as its
 // cells again, so the picture never shows wood that is no longer there.
 //
+// GROWN, NOT HAND-PLACED (2026-11-08, #138): broadleaf, birch, conifer and bush grow from Solstice's species recipes —
+// an oak, a silver birch, a fir, a bush — by its growth (static/land-species.js, MIT), fitted here to Land's cells,
+// footprint and budget; only the palm, which Solstice has no recipe for, is still built by hand below.
+//
 // A model is a function of (kind, height, seed, lod) — the same tree on every screen. Local axes: x east, y north, z up,
 // metres from the root at ground level. Every model stays inside its tree's cells' footprint (2 columns around the root,
 // TREE_REACH above), so no tree is drawn over a neighbouring plot.
 //
 // Leaf atlas: 2 x 2 tiles, (t & 1, t >> 1) — 0 broadleaf cluster, 1 birch cluster, 2 needle spray (twig along v),
 // 3 palm frond (rachis along v). Bark: tile 0 bark, 1 birch (static/land.js picks the texture).
+import { growPlant, ADAPT, at } from "./land-species.js";
 export const LEAF_TILE = { broadleaf: 0, birch: 1, conifer: 2, palm: 3, bush: 0 };
 export const REACH = 2.45;                     // no vertex further than this from the trunk's axis (the cells reach 2.5)
 
@@ -95,68 +100,58 @@ function limb(p0, d, len, bend, segs) {
 }
 const tintOf = (R, base, spread) => { const j = 1 - spread / 2 + R() * spread; return [base[0] * j, base[1] * j, base[2] * j]; };
 
+/** A tree GROWN from its species recipe (land-species.js — Solstice's growth, adapted to Land): its stems as tubes (the
+ *  finest twigs carried by their leaves alone; far away the trunk and limbs only), its leaves as alpha cards along its
+ *  outermost shoots — a needle spray along each conifer shoot — to the level of detail's budget. */
+function grownModel(kind, H0, R, lod) {
+  const bark = part(), leaves = part(), A = ADAPT[kind], far = lod >= 2, top = A.top(H0), brown = [1, 1, 1];
+  const { stems, leafy, centre } = growPlant(kind, H0, R, lod);
+  const barkTile = kind === "birch" ? 1 : 0;
+  for (const s of stems) {
+    // the finest stems are carried by their leaves alone (a twig thinner than a pencil is not seen as wood), and a
+    // stem's sides follow its girth — a trunk is round, a branch three-sided
+    if (s.depth > A.wood[far ? 1 : 0] || (s.depth === 2 && s.radii[0] < 0.012)) continue;
+    const sides = s.depth === 0 ? (far ? 5 : 7) : s.depth === 1 && s.radii[0] >= 0.05 && !far ? 5 : 3;
+    const last = s.pts.length - 1;
+    // the wind: a trunk sways from its crown, a limb more toward its tip, a twig most
+    tube(bark, s.pts.map(clampR), s.radii, sides, (i) => 0.02 * (s.pts[i][2] / top) ** 2 + 0.035 * s.depth * (i / last), barkTile, brown);
+  }
+  // the tree's leaf cards shared out over its outermost shoots by their length
+  const total = leafy.reduce((n, i) => n + stems[i].len, 0) || 1, budget = A.cards[far ? 2 : 0], grow = far ? 1.35 : 1;
+  const longest = Math.max(...leafy.map((i) => stems[i].len), 1e-6);
+  for (const i of leafy) {
+    const s = stems[i], count = Math.max(1, Math.round((budget * s.len) / total));
+    for (let k = 0; k < count; k++) {
+      // mostly toward the tip, where the newest growth is (tree.rs add_leaves)
+      const t = A.sprays ? (k + 0.5) / count : 0.25 + 0.75 * Math.pow((k + R()) / count, 0.7), { p, d } = at(s, t);
+      const size = (A.card[0] + R() * (A.card[1] - A.card[0])) * grow, sway = 0.1 + 0.08 * (p[2] / top) + 0.05 * R();
+      const tint = tintOf(R, [1, 1, 1], kind === "conifer" ? 0.2 : 0.3);
+      if (A.sprays) {                                     // needle sprays along the branch, end to end: the twig along v
+        // a spray as wide as its branch is long allows: short branches near the top carry narrow sprays, so the crown
+        // narrows to a point as a fir's does (fixed-width sprays padded the top out and blunted the cone)
+        const wide = size * (0.3 + 0.7 * s.len / longest);
+        const side = norm(cross(d, [0, 0, 1])), along = mul(d, (s.len / count) * 0.62), out = add(sub(p, centre), [0, 0, 0.2]);
+        card(leaves, p, mul(side, wide), along, A.tile, out, sway, tint);
+        if (!far) card(leaves, add(p, [0, 0, 0.04]), mul(norm(add(mul(side, 0.5), [0, 0, 0.85])), wide * 0.8), along, A.tile, out, sway, tint);
+      } else {
+        const hang = kind === "birch" ? [0, 0, -0.12 - R() * 0.2] : [0, 0, 0];   // a birch's leaves hang from its twigs
+        cluster(leaves, R, add(p, add(hang, [(R() - 0.5) * 0.3, (R() - 0.5) * 0.3, (R() - 0.5) * 0.25])), size, A.tile, centre, sway, tint);
+      }
+    }
+  }
+  // a conifer's leader: the trunk's tip in needles, so no bare pole stands above the crown
+  if (A.sprays) cluster(leaves, R, stems[0].pts[stems[0].pts.length - 1], 0.45, A.tile, add(stems[0].pts[stems[0].pts.length - 1], [0, 0, -1]), 0.1, [1, 1, 1]);
+  return { bark, leaves };
+}
+
 /** { bark, leaves } for a tree: kind and height as land-world treeAt gives them, seed from its root, lod 0..2. */
 export function treeModel(kind, height, seed, lod = 0) {
   const R = rng(seed), bark = part(), leaves = part();
   const far = lod >= 2, sides = far ? 4 : 7, keep = far ? 0.5 : 1, grow = far ? 1.35 : 1;   // far: half the cards, larger
   const takeCard = () => keep >= 1 || R() < keep;
   const brown = [1, 1, 1], H0 = height;
-  if (kind === "broadleaf") {
-    const top = H0 * 0.55, ccen = [0, 0, H0 + 0.3], lean = [(R() - 0.5) * 0.3, (R() - 0.5) * 0.3, 0];
-    const tr = [[0, 0, -0.3], [0, 0, 0.15], add([0, 0, top * 0.5], mul(lean, 0.5)), add([0, 0, top], lean), add([0, 0, H0 + 0.8], lean)];
-    tube(bark, tr, [0.34, 0.25, 0.2, 0.16, 0.06], sides, (i) => 0.02 * (i / 4) ** 2, 0, brown);
-    const n = 4 + Math.floor(R() * 2);
-    for (let l = 0; l < n; l++) {
-      const az = (l / n) * Math.PI * 2 + R() * 0.8, el = 0.6 + R() * 0.45, ln = 1.5 + R() * 0.6;
-      const p0 = add([0, 0, top - R() * 0.4], lean), pts = limb(p0, dirAt(az, el), ln, -0.12, 3);
-      tube(bark, pts, [0.11, 0.08, 0.06, 0.04], Math.max(3, sides - 2), (i) => 0.03 + 0.04 * i / 3, 0, brown);
-      for (let t = 0; t < 3; t++) {
-        const from = pts[1 + Math.floor(R() * 3)], tz = az + (R() - 0.5) * 1.8, tw = limb(from, dirAt(tz, 0.2 + R() * 0.7), 0.6 + R() * 0.5, -0.3, 2);
-        if (!far) tube(bark, tw, [0.035, 0.022, 0.012], 4, () => 0.09, 0, brown);
-        for (let k = 0; k < 9; k++) if (takeCard()) {
-          const c = add(tw[2], [(R() - 0.5) * 1.3, (R() - 0.5) * 1.3, (R() - 0.3) * 0.9]);
-          cluster(leaves, R, c, (1.05 + R() * 0.5) * grow, 0, ccen, 0.14 + 0.06 * R(), tintOf(R, [1, 1, 1], 0.3));
-        }
-      }
-    }
-    for (let k = 0; k < 22; k++) if (takeCard())                // the crown's top and heart, so no gap shows the sky
-      cluster(leaves, R, add(ccen, [(R() - 0.5) * 2.2, (R() - 0.5) * 2.2, (R() - 0.2) * 1.4]), 1.2 * grow, 0, ccen, 0.12, tintOf(R, [1, 1, 1], 0.3));
-  } else if (kind === "birch") {
-    const top = H0 + 1.2, bend = [(R() - 0.5) * 0.5, (R() - 0.5) * 0.5, 0];
-    const tr = [0, 0.25, 0.5, 0.75, 1].map((f) => add([0, 0, -0.3 + f * (top + 0.3)], mul(bend, f * f)));
-    tube(bark, tr, [0.17, 0.13, 0.11, 0.08, 0.03], sides, (i) => 0.03 * (i / 4) ** 2, 1, brown);
-    const ccen = add([0, 0, H0 - 0.2], mul(bend, 0.7));
-    const nb = far ? 6 : 10;
-    for (let l = 0; l < nb; l++) {
-      const f = 0.42 + 0.55 * (l / nb), p0 = add([0, 0, f * top], mul(bend, f * f)), az = l * 2.4 + R() * 0.5;
-      const pts = limb(p0, dirAt(az, 0.7 + R() * 0.4), 0.7 + (1 - f) * 1.4 + R() * 0.3, -0.35, 3);
-      tube(bark, pts, [0.04, 0.03, 0.02, 0.01], 4, (i) => 0.05 + 0.05 * i / 3, 1, brown);
-      for (let k = 0; k < 8; k++) if (takeCard()) {
-        const c = add(pts[1 + Math.floor(R() * 3)], [(R() - 0.5) * 0.7, (R() - 0.5) * 0.7, -0.15 - R() * 0.45]);   // hanging
-        cluster(leaves, R, c, (0.7 + R() * 0.3) * grow, 1, ccen, 0.18 + 0.08 * R(), tintOf(R, [1, 1, 1], 0.25));
-      }
-    }
-  } else if (kind === "conifer") {
-    const top = H0 + 1.6, z0 = 2.0;
-    tube(bark, [[0, 0, -0.3], [0, 0, 0.3], [0, 0, top * 0.5], [0, 0, top]], [0.3, 0.24, 0.15, 0.03], sides, (i) => 0.015 * (i / 3) ** 2, 0, brown);
-    const step = far ? 0.7 : 0.42;
-    for (let z = z0, w = 0; z < top - 0.25; z += step * (0.85 + R() * 0.3), w++) {
-      const f = (z - z0) / (top - z0), ln = 0.35 + (1 - f) * 1.95, nb = far ? 4 : 5 + (R() < 0.5 ? 1 : 0);
-      for (let l = 0; l < nb; l++) {
-        const az = (l / nb) * Math.PI * 2 + w * 0.7 + R() * 0.4, el = 0.12 - 0.25 * (1 - f) + (R() - 0.5) * 0.15;
-        const pts = limb([0, 0, z], dirAt(az, el), ln, -0.18, 2);
-        if (!far) tube(bark, pts, [0.035, 0.022, 0.01], 3, (i) => 0.04 + 0.05 * i / 2, 0, brown);
-        // the needles: two cards along the branch, one flat and one tilted, the spray's twig along their v axis
-        const mid = mul(add(pts[0], pts[2]), 0.5), along = mul(sub(pts[2], pts[0]), 0.55);
-        const side = norm(cross(along, [0, 0, 1])), wdt = 0.28 + 0.22 * (1 - f);
-        const out = add(sub(mid, [0, 0, z]), [0, 0, 0.2]);
-        const tint = tintOf(R, [1, 1, 1], 0.2);
-        card(leaves, mid, mul(side, wdt * grow), along, 2, out, 0.12 + 0.1 * (ln / 2.3), tint);
-        if (!far) card(leaves, add(mid, [0, 0, 0.04]), mul(norm(add(mul(side, 0.5), [0, 0, 0.85])), wdt * 0.8), along, 2, out, 0.12 + 0.1 * (ln / 2.3), tint);
-      }
-    }
-    if (takeCard()) cluster(leaves, R, [0, 0, top - 0.1], 0.7, 2, [0, 0, top - 1], 0.1, [1, 1, 1]);   // the leader's tip
-  } else if (kind === "palm") {
+  if (ADAPT[kind]) return grownModel(kind, H0, R, lod);
+  if (kind === "palm") {
     const top = H0 + 0.7, az0 = R() * Math.PI * 2, lean = 0.5 + R() * 0.5;
     const tr = [0, 0.2, 0.4, 0.6, 0.8, 1].map((f) => [Math.cos(az0) * lean * f * f, Math.sin(az0) * lean * f * f, -0.3 + f * (top + 0.3)]);
     tube(bark, tr, [0.26, 0.2, 0.18, 0.17, 0.16, 0.17], sides, (i) => 0.035 * (i / 5) ** 2, 0, [1.15, 1.05, 0.9]);
@@ -180,14 +175,6 @@ export function treeModel(kind, height, seed, lod = 0) {
         }
       }
       for (let s = 0; s < segs; s++) { const a = base + s * 2; leaves.idx.push(a, a + 1, a + 3, a, a + 3, a + 2); }
-    }
-  } else if (kind === "bush") {
-    const ccen = [0, 0, 0.55];
-    for (let l = 0; l < (far ? 0 : 4); l++) tube(bark, limb([0, 0, -0.1], dirAt(R() * 6.28, 1.0 + R() * 0.3), 0.7, -0.2, 2), [0.03, 0.02, 0.01], 3, () => 0.05, 0, brown);
-    const nc = far ? 14 : 34;
-    for (let k = 0; k < nc; k++) {
-      const a = R() * Math.PI * 2, r = Math.sqrt(R()) * 0.95, c = [Math.cos(a) * r, Math.sin(a) * r, 0.25 + R() * 0.75 * (1 - r * 0.5)];
-      cluster(leaves, R, c, (0.6 + R() * 0.3) * grow, 0, ccen, 0.08 + 0.05 * R(), tintOf(R, [0.95, 1, 0.9], 0.25));
     }
   }
   return { bark, leaves };
