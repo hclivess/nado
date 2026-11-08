@@ -107,7 +107,7 @@ async def login(c, kd):
 
 async def main():
     ex = TestServer(fake_exec()); await ex.start_server()
-    data = tempfile.mkdtemp(prefix="nado_land_eco_")
+    data = tempfile.mkdtemp(prefix="nado_land_eco_", dir=os.environ["HOME"])
     world = S.World(data, str(ex.make_url("")).rstrip("/"), "c" * 32)
     c = TestClient(TestServer(S.make_app(world, S.Hub(), "https://land.example", "https://wallet.example", secure_cookies=False)))
     await c.start_server()

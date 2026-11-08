@@ -50,7 +50,7 @@ FUND = 10 ** 15
 
 
 def _fresh():
-    st = ExecState(os.path.join(tempfile.mkdtemp(prefix="nado_land_"), "s.json"))
+    st = ExecState(os.path.join(tempfile.mkdtemp(prefix="nado_land_", dir=os.environ["HOME"]), "s.json"))
     st.cursor = 1000
     code = L.build(ISSUER)
     st.apply_blob({"op": "deploy", "runtime": "zkvm", "code": code, "abi": L.ABI, "nonce": "n"}, ISSUER, "d")

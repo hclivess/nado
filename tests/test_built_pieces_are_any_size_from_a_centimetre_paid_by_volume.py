@@ -72,7 +72,7 @@ def js_commitment(plot, salt_hex, edits, boxes):
 
 async def main():
     ex = TestServer(fake_exec()); await ex.start_server()
-    data = tempfile.mkdtemp(prefix="nado_land_pieces_")
+    data = tempfile.mkdtemp(prefix="nado_land_pieces_", dir=os.environ["HOME"])
     world = S.World(data, str(ex.make_url("")).rstrip("/"), "b" * 32)
     c = TestClient(TestServer(S.make_app(world, S.Hub(), "https://land.example", "https://wallet.example", secure_cookies=False)))
     await c.start_server()

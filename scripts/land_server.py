@@ -32,9 +32,11 @@ Auth on the API: the land_session cookie (browser) or `Authorization: Bearer <to
 """
 import os, sys, tempfile
 os.environ["HOME"] = tempfile.mkdtemp(prefix="nado-land-")   # BEFORE any node import (CLAUDE.md rule 4); data is --data
+import atexit, shutil; atexit.register(shutil.rmtree, os.environ["HOME"], ignore_errors=True)   # and gone after (a start
+# and every test that imports this left one in /tmp: 640 of them by 2026-11-08)
 REPO = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 sys.path.insert(0, REPO)
-import argparse, asyncio, hashlib, json, random, secrets, time, urllib.parse
+import argparse, asyncio, hashlib, json, random, secrets, shutil, time, urllib.parse
 
 from aiohttp import web, ClientSession, ClientTimeout, WSMsgType
 
@@ -78,6 +80,7 @@ SHOT_STALE = 1800
 SHOT_DAILY = 86400                # and every title's photo is retaken once a day, changed or not: the market shows the plot
                                   # as it is ("plot pics on the nft bazar should be updated daily", operator 2026-11-07)
 SHOT_TIMEOUT = 900
+SHOT_TMP = None                   # where a capture's browser profile is made (None: the system's temp directory)
 FALL_REACH = 48                   # cells a column is settled over, below and above the change (bounds one call's work)
 # ECOLOGY ("trees should have a process of reproduction as well as the grass", operator 2026-11-06): a SAPLING (leaves
 # sometimes give one) planted in soil grows into a young tree of its climate after GROW_S; on an owned plot, bare earth
@@ -454,19 +457,27 @@ class World:
         """Photograph plot p (scripts/land_shot.mjs) into shots/<p>.jpg; the photo is swapped in whole or not at all."""
         ver = (self.plots.get(p) or {}).get("ver", 0)
         tmp = os.path.join(self.shots, f".{p}.jpg")
+        # THE BROWSER PROFILE IS OURS TO REMOVE: the capture made and removed its own, and most captures left it behind in
+        # /tmp (60 in a day, found 2026-11-08) — a browser's children still writing into it as it went. It is made here,
+        # handed over, and removed here once the whole process group is gone, however the capture ended.
+        prof = tempfile.mkdtemp(prefix="land-shot-", dir=SHOT_TMP)
         proc = await asyncio.create_subprocess_exec("nice", "-n", "19", "node", os.path.join(REPO, "scripts", "land_shot.mjs"),
                                                     f"{page}/?shot={p}", tmp, stdout=asyncio.subprocess.DEVNULL,
-                                                    stderr=asyncio.subprocess.DEVNULL, start_new_session=True)
+                                                    stderr=asyncio.subprocess.DEVNULL, start_new_session=True,
+                                                    env={**os.environ, "LAND_SHOT_PROFILE": prof})
         try:
             ok = await asyncio.wait_for(proc.wait(), SHOT_TIMEOUT) == 0
         except asyncio.TimeoutError:
-            # its own process group: the browser it started dies with it (killing node alone left Chrome running)
-            try:
-                os.killpg(proc.pid, 9)
-            except ProcessLookupError:
-                pass
-            await proc.wait()
             ok = False
+        # its own process group: the browser it started dies with it (killing node alone left Chrome running) — on a
+        # timeout, and after a finished capture too, whose browser's helpers may outlive it
+        try:
+            os.killpg(proc.pid, 9)
+        except (ProcessLookupError, PermissionError):
+            pass
+        await proc.wait()
+        await asyncio.sleep(0.5)                                     # the killed helpers' last writes
+        shutil.rmtree(prof, ignore_errors=True)
         if not ok or not os.path.exists(tmp) or os.path.getsize(tmp) < 2000:
             try:
                 os.remove(tmp)

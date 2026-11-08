@@ -120,7 +120,12 @@ async def main():
             check("…the oldest photo first", world.next_shot() == HALL)
             # a capture that fails or writes nothing never replaces the photo: shoot() through a page nothing serves
             S.SHOT_TIMEOUT = 60
+            S.SHOT_TMP = tempfile.mkdtemp(prefix="nado-test-shot-tmp-")
             ok = await world.shoot(FLAXY, "http://127.0.0.1:1")
+            # the capture's browser profile is gone after it, whatever happened (60 were left in /tmp in a day, 2026-11-08)
+            left = os.listdir(S.SHOT_TMP)
+            check("a capture leaves no browser profile behind", left == [], left)
+            shutil.rmtree(S.SHOT_TMP, ignore_errors=True)
             check("a failed capture never replaces a photo", ok is False and open(os.path.join(world.shots, f"{FLAXY}.jpg"), "rb").read() == jpg
                   and not os.path.exists(os.path.join(world.shots, f".{FLAXY}.jpg")))
             rr = await c.get(f"{base}/land/api/card?plot=x")

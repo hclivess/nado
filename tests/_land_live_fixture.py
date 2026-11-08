@@ -36,7 +36,7 @@ title = lambda p: {"id": TITLES[p]["id"], "issuer": L.ISSUER, "seed": str(L.plot
 
 
 async def main():
-    world, hub = S.World(tempfile.mkdtemp(prefix="nado_land_live_"), "http://127.0.0.1:1", "e" * 32), S.Hub()
+    world, hub = S.World(tempfile.mkdtemp(prefix="nado_land_live_", dir=os.environ["HOME"]), "http://127.0.0.1:1", "e" * 32), S.Hub()
     app = S.make_app(world, hub, "http://land.test", "http://wallet.test", secure_cookies=False)
     port_box = {}
 

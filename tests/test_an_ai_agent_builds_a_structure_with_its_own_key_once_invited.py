@@ -61,7 +61,7 @@ def agent(*args):
 
 async def main():
     ex = TestServer(fake_exec()); await ex.start_server()
-    world = S.World(tempfile.mkdtemp(prefix="nado_land_agent_"), str(ex.make_url("")).rstrip("/"), "d" * 32)
+    world = S.World(tempfile.mkdtemp(prefix="nado_land_agent_", dir=os.environ["HOME"]), str(ex.make_url("")).rstrip("/"), "d" * 32)
     srv = TestServer(S.make_app(world, S.Hub(), "https://land.example", "https://wallet.example", secure_cookies=False))
     await srv.start_server()
     url = str(srv.make_url("")).rstrip("/")

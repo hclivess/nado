@@ -26,7 +26,9 @@ const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 // ---- the fixture: page + world server + fake exec on one origin ----------------------------------------------------
 const work = mkdtempSync(join(tmpdir(), "nado-land-live-"));
 writeFileSync(join(work, "protocol.js"), PROTOCOL_JS);
-const fx = spawn("python3", [join(ROOT, "tests", "_land_live_fixture.py"), join(work, "protocol.js")], { stdio: ["ignore", "pipe", "pipe"] });
+// TMPDIR: everything the fixture makes (its HOME, the world server's) lands in work, which cleanup removes — it is killed,
+// so its own exit handlers never run (640 such directories were left in /tmp by 2026-11-08)
+const fx = spawn("python3", [join(ROOT, "tests", "_land_live_fixture.py"), join(work, "protocol.js")], { stdio: ["ignore", "pipe", "pipe"], env: { ...process.env, TMPDIR: work } });
 let fxOut = "";
 fx.stdout.on("data", (d) => { fxOut += d; });
 fx.stderr.on("data", (d) => { fxOut += d; });

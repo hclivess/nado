@@ -20,7 +20,9 @@ const browser = process.env.LAND_SHOT_BROWSER
   || ["brave-browser", "brave", "google-chrome", "chromium", "chromium-browser"].find(onPath);
 if (!browser) { console.error("no browser: install Brave or Chrome, or set LAND_SHOT_BROWSER"); process.exit(3); }
 
-const prof = mkdtempSync(join(tmpdir(), "land-shot-"));
+// the world server makes the profile and removes it once this process group is gone (land_server.py shoot); run by hand,
+// this makes its own
+const prof = process.env.LAND_SHOT_PROFILE || mkdtempSync(join(tmpdir(), "land-shot-"));
 // --disable-gpu-compositing: without it a headless page's DOM and canvas updates after load are never painted
 const proc = spawn(browser, ["--headless=new", "--no-sandbox", "--use-angle=swiftshader", "--disable-gpu-compositing",
   "--remote-debugging-port=0", "--user-data-dir=" + prof, "--window-size=1280,800", "--hide-scrollbars", "about:blank"], { stdio: "ignore" });

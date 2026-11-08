@@ -229,6 +229,15 @@ function collides(u, v, h) {
     if (solidAt(P.face, u + du, v + dv, h + dh)) return true;
   return trunkAt(u, v, h, HALF, TALL, isLog);
 }
+/** Cell [u, v, h] overlaps the player's body. */
+const inBody = ([cu, cv, ch]) => cu + 1 > P.u - HALF && cu < P.u + HALF && cv + 1 > P.v - HALF && cv < P.v + HALF && ch + 1 > P.h && ch < P.h + TALL;
+/** A block may go into this cell now: anywhere outside the body; inside it only at the feet — a cell starting below
+ *  FEET above the soles: standing on smooth ground the soles are partway up the turf's cell, so the empty cell above it
+ *  starts at the shins (the first walk, 2026-11-08, found it refused) — where the player is lifted to stand on it, and
+ *  only with room for them there. Never into the player ("sadly it is possible to build oneself into the terrain",
+ *  operator 2026-11-06), and never refused with a message either ("only hinders", 2026-11-08). */
+const FEET = 0.75;
+const roomFor = (c) => !inBody(c) || (c[2] < P.h + FEET && !collides(P.u, P.v, c[2] + 1));
 // trunks are solid cylinders (land-walk.js trunkAt); leaves stay walk-through
 const isLog = (cu, cv, ch) => Wd.TREE_WOOD.has(blockAt(P.face, cu, cv, ch));
 const CLIMB = 1.8;                               // m/s up or down a ladder
@@ -245,10 +254,16 @@ function pillarTick() {
   if (!pillar) return;
   const [u, v, h] = pillar.cell;
   if (!P.ground) pillar.air = true;
-  // it waits for this jump only: moved off the column, or landed without clearing the cell (game time, not the clock —
-  // a slow frame rate stretches a jump over seconds)
-  if (Math.floor(P.u) !== u || Math.floor(P.v) !== v || (P.ground && pillar.air)) { pillar = null; return; }
-  if (P.h >= h + 1) { const c = pillar; pillar = null; setBlock(P.face, u, v, h, c.b); }
+  // it waits for this jump only: moved off the column, it is forgotten
+  if (Math.floor(P.u) !== u || Math.floor(P.v) !== v) { pillar = null; return; }
+  if (P.h >= h + 1) { const c = pillar; pillar = null; setBlock(P.face, u, v, h, c.b); return; }
+  // landed before the feet cleared it: it goes in as a block placed at the feet does, under them, lifting them onto it.
+  // The body keeps real time (frame), so on a slow device a whole jump can pass between two frames and the tap arrive
+  // on the way down — it was dropped then, and nothing was placed (the 0.7 fps walk, 2026-11-08)
+  if (P.ground && pillar.air) {
+    const c = pillar; pillar = null;
+    if (roomFor(c.cell) && setBlock(P.face, u, v, h, c.b)) { P.h = h + 1; P.vh = 0; }
+  }
 }
 function step(dt) {
   pillarTick();
@@ -290,7 +305,7 @@ function step(dt) {
 function aim() {
   const { fr, fw } = look();
   const d = [fr.east, fr.north, fr.up].map((ax) => fw[0] * ax[0] + fw[1] * ax[1] + fw[2] * ax[2]);   // in grid axes
-  const o = [P.u, P.v, P.h + EYE], cellOf = (p) => p.map(Math.floor), same = (a, b) => a[0] === b[0] && a[1] === b[1] && a[2] === b[2];
+  const o = [P.u, P.v, P.h + EYE], cellOf = (p) => p.map(Math.floor);
   let wet = null;                                          // the first water cell the ray crosses (a bucket scoops it)
   for (let t = 0; t <= REACH; t += 0.02) {
     const p = [o[0] + d[0] * t, o[1] + d[1] * t, o[2] + d[2] * t], c = cellOf(p);
@@ -318,31 +333,38 @@ function aim() {
       hit = topFirst(hit, (c) => Wd.NATURAL.has(blockAt(P.face, c[0], c[1], c[2])), (c) => fieldCell(P.face, c[0], c[1], c[2]));
     }
     if (!hit) continue;
-    // where a block goes: the nearest cell back along the ray that is really EMPTY (air or water) — on smooth ground the
-    // top layer's cell often lies above the drawn surface but still holds grass, and the world server (rightly) places
-    // nothing into a cell that holds something
-    // Never a cell the player stands in; failing every cell back along the ray, the first empty cell on top of the hit.
-    const pu = Math.floor(P.u), pv = Math.floor(P.v), ph = Math.floor(P.h);
-    const free = (q) => { const qb = blockAt(P.face, q[0], q[1], q[2]); return (qb === B.air || BLOCKS[qb].liquid) && !(q[0] === pu && q[1] === pv && (q[2] === ph || q[2] === ph + 1)); };
-    let prev = null;
-    for (const back of [0.3, 0.6, 1.0, 1.5, 2.0, 2.5]) {
-      const pc = cellOf([p[0] - d[0] * back, p[1] - d[1] * back, p[2] - d[2] * back]);
-      // the walk back stops at the player's own body: past it the cells are ABOVE them — looking down (a jump, a step
-      // down) a block went over their head ("i place a block and it places above my head", 2026-11-07)
-      if (pc[0] === pu && pc[1] === pv && pc[2] >= ph) break;
-      if (!same(pc, hit) && free(pc)) { prev = pc; break; }
-    }
-    // …but never up through the player: looking down at the cell under your own feet, the cells on top of it are your
-    // body, and the first free one was above your head — a block appeared there ("im looking at the ground, i place a
-    // block and it places above my head", 2026-11-07)
-    for (let up = 1; !prev && up <= 3; up++) {
-      const q = [hit[0], hit[1], hit[2] + up];
-      if (q[0] === pu && q[1] === pv && q[2] >= ph) break;
-      if (free(q)) prev = q;
-    }
-    return { hit, prev, point: p, dir: d, water: wet };
+    return { hit, prev: placeCell(o, d, hit, p), point: p, dir: d, water: wet };
   }
   return null;
+}
+/** WHERE A BLOCK GOES: the empty cell right where the look meets the surface — just in front of the point hit — and a
+ *  green outline shows it before the tap (frame). Into a dug hole that is the hole; against a wall, the cell before it;
+ *  on a crisp block, the cell beyond the face you look at, as in every block game. ("filling back in dirt is very
+ *  inaccurate, it is impossible to judge what will happen upon placing a block, sometimes it places it above at other
+ *  times below, and sometimes both", operator 2026-11-08: it was the first empty cell met walking back along the ray in
+ *  steps of 30 cm and more, which on smooth ground came out beside, above or below the aimed cell with the angle, and
+ *  nothing drew it.) That cell holding something (turf standing above the drawn surface): the cell beyond the face of the
+ *  aimed cell the look comes in through, then the first empty cell on top of it.
+ *  It may be the player's own cell: looking down at your feet the block goes under you and lifts you onto it (act). */
+function placeCell(o, d, hit, p) {
+  const free = (q) => { const b = blockAt(P.face, q[0], q[1], q[2]); return b === B.air || BLOCKS[b].liquid; };
+  const at = [p[0] - d[0] * 0.07, p[1] - d[1] * 0.07, p[2] - d[2] * 0.07].map(Math.floor);   // a march step back: air side
+  if (free(at)) return at;
+  const n = entryFace(o, d, hit), side = [hit[0] + n[0], hit[1] + n[1], hit[2] + n[2]];
+  if (free(side)) return side;
+  for (let up = 1; up <= 2; up++) { const q = [hit[0], hit[1], hit[2] + up]; if (free(q)) return q; }
+  return null;
+}
+/** The face of cell c that a ray from o along d enters it through, as the step to the neighbour beyond it: the face whose
+ *  plane the ray crosses last on its way in (the slab test). */
+function entryFace(o, d, c) {
+  let best = -Infinity, n = [0, 0, 1];
+  for (let i = 0; i < 3; i++) {
+    if (Math.abs(d[i]) < 1e-9) continue;
+    const t = ((d[i] > 0 ? c[i] : c[i] + 1) - o[i]) / d[i];
+    if (t > best) { best = t; n = [0, 0, 0]; n[i] = d[i] > 0 ? -1 : 1; }
+  }
+  return n;
 }
 /** The height a player stands at on (face, u, v): just above the smooth surface. */
 function groundAt(f, u, v) {
@@ -359,6 +381,7 @@ function groundAt(f, u, v) {
   return b;
 }
 const GROUND_FALL = 64;                                 // metres a ground search falls before it gives up
+const STEP_DT = 0.05, FRAME_MAX = 1.0;                  // seconds: one physics step at most; a frame's time at most (frame)
 
 // ---- edits ------------------------------------------------------------------------------------------------------
 // "you can build anywhere unless it is owned" (operator, 2026-11-06): unowned land is open to everyone signed in; an
@@ -1338,14 +1361,11 @@ function act(place, mouse) {
         pillar = { cell: [fu, fv, a.hit[2] + 1], b: RULES.items[id].places, air: true };
         return pillarTick();
       }
-      if (!a.prev) return notify(T("noRoomYou", "You are standing there."));
-      // never into the player ("sadly it is possible to build oneself into the terrain", operator 2026-11-06): a cell that
-      // overlaps the body is refused. The half-cell bulge it adds to the smooth ground around it is not — that refused
-      // earth on the very next cell, and the walker steps up onto a bulge (land-walk.js: a buried walker rises).
-      const [cu, cv, ch] = a.prev;
-      if (cu + 1 > P.u - HALF && cu < P.u + HALF && cv + 1 > P.v - HALF && cv < P.v + HALF && ch + 1 > P.h && ch < P.h + TALL)
-        return notify(T("noRoomYou", "You are standing there."));
-      return setBlock(P.face, a.prev[0], a.prev[1], a.prev[2], RULES.items[id].places);
+      if (!a.prev || !roomFor(a.prev)) return;                  // the outline says so: red (frame)
+      const [cu, cv, ch] = a.prev, lift = inBody(a.prev);
+      if (!setBlock(P.face, cu, cv, ch, RULES.items[id].places)) return;
+      if (lift) { P.h = ch + 1; P.vh = 0; }                         // standing on it
+      return;
     }
     const pl = placement(a);
     if (!pl) return;
@@ -1973,8 +1993,13 @@ function statsTick(now) {
 }
 function frame(now) {
   if (shotTick(now)) return;
-  const dt = Math.min(0.05, (now - lastT) / 1000 || 0); lastT = now;
-  step(dt);
+  // REAL TIME, IN STEPS: a frame's time used to be cut to 0.05 s, so below 20 fps the whole game ran in slow motion — a
+  // phone at 8 fps walked, fell and broke blocks at 40 % speed ("very laggy on a phone", 2026-11-08; found playing the
+  // live page in a software-rendered browser at 2 fps, where nine seconds of walking moved a metre). The body now moves
+  // the whole elapsed time in steps of at most STEP_DT, so its collisions stay exact; a stall past FRAME_MAX (a hidden
+  // tab, a long pause) is not caught up.
+  const dt = Math.min(FRAME_MAX, (now - lastT) / 1000 || 0); lastT = now;
+  for (let left = dt; left > 1e-6; left -= STEP_DT) step(Math.min(STEP_DT, left));
   breakTick(dt);
   levelTick(now);
   const cam = eyePos(), { fr, fw } = look();
@@ -2016,6 +2041,18 @@ function frame(now) {
     const pl = placement(a);
     if (pl) { frameBox(ghost, pl.plot, pl.box); ghost.material.color.setHex(pl.ok && mayBuild(pl.plot) ? 0x33dd77 : 0xdd4433); }
   }
+  // a block of earth, stone, sand…: the cell it goes into, outlined before the tap (aim → placeCell), green where it goes
+  // and red where it cannot ("impossible to judge what will happen upon placing a block", operator 2026-11-08). The cell
+  // is also written on the page (data-place) — what a test, or a screen reader, can read back.
+  let shown = "";
+  if (a && a.prev && id && NATURAL_ITEMS.has(id) && net.me) {
+    const [cu, cv, ch] = a.prev, cp = Wd.plotOf(P.face, cu, cv), q = Wd.plotCoords(cp);
+    frameBox(ghost, cp, [(cu - q.u0) * Wd.CM, (cv - q.v0) * Wd.CM, ch * Wd.CM, Wd.CM, Wd.CM, Wd.CM]);
+    const go = roomFor(a.prev) && (ch < 0 || mayBuild(cp));
+    ghost.material.color.setHex(go ? 0x33dd77 : 0xdd4433);
+    shown = `${cu},${cv},${ch}${go ? "" : ",no"}`;
+  }
+  if (document.body.dataset.place !== shown) document.body.dataset.place = shown;
   if (pipeline) pipeline.render(); else renderer.render(scene, camera);
   statsTick(now);                                         // after the draw: what this frame drew
 }

@@ -80,7 +80,7 @@ async def agent_login(c, kd, alg=None, nonce=None, tamper=None):
 
 async def main():
     ex = TestServer(fake_exec()); await ex.start_server()
-    data = tempfile.mkdtemp(prefix="nado_land_srv_")
+    data = tempfile.mkdtemp(prefix="nado_land_srv_", dir=os.environ["HOME"])
     world = S.World(data, str(ex.make_url("")).rstrip("/"), "f" * 32)
     app = S.make_app(world, S.Hub(), "https://land.example", "https://wallet.example", secure_cookies=False)
     c = TestClient(TestServer(app)); await c.start_server()

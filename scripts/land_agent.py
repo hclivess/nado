@@ -24,6 +24,8 @@ comes back in `refused` with the reason.
 """
 import os, sys, tempfile
 os.environ["HOME"] = tempfile.mkdtemp(prefix="nado-land-agent-")   # BEFORE the crypto import (CLAUDE.md rule 4)
+import atexit, shutil; atexit.register(shutil.rmtree, os.environ["HOME"], ignore_errors=True)   # and gone after (a start
+# and every test that imports this left one in /tmp: 640 of them by 2026-11-08)
 REPO = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 sys.path.insert(0, REPO)
 import argparse, json, time, urllib.request

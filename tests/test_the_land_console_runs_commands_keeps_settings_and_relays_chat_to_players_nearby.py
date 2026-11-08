@@ -45,7 +45,7 @@ async def login(c, kd):
 
 
 async def main():
-    data = tempfile.mkdtemp(prefix="nado_land_con_")
+    data = tempfile.mkdtemp(prefix="nado_land_con_", dir=os.environ["HOME"])
     world = S.World(data, "http://127.0.0.1:1", "")
     app = S.make_app(world, S.Hub(), "https://land.example", "https://wallet.example", secure_cookies=False)
     c = TestClient(TestServer(app)); await c.start_server()

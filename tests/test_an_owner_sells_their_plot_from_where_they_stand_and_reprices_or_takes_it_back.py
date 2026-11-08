@@ -99,7 +99,7 @@ check("…the seller's reprice names the listing and the new price, value-free, 
 check("…and the seller's unlist names the listing, value-free", U_[0] == "unlist" and U_[1] == [424242] and U_[2] is None and U_[5] == {"cid": MARKET, "confirm": True}, U_)
 
 # 2. the same payloads, applied to the real market contract
-st = ExecState(os.path.join(tempfile.mkdtemp(prefix="nado_land_sell_"), "s.json"))
+st = ExecState(os.path.join(tempfile.mkdtemp(prefix="nado_land_sell_", dir=os.environ["HOME"]), "s.json"))
 st.cursor = 1000
 code = N.build()
 st.apply_blob({"op": "deploy", "runtime": "zkvm", "code": code, "abi": N.ABI, "nonce": "n"}, ISSUER, "d")

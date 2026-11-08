@@ -42,7 +42,11 @@ ok(/new THREE\.Mesh\(gs, matWater\)/.test(far), "and the far sea in the water ma
 const gm = land.slice(land.indexOf("function groundMaterial"), land.indexOf("// ---- grass:"));
 ok(/mx_noise_float\(uvw\.xy\.mul\(0\.021\)\)/.test(gm) && /meadow/.test(gm), "the meadow's colour varies over tens of metres");
 const act = land.slice(land.indexOf("function act("), land.indexOf("function wireInput"));
-ok(/NATURAL_ITEMS\.has\(id\)[\s\S]{0,2000}noRoomYou[\s\S]{0,600}setBlock/.test(act), "a natural block is refused where it would raise the ground into the player");
+// never into the player: a block in their own space goes only at their feet, with room above, and lifts them onto it — no
+// longer refused with a message ("only hinders", 2026-11-08); walked in test_a_block_goes_where_you_look…mjs
+ok(/NATURAL_ITEMS\.has\(id\)[\s\S]{0,2000}!roomFor\(a\.prev\)\) return;[\s\S]{0,300}setBlock[\s\S]{0,200}if \(lift\) \{ P\.h = ch \+ 1/.test(act)
+   && /const roomFor = \(c\) => !inBody\(c\) \|\| \(c\[2\] < P\.h \+ FEET && !collides\(P\.u, P\.v, c\[2\] \+ 1\)\)/.test(land),
+   "a natural block never goes into the player: at their feet it lifts them onto it, elsewhere in their body it is not placed");
 
 // 6: the finished picture is colour-graded ("we need professional color grading too"): S-curve, saturation, split toning,
 // a vignette — after tone mapping, before anti-aliasing
