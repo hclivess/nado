@@ -75,7 +75,12 @@ let piece = { w: 100, d: 100, h: 100, snap: 10, shape: 0, rot: 0 };   // shape: 
 const plotBoxes = new Map();          // plot -> { list, idx: Map(1 m bucket -> [box]) }
 let pipeline = null;                  // the post-processed render (or null: the plain render on a weak device)
 let renderer, scene, camera, sun, hemi, atlasTex, matSolid, matClear, matGround, matTrees, matPieces, matGlassy, matBark, matLeaves, matWater, matFlame, ghost, farMesh = null, farAt = null;
-let highlight, lastT = 0, locked = false, keys = new Set(), touch = null, viewDist = 6;
+// A PHONE ("very laggy on a phone", operator 2026-11-08) is known from the start — before the renderer is made — so
+// what it costs is set for it: 1.25 pixels per CSS pixel (not 2: ~2.6x fewer to shade), 4 chunks of full view (the far
+// land still draws to the horizon), two point lights, no shadows unless asked for (/set shadows 1), and full tree
+// models in the nearest ring only. Measured as a phone in the town: tests/test_land_is_light_enough_for_a_phone.mjs.
+const PHONE = "ontouchstart" in window || navigator.maxTouchPoints > 0;
+let highlight, lastT = 0, locked = false, keys = new Set(), touch = null, viewDist = PHONE ? 4 : 6;
 const LS = "nado_land_v1";
 
 // ---- the atlas: every block's tiles, painted from seeded noise (original art, no image files) -------------------
@@ -479,7 +484,7 @@ function request(k) {
   const [face, cu, cv, ch] = k.split(":").map(Number);
   const pb = plotBoxes.get(Wd.plotId(face, cv, cu));        // a chunk column IS a plot (CHUNK == PLOT)
   const dist = Math.max(Math.abs(cu - Math.floor(P.u / CHUNK)), Math.abs(cv - Math.floor(P.v / CHUNK)));
-  c.lod = dist <= 2 ? (touch ? 1 : 0) : dist <= 3 ? 1 : 2;        // 0: grass too (not on a phone); 2: small pieces skipped
+  c.lod = PHONE ? (dist <= 1 ? 1 : 2) : dist <= 2 ? 0 : dist <= 3 ? 1 : 2;   // 0: grass too (not on a phone); 2: far trees, small pieces skipped
   queue.push({ id: ++reqId, k, face, cu, cv, ch, edits: editsFor(face, cu, cv), boxes: pb ? pb.list : null, lod: c.lod, grass: !touch && !!SET.grass });   // no blades on a phone, or with /set grass 0
   pump();
 }
@@ -577,7 +582,7 @@ function updateChunks() {
     if (Math.abs(dx) <= 2 && Math.abs(dy) <= 2) { lo = Math.min(lo, Math.max(Wd.DEEP_MIN / CHUNK, Math.floor(P.h / CHUNK) - 1)); hi = Math.max(hi, Math.min(H / CHUNK - 1, Math.floor(P.h / CHUNK) + 1)); }
     const pb = plotBoxes.get(Wd.plotId(face, cv, cu));
     if (pb && pb.list.length) for (const b of pb.list) { lo = Math.min(lo, Math.floor(b[2] / (CHUNK * Wd.CM))); hi = Math.max(hi, Math.min(H / CHUNK - 1, Math.floor((b[2] + b[5] - 1) / (CHUNK * Wd.CM)))); }
-    const dd = Math.max(Math.abs(dx), Math.abs(dy)), lodNow = dd <= 2 ? (touch ? 1 : 0) : dd <= 3 ? 1 : 2;
+    const dd = Math.max(Math.abs(dx), Math.abs(dy)), lodNow = PHONE ? (dd <= 1 ? 1 : 2) : dd <= 2 ? 0 : dd <= 3 ? 1 : 2;
     for (let ch = lo; ch <= hi; ch++) {
       const k = face + ":" + cu + ":" + cv + ":" + ch, c = chunks.get(k);
       want.add(k);
@@ -1367,12 +1372,12 @@ function act(place, mouse) {
 // closes it. A line without a slash is chat to the players around you (the world server relays it to whoever watches
 // the plots you watch). SETTINGS are this viewer's own, remembered in this browser — a convenience, nothing shared.
 const LS_SET = "nado_land_settings";
-const SET_DEF = { fov: 72, sens: 1, invert: 0, grass: 1, shadows: 1, effects: 1, borders: 1 };
-const SET_RANGE = { fov: [50, 110], sens: [0.2, 4], invert: [0, 1], grass: [0, 1], shadows: [0, 1], effects: [0, 1], borders: [0, 1] };
+const SET_DEF = { fov: 72, sens: 1, invert: 0, grass: 1, shadows: 1, effects: 1, borders: 1, stats: 0 };
+const SET_RANGE = { fov: [50, 110], sens: [0.2, 4], invert: [0, 1], grass: [0, 1], shadows: [0, 1], effects: [0, 1], borders: [0, 1], stats: [0, 1] };
 const SET = (() => {
   let s = {};
   try { s = JSON.parse(localStorage.getItem(LS_SET) || "{}") || {}; } catch (e) {}
-  const o = { ...SET_DEF };
+  const o = { ...SET_DEF, ...(PHONE ? { shadows: 0 } : {}) };   // a phone casts no shadows unless asked (/set shadows 1)
   for (const k in SET_DEF) if (typeof s[k] === "number" && s[k] >= SET_RANGE[k][0] && s[k] <= SET_RANGE[k][1]) o[k] = s[k];
   return o;
 })();
@@ -1913,7 +1918,7 @@ function sky(fr) {
   Cc.needsUpdate = true;
 }
 // the torches nearest the player, re-chosen twice a second from the loaded plots' pieces; [x, y, z] world metres
-const TORCH_LIGHTS = 6, torchLights = [];
+const TORCH_LIGHTS = PHONE ? 2 : 6, torchLights = [];
 // LIGHTS by source: how bright, how far it reaches (m), how much it flickers, and the height of its flame in its piece
 // (cm). A lantern lights a yard, a street lamp a street ("townhall disappears after walking 20 meters at night",
 // operator 2026-11-07); the pool is given to the sources whose light reaches the player soonest (distance / reach).
@@ -1952,6 +1957,19 @@ function torchTick(now, cam) {
     l.distance = L.d;
     l.position.set(w[0] - cam[0], w[1] - cam[1], w[2] - cam[2]);
   });
+}
+// STATS (/set stats 1, or tap the renderer's name in the corner): frames a second, and what the last frame drew —
+// triangles and draw calls — so a slow phone can say what is slow ("very laggy on a phone", 2026-11-08)
+let statFrames = 0, statAt = 0;
+function statsTick(now) {
+  statFrames++;
+  if (now - statAt < 1000 && statFrames > 1) return;
+  const fps = Math.round((statFrames * 1000) / (now - statAt));
+  statFrames = 0; statAt = now;
+  const gpu = renderer.backend && renderer.backend.isWebGPUBackend ? "WebGPU" : "WebGL2";
+  if (!SET.stats) { $("hudGpu").textContent = gpu; return; }
+  const r = renderer.info.render;
+  $("hudGpu").textContent = `${gpu} · ${fps} fps · ${Math.round(r.triangles / 1000)}k tris · ${r.drawCalls ?? r.calls} calls · ${chunks.size} chunks`;
 }
 function frame(now) {
   if (shotTick(now)) return;
@@ -1999,6 +2017,7 @@ function frame(now) {
     if (pl) { frameBox(ghost, pl.plot, pl.box); ghost.material.color.setHex(pl.ok && mayBuild(pl.plot) ? 0x33dd77 : 0xdd4433); }
   }
   if (pipeline) pipeline.render(); else renderer.render(scene, camera);
+  statsTick(now);                                         // after the draw: what this frame drew
 }
 let tick = 0;
 // ---- OWNERSHIP BORDERS ("there should be some kind of a visual cue marking the ownership borders", operator 2026-11-07):
@@ -2139,7 +2158,7 @@ async function start() {
   RULES = await (await fetch("/static/land-recipes.json", { cache: "no-cache" })).json();
   const canvas = $("world");
   renderer = new THREE.WebGPURenderer({ canvas, antialias: true });
-  renderer.setPixelRatio(Math.min(2, devicePixelRatio || 1));
+  renderer.setPixelRatio(Math.min(PHONE ? 1.25 : 2, devicePixelRatio || 1));
   renderer.setSize(innerWidth, innerHeight);
   renderer.toneMapping = THREE.ACESFilmicToneMapping;
   renderer.toneMappingExposure = 0.95;
@@ -2147,6 +2166,7 @@ async function start() {
   renderer.shadowMap.type = THREE.PCFShadowMap;            // r187's WebGPU renderer has no PCFSoftShadowMap
   await renderer.init();
   $("hudGpu").textContent = renderer.backend && renderer.backend.isWebGPUBackend ? "WebGPU" : "WebGL2";
+  $("hudGpu").onclick = () => { SET.stats = SET.stats ? 0 : 1; try { localStorage.setItem(LS_SET, JSON.stringify(SET)); } catch (e) {} };
   scene = new THREE.Scene();
   scene.fog = new THREE.Fog(0xb7d6ef, viewDist * CHUNK * 0.9, 2900);
   camera = new THREE.PerspectiveCamera(SET.fov, innerWidth / innerHeight, 0.08, 4000);

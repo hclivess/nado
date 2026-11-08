@@ -215,23 +215,30 @@ export function flaxModel(seed) {
  *  the bark texture, as flax's do, so the colours read true. */
 const FLOWER_TINT = [[6.2, 0.9, 0.7], [1.2, 1.7, 6.4], [5.8, 5.8, 5.5], [6.0, 4.9, 0.8]];
 const EYE_TINT = [[0.6, 0.5, 0.5], [1.4, 1.6, 4.5], [6.0, 4.6, 0.7], [5.0, 3.6, 0.5]];
-export function flowerModel(seed, kind) {
-  const R = rng(seed), bark = part(), leaves = part(), n = 5 + Math.floor(R() * 4), tint = FLOWER_TINT[kind] || FLOWER_TINT[0];
-  // petals radiate from the head: a poppy's five broad ones cupped up, a cornflower's ragged ring, a daisy's many thin
-  // white rays laid flat round a yellow eye, a buttercup's five small cupped ones
-  const petals = [5, 8, 12, 5][kind] ?? 5, len = [0.055, 0.04, 0.05, 0.03][kind] ?? 0.04, rad = [0.022, 0.01, 0.008, 0.014][kind] ?? 0.01;
-  const lift = [0.03, 0.015, 0.004, 0.02][kind] ?? 0.01;
-  for (let k = 0; k < n; k++) {
-    const a = R() * Math.PI * 2, r = 0.04 + R() * 0.14, h = 0.3 + R() * 0.25, lean = (R() - 0.5) * 0.1;
-    const b0 = [Math.cos(a) * r, Math.sin(a) * r, 0], top = [b0[0] + Math.cos(a) * lean, b0[1] + Math.sin(a) * lean, h];
-    const mid = [(b0[0] + top[0]) / 2, (b0[1] + top[1]) / 2, h * 0.5];
-    tube(bark, [b0, mid, top], [0.009, 0.007, 0.005], 3, (i) => i * 0.35, 0, [1.3, 2.9, 1.1]);
-    const spin = R() * Math.PI * 2;
-    for (let q = 0; q < petals; q++) {
-      const pa = spin + (q / petals) * Math.PI * 2, tip = [top[0] + Math.cos(pa) * len, top[1] + Math.sin(pa) * len, top[2] + lift];
-      tube(bark, [top, tip], [rad, rad * 0.6], 4, () => 0.7, 0, tint);
+/** A flower head: two crossed quads at the stem's top, its petals' colour — a poppy's cup, a daisy's flat ray. Quads,
+ *  not a ring of petal tubes: a tube per petal made a flower 450-840 triangles, and a meadow of them lagged a phone
+ *  ("very laggy on a phone", 2026-11-08); a head is now 4. */
+function head(b, c, r, lift, tint, sway) {
+  for (const [ax, ay] of [[[r, 0, 0], [0, r, lift]], [[0, r, 0], [-r, 0, lift]]]) {
+    const base = b.n;
+    for (const [s, t] of [[-1, -1], [1, -1], [1, 1], [-1, 1]]) {
+      const p = add(c, add(mul(ax, s), mul(ay, t * 0.5)));
+      b.pos.push(p[0], p[1], p[2]); b.nor.push(0, 0, 1);
+      b.uv.push((s + 1) * 0.25, (t + 1) * 0.25); b.tile.push(0); b.col.push(tint[0], tint[1], tint[2]);
+      b.wind.push(sway, 0, 0, 0); b.n++;
     }
-    tube(bark, [add(top, [0, 0, -0.004]), add(top, [0, 0, 0.012])], [0.012, 0.01], 6, () => 0.7, 0, EYE_TINT[kind] || tint);   // the eye
+    b.idx.push(base, base + 1, base + 2, base, base + 2, base + 3);
+  }
+}
+export function flowerModel(seed, kind) {
+  const R = rng(seed), bark = part(), leaves = part(), n = 3 + Math.floor(R() * 3), tint = FLOWER_TINT[kind] || FLOWER_TINT[0];
+  const r = [0.05, 0.035, 0.045, 0.03][kind] ?? 0.04, lift = [0.03, 0.012, 0.004, 0.02][kind] ?? 0.01;
+  for (let k = 0; k < n; k++) {
+    const a = R() * Math.PI * 2, rr = 0.04 + R() * 0.14, h = 0.3 + R() * 0.25, lean = (R() - 0.5) * 0.1;
+    const b0 = [Math.cos(a) * rr, Math.sin(a) * rr, 0], top = [b0[0] + Math.cos(a) * lean, b0[1] + Math.sin(a) * lean, h];
+    tube(bark, [b0, top], [0.008, 0.005], 3, (i) => i * 0.35, 0, [1.3, 2.9, 1.1]);
+    head(bark, top, r, lift, tint, 0.35);
+    head(bark, add(top, [0, 0, 0.004]), r * 0.3, 0, EYE_TINT[kind] || tint, 0.35);     // the eye
   }
   return { bark, leaves };
 }

@@ -359,6 +359,9 @@ export function meshChunk(face, cu, cv, ch, edits, boxes, lod, grassOn = true) {
   for (let k = 0; k < CHUNK; k++) for (let j = 0; j < CHUNK; j++) for (let i = 0; i < CHUNK; i++) {
     const b = blk[((k + 1) * N + (j + 1)) * N + (i + 1)];
     if (!LITTER.has(b)) continue;
+    // far away (lod 2) the meadow's small things — stones, sticks, flax, wild flowers — are too small to see and were most
+    // of what a phone drew ("very laggy on a phone", 2026-11-08); a sapling someone planted is still drawn
+    if (lod >= 2 && b !== B.sapling) continue;
     const gu = u0 + i, gv = v0 + j, gh = h0 + k, col0 = colCache(face, gu, gv);
     // what lies on the ground stands on the DRAWN ground: the column's own height where the ground under it is the
     // planet's, but the cell's floor where that ground was edited or it is not the column's top (levelled earth — the

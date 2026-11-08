@@ -94,7 +94,7 @@ check("plots of one holder share one outline, plots on sale keep each their own"
       'k !== "sale" && holder && n >= 0 && (titles.get(n) || {}).holder === holder && borderKind(n) === k) continue;' in page)
 check("a border follows the drawn ground and the pieces on it, never a tree",
       "const g = earthAt(q.face, u, v), t = pieceTopAt(p," in page and "const inside = (y) => fieldAt(f, u, v, y) > 0;" in page)
-check("borders are on by default, and a setting turns them off", "borders: 1 }" in page and "borders: [0, 1] }" in page
+check("borders are on by default, and a setting turns them off", "borders: 1," in page and "borders: [0, 1]," in page
       and "const on = SHOT !== null || SET.borders;" in page)
 check("the page asks whose every outlined plot is (its colour), not only the one underfoot",
       "if (t && SHOT === null && !mine.has(p) && !t.asked) { t.asked = true; holderOf(p)" in page)

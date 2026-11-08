@@ -81,7 +81,7 @@ ok(/shapeOf\(n\) \|\| MODELS\[n\[6\]\] \|\| n\[6\] === B\.window\) continue;/.te
   ok(/const flip = b\[6\] === B\.chair && facesAway\(b, boxes\)/.test(mesher), "the mesher draws a chair by that rule");
 }
 ok(Wd.BLOCKS[B.lamp].glow && /BLOCKS\[blk\]\.glow\)[\s\S]{0,300}emissiveNode/.test(land), "a glowing part (a lamp, a torch's flame) is emissive");
-ok(/const TORCH_LIGHTS = \d+/.test(land) && /for \(let i = 0; i < TORCH_LIGHTS; i\+\+\) \{ const l = new THREE\.PointLight/.test(land) && /if \(!n\) \{ l\.intensity = 0; return; \}/.test(land),
+ok(/const TORCH_LIGHTS = (PHONE \? \d+ : )?\d+/.test(land) && /for \(let i = 0; i < TORCH_LIGHTS; i\+\+\) \{ const l = new THREE\.PointLight/.test(land) && /if \(!n\) \{ l\.intensity = 0; return; \}/.test(land),
    "torchlight is a fixed pool of point lights, unused ones dark");
 
 // 3b. grass never grows up through a piece lying on the ground (a plank floor in the meadow, the furniture render)
