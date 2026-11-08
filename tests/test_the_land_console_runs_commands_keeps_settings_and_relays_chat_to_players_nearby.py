@@ -106,7 +106,16 @@ check("the commands exist: help, pos, tp, fly, settings, set, clear",
       all(re.search(r"\n  %s: " % k, cmds) for k in ("help", "pos", "tp", "fly", "settings", "set", "clear")))
 check("a line without a slash goes to the server as chat", 'net.send({ t: "chat", text: text.slice(0, 200) });' in js
       and 'm.t === "chat"' in js)
-check("the help card stays hidden while the console is open", 'classList.toggle("hidden", locked || conOpen)' in js)
+check("the help card stays hidden while the console is open", 'if (open) $("help").classList.add("hidden");' in js)
+# …and it is shown once: closing the console never brings it back (it came back after every chat line, and a phone
+# could not put it away at all, operator 2026-11-09); sending a line captures the mouse again, quietly retrying the
+# browser's "cannot be acquired immediately" refusal instead of showing it
+check("the welcome card is shown once per device: any tap, click or key, or Play, puts it away for good",
+      'for (const ev of ["pointerdown", "touchstart", "keydown"]) document.addEventListener(ev, away, { capture: true, passive: true });' in js
+      and 'localStorage.setItem(WELCOME_SEEN, "1")' in js and 'if (localStorage.getItem(WELCOME_SEEN)) welcome.classList.add("hidden");' in js
+      and '$("help").classList.toggle(' not in js)
+check("…sending a line goes back to play, and a refused pointer capture is retried, never shown",
+      "conShow(false); conRun(v); if (!touch) lockPointer();" in js and "r.catch(() => setTimeout(" in js and js.count("requestPointerLock()") == 2)
 check("every setting reaches what it names",
       "new THREE.PerspectiveCamera(SET.fov," in js and "camera.fov = SET.fov; camera.updateProjectionMatrix()" in js
       and "e.movementX * 0.0024 * SET.sens" in js and "(SET.invert ? -1 : 1)" in js

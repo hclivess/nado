@@ -89,7 +89,7 @@
   body.shot > :not(#world){display:none!important}   /* PHOTO MODE (?shot=): the world, nothing of the page */
   #help .card{pointer-events:auto;max-width:420px;margin:16px;background:rgba(19,26,35,.94);border:1px solid var(--border);border-radius:14px;padding:18px 20px;font-size:13.5px;line-height:1.6}
   #help h2{margin:0 0 8px;font-size:17px}#help kbd{font:11px var(--mono);border:1px solid var(--border);border-radius:5px;padding:1px 5px;background:#0b0f14}
-  #help .go{margin-top:12px;font-weight:800;color:var(--accent2)}
+  #help .go{margin-top:12px;font:inherit;font-weight:800;color:#0b0f14;background:var(--accent2);border:0;border-radius:10px;padding:8px 22px;cursor:pointer}
   #palette{position:fixed;inset:0;z-index:8;display:grid;place-items:center;background:rgba(0,0,0,.45)}
   #palette .card{max-width:min(620px,calc(100vw - 32px));max-height:80vh;overflow:auto;background:var(--elev);border:1px solid var(--border);border-radius:14px;padding:16px}
   #palette h2{margin:0 0 10px;font-size:16px;display:flex;align-items:center}#palette h2 button:first-of-type{margin-left:auto}#palette h2{gap:6px}
@@ -142,7 +142,7 @@
     <div><kbd>R</kbd> <span data-i18n="land.kSize">piece size</span> · <kbd>T</kbd> <span data-i18n="land.kTurn">turn it</span> · <kbd>[ ]</kbd> <span data-i18n="land.kSnap">snap</span> · <kbd>Q</kbd> <span data-i18n="land.kDoor">open or close a door</span> · <kbd>G</kbd> <span data-i18n="land.kShape">box, slope or stairs</span> · <kbd>L</kbd> <span data-i18n="land.kLevel">level the ground (shovel)</span></div>
     <div><kbd data-i18n="land.kLeft">left click</kbd> <span data-i18n="land.kGather">hold to gather</span> · <kbd data-i18n="land.kRight">right click</kbd> <span data-i18n="land.kPlace">place</span> · <kbd>1–9</kbd> <span data-i18n="land.kPick">pick a block</span> · <kbd>E</kbd> <span data-i18n="land.kBag">bag: make and trade</span></div>
   </div>
-  <div class="go" data-i18n="land.clickToPlay">Click the world to play</div>
+  <button id="helpPlay" class="go" data-i18n="land.play">Play</button>
 </div></div>
 <div id="palette" class="hidden"><div class="card">
   <h2><span data-i18n="land.bagTitle">Bag</span><button id="wardOpen" class="ghost" data-i18n="land.wardTitle">Wardrobe</button><button id="palClose" class="ghost" data-i18n="land.close">Close</button></h2>

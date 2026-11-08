@@ -238,6 +238,15 @@ const inBody = ([cu, cv, ch]) => cu + 1 > P.u - HALF && cu < P.u + HALF && cv + 
  *  operator 2026-11-06), and never refused with a message either ("only hinders", 2026-11-08). */
 const FEET = 0.75;
 const roomFor = (c) => !inBody(c) || (c[2] < P.h + FEET && !collides(P.u, P.v, c[2] + 1));
+/** A plant in hand (a sapling, a wild flower) goes only where earth or grass is under it — the world server's rule
+ *  ("a plant is planted in earth or grass"); the outline showed a daisy green floating over another flower, and the
+ *  tap did nothing (planting by the town pavilion, 2026-11-08). Anything else goes anywhere. */
+const rootsIn = ([cu, cv, ch]) => {
+  const held = RULES && RULES.items[hot[slot]] && RULES.items[hot[slot]].places;
+  if (held !== B.sapling && !Wd.FLOWERS.includes(held)) return true;
+  const below = blockAt(P.face, cu, cv, ch - 1);
+  return below === B.grass || below === B.dirt;
+};
 // trunks are solid cylinders (land-walk.js trunkAt); leaves stay walk-through
 const isLog = (cu, cv, ch) => Wd.TREE_WOOD.has(blockAt(P.face, cu, cv, ch));
 const CLIMB = 1.8;                               // m/s up or down a ladder
@@ -352,7 +361,7 @@ function placeCell(o, d, hit, p) {
   const held = RULES && RULES.items[hot[slot]] && RULES.items[hot[slot]].places;
   const free = (q) => {
     const b = blockAt(P.face, q[0], q[1], q[2]);
-    return b === B.air || BLOCKS[b].liquid || (Wd.SWEPT.has(b) && !!held && !Wd.SWEPT.has(held) && held !== B.sapling);
+    return (b === B.air || BLOCKS[b].liquid || (Wd.SWEPT.has(b) && !!held && !Wd.SWEPT.has(held) && held !== B.sapling)) && !pieceIn(q);
   };
   const at = [p[0] - d[0] * 0.07, p[1] - d[1] * 0.07, p[2] - d[2] * 0.07].map(Math.floor);   // a march step back: air side
   if (free(at)) return at;
@@ -360,6 +369,14 @@ function placeCell(o, d, hit, p) {
   if (free(side)) return side;
   const top = [hit[0], hit[1], hit[2] + 1];                   // only ever the cell right on top: two up, a block floated
   return free(top) ? top : null;                              // over the flower between ("/aim", 2026-11-08)
+}
+/** A built piece reaches into cell [u, v, h]: it takes no block (the world server refuses one) — a daisy was planted inside
+ *  the plank floor of the town pavilion, in the cell under its 10 cm edge (2026-11-08). */
+function pieceIn([u, v, h]) {
+  const plot = Wd.plotOf(P.face, u, v), rec = plotBoxes.get(plot);
+  if (!rec || !rec.list.length) return false;
+  const q = Wd.plotCoords(plot), cell = [(u - q.u0) * Wd.CM, (v - q.v0) * Wd.CM, h * Wd.CM, Wd.CM, Wd.CM, Wd.CM];
+  return rec.list.some((o) => Wd.boxesOverlap(cell, o));
 }
 /** The face of cell c that a ray from o along d enters it through, as the step to the neighbour beyond it: the face whose
  *  plane the ray crosses last on its way in (the slab test). */
@@ -386,6 +403,7 @@ function groundAt(f, u, v) {
   for (let n = 0; n < 6; n++) { const m = (a + b) / 2; if (collides(u, v, m)) a = m; else b = m; }
   return b;
 }
+const WELCOME_SEEN = "nado_land_welcome_seen";       // localStorage: this device has put the welcome card away (wireInput)
 const GROUND_FALL = 64;                                 // metres a ground search falls before it gives up
 const STEP_DT = 0.05, FRAME_MAX = 1.0;                  // seconds: one physics step at most; a frame's time at most (frame)
 
@@ -1387,7 +1405,7 @@ function act(place, mouse) {
         pillar = { cell: [fu, fv, a.hit[2] + 1], b: RULES.items[id].places, air: true };
         return pillarTick();
       }
-      if (!a.prev || !roomFor(a.prev)) return;                  // the outline says so: red (frame)
+      if (!a.prev || !roomFor(a.prev) || !rootsIn(a.prev)) return;   // the outline says so: red (frame)
       const [cu, cv, ch] = a.prev, lift = inBody(a.prev);
       if (!setBlock(P.face, cu, cv, ch, RULES.items[id].places)) return;
       if (lift) { P.h = ch + 1; P.vh = 0; }                         // standing on it
@@ -1448,7 +1466,7 @@ function conShow(open, prefill) {
   const inp = $("conIn");
   if (open) { if (document.pointerLockElement) document.exitPointerLock(); inp.value = prefill || ""; setTimeout(() => inp.focus(), 0); }
   else inp.blur();
-  $("help").classList.toggle("hidden", open || locked || !!touch);      // a phone, once in, never sees it again (wireInput)
+  if (open) $("help").classList.add("hidden");                          // shown once only (wireInput: THE WELCOME CARD, ONCE)
 }
 function applySetting(k) {
   if (k === "fov" && camera) { camera.fov = SET.fov; camera.updateProjectionMatrix(); }
@@ -1510,17 +1528,40 @@ function conRun(line) {
 function wireConsole() {
   const inp = $("conIn");
   inp.addEventListener("keydown", (e) => {
-    if (e.key === "Enter") { e.preventDefault(); const v = inp.value; conShow(false); conRun(v); }
+    // a line sent, back to play: the mouse is captured again (it was left free, and the next click hit the browser's
+    // refusal — lockPointer)
+    if (e.key === "Enter") { e.preventDefault(); const v = inp.value; conShow(false); conRun(v); if (!touch) lockPointer(); }
     else if (e.key === "Escape") { e.preventDefault(); conShow(false); }
     else if (e.key === "ArrowUp" && conHi > 0) { e.preventDefault(); inp.value = conHist[--conHi]; }
     else if (e.key === "ArrowDown") { e.preventDefault(); conHi = Math.min(conHist.length, conHi + 1); inp.value = conHist[conHi] || ""; }
     e.stopPropagation();
   });
 }
+/** Capture the mouse for play. The browser refuses it for about a second after the player let it go ("Pointer lock
+ *  cannot be acquired immediately after the user has exited the lock") — that refusal came up as an error bar and play
+ *  stayed stuck until another click (operator 2026-11-09, chatting on the live page): it is retried once the second has
+ *  passed, and never shown. */
+function lockPointer() {
+  const c = $("world");
+  if (!c || document.pointerLockElement === c) return;
+  try {
+    const r = c.requestPointerLock();
+    if (r && r.catch) r.catch(() => setTimeout(() => { if (!document.pointerLockElement && !conOpen) { try { const r2 = c.requestPointerLock(); if (r2 && r2.catch) r2.catch(() => {}); } catch (e) {} } }, 1100));
+  } catch (e) {}
+}
 function wireInput(canvas) {
   wireConsole();
-  canvas.addEventListener("click", () => { if (!locked && !touch) canvas.requestPointerLock(); });
-  document.addEventListener("pointerlockchange", () => { locked = document.pointerLockElement === canvas; $("help").classList.toggle("hidden", locked || conOpen); });
+  canvas.addEventListener("click", () => { if (!locked && !touch) lockPointer(); });
+  // THE WELCOME CARD, ONCE: it came back every time the mouse was released — after every chat line, every bag — and on a
+  // phone it never went at all, since only a captured mouse put it away ("the popup keeps popping up and on mobile it is
+  // permanent", "it remains there", operator 2026-11-09, playing on the live page). The first tap, click or key anywhere
+  // — or its Play button — puts it away, and this device does not see it again (/help lists the controls).
+  const welcome = $("help");
+  const away = () => { if (welcome.classList.contains("hidden")) return; welcome.classList.add("hidden"); try { localStorage.setItem(WELCOME_SEEN, "1"); } catch (e) {} };
+  try { if (localStorage.getItem(WELCOME_SEEN)) welcome.classList.add("hidden"); } catch (e) {}
+  for (const ev of ["pointerdown", "touchstart", "keydown"]) document.addEventListener(ev, away, { capture: true, passive: true });
+  $("helpPlay").onclick = () => { away(); if (!touch) lockPointer(); };
+  document.addEventListener("pointerlockchange", () => { locked = document.pointerLockElement === canvas; if (locked) away(); });
   document.addEventListener("mousemove", (e) => {
     if (!locked) return;
     P.yaw += e.movementX * 0.0024 * SET.sens; P.pitch = Math.max(-1.55, Math.min(1.55, P.pitch - e.movementY * 0.0024 * SET.sens * (SET.invert ? -1 : 1)));
@@ -1574,12 +1615,6 @@ function wireInput(canvas) {
     });
     const hold = (id, k) => { const el = $(id); el.addEventListener("touchstart", (e) => { touch[k] = true; e.preventDefault(); }, { passive: false }); el.addEventListener("touchend", () => { touch[k] = false; }); };
     hold("tJump", "up"); hold("tDown", "down");
-    // THE WELCOME CARD ON A PHONE: it hid only when the mouse was captured, which a touch screen never does — so on a phone
-    // it stayed over the middle of the view for good (walking the live page as a phone, 2026-11-08). The first touch on
-    // the world, or on the card, puts it away.
-    const welcome = $("help"), away = () => welcome.classList.add("hidden");
-    canvas.addEventListener("touchstart", away, { passive: true });
-    welcome.addEventListener("touchstart", (e) => { away(); e.preventDefault(); }, { passive: false });
     $("tFly").onclick = () => { P.fly = !P.fly; P.vh = 0; };
     $("tBreak").onclick = () => act(false, false);
     $("tPlace").onclick = () => act(true);
@@ -2096,7 +2131,7 @@ function frame(now) {
   if (a && a.prev && id && NATURAL_ITEMS.has(id) && net.me) {
     const [cu, cv, ch] = a.prev, cp = Wd.plotOf(P.face, cu, cv), q = Wd.plotCoords(cp);
     frameBox(ghost, cp, [(cu - q.u0) * Wd.CM, (cv - q.v0) * Wd.CM, ch * Wd.CM, Wd.CM, Wd.CM, Wd.CM]);
-    const go = roomFor(a.prev) && (ch < 0 || mayBuild(cp));
+    const go = roomFor(a.prev) && rootsIn(a.prev) && (ch < 0 || mayBuild(cp));
     ghost.material.color.setHex(go ? 0x33dd77 : 0xdd4433);
     shown = `${cu},${cv},${ch}${go ? "" : ",no"}`;
   }

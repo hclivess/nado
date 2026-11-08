@@ -143,6 +143,12 @@ try {
   await drag(card[0], Math.min(890, card[0] + 400));
   ok(await evl(B, "location.href") === base + "/", "a sideways drag starting on the card keeps the page in the game: " + await evl(B, "location.href"));
   ok(await evl(B, "document.getElementById('help').classList.contains('hidden')"), "…and the card is put away");
+  // …for good on this device: it came back after every chat line and every reload ("the popup keeps popping up",
+  // operator 2026-11-09)
+  await send(B, "Page.reload", {});
+  await until(B, "document.getElementById('loading') && document.getElementById('loading').classList.contains('hidden')", 30000);
+  ok(await evl(B, "document.getElementById('help').classList.contains('hidden') && !!document.getElementById('helpPlay')"),
+     "…and after a reload it stays away (its Play button is there for a first visit)");
 
   // 1. straight down at the feet, earth in hand: the block goes under them and they stand on it — it used to be refused
   // with "You are standing there" ("very stupid and only hinders", operator 2026-11-08), and before that it went over

@@ -754,6 +754,10 @@ class World:
                     swept = cur                                     # picked up below, once the block is paid for
                 elif cur not in (0, 5):
                     refused.append([c, "something is already there"]); continue
+                # a cell a built piece reaches into takes no block: a daisy was planted inside the plank floor of the town
+                # pavilion — the cell under its 10 cm edge was "air" (built by hand on the live page, 2026-11-08)
+                if rec and rec.get("boxes") and any(boxes_overlap([k[0] * CM, k[1] * CM, k[2] * CM, CM, CM, CM], o) for o in rec["boxes"]):
+                    refused.append([c, "a built piece is there"]); continue
                 if (b == SAPLING or b in FLOWERS) and (await self.blocks_at([[face, u, v, h - 1]]))[(face, u, v, h - 1)] not in (GRASS, DIRT):
                     refused.append([c, "a plant is planted in earth or grass"]); continue
                 if b == WATER and (cur == WATER or (await self.blocks_at([[face, u, v, h - 1]]))[(face, u, v, h - 1)] in PASSABLE - {WATER}):

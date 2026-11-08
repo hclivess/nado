@@ -44,7 +44,7 @@ ok(/mx_noise_float\(uvw\.xy\.mul\(0\.021\)\)/.test(gm) && /meadow/.test(gm), "th
 const act = land.slice(land.indexOf("function act("), land.indexOf("function wireInput"));
 // never into the player: a block in their own space goes only at their feet, with room above, and lifts them onto it — no
 // longer refused with a message ("only hinders", 2026-11-08); walked in test_a_block_goes_where_you_look…mjs
-ok(/NATURAL_ITEMS\.has\(id\)[\s\S]{0,2000}!roomFor\(a\.prev\)\) return;[\s\S]{0,300}setBlock[\s\S]{0,200}if \(lift\) \{ P\.h = ch \+ 1/.test(act)
+ok(/NATURAL_ITEMS\.has\(id\)[\s\S]{0,2000}!roomFor\(a\.prev\)( \|\| !rootsIn\(a\.prev\))?\) return;[\s\S]{0,300}setBlock[\s\S]{0,200}if \(lift\) \{ P\.h = ch \+ 1/.test(act)
    && /const roomFor = \(c\) => !inBody\(c\) \|\| \(c\[2\] < P\.h \+ FEET && !collides\(P\.u, P\.v, c\[2\] \+ 1\)\)/.test(land),
    "a natural block never goes into the player: at their feet it lifts them onto it, elsewhere in their body it is not placed");
 
@@ -67,6 +67,17 @@ ok(/moon\.intensity = 0\.9 \* \(1 - day\)/.test(skyFn) && /hemi\.intensity = 1\.
 // the page keeps what is left of a cut block (the server's vol) and drops a spent item from the hotbar (2026-11-08)
 ok(land.includes("inv.vol = m.vol || {};") && /hot = hot\.filter\(\(id\) => placeable\(id\) && haveCm3\(id\) > 0\);/.test(land),
    "the page keeps the leftover volume and drops spent items from the hotbar");
+
+// a plant in hand is outlined red (and not placed) unless earth or grass is under it — the world server's rule
+// (land_server.py "a plant is planted in earth or grass"); it showed green floating over another flower (2026-11-08)
+ok(/const rootsIn = [\s\S]{0,300}held !== B\.sapling && !Wd\.FLOWERS\.includes\(held\)[\s\S]{0,200}below === B\.grass \|\| below === B\.dirt/.test(land)
+   && land.includes("const go = roomFor(a.prev) && rootsIn(a.prev)") && land.includes("!roomFor(a.prev) || !rootsIn(a.prev)) return;")
+   && /a plant is planted in earth or grass/.test(readFileSync(join(ROOT, "scripts", "land_server.py"), "utf8")),
+   "a plant is outlined and placed only over earth or grass, as the world server rules");
+
+// …and a cell a built piece reaches into is not empty: the page aims no block there (the server refuses one,
+// test_built_pieces_are_any_size_from_a_centimetre_paid_by_volume.py)
+ok(/&& !pieceIn\(q\);/.test(pc) && /function pieceIn\(\[u, v, h\]\)[\s\S]{0,400}Wd\.boxesOverlap\(cell, o\)/.test(land), "a cell a piece reaches into takes no block");
 
 // 6: the finished picture is colour-graded ("we need professional color grading too"): S-curve, saturation, split toning,
 // a vignette — after tone mapping, before anti-aliasing

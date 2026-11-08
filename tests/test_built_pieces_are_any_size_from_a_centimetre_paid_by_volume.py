@@ -160,6 +160,17 @@ async def main():
     flat = [b[:7] if len(b) == 8 else b for b in pj3["boxes"]]
     check("…and a slope and the plain box it sits in commit differently", S.commitment(PA, bytes.fromhex(pj3["salt"]), pj3["edits"], flat) != pj3["commitment"])
 
+    # a block never goes into a cell a built piece reaches into: a daisy was planted inside the plank floor of the town
+    # pavilion, in the "air" cell under its 10 cm edge (built by hand on the live page, 2026-11-08)
+    rest()
+    pa["items"]["planks"] = pa["items"].get("planks", 0) + 1; pa["items"]["dirt"] = 2
+    added, _, refused = await world.boxes(A["address"], PA, [[500, 500, 20000, 50, 50, 10, PLANKS]], [])
+    u0, v0 = (PA % L.FACE_N) * L.PLOT, (PA // L.FACE_N) * L.PLOT
+    applied, refused, _ = await world.apply(A["address"], [[0, u0 + 5, v0 + 5, 200, 2]])
+    check("earth is refused in a cell a built piece reaches into", added and not applied and refused and "piece" in refused[0][1], (added, applied, refused))
+    applied, refused, _ = await world.apply(A["address"], [[0, u0 + 6, v0 + 5, 200, 2]])
+    check("…and placed in the empty cell beside it", applied and not refused, (applied, refused))
+
     # persistence and the index
     world.flush()
     w3 = S.World(data, "http://127.0.0.1:1", "")
