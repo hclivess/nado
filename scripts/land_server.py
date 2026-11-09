@@ -1009,17 +1009,28 @@ class World:
                 out.setdefault(p, []).append([face, tu, tv, ground + 1, SAPLING])
         return out
 
-    def regrow(self):
-        """Wilderness cells whose time is up go back to the untouched planet: {plot: [[face, u, v, h], ...]}."""
+    REGROW_CLEAR = 8                          # blocks around a player present in which nothing regrows yet
+
+    def regrow(self, present=()):
+        """Wilderness cells whose time is up go back to the untouched planet: {plot: [[face, u, v, h], ...]}.
+        A cell within REGROW_CLEAR columns of a player present (`present`: their [face, u, v, h, ...]) waits until they
+        have gone: the commons once refilled a whole mine shaft around the player standing at its bottom and buried
+        them in rock 10 m down (operator's agent, 2026-11-09) — every column, the shaft above them included."""
         out, now = {}, time.time()
         for p, rec in self.plots.items():
             exp = rec.get("exp")
             if not exp:
                 continue
             face, row, col = plot_coords(p)
+            near = [(pu, pv) for pf, pu, pv, *_ in present if pf == face
+                    and col * PLOT - self.REGROW_CLEAR <= pu < (col + 1) * PLOT + self.REGROW_CLEAR
+                    and row * PLOT - self.REGROW_CLEAR <= pv < (row + 1) * PLOT + self.REGROW_CLEAR]
             for k in [k for k, t in exp.items() if t <= now]:
+                u, v = col * PLOT + k[0], row * PLOT + k[1]
+                if any(abs(u - pu) <= self.REGROW_CLEAR and abs(v - pv) <= self.REGROW_CLEAR for pu, pv in near):
+                    continue                          # someone is working here: it regrows once they have gone
                 exp.pop(k); rec["edits"].pop(k, None); rec["ver"] += 1; self.dirty.add(p)
-                out.setdefault(p, []).append([face, col * PLOT + k[0], row * PLOT + k[1], k[2]])
+                out.setdefault(p, []).append([face, u, v, k[2]])
         return out
 
     # -- FIRE ------------------------------------------------------------------------------------------------------------
@@ -1769,7 +1780,8 @@ def make_app(world, hub, site_origin, wallet_url, secure_cookies=True, shot_page
         while True:
             await asyncio.sleep(5)
             try:
-                back = world.regrow()
+                # (never around a player present: the regrowth buried one at the bottom of their shaft)
+                back = world.regrow([st["pos"] for st in hub.socks.values() if st.get("pos")])
                 if back:
                     await hub.reverts(back)
             except Exception:

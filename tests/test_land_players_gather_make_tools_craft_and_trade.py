@@ -266,7 +266,13 @@ async def main():
     k = (CELLS["leaves"][1] % 16, CELLS["leaves"][2] % 16, CELLS["leaves"][3])
     check("a gathered wilderness cell is set to grow back", k in world.plots[pw].get("exp", {}))
     world.plots[pw]["exp"][k] = 0                                   # its time has come
-    back = world.regrow()
+    # …but not around a player present: the commons refilled a shaft around the player at its bottom and buried them
+    # (2026-11-09); it waits until they have gone
+    here = [0, CELLS["leaves"][1] + 3, CELLS["leaves"][2] - 2, CELLS["leaves"][3] - 10, 0.0]
+    back = world.regrow([here])
+    check("a cell does not grow back around a player still standing near it", pw not in back and k in world.plots[pw]["edits"], back)
+    far = [0, CELLS["leaves"][1] + 40, CELLS["leaves"][2], CELLS["leaves"][3], 0.0]
+    back = world.regrow([far])
     check("…and grows back: the cell returns to the untouched planet", pw in back and k not in world.plots[pw]["edits"], back)
     U, V = COL * 16 + 3, ROW * 16 + 3
     rest()
