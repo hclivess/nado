@@ -65,6 +65,9 @@ Trading exists (a gift; an offer that escrows what it gives and is taken atomica
   and ripens in crop_s (1200 s) × its soil's time, × 0.7 when water lies within 3 columns (a ditch filled from a bucket
   irrigates); the harvest gives the soil's grain and seed. A field's earth is drawn in its soil's colour. Not yet:
   compost and ash, a field going back to grass when left, more crops.
-* Next: 1c bread and a well (#155), then hunting (#156).
+* **1c bread and a well — built** (#155): a quern grinds grain to flour, flour and water bake bread at the campfire;
+  berries and bread are eaten from the bag (breaking takes 0.8 of its time while a meal lasts, up to 30 min; no
+  hunger); a well (cobble, planks, cordage) gives a bucketful on Use, and never runs dry.
+* Next: hunting (#156), then the trading stands (#161).
 
 Order: slice 1 first (one piece at a time, each live before the next), then 2, then the rest as listed.

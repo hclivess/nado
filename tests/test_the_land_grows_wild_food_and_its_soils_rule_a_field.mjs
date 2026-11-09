@@ -9,7 +9,9 @@
  *   3. drawn: a berry bush, wild grain and a sown field are models (no cube), farmland is smooth ground (no crisp cube),
  *      its earth tinted by its soil;
  *   4. nothing from nothing: berries, grain and seed come from the planet's breaking table, the hoe from a recipe of what
- *      bare hands gather; every new name is in all 17 languages.
+ *      bare hands gather; every new name is in all 17 languages;
+ *   5. BREAD AND A WELL (#155): from bare hands, following the rules as a player would, a quern, flour, bread and a well
+ *      are reached; only food is eaten, a meal never punishes, and the well is a placed piece with its own name.
  *
  * Run: node tests/test_the_land_grows_wild_food_and_its_soils_rule_a_field.mjs
  */
@@ -103,6 +105,28 @@ const keys = ["land.i.berries", "land.i.grain", "land.i.seed", "land.t.hoe", "la
 const langs = Object.keys(L10N);
 ok(langs.length === 17 && langs.every((l) => keys.every((k) => L10N[l][k])), `every new name and line is in all 17 languages (${langs.length})`);
 ok(langs.every((l) => L10N[l]["land.tilled"].includes("{s}") && L10N[l]["land.cAimSoil"].includes("{s}")), "…with its placeholder kept");
+
+// 5. bread and a well, reached from bare hands as the X fighter's parts are (its test's loop)
+const have = new Set(), tools = new Set(), stations = new Set();
+const hasClass = (c) => [...tools].some((t) => t === c || R.tools[t].class === c);
+for (let grew = true, n = 0; grew && n++ < 60;) {
+  grew = false;
+  for (const [, rule] of Object.entries(R.breaking)) {
+    if (typeof rule !== "object" || !rule.yields || (rule.needs && !hasClass(rule.needs))) continue;
+    for (const [id] of rule.yields) if (!have.has(id)) { have.add(id); grew = true; }
+  }
+  for (const r of R.recipes) {
+    if (!r.uses.every(([id]) => have.has(id)) || !(r.with || []).every((w) => stations.has(w) || hasClass(w))) continue;
+    for (const [id] of r.makes) { const set = id in R.tools ? tools : id in R.stations ? stations : have; if (!set.has(id)) { set.add(id); grew = true; } }
+  }
+}
+ok(stations.has("quern") && have.has("flour") && have.has("bread") && have.has("well"), "a quern, flour, bread and a well are reached from bare hands");
+ok(Object.keys(R.food.items).every((i) => R.items[i]) && R.food.work < 1 && R.food.work > 0 && !("hunger" in R.food),
+   "only real items are food, and a meal speeds work — there is no hunger to punish");
+ok(R.items.well.places === B.well && R.items.well.unit && W.BLOCKS[B.well].solid, "a well is placed whole, as a piece");
+const keys5 = ["land.i.flour", "land.i.bread", "land.i.well", "land.s.quern", "land.eatIt", "land.fedFor", "land.ate", "land.wellBucket"];
+ok(langs.every((l) => keys5.every((k) => L10N[l][k])) && langs.every((l) => L10N[l]["land.eatIt"].includes("{i}") && L10N[l]["land.fedFor"].includes("{m}")),
+   "bread, the quern, the well and eating speak all 17 languages, placeholders kept");
 
 if (fails) { console.log(`${fails} FAILURES`); process.exit(1); }
 console.log("ALL PASS");

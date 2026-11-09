@@ -5,7 +5,9 @@
  *   1. a hoe in the bag: Use on a meadow cell tills it, and the page says what soil it is (/aim says it too);
  *   2. the seed from the bag goes on the hotbar; Place sows it on the field;
  *   3. it ripens (the fixture brings its time forward; the world server's own loop grows it) and the player sees wheat;
- *   4. Break harvests it: the soil's grain and seed go into the bag; no page errors.
+ *   4. Break harvests it: the soil's grain and seed go into the bag;
+ *   5. BREAD AND A WELL (#155): a well built where the crop stood; Use on it with a bucket draws a bucketful; Eat in the
+ *      bag eats bread and the page says the player is well fed; no page errors.
  *
  * Run:  node tests/test_a_field_is_tilled_sown_and_harvested_in_the_page.mjs   (needs chrome, python3)
  */
@@ -202,6 +204,25 @@ try {
   const after = await bag(), n1 = Number((after.match(/(\d+) × Grain/) || [0, 0])[1]);
   ok(n1 - n0 === R.farming.soil[F.soil].grain, `the harvest gives the soil's grain: ${n1 - n0} (${F.soil} gives ${R.farming.soil[F.soil].grain})`);
   ok(/\d+ × Wheat seed/.test(after), "…and seed to sow again");
+  // 5. a well where the crop stood, a bucket and a loaf
+  await getJ("/fixture/seed?who=owner&items=" + encodeURIComponent(JSON.stringify({ bread: 1, well: 1 })) + "&tools=" + encodeURIComponent(JSON.stringify(["hoe", "bucket"])));
+  const U = R.items.well.unit, well = [(F.u - q.u0) * 100, (F.v - q.v0) * 100, (F.top + 1) * 100, U[0], U[1], U[2], Wd.B.well];
+  const built = await (await fetch(base + "/land/api/boxes", { method: "POST", headers: { "Content-Type": "application/json", Authorization: "Bearer " + token },
+    body: JSON.stringify({ plot: PA, add: [well] }) })).json();
+  ok(built.added === 1, "a well is built where the crop stood: " + JSON.stringify(built.refused || ""));
+  await stand(B, F.u + 2.6, F.v + 0.6, F.top + 1, -Math.PI / 2, -0.2);
+  said = await aimAt("Well", F.top + 1);
+  ok(said.startsWith(`Aiming at Well — ${at}${F.top + 1}`), "the player looks at the well");
+  const w0 = Number(((await bag()).match(/(\d+) × Water/) || [0, 0])[1]);
+  await evl(B, "document.getElementById('tUse').click(), true"); await sleep(1500);
+  await evl(B, "document.getElementById('tUse').click(), true"); await sleep(1500);
+  const w1 = Number(((await bag()).match(/(\d+) × Water/) || [0, 0])[1]);
+  ok(w1 - w0 === 2, `Use on the well with a bucket draws a bucketful, and again (${w0} → ${w1})`);
+  await evl(B, "document.getElementById('tPal').click(), true"); await sleep(600);
+  ok(await evl(B, "(() => { const b = document.querySelector('[data-eat=\"bread\"]'); if (!b) return false; b.click(); return true; })()"), "the bag offers to eat the bread");
+  ok(await until(B, "/^Well fed/.test((document.getElementById('alertBar') || {}).textContent || '')", 8000), "…and eating it says the player is well fed: " + await alert());
+  ok(await until(B, "/Well fed: work goes quicker for \\d+ more min/.test(document.getElementById('palGrid').textContent)", 8000), "…which the bag shows, with the minutes left");
+  await evl(B, "document.getElementById('palClose').click(), true");
   ok(errors.length === 0, "no page errors" + (errors.length ? ": " + errors.join(" | ") : ""));
 } catch (e) {
   ok(false, "harness: " + (e && e.message || e) + "\n" + fxOut.slice(-1500));

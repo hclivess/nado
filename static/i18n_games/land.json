@@ -344,7 +344,16 @@
   "land.tilled": "Tilled: {s}.",
   "land.tillMoist": "Water is near: it ripens sooner.",
   "land.tillSow": "Sow wheat seed on it.",
-  "land.cAimSoil": "Soil: {s}."
+  "land.cAimSoil": "Soil: {s}.",
+  "land.i.flour": "Flour",
+  "land.i.bread": "Bread",
+  "land.i.well": "Well",
+  "land.s.quern": "Quern",
+  "land.b.well": "Well",
+  "land.eatIt": "Eat {i}",
+  "land.fedFor": "Well fed: work goes quicker for {m} more min.",
+  "land.ate": "Well fed: work goes quicker for a while.",
+  "land.wellBucket": "A well is drawn with a bucket — make one at a workbench."
  },
  "cs": {
   "land.notYours": "Pozemek {p} patří někomu jinému. Kupte si pozemek, nebo požádejte jeho vlastníka o pozvání.",
@@ -691,7 +700,16 @@
   "land.tilled": "Zoráno: {s}.",
   "land.tillMoist": "Voda je blízko: dozraje dříve.",
   "land.tillSow": "Zasejte na něj semeno pšenice.",
-  "land.cAimSoil": "Půda: {s}."
+  "land.cAimSoil": "Půda: {s}.",
+  "land.i.flour": "Mouka",
+  "land.i.bread": "Chléb",
+  "land.i.well": "Studna",
+  "land.s.quern": "Žernov",
+  "land.b.well": "Studna",
+  "land.eatIt": "Sníst: {i}",
+  "land.fedFor": "Najedeno: práce jde rychleji ještě {m} min.",
+  "land.ate": "Najedeno: práce chvíli půjde rychleji.",
+  "land.wellBucket": "Ze studny se čerpá vědrem — vyrobte ho na ponku."
  },
  "es": {
   "land.notYours": "La parcela {p} pertenece a otra persona. Compra una parcela o pide a su dueño que te invite.",
@@ -1038,7 +1056,16 @@
   "land.tilled": "Arado: {s}.",
   "land.tillMoist": "Hay agua cerca: madura antes.",
   "land.tillSow": "Siembra semilla de trigo en él.",
-  "land.cAimSoil": "Suelo: {s}."
+  "land.cAimSoil": "Suelo: {s}.",
+  "land.i.flour": "Harina",
+  "land.i.bread": "Pan",
+  "land.i.well": "Pozo",
+  "land.s.quern": "Molino de mano",
+  "land.b.well": "Pozo",
+  "land.eatIt": "Comer {i}",
+  "land.fedFor": "Bien alimentado: trabajas más rápido {m} min más.",
+  "land.ate": "Bien alimentado: trabajas más rápido un rato.",
+  "land.wellBucket": "De un pozo se saca agua con un cubo: fabrica uno en un banco de trabajo."
  },
  "pt": {
   "land.notYours": "O lote {p} pertence a outra pessoa. Compre um lote ou peça ao dono que convide você.",
@@ -1385,7 +1412,16 @@
   "land.tilled": "Lavrado: {s}.",
   "land.tillMoist": "Há água perto: amadurece mais cedo.",
   "land.tillSow": "Semeie semente de trigo nele.",
-  "land.cAimSoil": "Solo: {s}."
+  "land.cAimSoil": "Solo: {s}.",
+  "land.i.flour": "Farinha",
+  "land.i.bread": "Pão",
+  "land.i.well": "Poço",
+  "land.s.quern": "Mó manual",
+  "land.b.well": "Poço",
+  "land.eatIt": "Comer {i}",
+  "land.fedFor": "Bem alimentado: o trabalho anda mais depressa por mais {m} min.",
+  "land.ate": "Bem alimentado: o trabalho anda mais depressa por um tempo.",
+  "land.wellBucket": "De um poço tira-se água com um balde — faça um numa bancada."
  },
  "fr": {
   "land.notYours": "La parcelle {p} appartient à quelqu'un d'autre. Achetez une parcelle ou demandez à son propriétaire de vous inviter.",
@@ -1732,7 +1768,16 @@
   "land.tilled": "Labouré : {s}.",
   "land.tillMoist": "L'eau est proche : il mûrit plus tôt.",
   "land.tillSow": "Semez-y de la semence de blé.",
-  "land.cAimSoil": "Sol : {s}."
+  "land.cAimSoil": "Sol : {s}.",
+  "land.i.flour": "Farine",
+  "land.i.bread": "Pain",
+  "land.i.well": "Puits",
+  "land.s.quern": "Meule à bras",
+  "land.b.well": "Puits",
+  "land.eatIt": "Manger : {i}",
+  "land.fedFor": "Rassasié : le travail va plus vite encore {m} min.",
+  "land.ate": "Rassasié : le travail va plus vite un moment.",
+  "land.wellBucket": "On puise à un puits avec un seau — fabriquez-en un à l'établi."
  },
  "de": {
   "land.notYours": "Grundstück {p} gehört jemand anderem. Kauf dir ein Grundstück oder bitte den Besitzer um eine Einladung.",
@@ -2079,7 +2124,16 @@
   "land.tilled": "Gepflügt: {s}.",
   "land.tillMoist": "Wasser ist nah: es reift früher.",
   "land.tillSow": "Säe Weizensaat darauf.",
-  "land.cAimSoil": "Boden: {s}."
+  "land.cAimSoil": "Boden: {s}.",
+  "land.i.flour": "Mehl",
+  "land.i.bread": "Brot",
+  "land.i.well": "Brunnen",
+  "land.s.quern": "Handmühle",
+  "land.b.well": "Brunnen",
+  "land.eatIt": "{i} essen",
+  "land.fedFor": "Satt: die Arbeit geht noch {m} Min. schneller.",
+  "land.ate": "Satt: die Arbeit geht eine Weile schneller.",
+  "land.wellBucket": "Aus einem Brunnen schöpft man mit einem Eimer — bau einen an der Werkbank."
  },
  "it": {
   "land.notYours": "Il lotto {p} appartiene a qualcun altro. Compra un lotto o chiedi al proprietario di invitarti.",
@@ -2426,7 +2480,16 @@
   "land.tilled": "Arato: {s}.",
   "land.tillMoist": "L'acqua è vicina: matura prima.",
   "land.tillSow": "Semina il seme di frumento.",
-  "land.cAimSoil": "Suolo: {s}."
+  "land.cAimSoil": "Suolo: {s}.",
+  "land.i.flour": "Farina",
+  "land.i.bread": "Pane",
+  "land.i.well": "Pozzo",
+  "land.s.quern": "Macina a mano",
+  "land.b.well": "Pozzo",
+  "land.eatIt": "Mangia: {i}",
+  "land.fedFor": "Sazio: il lavoro va più veloce per altri {m} min.",
+  "land.ate": "Sazio: il lavoro va più veloce per un po'.",
+  "land.wellBucket": "Da un pozzo si attinge con un secchio: costruiscine uno al banco da lavoro."
  },
  "ru": {
   "land.notYours": "Участок {p} принадлежит другому игроку. Купите участок или попросите владельца пригласить вас.",
@@ -2773,7 +2836,16 @@
   "land.tilled": "Вспахано: {s}.",
   "land.tillMoist": "Рядом вода: созреет быстрее.",
   "land.tillSow": "Посейте на нём семена пшеницы.",
-  "land.cAimSoil": "Почва: {s}."
+  "land.cAimSoil": "Почва: {s}.",
+  "land.i.flour": "Мука",
+  "land.i.bread": "Хлеб",
+  "land.i.well": "Колодец",
+  "land.s.quern": "Жернов",
+  "land.b.well": "Колодец",
+  "land.eatIt": "Съесть: {i}",
+  "land.fedFor": "Сыт: работа идёт быстрее ещё {m} мин.",
+  "land.ate": "Сыт: какое-то время работа идёт быстрее.",
+  "land.wellBucket": "Из колодца черпают ведром — сделайте его на верстаке."
  },
  "zh": {
   "land.notYours": "地块 {p} 属于别人。购买一块地，或请它的所有者邀请你。",
@@ -3120,7 +3192,16 @@
   "land.tilled": "已耕作：{s}。",
   "land.tillMoist": "附近有水：成熟更快。",
   "land.tillSow": "在上面播种小麦种子。",
-  "land.cAimSoil": "土壤：{s}。"
+  "land.cAimSoil": "土壤：{s}。",
+  "land.i.flour": "面粉",
+  "land.i.bread": "面包",
+  "land.i.well": "水井",
+  "land.s.quern": "石磨",
+  "land.b.well": "水井",
+  "land.eatIt": "吃{i}",
+  "land.fedFor": "吃饱了：接下来{m}分钟干活更快。",
+  "land.ate": "吃饱了：一段时间内干活更快。",
+  "land.wellBucket": "从井里打水需要水桶——在工作台上做一个。"
  },
  "ja": {
   "land.notYours": "区画 {p} は他の人のものです。区画を購入するか、所有者に招待してもらいましょう。",
@@ -3467,7 +3548,16 @@
   "land.tilled": "耕しました：{s}。",
   "land.tillMoist": "水が近い：早く実ります。",
   "land.tillSow": "小麦の種をまきましょう。",
-  "land.cAimSoil": "土壌：{s}。"
+  "land.cAimSoil": "土壌：{s}。",
+  "land.i.flour": "小麦粉",
+  "land.i.bread": "パン",
+  "land.i.well": "井戸",
+  "land.s.quern": "石臼",
+  "land.b.well": "井戸",
+  "land.eatIt": "{i}を食べる",
+  "land.fedFor": "満腹：あと{m}分、作業が速くなる。",
+  "land.ate": "満腹：しばらく作業が速くなる。",
+  "land.wellBucket": "井戸の水はバケツでくみます — 作業台で作りましょう。"
  },
  "ko": {
   "land.notYours": "구역 {p}은(는) 다른 사람의 땅입니다. 구역을 사거나 소유자에게 초대를 요청하세요.",
@@ -3814,7 +3904,16 @@
   "land.tilled": "갈았습니다: {s}.",
   "land.tillMoist": "물이 가까이 있습니다: 더 빨리 익습니다.",
   "land.tillSow": "그 위에 밀 씨앗을 뿌리세요.",
-  "land.cAimSoil": "토양: {s}."
+  "land.cAimSoil": "토양: {s}.",
+  "land.i.flour": "밀가루",
+  "land.i.bread": "빵",
+  "land.i.well": "우물",
+  "land.s.quern": "맷돌",
+  "land.b.well": "우물",
+  "land.eatIt": "{i} 먹기",
+  "land.fedFor": "배부름: {m}분 더 작업이 빨라집니다.",
+  "land.ate": "배부름: 한동안 작업이 빨라집니다.",
+  "land.wellBucket": "우물물은 양동이로 긷습니다 — 작업대에서 만드세요."
  },
  "ar": {
   "land.notYours": "القطعة {p} ملك لشخص آخر. اشترِ قطعة، أو اطلب من مالكها أن يدعوك.",
@@ -4161,7 +4260,16 @@
   "land.tilled": "حُرثت: {s}.",
   "land.tillMoist": "الماء قريب: ينضج أسرع.",
   "land.tillSow": "ازرع فيه بذور القمح.",
-  "land.cAimSoil": "التربة: {s}."
+  "land.cAimSoil": "التربة: {s}.",
+  "land.i.flour": "دقيق",
+  "land.i.bread": "خبز",
+  "land.i.well": "بئر",
+  "land.s.quern": "رحى",
+  "land.b.well": "بئر",
+  "land.eatIt": "كُل {i}",
+  "land.fedFor": "شبعان: العمل أسرع لمدة {m} دقيقة أخرى.",
+  "land.ate": "شبعان: العمل أسرع لبعض الوقت.",
+  "land.wellBucket": "يُستقى من البئر بدلو — اصنع واحدًا على منضدة العمل."
  },
  "hi": {
   "land.notYours": "प्लॉट {p} किसी और का है। कोई प्लॉट खरीदें, या उसके मालिक से आपको आमंत्रित करने को कहें।",
@@ -4508,7 +4616,16 @@
   "land.tilled": "जोता गया: {s}।",
   "land.tillMoist": "पास में पानी है: जल्दी पकेगा।",
   "land.tillSow": "इस पर गेहूँ का बीज बोएँ।",
-  "land.cAimSoil": "मिट्टी: {s}।"
+  "land.cAimSoil": "मिट्टी: {s}।",
+  "land.i.flour": "आटा",
+  "land.i.bread": "रोटी",
+  "land.i.well": "कुआँ",
+  "land.s.quern": "चक्की",
+  "land.b.well": "कुआँ",
+  "land.eatIt": "{i} खाएँ",
+  "land.fedFor": "पेट भरा: अभी {m} मिनट और काम तेज़ चलेगा।",
+  "land.ate": "पेट भरा: कुछ देर काम तेज़ चलेगा।",
+  "land.wellBucket": "कुएँ से पानी बाल्टी से निकलता है — कार्यबेंच पर एक बनाएँ।"
  },
  "tr": {
   "land.notYours": "{p} arsası başkasına ait. Bir arsa satın al ya da sahibinden seni davet etmesini iste.",
@@ -4855,7 +4972,16 @@
   "land.tilled": "Sürüldü: {s}.",
   "land.tillMoist": "Su yakın: daha erken olgunlaşır.",
   "land.tillSow": "Üzerine buğday tohumu ekin.",
-  "land.cAimSoil": "Toprak: {s}."
+  "land.cAimSoil": "Toprak: {s}.",
+  "land.i.flour": "Un",
+  "land.i.bread": "Ekmek",
+  "land.i.well": "Kuyu",
+  "land.s.quern": "El değirmeni",
+  "land.b.well": "Kuyu",
+  "land.eatIt": "{i} ye",
+  "land.fedFor": "Tok: iş {m} dakika daha hızlı gider.",
+  "land.ate": "Tok: iş bir süre daha hızlı gider.",
+  "land.wellBucket": "Kuyudan kovayla su çekilir — tezgâhta bir tane yapın."
  },
  "id": {
   "land.notYours": "Petak {p} milik orang lain. Beli sebuah petak, atau minta pemiliknya mengundangmu.",
@@ -5202,7 +5328,16 @@
   "land.tilled": "Dibajak: {s}.",
   "land.tillMoist": "Ada air di dekatnya: lebih cepat matang.",
   "land.tillSow": "Taburkan benih gandum di atasnya.",
-  "land.cAimSoil": "Tanah: {s}."
+  "land.cAimSoil": "Tanah: {s}.",
+  "land.i.flour": "Tepung",
+  "land.i.bread": "Roti",
+  "land.i.well": "Sumur",
+  "land.s.quern": "Batu gilingan",
+  "land.b.well": "Sumur",
+  "land.eatIt": "Makan {i}",
+  "land.fedFor": "Kenyang: kerja lebih cepat {m} menit lagi.",
+  "land.ate": "Kenyang: kerja lebih cepat untuk sementara.",
+  "land.wellBucket": "Air sumur ditimba dengan ember — buat satu di meja kerja."
  },
  "vi": {
   "land.notYours": "Mảnh đất {p} thuộc về người khác. Hãy mua một mảnh, hoặc nhờ chủ của nó mời bạn.",
@@ -5549,7 +5684,16 @@
   "land.tilled": "Đã xới: {s}.",
   "land.tillMoist": "Có nước gần: chín sớm hơn.",
   "land.tillSow": "Gieo hạt giống lúa mì lên đó.",
-  "land.cAimSoil": "Đất: {s}."
+  "land.cAimSoil": "Đất: {s}.",
+  "land.i.flour": "Bột mì",
+  "land.i.bread": "Bánh mì",
+  "land.i.well": "Giếng",
+  "land.s.quern": "Cối xay tay",
+  "land.b.well": "Giếng",
+  "land.eatIt": "Ăn {i}",
+  "land.fedFor": "No bụng: làm việc nhanh hơn thêm {m} phút.",
+  "land.ate": "No bụng: làm việc nhanh hơn một lúc.",
+  "land.wellBucket": "Múc nước giếng bằng xô — làm một cái ở bàn chế tác."
  },
  "pl": {
   "land.notYours": "Działka {p} należy do kogoś innego. Kup działkę albo poproś jej właściciela o zaproszenie.",
@@ -5896,6 +6040,15 @@
   "land.tilled": "Zaorano: {s}.",
   "land.tillMoist": "Woda jest blisko: dojrzeje szybciej.",
   "land.tillSow": "Zasiej na nim nasiona pszenicy.",
-  "land.cAimSoil": "Gleba: {s}."
+  "land.cAimSoil": "Gleba: {s}.",
+  "land.i.flour": "Mąka",
+  "land.i.bread": "Chleb",
+  "land.i.well": "Studnia",
+  "land.s.quern": "Żarna",
+  "land.b.well": "Studnia",
+  "land.eatIt": "Zjedz: {i}",
+  "land.fedFor": "Najedzony: praca idzie szybciej jeszcze przez {m} min.",
+  "land.ate": "Najedzony: praca przez chwilę idzie szybciej.",
+  "land.wellBucket": "Wodę ze studni czerpie się wiadrem — zrób je przy stole warsztatowym."
  }
 }

@@ -361,6 +361,21 @@
   "seed": {
    "name": "Wheat seed",
    "places": 72
+  },
+  "flour": {
+   "name": "Flour"
+  },
+  "bread": {
+   "name": "Bread"
+  },
+  "well": {
+   "name": "Well",
+   "places": 74,
+   "unit": [
+    120,
+    120,
+    90
+   ]
   }
  },
  "tools": {
@@ -474,6 +489,9 @@
   },
   "machine_shop": {
    "name": "Machine shop"
+  },
+  "quern": {
+   "name": "Quern"
   }
  },
  "breaking": {
@@ -1115,6 +1133,16 @@
    "yields": [
     [
      "dirt",
+     1
+    ]
+   ]
+  },
+  "74": {
+   "hard": 2.0,
+   "class": "pick",
+   "yields": [
+    [
+     "well",
      1
     ]
    ]
@@ -2942,6 +2970,94 @@
      1
     ]
    ]
+  },
+  {
+   "id": "quern",
+   "makes": [
+    [
+     "quern",
+     1
+    ]
+   ],
+   "uses": [
+    [
+     "stone",
+     6
+    ],
+    [
+     "sticks",
+     2
+    ]
+   ],
+   "with": [
+    "workbench"
+   ]
+  },
+  {
+   "id": "flour",
+   "makes": [
+    [
+     "flour",
+     1
+    ]
+   ],
+   "uses": [
+    [
+     "grain",
+     3
+    ]
+   ],
+   "with": [
+    "quern"
+   ]
+  },
+  {
+   "id": "bread",
+   "makes": [
+    [
+     "bread",
+     2
+    ]
+   ],
+   "uses": [
+    [
+     "flour",
+     2
+    ],
+    [
+     "water",
+     1
+    ]
+   ],
+   "with": [
+    "campfire"
+   ]
+  },
+  {
+   "id": "well",
+   "makes": [
+    [
+     "well",
+     1
+    ]
+   ],
+   "uses": [
+    [
+     "cobble",
+     12
+    ],
+    [
+     "planks",
+     4
+    ],
+    [
+     "cordage",
+     2
+    ]
+   ],
+   "with": [
+    "workbench"
+   ]
   }
  ],
  "wilderness_regrow_s": 900,
@@ -3030,6 +3146,15 @@
    "stony": {
     "till": false
    }
+  }
+ },
+ "food": {
+  "about": "EATING (#155, doc/land-civilisation.md): food is a reward, never a meter that punishes a player who stops playing. Eating one item of food makes work quicker (breaking takes `work` of its time) for its seconds, added to what is left up to max_s. Read by the page (its break bar) and the world server (its work bucket).",
+  "work": 0.8,
+  "max_s": 1800,
+  "items": {
+   "berries": 120,
+   "bread": 900
   }
  }
 }

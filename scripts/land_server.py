@@ -52,7 +52,7 @@ CHALLENGE_TTL = 300
 SESSION_TTL = 7 * 86400
 sid = lambda token: hashlib.blake2b(token.encode(), digest_size=32).hexdigest()   # a session's name on disk (World.sessions)
 FACE_N, PLOT, W, H = L.FACE_N, L.PLOT, L.FACE_N * L.PLOT, 256
-N_BLOCKS = 74                     # static/land-world.js BLOCKS.length (tests/test_the_land_planet_… checks the two agree)
+N_BLOCKS = 75                     # static/land-world.js BLOCKS.length (tests/test_the_land_planet_… checks the two agree)
 DOOR = 37                         # static/land-world.js B.door: a piece that swings open and shut ("door" op)
 THRUSTER, SEAT = 65, 66           # static/land-world.js B.thruster, B.pilotseat: a craft's working parts (FLIGHT, #147)
 SMELTER, ASSEMBLER, GENERATOR = 67, 68, 69   # static/land-world.js: FACTORIES (#148) — machines and their power
@@ -68,6 +68,7 @@ FLOWERS = {58, 59, 60, 61}        # static/land-world.js FLOWERS: picked by hand
 # FOOD AND FARMING (#153, #154; doc/land-civilisation.md): static/land-world.js B.berrybush, wheat (ripe or wild grain),
 # wheatyoung (sown), farmland (tilled). A hoe tills, a seed is sown on farmland and ripens by its soil (RULES "farming").
 BERRYBUSH, WHEAT, WHEATYOUNG, FARMLAND = 70, 71, 72, 73
+WELL = 74                         # static/land-world.js B.well: Use on it with a bucket draws water (#155)
 SWEPT = {34, 35, 51, BERRYBUSH, WHEAT} | FLOWERS   # static/land-world.js SWEPT: pebble, twigs, flax, flowers, wild food — a placed block takes their place
 # THE DEEP (#129, doc/land-core.md): layers below 0, down to DEEP_MIN (static/land-world.js DEEP_MIN), are the deep crust.
 # Nobody owns them — anyone signed in digs and builds there, under an owned plot too — and a dug deep cell never grows
@@ -714,7 +715,8 @@ class World:
         pl = self.player(addr)
         return {"items": {k: n for k, n in sorted(pl["items"].items()) if n > 0}, "tools": sorted(pl["tools"]),
                 "stations": sorted(pl["stations"]), "vol": {k: v for k, v in sorted(pl["vol"].items()) if v > 0},
-                "worn": dict(sorted(pl["worn"].items())), "look": dict(pl["look"])}
+                "worn": dict(sorted(pl["worn"].items())), "look": dict(pl["look"]),
+                "fed": max(0, int(pl.get("fed", 0) - time.time()))}          # seconds of a meal left (#155)
 
     def keep_place(self, addr, pos):
         """Remember where a signed-in player stands ([face, u, v, h, yaw]), written with the player at the next flush."""
@@ -775,6 +777,42 @@ class World:
     def _speed(pl, cls):
         """The best speed among the caller's tools of class `cls` (an iron axe outworks a stone one); 1 by hand."""
         return max([RULES["tools"][t]["speed"] for t in pl["tools"] if t in RULES["tools"] and RULES["tools"][t].get("class") == cls] or [1])
+
+    @staticmethod
+    def fed_work(pl):
+        """EATING (#155): a fed player's work takes RULES food.work of its time while their meal lasts; 1 otherwise."""
+        return RULES["food"]["work"] if pl.get("fed", 0) > time.time() else 1
+
+    def eat(self, who, item):
+        """Eat one of `item` (RULES food.items): work goes quicker for its seconds, added to what is left up to max_s.
+        Food is a reward, never a need (doc/land-civilisation.md)."""
+        F = RULES["food"]
+        if item not in F["items"]:
+            return "that is not food"
+        pl = self.player(who)
+        if pl["items"].get(item, 0) < 1:
+            return f"you have no {RULES['items'][item]['name'].lower()}"
+        pl["items"][item] -= 1
+        if not pl["items"][item]:
+            del pl["items"][item]
+        now = time.time()
+        pl["fed"] = min(now + F["max_s"], max(now, pl.get("fed", 0)) + F["items"][item])
+        self.pdirty.add(who)
+        return None
+
+    async def well(self, who, p, b):
+        """Draw a bucketful of water from well `b` on plot `p` (#155): anyone signed in with a bucket, and a well never runs
+        dry — water anywhere a well is built, not only at a lake."""
+        rec = self.plots.get(p)
+        b = list(b) if isinstance(b, (list, tuple)) else b
+        if not rec or not isinstance(b, list) or b not in rec.get("boxes", []) or b[6] != WELL:
+            return "no such well here"
+        pl = self.player(who)
+        if not self._has_class(pl, "bucket"):
+            return "a well is drawn with a bucket"
+        pl["items"]["water"] = pl["items"].get("water", 0) + 1
+        self.pdirty.add(who)
+        return None
 
     def work(self, who, seconds):
         """Breaking takes time: a bucket of WORK_CAP seconds refilling at 1 s/s. An agent works no faster than a hand."""
@@ -839,7 +877,7 @@ class World:
                 if rule.get("needs") and not self._has_class(pl, rule["needs"]):
                     refused.append([c, f"needs a {RULES['tools'][rule['needs']]['name'].lower()}"]); continue
                 speed = self._speed(pl, rule.get("class"))
-                if not self.work(who, rule["hard"] / speed):
+                if not self.work(who, rule["hard"] / speed * self.fed_work(pl)):
                     refused.append([c, "too fast — breaking takes time (a better tool is quicker)"]); continue
                 yields = rule["yields"]
                 if cur == WHEAT and (await self.blocks_at([[face, u, v, h - 1]]))[(face, u, v, h - 1)] == FARMLAND:
@@ -1274,7 +1312,7 @@ class World:
             rule = RULES["breaking"].get(str(b[6])) or {"hard": 1.0}
             unit = RULES["items"][places[b[6]]].get("unit")
             speed = self._speed(pl, rule.get("class"))
-            if not self.work(who, max(0.05, rule["hard"] * (1 if unit else box_vol(b) / BLOCK_CM3) / speed)):
+            if not self.work(who, max(0.05, rule["hard"] * (1 if unit else box_vol(b) / BLOCK_CM3) / speed * self.fed_work(pl))):
                 refused.append([b, "too fast — taking a piece down takes time"]); continue
             rec["boxes"].remove(b)
             idx.remove(b)
@@ -2052,6 +2090,20 @@ def make_app(world, hub, site_origin, wallet_url, secure_cookies=True, shot_page
             await hub.inv(world, addr)
         return web.json_response({"ok": not err, "error": err, "inventory": world.inv_json(addr)})
 
+    async def eat(request):
+        addr, d = need_addr(request), await request.json()
+        err = world.eat(addr, d.get("item"))
+        if not err:
+            await hub.inv(world, addr)
+        return web.json_response({"ok": not err, "error": err, "inventory": world.inv_json(addr)})
+
+    async def draw_well(request):
+        addr, d = need_addr(request), await request.json()
+        err = await world.well(addr, d.get("plot"), d.get("box"))
+        if not err:
+            await hub.inv(world, addr)
+        return web.json_response({"ok": not err, "error": err, "inventory": world.inv_json(addr)})
+
     async def give(request):
         addr, d = need_addr(request), await request.json()
         err = world.give(addr, d.get("to", ""), d.get("items"))
@@ -2214,6 +2266,14 @@ def make_app(world, hub, site_origin, wallet_url, secure_cookies=True, shot_page
                                         "items": items, "error": err})
                     if not err:
                         await hub.inv(world, addr)
+                elif t in ("eat", "well"):                         # FOOD AND WATER (#155)
+                    if not addr:
+                        await ws.send_json({"t": "done", "req": m.get("req"), "error": "sign in first"})
+                        continue
+                    err = world.eat(addr, m.get("item")) if t == "eat" else await world.well(addr, m.get("plot"), m.get("box"))
+                    await ws.send_json({"t": "done", "req": m.get("req"), "op": t, "error": err})
+                    if not err:
+                        await hub.inv(world, addr)
                 elif t in ("craft", "give", "offer", "accept", "cancel_offer"):
                     if not addr:
                         await ws.send_json({"t": "done", "req": m.get("req"), "error": "sign in first"})
@@ -2256,6 +2316,8 @@ def make_app(world, hub, site_origin, wallet_url, secure_cookies=True, shot_page
         web.get("/land/api/inventory", inventory),
         web.post("/land/api/craft", craft),
         web.post("/land/api/give", give),
+        web.post("/land/api/eat", eat),
+        web.post("/land/api/well", draw_well),
         web.get("/land/api/offers", offers),
         web.post("/land/api/offer", offer),
         web.post("/land/api/accept", accept),

@@ -1044,11 +1044,13 @@ function connect() {
       // whole blocks and refused a piece the leftover would pay for (2026-11-08)
       inv.items = m.items || {}; inv.tools = m.tools || []; inv.stations = m.stations || []; inv.vol = m.vol || {};
       inv.worn = m.worn || {}; inv.look = m.look || { skin: 0, hair: 0 };
+      fedUntil = performance.now() + (m.fed || 0) * 1000;                     // a meal's time left (#155)
       fillHot(); hotbar(); if (bagOpen()) renderBag(); if (!$("wardPanel").classList.contains("hidden")) renderWard();
     } else if (m.t === "offers") {
       offers = m.offers || []; if (bagOpen()) renderBag();
     } else if (m.t === "done") {
       if (m.error) notify(String(m.error));
+      else if (m.op === "eat") notify(T("ate", "Well fed: work goes quicker for a while."));
     } else if (m.t === "set_ok") {
       const plot = net.pending.get(m.req); net.pending.delete(m.req);
       if (m.refused && m.refused.length) {
@@ -1316,6 +1318,10 @@ const bagText = (bag) => Object.entries(bag).map(([id, n]) => `${n} ${esc(nameOf
 // TOOLS BY CLASS: a rule or recipe that needs "an axe" takes any axe (stone or iron), and work goes at the best one's speed —
 // as the world server judges it (scripts/land_server.py _has_class / _speed)
 const hasClass = (cls) => inv.tools.some((t) => t === cls || (RULES.tools[t] && RULES.tools[t].class === cls));
+// EATING (#155): while a meal lasts, breaking takes RULES food.work of its time — the world server's work bucket counts
+// the same (land_server.py fed_work), so the bar and the server agree on when a cell gives
+let fedUntil = 0;
+const fedWork = () => (RULES && RULES.food && performance.now() < fedUntil ? RULES.food.work : 1);
 const toolSpeed = (cls) => Math.max(1, ...inv.tools.filter((t) => RULES.tools[t] && RULES.tools[t].class === cls).map((t) => RULES.tools[t].speed));
 function canMake(r) {
   return (r.with || []).every((w) => hasClass(w) || inv.stations.includes(w))
@@ -1330,6 +1336,9 @@ function renderBag() {
     <h3>${esc(T("have", "You have"))}</h3>
     <div class="chips">${items.length ? items.map(([id, n]) => `<button class="chip${placeable(id) ? " pl" : ""}" data-pick="${id}">${n} × ${esc(nameOf(id))}</button>`).join("") : `<span class="dim">${esc(T("nothingYet", "Nothing yet — pick up the stones and sticks lying on the ground, and pull grass and leaves by hand."))}</span>`}
       ${inv.tools.map((t) => `<span class="chip tool">${esc(nameOf(t))}</span>`).join("")}${inv.stations.map((t) => `<span class="chip tool">${esc(nameOf(t))}</span>`).join("")}</div>
+    ${items.some(([id]) => RULES.food && RULES.food.items[id]) ? `<div class="chips">${items.filter(([id]) => RULES.food.items[id]).map(([id]) =>
+      `<button class="chip pl" data-eat="${id}">${esc(T("eatIt", "Eat {i}", { i: nameOf(id) }))}</button>`).join("")}</div>` : ""}
+    ${performance.now() < fedUntil ? `<div class="dim">${esc(T("fedFor", "Well fed: work goes quicker for {m} more min.", { m: Math.ceil((fedUntil - performance.now()) / 60000) }))}</div>` : ""}
     <div class="dim">${esc(T("bagHint", "Click a block to put it on your hotbar. Tools work as soon as you have them."))}</div>
     <h3>${esc(T("pieceSize", "Piece size"))}</h3>
     <div class="tradeform">${PRESETS.map((x, i) => `<button class="chip pl" data-preset="${i}">${x.join("×")}</button>`).join("")}</div>
@@ -1361,6 +1370,7 @@ function renderBag() {
     </div>`;
   const g = $("palGrid"), req = (m) => net.send(Object.assign({ req: ++net.req }, m));
   g.querySelectorAll("[data-make]").forEach((b) => { b.onclick = () => req({ t: "craft", recipe: b.dataset.make }); });
+  g.querySelectorAll("[data-eat]").forEach((b) => { b.onclick = () => req({ t: "eat", item: b.dataset.eat }); });
   g.querySelectorAll("[data-pick]").forEach((b) => { b.onclick = () => { const id = b.dataset.pick; if (!placeable(id)) return; if (!hot.includes(id)) { if (hot.length < 9) hot.push(id); else hot[slot] = id; } slot = hot.indexOf(id); save(); hotbar(); }; });
   g.querySelectorAll("[data-accept]").forEach((b) => { b.onclick = () => req({ t: "accept", id: b.dataset.accept }); });
   g.querySelectorAll("[data-cancel]").forEach((b) => { b.onclick = () => req({ t: "cancel_offer", id: b.dataset.cancel }); });
@@ -1432,7 +1442,7 @@ function startBreak(c, mouse) {
   if (!rule) return notify(T("cantGather", "Nothing here can be gathered."));
   if (rule.needs && !hasClass(rule.needs)) return notify(T("needsTool", "That needs a {t}.", { t: nameOf(rule.needs) }));
   const speed = rule.class ? toolSpeed(rule.class) : 1;
-  job = { cell: c, need: rule.hard / speed, done: 0, mouse };
+  job = { cell: c, need: rule.hard / speed * fedWork(), done: 0, mouse };
 }
 /** Open or close the door aimed at (Q, or the touch button): it swings a quarter turn on its hinge (land_server.py door). */
 // ---- FIRE (#124): X with a fire-making tool lights the air cell in front of what you aim at, if something beside it
@@ -1486,8 +1496,13 @@ function useDoor() {
   const a = aim();
   if (a && a.box && a.box.b[6] === B.pilotseat) return board({ plot: a.box.plot, box: a.box.b });   // take the seat
   if (a && !a.box && a.hit && net.me && tillAt(a.hit)) return;                 // Use on the ground with a hoe: till it
-  if (!(a && a.box && [B.door, B.chest, B.smelter, B.assembler, B.generator].includes(a.box.b[6]))) { const mine = nearMyCraft(); if (mine) return board({ craft: mine }); }
+  if (!(a && a.box && [B.door, B.chest, B.smelter, B.assembler, B.generator, B.well].includes(a.box.b[6]))) { const mine = nearMyCraft(); if (mine) return board({ craft: mine }); }
   if (a && a.box && a.box.b[6] === B.chest) return openChest(a.box);           // Q uses what you aim at: a door or a chest
+  if (a && a.box && a.box.b[6] === B.well) {                                   // a well: a bucketful, if you have a bucket (#155)
+    if (!net.online || !net.me) return notify(T("signInFirst", "Sign in first."));
+    if (!hasClass("bucket")) return notify(T("wellBucket", "A well is drawn with a bucket — make one at a workbench."));
+    return net.send({ t: "well", plot: a.box.plot, box: a.box.b, req: ++net.req });
+  }
   if (a && a.box && [B.smelter, B.assembler, B.generator].includes(a.box.b[6])) return openMachine(a.box);   // a machine
   if (!a || !a.box || a.box.b[6] !== B.door) return notify(T("noUse", "Aim at a door or a chest to use it."));
   if (!net.online || !net.me) return notify(T("signInFirst", "Sign in first."));
@@ -1609,7 +1624,7 @@ function startTakeDown(bx, mouse) {
   if (rule.needs && !hasClass(rule.needs)) return notify(T("needsTool", "That needs a {t}.", { t: nameOf(rule.needs) }));
   const speed = rule.class ? toolSpeed(rule.class) : 1;
   const unit = unitOf(bx.b[6]);
-  job = { box: bx, need: Math.max(0.05, (rule.hard * (unit ? 1e6 : Wd.boxVolume(bx.b))) / 1e6 / speed), done: 0, mouse };
+  job = { box: bx, need: Math.max(0.05, (rule.hard * (unit ? 1e6 : Wd.boxVolume(bx.b))) / 1e6 / speed * fedWork()), done: 0, mouse };
 }
 function breakTick(dt) {
   const bar = $("breakBar");
@@ -1669,7 +1684,7 @@ function levelTick(now) {
   net.send({ t: "set", cells, req: ++net.req });
   net.pending.set(net.req, c.plot);
   // the next column when this one's work is done: each break is its rule's hardness over the shovel's speed
-  const work = c.ops.filter((o) => o[3] === B.air).reduce((t) => t + 0.6 / toolSpeed("shovel"), 0);
+  const work = c.ops.filter((o) => o[3] === B.air).reduce((t) => t + 0.6 / toolSpeed("shovel") * fedWork(), 0);
   level.at = now + work * 1000 + 120;
 }
 const haveCm3 = (id) => (inv.items[id] || 0) * 1e6 + ((inv.vol || {})[id] || 0);
