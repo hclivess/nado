@@ -33,6 +33,14 @@
   header .hub{margin-left:auto;font-size:12px;font-weight:700;color:var(--dim);text-decoration:none;border:1px solid var(--border);border-radius:999px;padding:6px 12px;background:var(--elev)}
   #hudInfo{position:fixed;top:52px;left:14px;font-size:12.5px;line-height:1.55;z-index:4;text-shadow:0 1px 2px #000;max-width:min(560px,calc(100vw - 28px))}
   #hudInfo .dim{color:#c9d4de}
+  /* HEALTH (#162): hearts in the HUD; a red flash when struck; the death card */
+  #hudHp{color:#ff6b6b;font-weight:800;letter-spacing:1px}
+  #hurtFlash{position:fixed;inset:0;pointer-events:none;z-index:6;opacity:0;transition:opacity .45s;box-shadow:inset 0 0 120px 40px rgba(220,0,0,.75)}
+  #hurtFlash.on{opacity:1;transition:none}
+  #deathCard{position:fixed;inset:0;z-index:40;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:10px;background:rgba(60,0,0,.72);color:#fff;text-align:center;padding:16px}
+  #deathCard.hidden{display:none}
+  #deathCard h2{margin:0;font-size:22px}
+  #deathCard button{font:inherit;font-weight:800;border:0;border-radius:12px;padding:12px 22px;cursor:pointer;background:linear-gradient(135deg,var(--accent),var(--accent-2));color:var(--bg)}
   /* the plot line as a wrapping row with even gaps: inline, a long translation wrapped its button onto a line jammed
      against the text above (Czech, 2026-11-06) */
   #hudPlot{display:flex;flex-wrap:wrap;align-items:center;gap:6px 8px;margin-top:4px}
@@ -132,7 +140,9 @@
   <h1>NADO <span class="a" data-i18n="land.name">Land</span></h1>
   <a class="hub" href="https://nadochain.com/apps.html" data-i18n="land.hub">All apps</a>
 </header>
-<div id="hudInfo"><div id="hudPos"></div><div id="hudPlot"></div></div>
+<div id="hudInfo"><div id="hudPos"></div><div id="hudPlot"></div><div id="hudHp" class="hidden"></div></div>
+<div id="hurtFlash"></div>
+<div id="deathCard" class="hidden" role="dialog"><h2 id="deathBy"></h2><p id="deathWhere" class="dim"></p><button id="deathGo" data-i18n="land.respawn">Wake up</button></div>
 <div id="cross"></div>
 <div id="breakBar" class="hidden"><i></i></div>
 <div id="pickup" aria-live="polite"></div>

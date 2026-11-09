@@ -70,6 +70,7 @@ FLOWERS = {58, 59, 60, 61}        # static/land-world.js FLOWERS: picked by hand
 BERRYBUSH, WHEAT, WHEATYOUNG, FARMLAND = 70, 71, 72, 73
 SEA = 96                          # static/land-world.js SEA: the sea surface layer (animals keep to dry land)
 STAND = 75                        # static/land-world.js B.stand: a trading stand — offers are made and taken at one (#161)
+BED = 48                          # static/land-world.js B.bed: Use on one and a player wakes there after a death (#162)
 WELL = 74                         # static/land-world.js B.well: Use on it with a bucket draws water (#155)
 SWEPT = {34, 35, 51, BERRYBUSH, WHEAT} | FLOWERS   # static/land-world.js SWEPT: pebble, twigs, flax, flowers, wild food — a placed block takes their place
 # THE DEEP (#129, doc/land-core.md): layers below 0, down to DEEP_MIN (static/land-world.js DEEP_MIN), are the deep crust.
@@ -560,7 +561,7 @@ class World:
         return r["cols"]
 
     # -- HUNTING (#156, doc/land-civilisation.md) ---------------------------------------------------------------------
-    async def herd(self, present, dt=0.5):
+    async def herd(self, present, dt=0.5, players=None):
         """One step of the animals near the players present ([face, u, v, h, ...] each): those no player is near go,
         each player's surroundings fill up to per_area (a couple a step, 18-40 m off, on dry land, of the kinds its biome
         holds), and every animal wanders — or flees at full speed from a player within flee metres."""
@@ -585,10 +586,29 @@ class World:
             kind = self.rng.choice(kinds)
             self.animals[self.animal_seq] = {"id": self.animal_seq, "kind": kind, "face": f, "u": u, "v": v, "h": hgt,
                                               "yaw": self.rng.random() * math.tau, "hp": Hn["species"][kind]["hp"],
-                                              "go": now + self.rng.random() * 4, "flee": 0}
-        moved = []
+                                              "go": now + self.rng.random() * 4, "flee": 0,
+                                              "angry": self.rng.random() < Hn["species"][kind].get("angry", 0)}
+        moved, hits = [], []
         for a in self.animals.values():
             sp = Hn["species"][a["kind"]]["speed"]
+            # AGGRESSION (#162): an angry animal — a stag, or one a hunter struck — charges the nearest player within charge
+            # metres and strikes within strike_reach, every strike_every_s
+            dmg = Hn["species"][a["kind"]].get("damage", 0)
+            if (a.get("angry") or a.get("mad", 0) > now) and dmg and players:
+                foe = min(((math.hypot(q[1] - a["u"], q[2] - a["v"]), who, q) for who, q in players if q and q[0] == a["face"]),
+                          default=None, key=lambda x: x[0])
+                if foe and foe[0] < Hn["charge"]:
+                    a["yaw"] = math.atan2(foe[2][1] - a["u"], foe[2][2] - a["v"])
+                    if foe[0] <= Hn["strike_reach"] and abs(foe[2][3] - a["h"]) < 2.5:
+                        if now >= a.get("bite", 0):
+                            a["bite"] = now + Hn["strike_every_s"]
+                            hits.append((foe[1], dmg, a["kind"]))
+                        continue                                  # at the player: it stands and strikes
+                    step = sp * dt
+                    nu, nv = a["u"] + math.sin(a["yaw"]) * step, a["v"] + math.cos(a["yaw"]) * step
+                    if 0 <= nu < W and 0 <= nv < W:
+                        moved.append((a, nu, nv))
+                    continue
             threat = min(((math.hypot(q[1] - a["u"], q[2] - a["v"]), q) for q in present if q[0] == a["face"]), default=(1e9, None), key=lambda x: x[0])
             if threat[0] < Hn["flee"] or a["flee"] > now:
                 if threat[1] is not None:
@@ -610,10 +630,53 @@ class World:
                 a["yaw"] += math.pi
                 continue
             a["u"], a["v"], a["h"] = nu, nv, hgt
+        return hits
 
     def animals_near(self, pos, r):
-        return [[a["id"], a["kind"], round(a["u"], 2), round(a["v"], 2), round(a["h"], 2), round(a["yaw"], 2)]
+        now = time.time()
+        return [[a["id"], a["kind"], round(a["u"], 2), round(a["v"], 2), round(a["h"], 2), round(a["yaw"], 2),
+                 1 if a.get("angry") or a.get("mad", 0) > now else 0]
                 for a in self.animals.values() if a["face"] == pos[0] and abs(a["u"] - pos[1]) < r and abs(a["v"] - pos[2]) < r]
+
+    # -- HEALTH, DEATH AND RESPAWN (#162) -----------------------------------------------------------------------------
+    def hurt(self, who, dmg, by):
+        """`who` takes `dmg` from `by` (an animal's kind). Returns ("hurt", hp), ("died", bed) — the bag is kept, health
+        is full again and a few seconds of grace follow — or None while in grace."""
+        Hh, pl, now = RULES["health"], self.player(who), time.time()
+        if pl.get("grace", 0) > now:
+            return None
+        pl["hp"] = pl.get("hp", Hh["max"]) - dmg
+        pl["hurt_at"] = now
+        self.pdirty.add(who)
+        if pl["hp"] > 0:
+            return ("hurt", pl["hp"])
+        pl["hp"], pl["grace"] = Hh["max"], now + Hh["grace_s"]
+        pl["deaths"] = pl.get("deaths", 0) + 1
+        if pl.get("bed"):
+            pl["pos"] = pl["bed"][:4] + [0.0]; pl["pos_at"] = int(now)
+        return ("died", pl.get("bed"))
+
+    def heal(self, now=None):
+        """Players nothing has hurt for calm_s get a point back every regen_s, up to max. Returns who changed."""
+        Hh, now, out = RULES["health"], time.time() if now is None else now, []
+        for who, pl in self.players.items():
+            hp = pl.get("hp", Hh["max"])
+            if hp >= Hh["max"] or now - pl.get("hurt_at", 0) < Hh["calm_s"] or now - pl.get("heal_at", 0) < Hh["regen_s"]:
+                continue
+            pl["hp"], pl["heal_at"] = hp + 1, now
+            self.pdirty.add(who); out.append(who)
+        return out
+
+    def bed(self, who, p, b):
+        """Use on a bed (#162): the player wakes there after a death. The bed must stand; a bed taken down wakes no one."""
+        rec = self.plots.get(p)
+        b = list(b) if isinstance(b, (list, tuple)) else b
+        if not rec or not isinstance(b, list) or b not in rec.get("boxes", []) or b[6] != BED:
+            return "no such bed here"
+        fc, fr = p % FACE_N, (p // FACE_N) % FACE_N
+        self.player(who)["bed"] = [plot_coords(p)[0], fc * PLOT + (b[0] + b[3] / 2) / 100, fr * PLOT + (b[1] + b[4] / 2) / 100, (b[2] + b[5]) / 100, p, b]
+        self.pdirty.add(who)
+        return None
 
     def hunt(self, who, aid, pos):
         """A strike at animal `aid` from `pos` (where the hunter stands): a spear within its reach, else a bow within its
@@ -646,7 +709,10 @@ class World:
             if not pl["items"][spec["ammo"]]:
                 del pl["items"][spec["ammo"]]
         a["hp"] -= spec["damage"]
-        a["flee"] = time.time() + 8                          # struck, it runs
+        if Hn["species"][a["kind"]].get("damage", 0):         # struck, a kind that can fight back turns on the hunter (#162)
+            a["mad"] = time.time() + 20
+        else:
+            a["flee"] = time.time() + 8                       # struck, it runs
         self.pdirty.add(who)
         if a["hp"] > 0:
             return {"hit": a["kind"], "killed": None, "drops": []}, None
@@ -829,7 +895,8 @@ class World:
         return {"items": {k: n for k, n in sorted(pl["items"].items()) if n > 0}, "tools": sorted(pl["tools"]),
                 "stations": sorted(pl["stations"]), "vol": {k: v for k, v in sorted(pl["vol"].items()) if v > 0},
                 "worn": dict(sorted(pl["worn"].items())), "look": dict(pl["look"]),
-                "fed": max(0, int(pl.get("fed", 0) - time.time()))}          # seconds of a meal left (#155)
+                "fed": max(0, int(pl.get("fed", 0) - time.time())),          # seconds of a meal left (#155)
+                "hp": pl.get("hp", RULES["health"]["max"]), "hp_max": RULES["health"]["max"]}   # health (#162)
 
     def keep_place(self, addr, pos):
         """Remember where a signed-in player stands ([face, u, v, h, yaw]), written with the player at the next flush."""
@@ -1978,6 +2045,21 @@ class Hub:
             except Exception:
                 pass
 
+    async def hurt(self, world, who, dmg, by):
+        """A player struck (#162): their sockets are told their health, or that they died and where they wake."""
+        res = world.hurt(who, dmg, by)
+        if not res:
+            return None
+        msg = {"t": "hurt", "hp": res[1], "by": by} if res[0] == "hurt" else {"t": "died", "by": by, "bed": res[1][:4] if res[1] else None}
+        for ws, st in list(self.socks.items()):
+            if st["who"] == who:
+                try:
+                    await ws.send_json(msg)
+                except Exception:
+                    pass
+        await self.inv(world, who)
+        return res
+
     def where(self, world, addr):
         """Where a player stands: their open page's place, else the place the world server kept for them."""
         return next((st["pos"] for st in self.socks.values() if st.get("who") == addr and st.get("pos")), None) or (world.player(addr).get("pos") if addr else None)
@@ -2113,7 +2195,13 @@ def make_app(world, hub, site_origin, wallet_url, secure_cookies=True, shot_page
         while True:
             await asyncio.sleep(0.5)
             try:
-                await world.herd([st["pos"] for st in hub.socks.values() if st.get("pos")])
+                socks = [st for st in hub.socks.values() if st.get("pos")]
+                # the signed-in ones can be charged (#162); a visitor is seen by the animals, never hurt
+                hits = await world.herd([st["pos"] for st in socks], players=[(st["who"], st["pos"]) for st in socks if st["who"]])
+                for who, dmg, by in hits or []:
+                    await hub.hurt(world, who, dmg, by)
+                for who in world.heal():
+                    await hub.inv(world, who)
             except Exception:
                 pass
 
@@ -2280,6 +2368,11 @@ def make_app(world, hub, site_origin, wallet_url, secure_cookies=True, shot_page
         if not err:
             await hub.inv(world, addr)
         return web.json_response({"ok": not err, "error": err, "inventory": world.inv_json(addr)})
+
+    async def bed(request):
+        addr, d = need_addr(request), await request.json()
+        err = world.bed(addr, d.get("plot"), d.get("box"))
+        return web.json_response({"ok": not err, "error": err})
 
     async def hunt(request):
         addr, d = need_addr(request), await request.json()
@@ -2469,6 +2562,9 @@ def make_app(world, hub, site_origin, wallet_url, secure_cookies=True, shot_page
                     await ws.send_json(dict(res or {}, t="hunt", req=m.get("req"), error=err))
                     if res:                                         # game in the bag, or an arrow spent: the bag changed
                         await hub.inv(world, addr)
+                elif t == "bed":                                    # #162: wake here after a death
+                    err = world.bed(addr, m.get("plot"), m.get("box")) if addr else "sign in first"
+                    await ws.send_json({"t": "done", "req": m.get("req"), "op": "bed", "error": err})
                 elif t in ("eat", "well"):                         # FOOD AND WATER (#155)
                     if not addr:
                         await ws.send_json({"t": "done", "req": m.get("req"), "error": "sign in first"})
@@ -2522,6 +2618,7 @@ def make_app(world, hub, site_origin, wallet_url, secure_cookies=True, shot_page
         web.post("/land/api/give", give),
         web.post("/land/api/eat", eat),
         web.post("/land/api/hunt", hunt),
+        web.post("/land/api/bed", bed),
         web.get("/land/api/animals", animals),
         web.post("/land/api/well", draw_well),
         web.get("/land/api/offers", offers),

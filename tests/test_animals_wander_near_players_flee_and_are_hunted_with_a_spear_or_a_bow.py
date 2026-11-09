@@ -96,10 +96,11 @@ async def main():
     check("animals come to where a player is, up to per_area", 0 < len(near) <= HN["per_area"], len(near))
     check("…come from 18-40 m off, not out of thin air at the player's feet", all(dist(a, pos) > 10 for a in near), [round(dist(a, pos)) for a in near])
     r = await (await c.get("/land/api/animals", params={"face": "0", "u": str(pos[1]), "v": str(pos[2])})).json()
-    check("anyone sees the animals near a place", len(r["animals"]) == len(world.animals) and all(len(x) == 6 for x in r["animals"]), r)
+    check("anyone sees the animals near a place", len(r["animals"]) == len(world.animals) and all(len(x) == 7 for x in r["animals"]), r)
 
     # ---- they run from a player -------------------------------------------------------------------------------------
     a = near[0]
+    a["angry"] = False                                             # (a stag would charge instead: #162, its own test)
     a["u"], a["v"], a["go"], a["flee"] = pos[1] + 4, pos[2], 0, 0
     d0 = dist(a, pos)
     for _ in range(4):

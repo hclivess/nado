@@ -39,6 +39,58 @@ Trading exists (a gift; an offer that escrows what it gives and is taken atomica
 * **Prices in NADO** (offers paid in coin instead of items) touch real coins and the chain's escrow: they come after
   item-for-item trade works world-wide, and only with the operator's go-ahead.
 
+## Currencies and value: supply and demand, never a fixed price
+
+The operator, 2026-11-09: *"we need currencies of all types so we need a flexible value system based on supply and
+demand"*.
+
+* **Anything can be money.** Every item is priced in every other; a market finds out which ones people use as money.
+* **Commodity money first**: salt, shells, grain — whatever a place trades most; then **coins**: copper, silver and gold
+  coins struck at a mint (a station) from metal a player mined, each coin a fixed weight of its metal, so the supply of
+  coins is the supply of ore — nobody issues them from nothing. Later **notes**: a bank (with writing and trust) issues
+  paper redeemable for the coins it holds, and its notes are worth what the market thinks of the bank.
+* **Price discovery**: every offer taken at a stand is a trade on the record (what for what, where, when). The going
+  rate of X in Y at a market is the volume-weighted ratio of its recent trades of X for Y, older trades weighing less;
+  where X and Y never trade directly, through the item that links them best. The market's board shows each item's
+  value in the unit the player picks (coins, salt, iron…), the open offers as bids and asks, and how the rate moved.
+  Scarcity and plenty move prices by themselves: a rush on iron raises iron's rate in every unit at that market.
+* **Markets stay local** (stands, then post, telegraph, internet): two markets can price the same thing differently, and
+  carrying goods from the cheap one to the dear one is a trade in itself.
+* **NADO is in the game** (operator: *"of course nado and nft marketplace will be in the game"*): an offer at a stand can
+  ask NADO, settled through the chain's own escrow (the OTC/HTLC machinery that already moves real coins), never through
+  the world server's bookkeeping — the coins are real. Plots already are titles sold for NADO.
+* **NFTs in the game**: plots are titles already; a unique made thing (a named sword, a craft, a building's blueprint)
+  can be minted as an NFT and traded on the existing NFT marketplace, and shown in the world as what it is.
+
+## Research: knowledge you can trade (proposed)
+
+The operator: *"i was also considering research but idk that might be stupid"*. Proposed, to be confirmed:
+
+* not a timer: a new tech (bronze, steel, the mint, the telegraph, the internet…) is unlocked by a **research project**
+  at a study — real samples of its inputs and some work, consumed — and the result is a **book**;
+* a book is an item: reading it teaches its recipe to the reader; it can be copied (paper and ink) and sold at a stand,
+  so the first to discover something can sell the knowledge, and a town that researches becomes a place people travel to;
+* the stone age stays open to all (no wall for a new player); the internet later spreads knowledge everywhere at once.
+
+## NPCs, quests and a touch of the MMO (proposed)
+
+The operator, 2026-11-09: *"we may need npcs and quests and move this a little towards world of warcraft as well"*.
+The genre's mechanics, in this world's own names and look (no other game's characters, places or art):
+
+* **NPCs**: people of the world, kept by the world server like the animals — in the town and later in villages: a
+  quest giver (a mark over their head when they have work), a merchant who keeps a trading stand (buys and sells at the
+  market's going rate, so NPCs feed the economy instead of fixing prices), a smith and a farmer who teach recipes (a
+  book, with research), a guard; they walk set rounds and talk in the player's language.
+* **Quests**, generated from the world as it is, so they never run out: gather (bring 10 grain), hunt (three boar from
+  the eastern wood), deliver (carry this crate to the market at …), build (a well in the village square), escort, and
+  chains that teach the tech ladder step by step — the first hour of a new player is a quest chain from bare hands to the
+  bloomery. A quest log in the bag; rewards in coins, items, books and experience.
+* **Experience and levels** (by doing: hunting, farming, smithing, building each level up and work a little quicker or
+  yield a little more), and a character level for quests; titles earned.
+* **Danger by place**: deeper woods and caves hold tougher, aggressive game (the stag is the first); later creatures of
+  the deep for groups; loot by rarity.
+* **Group play**: a party shares a quest and its reward; a party finder at the town board.
+
 ## The ladder
 
 | era | slice | what the player gets |
@@ -75,6 +127,10 @@ Trading exists (a gift; an offer that escrows what it gives and is taken atomica
 * **markets, part 1 — built** (#161): the trading stand; offers made and taken at stands, seen within 64 m (a market),
   gifts handed over in person (8 m), the market keeps 5% of what the maker receives. Still open: tools that wear, food that
   spoils, decay; then post, telegraph and the internet widening a market.
-* Next: aggressive deer, death and respawn (#162); ballistics, a knife, carpentry tools (#157).
+* **aggressive deer, death and respawn — built** (#162): stags charge and strike, any deer or boar struck fights back;
+  health 20 in the HUD, regenerating; death shows what killed you; you wake at the bed you used, or the landing; the bag
+  is kept.
+* Next: currencies and supply-and-demand prices (#163), NPCs and quests (#165), ballistics, a knife, carpentry (#157);
+  research (#164) waits for the operator.
 
 Order: slice 1 first (one piece at a time, each live before the next), then 2, then the rest as listed.

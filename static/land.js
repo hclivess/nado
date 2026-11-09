@@ -1045,12 +1045,14 @@ function connect() {
       inv.items = m.items || {}; inv.tools = m.tools || []; inv.stations = m.stations || []; inv.vol = m.vol || {};
       inv.worn = m.worn || {}; inv.look = m.look || { skin: 0, hair: 0 };
       fedUntil = performance.now() + (m.fed || 0) * 1000;                     // a meal's time left (#155)
+      showHp(m.hp, m.hp_max);
       fillHot(); hotbar(); if (bagOpen()) renderBag(); if (!$("wardPanel").classList.contains("hidden")) renderWard();
     } else if (m.t === "offers") {
       offers = m.offers || []; if (bagOpen()) renderBag();
     } else if (m.t === "done") {
       if (m.error) notify(String(m.error));
       else if (m.op === "eat") notify(T("ate", "Well fed: work goes quicker for a while."));
+      else if (m.op === "bed") notify(T("bedSet", "Your bed: you will wake here."));
     } else if (m.t === "set_ok") {
       const plot = net.pending.get(m.req); net.pending.delete(m.req);
       if (m.refused && m.refused.length) {
@@ -1070,6 +1072,11 @@ function connect() {
       for (const [id, r] of others) if (!seen.has(id)) { scene.remove(r.mesh); others.delete(id); }
       craftsSeen(m.crafts);
       animalsSeen(m.animals);
+    } else if (m.t === "hurt") {
+      // struck (#162): the hearts drop and the screen flashes red
+      showHp(m.hp); const f = $("hurtFlash"); f.classList.add("on"); setTimeout(() => f.classList.remove("on"), 120);
+    } else if (m.t === "died") {
+      died(m.by, m.bed);
     } else if (m.t === "hunt") {
       // the strike's answer: a miss the world server explains, a hit (it runs), or game for the bag
       if (m.error === "too far away") notify(T("huntFar", "Too far — get closer, or use a bow."));
@@ -1077,7 +1084,9 @@ function connect() {
       else if (m.error === "hunting needs a spear or a bow") notify(T("huntNeeds", "Hunting needs a spear or a bow."));
       else if (m.error && m.error !== "too fast" && m.error !== "it is gone") notify(String(m.error));
       else if (m.killed) notify(T("huntKilled", "You hunted a {a}.", { a: animalName(m.killed) }));
-      else if (m.hit) notify(T("huntHit", "A hit — the {a} runs!", { a: animalName(m.hit) }));
+      // a deer or a boar struck turns on the hunter (#162); a rabbit runs
+      else if (m.hit) notify((RULES.hunting.species[m.hit] || {}).damage ? T("huntHitFight", "A hit — the {a} turns on you!", { a: animalName(m.hit) })
+                                                                          : T("huntHit", "A hit — the {a} runs!", { a: animalName(m.hit) }));
     } else if (m.t === "machine") {
       if (machine && m.plot === machine.plot) renderMachine(m);
     } else if (m.t === "craft_ok") {
@@ -1181,14 +1190,15 @@ function avatar(seed, look) {
 // ---- ANIMALS (#156, "hunting", operator 2026-11-09): the world server keeps them near players (land_server.py herd) and
 // sends where each is with the players near; the page draws each kind — a deer, a boar, a rabbit — glides it to where
 // the server says, stands it on the drawn ground, and swings its legs while it moves. Break on one under the crosshair
-// strikes it with a spear (close) or a bow (far, an arrow each).
+// strikes it with a spear (close) or a bow (far, an arrow each). A STAG (antlers) charges a player who comes near, and
+// any deer or boar struck fights back (#162: "add aggressive deer and death/respawn mechanism", operator 2026-11-09).
 const animals = new Map();                        // id -> { kind, mesh, legs, u, v, h, yaw, cu, cv, cyaw, gh, moving }
 const ANIMAL_LOOK = {
   deer: { body: 0x8a5a33, belly: 0xd9c3a0, len: 1.15, high: 0.85, girth: 0.32, head: 0.18, neck: 0.45 },
   boar: { body: 0x4b3b31, belly: 0x5e4c40, len: 0.95, high: 0.5, girth: 0.34, head: 0.22, neck: 0.12 },
   rabbit: { body: 0x9a8a78, belly: 0xe8e0d4, len: 0.3, high: 0.16, girth: 0.13, head: 0.1, neck: 0.06 },
 };
-function animalMesh(kind, id) {
+function animalMesh(kind, angry) {
   const L = ANIMAL_LOOK[kind] || ANIMAL_LOOK.deer, g = new THREE.Group(), legs = [];
   const mat = (col) => new THREE.MeshLambertMaterial({ color: col });
   const put = (geo, col, x, y, z, parent = g) => { const m = new THREE.Mesh(geo, mat(col)); m.position.set(x, y, z); parent.add(m); return m; };
@@ -1206,7 +1216,7 @@ function animalMesh(kind, id) {
   if (kind === "rabbit") for (const s of [-1, 1]) { const e = put(new THREE.CapsuleGeometry(0.025, 0.14, 4, 8), L.body, s * 0.04, hy + 0.12, hz - 0.03); e.rotation.z = s * 0.2; }
   if (kind === "deer") {
     for (const s of [-1, 1]) put(new THREE.ConeGeometry(0.05, 0.12, 8), L.body, s * L.head * 0.7, hy + L.head * 0.6, hz - L.head * 0.4);       // ears
-    if (id % 2) for (const s of [-1, 1]) {                                                                                                   // a stag's antlers
+    if (angry) for (const s of [-1, 1]) {                                                                                                    // a stag's antlers: it charges (#162)
       const a = put(new THREE.CylinderGeometry(0.015, 0.025, 0.4, 6), 0xcbb48c, s * 0.08, hy + 0.32, hz - 0.08); a.rotation.z = -s * 0.5;
       const b = put(new THREE.CylinderGeometry(0.01, 0.015, 0.18, 6), 0xcbb48c, s * 0.2, hy + 0.42, hz); b.rotation.x = 0.6;
     }
@@ -1222,10 +1232,10 @@ function animalMesh(kind, id) {
 }
 function animalsSeen(list) {
   const seen = new Set();
-  for (const [id, kind, u, v, h, yaw] of list || []) {
+  for (const [id, kind, u, v, h, yaw, angry] of list || []) {
     seen.add(id);
     let r = animals.get(id);
-    if (!r) { const m = animalMesh(kind, id); r = { kind, mesh: m.g, legs: m.legs, cu: u, cv: v, cyaw: yaw, gh: h, phase: Math.random() * 6 }; scene.add(r.mesh); animals.set(id, r); }
+    if (!r) { const m = animalMesh(kind, angry); r = { kind, mesh: m.g, legs: m.legs, cu: u, cv: v, cyaw: yaw, gh: h, phase: Math.random() * 6 }; scene.add(r.mesh); animals.set(id, r); }
     r.moving = Math.hypot(u - (r.u ?? u), v - (r.v ?? v)) > 0.01;
     Object.assign(r, { u, v, h, yaw });
   }
@@ -1265,6 +1275,34 @@ function animalAimed(reach) {
     if (miss < Math.max(L.len * 0.55, L.girth + 0.15) && (!best || t < best.d)) best = { id, kind: r.kind, d: t };
   }
   return best;
+}
+// ---- HEALTH, DEATH AND RESPAWN (#162): the world server keeps a player's health; the page shows it as hearts, flashes
+// when struck, and on a death shows what killed them, then wakes them at their bed (Use on a bed) or at the landing.
+// The bag is kept.
+let hpMax = 20;
+function showHp(hp, max) {
+  if (max) hpMax = max;
+  const el = $("hudHp");
+  if (!el || hp == null) return;
+  el.classList.toggle("hidden", !net.me);
+  const full = Math.max(0, Math.ceil(hp / 2)), all = Math.ceil(hpMax / 2);
+  el.textContent = "♥".repeat(full) + "♡".repeat(Math.max(0, all - full)) + ` ${hp}/${hpMax}`;
+}
+let wakeAt = null;
+function died(by, bed) {
+  wakeAt = bed || null;
+  $("deathBy").textContent = T("diedBy", "You were killed by a {a}.", { a: animalName(by) });
+  $("deathWhere").textContent = bed ? T("wakeBed", "You wake at your bed.") : T("wakeLanding", "You wake at the landing — use a bed to wake there instead.");
+  if (document.pointerLockElement) document.exitPointerLock();
+  $("deathCard").classList.remove("hidden");
+}
+function wakeUp() {
+  $("deathCard").classList.add("hidden");
+  if (wakeAt) { [P.face, P.u, P.v] = [wakeAt[0], wakeAt[1] + 1.2, wakeAt[2]]; }
+  else { [P.face, P.u, P.v, P.yaw] = townSpawn(); }
+  P.h = groundAt(P.face, P.u, P.v); P.vu = P.vv = P.vh = 0; P.eyeH = P.h;
+  save();
+  if (!touch) lockPointer();                                // the button's own click: back to play at once
 }
 const animalName = (k) => T("a." + k, { deer: "deer", boar: "boar", rabbit: "rabbit" }[k] || k);
 /** Break on an animal: a strike, if there is a weapon that reaches it (the world server judges it again). */
@@ -1628,8 +1666,12 @@ function useDoor() {
   const a = aim();
   if (a && a.box && a.box.b[6] === B.pilotseat) return board({ plot: a.box.plot, box: a.box.b });   // take the seat
   if (a && !a.box && a.hit && net.me && tillAt(a.hit)) return;                 // Use on the ground with a hoe: till it
-  if (!(a && a.box && [B.door, B.chest, B.smelter, B.assembler, B.generator, B.well].includes(a.box.b[6]))) { const mine = nearMyCraft(); if (mine) return board({ craft: mine }); }
+  if (!(a && a.box && [B.door, B.chest, B.smelter, B.assembler, B.generator, B.well, B.bed].includes(a.box.b[6]))) { const mine = nearMyCraft(); if (mine) return board({ craft: mine }); }
   if (a && a.box && a.box.b[6] === B.chest) return openChest(a.box);           // Q uses what you aim at: a door or a chest
+  if (a && a.box && a.box.b[6] === B.bed) {                                    // a bed: wake here after a death (#162)
+    if (!net.online || !net.me) return notify(T("signInFirst", "Sign in first."));
+    return net.send({ t: "bed", plot: a.box.plot, box: a.box.b, req: ++net.req });
+  }
   if (a && a.box && a.box.b[6] === B.well) {                                   // a well: a bucketful, if you have a bucket (#155)
     if (!net.online || !net.me) return notify(T("signInFirst", "Sign in first."));
     if (!hasClass("bucket")) return notify(T("wellBucket", "A well is drawn with a bucket — make one at a workbench."));
@@ -2090,6 +2132,7 @@ function wireInput(canvas) {
   $("palClose").onclick = () => palette(false);
   $("chestClose").onclick = () => { $("chestPanel").classList.add("hidden"); chest = null; };
   $("machClose").onclick = () => { $("machPanel").classList.add("hidden"); machine = null; };
+  $("deathGo").onclick = () => wakeUp();                // the death card (#162)
   $("wardClose").onclick = () => wardrobe(false);
   $("wardOpen").onclick = () => { palette(false); wardrobe(true); };
 }

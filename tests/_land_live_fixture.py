@@ -11,6 +11,8 @@ under /land/) and a fake exec node (/exec/*) that says OWNER holds plot PA and h
                                 crafting would have given)
   GET /fixture/animal?kind=&u=&v=  -> the herd held still (its loop stopped: nothing wanders, flees, comes or goes)
                                 and one animal of that kind standing at (u, v) on face 0 -> {id}; a hunt can aim at it
+  GET /fixture/hurt?dmg=&by=  -> OWNER is struck for dmg by an animal of kind `by`, as the herd would (land_server
+                                Hub.hurt): their pages hear "hurt", or "died" and where they wake
   GET /fixture/ripen         -> every sown crop and planted sapling is due now: the world server's own ecology loop
                                 grows them on its next tick (a field's twenty minutes, without the wait)
 """
@@ -105,6 +107,10 @@ async def main():
                                            "hp": S.RULES["hunting"]["species"][kind]["hp"], "go": 1e18, "flee": 0}
         return web.json_response({"id": world.animal_seq})
 
+    async def hurt(req):
+        res = await hub.hurt(world, OWNER["address"], int(req.query["dmg"]), req.query.get("by", "deer"))
+        return web.json_response({"res": res and [res[0], res[1] if res[0] == "hurt" else (res[1] or [])[:4]]})
+
     async def ripen(req):
         n = 0
         for rec in world.plots.values():
@@ -124,7 +130,8 @@ async def main():
     app.add_routes([web.get("/", page), web.get("/protocol.js", proto), web.get("/exec/assets", assets),
                     web.get("/exec/asset", asset), web.get("/exec/view", view), web.get("/fixture/owner_token", owner_token),
                     web.get("/fixture/agent_build", agent_build), web.get("/fixture/plot", plot), web.get("/fixture/seed", seed),
-                    web.get("/fixture/ripen", ripen), web.get("/fixture/animal", animal)])
+                    web.get("/fixture/ripen", ripen), web.get("/fixture/animal", animal),
+                    web.get("/fixture/hurt", hurt)])
     app.router.add_static("/static", STATIC)
     app.router.add_route("*", "/{tail:.*}", empty)
     runner = web.AppRunner(app); await runner.setup()

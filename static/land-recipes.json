@@ -3365,7 +3365,7 @@
   }
  },
  "hunting": {
-  "about": "HUNTING (#156, doc/land-civilisation.md): animals wander the wilderness near players — the world server keeps them (scripts/land_server.py herd): up to per_area within area metres of each player, spawned 18-40 m away on dry land by the biome's kinds, wandering, and fleeing at full speed from a player within flee metres; gone when no player is within keep metres. A weapon strikes one within its reach (a spear close, a bow far, spending an arrow); a strike costs strike_s of work; at 0 hp it drops its items into the hunter's bag. Animals only — weapons never touch a player.",
+  "about": "HUNTING (#156, doc/land-civilisation.md): animals wander the wilderness near players — the world server keeps them (scripts/land_server.py herd): up to per_area within area metres of each player, spawned 18-40 m away on dry land by the biome's kinds, wandering, and fleeing at full speed from a player within flee metres; gone when no player is within keep metres. A weapon strikes one within its reach (a spear close, a bow far, spending an arrow); a strike costs strike_s of work; at 0 hp it drops its items into the hunter's bag. Animals only — weapons never touch a player. AGGRESSION (#162, operator: \"add aggressive deer and death/respawn mechanism\"): a share of each kind (angry) charge a player within charge metres and strike within strike_reach every strike_s for its damage; any animal struck by a hunter fights back the same way if its kind has damage.",
   "per_area": 5,
   "area": 48,
   "keep": 96,
@@ -3397,7 +3397,9 @@
       "bone",
       1
      ]
-    ]
+    ],
+    "angry": 0.35,
+    "damage": 3
    },
    "boar": {
     "hp": 5,
@@ -3423,7 +3425,9 @@
       "bone",
       2
      ]
-    ]
+    ],
+    "angry": 0.0,
+    "damage": 4
    },
    "rabbit": {
     "hp": 1,
@@ -3448,7 +3452,9 @@
       "hide",
       1
      ]
-    ]
+    ],
+    "angry": 0.0,
+    "damage": 0
    }
   },
   "weapons": {
@@ -3461,7 +3467,10 @@
     "damage": 2,
     "ammo": "arrow"
    }
-  }
+  },
+  "charge": 12,
+  "strike_reach": 1.8,
+  "strike_every_s": 1.5
  },
  "market": {
   "about": "MARKETS (#161, doc/land-civilisation.md; operator 2026-11-09: \"local markets first, global only with the invention of the internet\", \"trading stands\"). An offer is made standing at a trading stand (within at metres of one) and lives there; it is seen and taken only by a player standing at a stand within reach metres of it — the stands of one market. A gift is handed over in person (within hand metres). On every offer taken the maker receives what it asked for less fee of each item (rounded down) — a sink that grows with trade itself.",
@@ -3469,5 +3478,12 @@
   "reach": 64,
   "hand": 8,
   "fee": 0.05
+ },
+ "health": {
+  "about": "HEALTH (#162): a player has max health; nothing that hurt them for calm_s, it comes back one point every regen_s; at 0 they die — the bag is kept — and wake at the bed they last used, or at the landing, with grace_s in which nothing hurts them.",
+  "max": 20,
+  "regen_s": 6,
+  "calm_s": 10,
+  "grace_s": 5
  }
 }

@@ -144,7 +144,7 @@ try {
     // (cleared, never removed: the page keeps writing to the bar it made — a removed one is a detached element)
     await evl(B, "(() => { const e = document.getElementById('alertBar'); if (e) e.textContent = ''; return true; })()");
     await evl(B, "document.getElementById('tBreak').click(), true");
-    await until(B, `${JSON.stringify(want)}.some((w) => ((document.getElementById('alertBar') || {}).textContent || '').includes(w))`, 15000);
+    await until(B, `${JSON.stringify(want)}.some((w) => ((document.getElementById('alertBar') || {}).textContent || '').includes(w))`, 30000);                                                            // (a loaded headless page answers in seconds)
     const t = await alert(); await sleep(1100);                     // (a strike costs work: the next waits its turn)
     return t;
   };
@@ -162,7 +162,7 @@ try {
   await getJ("/fixture/seed?who=owner&items=" + encodeURIComponent(JSON.stringify({})) + "&tools=" + encodeURIComponent(JSON.stringify(["spear"])));
   await sleep(800);
   said = await strike(["A hit", "You hunted", "Too far"]);
-  ok(/A hit — the deer runs!/.test(said), "with a spear, Break strikes the deer: " + said);
+  ok(/A hit — the deer turns on you!/.test(said), "with a spear, Break strikes the deer — and it turns on the hunter (#162): " + said);
   said = await strike(["A hit", "You hunted", "Too far"]);
   ok(/You hunted a deer/.test(said), "…and again until it falls: " + said);
   const t = await bag(), drops = R.hunting.species.deer.drops;
@@ -178,7 +178,7 @@ try {
   await getJ("/fixture/seed?who=owner&items=" + encodeURIComponent(JSON.stringify({ arrow: 3 })) + "&tools=" + encodeURIComponent(JSON.stringify(["spear", "bow"])));
   await sleep(800);
   said = await strike(["A hit", "You hunted", "Too far", "No arrows"]);
-  ok(/A hit — the boar runs!/.test(said), "with a bow, Break strikes the boar from 15 m: " + said);
+  ok(/A hit — the boar turns on you!/.test(said), "with a bow, Break strikes the boar from 15 m: " + said);
   let arrows = -1;
   for (let i = 0; i < 10 && arrows !== 2; i++) { arrows = count(await bag(), "Arrow"); if (arrows !== 2) await sleep(1500); }
   ok(arrows === 2, "…and spends an arrow (" + arrows + " left of 3)");
