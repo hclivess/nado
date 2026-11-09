@@ -355,6 +355,10 @@ class World:
         except Exception:
             self.offers = {}
         self.odirty = False
+        try:                                              # THE TOWN TREASURY (#165): the market's share, paying quests
+            self.treasury = json.load(open(os.path.join(self.dir, "treasury.json")))
+        except Exception:
+            self.treasury = {}
         try:                                              # PRICES (#163): the trades taken, the record prices come from
             self.trades = json.load(open(os.path.join(self.dir, "trades.json")))
         except Exception:
@@ -416,6 +420,7 @@ class World:
         if self.odirty:
             self._write("offers.json", self.offers)
             self._write("trades.json", self.trades)
+            self._write("treasury.json", self.treasury)
             self.odirty = False
         if self.cdirty:
             self._write("crafts.json", self.crafts)
@@ -643,6 +648,148 @@ class World:
                  1 if a.get("angry") or a.get("mad", 0) > now else 0]
                 for a in self.animals.values() if a["face"] == pos[0] and abs(a["u"] - pos[1]) < r and abs(a["v"] - pos[2]) < r]
 
+    # -- NPCS AND QUESTS (#165, doc/land-civilisation.md) --------------------------------------------------------------
+    @staticmethod
+    def npc(nid):
+        return next((n for n in RULES["quests"]["npcs"] if n["id"] == nid), None)
+
+    @staticmethod
+    def level_of(xp):
+        """Level n needs level_xp * n * (n - 1) / 2 experience: 1 at 0, 2 at 100, 3 at 300, 4 at 600..."""
+        n = 1
+        while RULES["quests"]["level_xp"] * (n + 1) * n // 2 <= xp:
+            n += 1
+        return n
+
+    def near_npc(self, nid, pos):
+        n = self.npc(nid)
+        return bool(n and pos and int(pos[0]) == n["at"][0]
+                    and math.hypot(pos[1] - n["at"][1], pos[2] - n["at"][2]) <= RULES["quests"]["talk"])
+
+    def _new_quest(self, giver):
+        Q = RULES["quests"]
+        kind = self.rng.choice(["bring", "bring", "hunt", "deliver"])
+        q = {"id": secrets.token_hex(4), "kind": kind, "giver": giver}
+        if kind == "bring":
+            q["item"], q["n"] = self.rng.choice(Q["bring"])
+        elif kind == "hunt":
+            q["what"], q["n"] = self.rng.choice(Q["hunt"])
+            q["got"] = 0
+        else:
+            q["to"] = self.rng.choice([n["id"] for n in Q["npcs"] if n["id"] != giver])
+        return q
+
+    def offered(self, who, nid):
+        """What `nid` offers this player now: kept with the player, topped up to `offered` from the world's templates."""
+        n = self.npc(nid)
+        if not n or not n.get("gives"):
+            return []
+        pl = self.player(who)
+        offers = pl.setdefault("offered", {}).setdefault(nid, [])
+        while len(offers) < RULES["quests"]["offered"]:
+            offers.append(self._new_quest(nid))
+            self.pdirty.add(who)
+        return offers
+
+    def talk(self, who, nid, pos):
+        """An NPC's word for this player: their offers and the player's quests that end with them (ready or not)."""
+        n = self.npc(nid)
+        if not n:
+            return None, "no one by that name here"
+        if not self.near_npc(nid, pos):
+            return None, "too far away — go up to them"
+        pl = self.player(who)
+        ends = [dict(q, ready=self._ready(pl, q)) for q in pl.get("quests", []) if (q.get("to") or q["giver"]) == nid]
+        return {"npc": nid, "name": n["name"], "role": n["role"], "offers": self.offered(who, nid), "ends": ends}, None
+
+    def _ready(self, pl, q):
+        if q["kind"] == "bring":
+            return pl["items"].get(q["item"], 0) >= q["n"]
+        if q["kind"] == "hunt":
+            return q.get("got", 0) >= q["n"]
+        return pl["items"].get("parcel", 0) >= 1
+
+    def quest(self, who, op, nid, qid, pos):
+        """op "accept" (an offer of nid's), "turnin" (a quest ending with nid, ready), "drop" (any of the player's).
+        Returns (reward or None, error)."""
+        pl = self.player(who)
+        Q = RULES["quests"]
+        mine = pl.setdefault("quests", [])
+        if op == "drop":
+            q = next((q for q in mine if q["id"] == qid), None)
+            if not q:
+                return None, "no such quest"
+            mine.remove(q)
+            if q["kind"] == "deliver" and pl["items"].get("parcel"):
+                pl["items"]["parcel"] -= 1                          # the parcel goes back to its sender
+                if not pl["items"]["parcel"]:
+                    del pl["items"]["parcel"]
+            self.pdirty.add(who)
+            return {}, None
+        if not self.near_npc(nid, pos):
+            return None, "too far away — go up to them"
+        if op == "accept":
+            offers = self.offered(who, nid)
+            q = next((q for q in offers if q["id"] == qid), None)
+            if not q:
+                return None, "that is not offered any more"
+            if len(mine) >= Q["max_open"]:
+                return None, f"at most {Q['max_open']} quests at a time"
+            offers.remove(q)
+            mine.append(q)
+            if q["kind"] == "deliver":
+                pl["items"]["parcel"] = pl["items"].get("parcel", 0) + 1
+            self.pdirty.add(who)
+            return {"accepted": q}, None
+        if op == "turnin":
+            q = next((q for q in mine if q["id"] == qid), None)
+            if not q or (q.get("to") or q["giver"]) != nid:
+                return None, "that quest does not end here"
+            if not self._ready(pl, q):
+                return None, "not done yet"
+            # the reward first, from the treasury as it stood: a quest is never paid with what it just brought in
+            paid = {}
+            stock = max(((k, n) for k, n in self.treasury.items() if n > 0), default=None, key=lambda kn: (kn[1], kn[0]))
+            # (a delivery is a walk across the square — free to repeat with farmed accounts — so it pays experience only;
+            # what is paid from the town is earned by bringing or hunting, which cost the player something)
+            if stock and q["kind"] != "deliver":                    # from the treasury's largest stock, a small share
+                k, n = stock
+                give = min(n, max(1, int(n * Q["reward_share"])))
+                self.treasury[k] -= give
+                pl["items"][k] = pl["items"].get(k, 0) + give
+                paid = {k: give}
+            if q["kind"] == "bring":                                # what was brought goes to the town
+                pl["items"][q["item"]] -= q["n"]
+                if not pl["items"][q["item"]]:
+                    del pl["items"][q["item"]]
+                self.treasury[q["item"]] = self.treasury.get(q["item"], 0) + q["n"]
+            elif q["kind"] == "deliver":
+                pl["items"]["parcel"] -= 1
+                if not pl["items"]["parcel"]:
+                    del pl["items"]["parcel"]
+            mine.remove(q)
+            xp = Q["xp"][q["kind"]]
+            pl["xp"] = pl.get("xp", 0) + xp
+            self.pdirty.add(who); self.odirty = True
+            return {"xp": xp, "paid": paid, "level": self.level_of(pl["xp"])}, None
+        return None, "accept, turnin or drop"
+
+    def npcs_for(self, who, pos, r):
+        """The NPCs near pos, each with whether it has something for this player (work offered, or a quest to hand in)."""
+        out = []
+        for n in RULES["quests"]["npcs"]:
+            if not pos or n["at"][0] != int(pos[0]) or abs(n["at"][1] - pos[1]) > r or abs(n["at"][2] - pos[2]) > r:
+                continue
+            mark = None
+            if who:
+                pl = self.player(who)
+                if any((q.get("to") or q["giver"]) == n["id"] and self._ready(pl, q) for q in pl.get("quests", [])):
+                    mark = "?"
+                elif n.get("gives") and len(pl.get("quests", [])) < RULES["quests"]["max_open"]:
+                    mark = "!"
+            out.append({"id": n["id"], "name": n["name"], "role": n["role"], "at": n["at"], "look": n["look"], "mark": mark})
+        return out
+
     # -- HEALTH, DEATH AND RESPAWN (#162) -----------------------------------------------------------------------------
     def hurt(self, who, dmg, by):
         """`who` takes `dmg` from `by` (an animal's kind). Returns ("hurt", hp), ("died", bed) — the bag is kept, health
@@ -722,6 +869,9 @@ class World:
         if a["hp"] > 0:
             return {"hit": a["kind"], "killed": None, "drops": []}, None
         del self.animals[aid]
+        for q in pl.get("quests", []):                        # a hunt quest counts the kill (#165)
+            if q["kind"] == "hunt" and q["what"] == a["kind"] and q.get("got", 0) < q["n"]:
+                q["got"] = q.get("got", 0) + 1
         drops = Hn["species"][a["kind"]]["drops"]
         for item, n in drops:
             pl["items"][item] = pl["items"].get(item, 0) + n
@@ -901,7 +1051,9 @@ class World:
                 "stations": sorted(pl["stations"]), "vol": {k: v for k, v in sorted(pl["vol"].items()) if v > 0},
                 "worn": dict(sorted(pl["worn"].items())), "look": dict(pl["look"]),
                 "fed": max(0, int(pl.get("fed", 0) - time.time())),          # seconds of a meal left (#155)
-                "hp": pl.get("hp", RULES["health"]["max"]), "hp_max": RULES["health"]["max"]}   # health (#162)
+                "hp": pl.get("hp", RULES["health"]["max"]), "hp_max": RULES["health"]["max"],   # health (#162)
+                "quests": [dict(q, ready=self._ready(pl, q)) for q in pl.get("quests", [])],      # the quest log (#165)
+                "xp": pl.get("xp", 0), "level": self.level_of(pl.get("xp", 0))}
 
     def keep_place(self, addr, pos):
         """Remember where a signed-in player stands ([face, u, v, h, yaw]), written with the player at the next flush."""
@@ -1887,6 +2039,8 @@ class World:
         g, w = self._bag(give), self._bag(want)
         if not g or not w:
             return None, "an offer gives some items and wants some items"
+        if any(RULES["items"][k].get("quest") for k in list(g) + list(w)):
+            return None, "a quest's parcel is carried, not traded"
         at = self.stands_near(pos, RULES["market"]["at"])
         if not at:
             return None, "an offer is made at a trading stand — build one, or go to a market"
@@ -1916,8 +2070,12 @@ class World:
         if any(pl["items"].get(k, 0) < n for k, n in o["want"].items()):
             return "you do not have what it asks for"
         fee = RULES["market"]["fee"]
-        for k, n in o["want"].items():                            # the market's share of what the maker gets is gone (a sink)
+        for k, n in o["want"].items():
+            # the market's share of what the maker gets goes to the TOWN TREASURY, which pays quests (#165): out of
+            # circulation until a quest pays it back — never coins or goods from nothing
             pl["items"][k] -= n; maker["items"][k] = maker["items"].get(k, 0) + n - int(n * fee)
+            if int(n * fee):
+                self.treasury[k] = self.treasury.get(k, 0) + int(n * fee)
         for k, n in o["give"].items():
             pl["items"][k] = pl["items"].get(k, 0) + n
         del self.offers[oid]
@@ -2135,8 +2293,9 @@ class Hub:
                         o["pieces"] = c["pieces"]; seen.add(c["id"])
                     crafts.append(o)
             animals = world.animals_near(me, self.NEAR) if world else []
+            npcs = world.npcs_for(st["who"], me, self.NEAR) if world else []
             try:
-                await ws.send_json({"t": "players", "list": near, "crafts": crafts, "animals": animals})
+                await ws.send_json({"t": "players", "list": near, "crafts": crafts, "animals": animals, "npcs": npcs})
             except Exception:
                 pass
 
@@ -2419,6 +2578,18 @@ def make_app(world, hub, site_origin, wallet_url, secure_cookies=True, shot_page
             await hub.inv(world, addr)
         return web.json_response({"ok": not err, "error": err, "inventory": world.inv_json(addr)})
 
+    async def talk(request):
+        addr = need_addr(request)
+        res, err = world.talk(addr, request.query.get("npc"), hub.where(world, addr))
+        return web.json_response(dict(res or {}, ok=not err, error=err))
+
+    async def quest(request):
+        addr, d = need_addr(request), await request.json()
+        res, err = world.quest(addr, d.get("op"), d.get("npc"), d.get("id"), hub.where(world, addr))
+        if not err:
+            await hub.inv(world, addr)
+        return web.json_response(dict(res or {}, ok=not err, error=err, inventory=world.inv_json(addr)))
+
     async def bed(request):
         addr, d = need_addr(request), await request.json()
         err = world.bed(addr, d.get("plot"), d.get("box"))
@@ -2622,6 +2793,15 @@ def make_app(world, hub, site_origin, wallet_url, secure_cookies=True, shot_page
                     await ws.send_json(dict(res or {}, t="hunt", req=m.get("req"), error=err))
                     if res:                                         # game in the bag, or an arrow spent: the bag changed
                         await hub.inv(world, addr)
+                elif t in ("talk", "quest"):                        # NPCS AND QUESTS (#165)
+                    if not addr:
+                        await ws.send_json({"t": t, "req": m.get("req"), "error": "sign in first"})
+                        continue
+                    here = st.get("pos") or hub.where(world, addr)
+                    res, err = world.talk(addr, m.get("npc"), here) if t == "talk" else world.quest(addr, m.get("op"), m.get("npc"), m.get("id"), here)
+                    await ws.send_json(dict(res or {}, t=t, req=m.get("req"), op=m.get("op"), error=err))
+                    if t == "quest" and not err:
+                        await hub.inv(world, addr)
                 elif t == "bed":                                    # #162: wake here after a death
                     err = world.bed(addr, m.get("plot"), m.get("box")) if addr else "sign in first"
                     await ws.send_json({"t": "done", "req": m.get("req"), "op": "bed", "error": err})
@@ -2679,6 +2859,8 @@ def make_app(world, hub, site_origin, wallet_url, secure_cookies=True, shot_page
         web.post("/land/api/eat", eat),
         web.post("/land/api/hunt", hunt),
         web.post("/land/api/bed", bed),
+        web.get("/land/api/talk", talk),
+        web.post("/land/api/quest", quest),
         web.get("/land/api/animals", animals),
         web.get("/land/api/prices", prices),
         web.post("/land/api/well", draw_well),

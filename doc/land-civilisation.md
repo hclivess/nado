@@ -134,7 +134,12 @@ The genre's mechanics, in this world's own names and look (no other game's chara
   is a trade on the record; each market's going rates come from its own trades (recent ones weighing more, a 2-day
   half-life over a week), linked through what trades between them; the stand's board shows them in any unit. Still to
   come: offers in NADO, a bank's notes.
-* Next: NPCs and quests (#165), ballistics, a knife, carpentry (#157);
+* **NPCs and quests, part 1 — built** (#165): Maren the elder, Tobin the trader and Ida the smith on the town hall's
+  street, a mark over them when they have something for you; Use talks; quests made from the world (bring, hunt,
+  deliver), a quest log, experience and levels; rewards from the TOWN TREASURY (the market's share and what quests
+  bring in) — nothing from nothing, and a delivery pays experience only. Next: the trader trading at going rates, the
+  smith teaching, more quest givers, parties.
+* Next: ballistics, a knife, carpentry (#157);
   research (#164) waits for the operator.
 
 Order: slice 1 first (one piece at a time, each live before the next), then 2, then the rest as listed.

@@ -1045,6 +1045,7 @@ function connect() {
       inv.items = m.items || {}; inv.tools = m.tools || []; inv.stations = m.stations || []; inv.vol = m.vol || {};
       inv.worn = m.worn || {}; inv.look = m.look || { skin: 0, hair: 0 };
       fedUntil = performance.now() + (m.fed || 0) * 1000;                     // a meal's time left (#155)
+      inv.quests = m.quests || []; inv.level = m.level || 1; inv.xp = m.xp || 0;   // the quest log and level (#165)
       showHp(m.hp, m.hp_max);
       fillHot(); hotbar(); if (bagOpen()) renderBag(); if (!$("wardPanel").classList.contains("hidden")) renderWard();
     } else if (m.t === "offers") {
@@ -1072,6 +1073,14 @@ function connect() {
       for (const [id, r] of others) if (!seen.has(id)) { scene.remove(r.mesh); others.delete(id); }
       craftsSeen(m.crafts);
       animalsSeen(m.animals);
+      npcsSeen(m.npcs);
+    } else if (m.t === "talk") {
+      if (talkingTo && (!m.npc || m.npc === talkingTo)) renderNpc(m);
+    } else if (m.t === "quest") {
+      if (m.error) notify(m.error === "not done yet" ? T("qNotYet", "Not done yet") : m.error.startsWith("at most") ? T("qMax", "You hold as many quests as you can — finish or drop one.") : String(m.error));
+      else if (m.op === "turnin") notify(T("qDone", "Done: +{x} experience.", { x: m.xp }) + (m.paid && Object.keys(m.paid).length ? " " + T("qPaid", "The town pays {p}.", { p: bagText(m.paid) }) : ""));
+      else if (m.op === "accept") notify(T("qTaken", "Quest taken — see it in your bag."));
+      if (talkingTo && m.op !== "drop") net.send({ t: "talk", npc: talkingTo, req: ++net.req });
     } else if (m.t === "hurt") {
       // struck (#162): the hearts drop and the screen flashes red
       showHp(m.hp); const f = $("hurtFlash"); f.classList.add("on"); setTimeout(() => f.classList.remove("on"), 120);
@@ -1106,6 +1115,8 @@ function connect() {
     others.clear();
     for (const r of animals.values()) scene.remove(r.mesh);
     animals.clear();
+    for (const r of npcs.values()) scene.remove(r.mesh);
+    npcs.clear();
     if (was) hud();
     setTimeout(connect, Math.min(30000, 1000 * 2 ** Math.min(5, net.tries++)));   // back off; a page without a server stays local
   };
@@ -1286,7 +1297,7 @@ function showHp(hp, max) {
   if (!el || hp == null) return;
   el.classList.toggle("hidden", !net.me);
   const full = Math.max(0, Math.ceil(hp / 2)), all = Math.ceil(hpMax / 2);
-  el.textContent = "♥".repeat(full) + "♡".repeat(Math.max(0, all - full)) + ` ${hp}/${hpMax}`;
+  el.textContent = "♥".repeat(full) + "♡".repeat(Math.max(0, all - full)) + ` ${hp}/${hpMax}` + (inv.level ? " · " + T("level", "Level {n}", { n: inv.level }) : "");
 }
 let wakeAt = null;
 function died(by, bed) {
@@ -1303,6 +1314,97 @@ function wakeUp() {
   P.h = groundAt(P.face, P.u, P.v); P.vu = P.vv = P.vh = 0; P.eyeH = P.h;
   save();
   if (!touch) lockPointer();                                // the button's own click: back to play at once
+}
+// ---- NPCS AND QUESTS (#165, "we may need npcs and quests and move this a little towards world of warcraft as well",
+// operator 2026-11-09): the people of the town, kept by the world server, drawn as people with their name over them and
+// a mark when they have something for this player — "!" work, "?" a quest to hand in. Use on one talks to them: what
+// they offer (Accept), the player's quests that end with them (Hand in). The quest log is in the bag.
+const npcs = new Map();                            // id -> { mesh, plate, mark, sig, at }
+function label(text, sub, col) {
+  const cv = document.createElement("canvas"); cv.width = 256; cv.height = 64;
+  const g = cv.getContext("2d");
+  g.textAlign = "center"; g.font = "bold 26px sans-serif"; g.lineWidth = 5; g.strokeStyle = "rgba(0,0,0,.75)";
+  g.fillStyle = col || "#ffe9a8"; g.strokeText(text, 128, 28); g.fillText(text, 128, 28);
+  if (sub) { g.font = "18px sans-serif"; g.fillStyle = "#e8eef4"; g.strokeText(sub, 128, 54); g.fillText(sub, 128, 54); }
+  const t = new THREE.CanvasTexture(cv); t.colorSpace = THREE.SRGBColorSpace;
+  const sp = new THREE.Sprite(new THREE.SpriteMaterial({ map: t, depthWrite: false, transparent: true }));
+  sp.scale.set(1.6, 0.4, 1);
+  return sp;
+}
+const roleName = (r) => T("npc." + r, { elder: "Elder", trader: "Trader", smith: "Smith" }[r] || r);
+function npcsSeen(list) {
+  const seen = new Set();
+  for (const n of list || []) {
+    seen.add(n.id);
+    let r = npcs.get(n.id);
+    if (!r) {
+      const mesh = avatar("npc:" + n.id, n.look), plate = label(n.name, roleName(n.role));
+      plate.position.set(0, 2.05, 0); mesh.add(plate);
+      r = { mesh, at: n.at, name: n.name, role: n.role }; scene.add(mesh); npcs.set(n.id, r);
+    }
+    if (r.markSig !== n.mark) {                                  // "!" work for you, "?" a quest to hand in
+      if (r.mark) r.mesh.remove(r.mark);
+      r.mark = n.mark ? label(n.mark, null, n.mark === "?" ? "#9fe0ff" : "#ffd84a") : null;
+      if (r.mark) { r.mark.scale.set(1.4, 0.35, 1); r.mark.position.set(0, 2.45, 0); r.mesh.add(r.mark); }
+      r.markSig = n.mark;
+    }
+  }
+  for (const [id, r] of npcs) if (!seen.has(id)) { scene.remove(r.mesh); npcs.delete(id); }
+}
+function npcsFrame(cam) {
+  for (const r of npcs.values()) {
+    if (r.gh === undefined) r.gh = groundAt(r.at[0], r.at[1], r.at[2]);
+    const q = Wd.posOf(r.at[0], r.at[1], r.at[2], r.gh), ofr = Wd.frameOf(r.at[0], r.at[1], r.at[2]);
+    r.mesh.position.set(q[0] - cam[0], q[1] - cam[1], q[2] - cam[2]);
+    r.mesh.up.set(ofr.up[0], ofr.up[1], ofr.up[2]);
+    // they face the player when the player is near, the street otherwise
+    const du = P.u - r.at[1], dv = P.v - r.at[2], near = Math.hypot(du, dv) < 8, yaw = near ? Math.atan2(du, dv) : 0;
+    const sy = Math.sin(yaw), cy = Math.cos(yaw);
+    r.mesh.lookAt(r.mesh.position.x + sy * ofr.east[0] + cy * ofr.north[0], r.mesh.position.y + sy * ofr.east[1] + cy * ofr.north[1], r.mesh.position.z + sy * ofr.east[2] + cy * ofr.north[2]);
+  }
+}
+/** The NPC under the crosshair within talking reach: its id, or null. */
+function npcAimed() {
+  if (!npcs.size) return null;
+  const { fr, fw } = look();
+  const d = [fr.east, fr.north, fr.up].map((ax) => fw[0] * ax[0] + fw[1] * ax[1] + fw[2] * ax[2]);
+  const o = [P.u, P.v, P.h + EYE], reach = RULES && RULES.quests ? RULES.quests.talk : 4;
+  let best = null;
+  for (const [id, r] of npcs) {
+    const c = [r.at[1], r.at[2], (r.gh ?? P.h) + 1.0], w = [c[0] - o[0], c[1] - o[1], c[2] - o[2]], t = w[0] * d[0] + w[1] * d[1] + w[2] * d[2];
+    if (t < 0 || t > reach + 0.5) continue;
+    if (Math.hypot(w[0] - d[0] * t, w[1] - d[1] * t, w[2] - d[2] * t) < 0.55 && (!best || t < best.t)) best = { id, t };
+  }
+  return best && best.id;
+}
+let talkingTo = null;
+function openNpc(id) {
+  if (!net.online || !net.me) return notify(T("signInFirst", "Sign in first."));
+  talkingTo = id;
+  const r = npcs.get(id);
+  $("npcTitle").textContent = r ? `${r.name} · ${roleName(r.role)}` : id;
+  $("npcGrid").textContent = "…";
+  if (document.pointerLockElement) document.exitPointerLock();
+  $("npcPanel").classList.remove("hidden");
+  net.send({ t: "talk", npc: id, req: ++net.req });
+}
+function questText(q) {
+  if (q.kind === "bring") return T("qBring", "Bring {n} × {i}", { n: q.n, i: nameOf(q.item) });
+  if (q.kind === "hunt") return T("qHunt", "Hunt {n} × {a}", { n: q.n, a: animalName(q.what) }) + (q.got !== undefined && q.got > 0 ? ` (${q.got}/${q.n})` : "");
+  const to = RULES.quests.npcs.find((n) => n.id === q.to);
+  return T("qDeliver", "Carry a parcel to {who}", { who: to ? `${to.name} (${roleName(to.role)})` : q.to });
+}
+function renderNpc(m) {
+  const g = $("npcGrid");
+  if (m.error) { g.textContent = m.error === "too far away — go up to them" ? T("qFar", "Too far — go up to them.") : m.error; return; }
+  const greet = { elder: T("npcElderSays", "Work for willing hands — the town pays from its treasury."), trader: T("npcTraderSays", "Trade at the stands; I keep an eye on the prices."), smith: T("npcSmithSays", "Bring me metal and I will show you what it can become.") }[m.role] || "";
+  g.innerHTML = `<p class="dim">${esc(greet)}</p>
+    ${m.ends.length ? `<h3>${esc(T("qEnds", "Your quests here"))}</h3>` + m.ends.map((q) => `<div class="rcp"><div>${esc(questText(q))}</div>
+      <button class="ghost" data-turnin="${q.id}" ${q.ready ? "" : "disabled"}>${esc(q.ready ? T("qTurnIn", "Hand in") : T("qNotYet", "Not done yet"))}</button></div>`).join("") : ""}
+    ${m.offers.length ? `<h3>${esc(T("qOffers", "Work offered"))}</h3>` + m.offers.map((q) => `<div class="rcp"><div>${esc(questText(q))}<div class="dim">${esc(T("qPays", "+{x} experience", { x: RULES.quests.xp[q.kind] }))}</div></div>
+      <button class="ghost" data-qaccept="${q.id}">${esc(T("qAccept", "Accept"))}</button></div>`).join("") : ""}`;
+  g.querySelectorAll("[data-qaccept]").forEach((b) => { b.onclick = () => net.send({ t: "quest", op: "accept", npc: talkingTo, id: b.dataset.qaccept, req: ++net.req }); });
+  g.querySelectorAll("[data-turnin]").forEach((b) => { b.onclick = () => net.send({ t: "quest", op: "turnin", npc: talkingTo, id: b.dataset.turnin, req: ++net.req }); });
 }
 const animalName = (k) => T("a." + k, { deer: "deer", boar: "boar", rabbit: "rabbit" }[k] || k);
 /** Break on an animal: a strike, if there is a weapon that reaches it (the world server judges it again). */
@@ -1495,25 +1597,36 @@ function standNear(r) {
 // taken at its stands (land_server.py prices); an arrow says how it moved in a day. Nothing has a fixed price.
 let priceUnit = "copper_coin";
 const fmtQty = (x) => (x >= 100 ? Math.round(x).toString() : x >= 1 ? x.toFixed(x >= 10 ? 1 : 2).replace(/\.?0+$/, "") : x.toPrecision(2));
+// the last board per unit is drawn at once and refreshed behind it: the bag redraws whenever the inventory changes, and
+// the board blanked to "…" each time until the fetch came back (the market walk, 2026-11-09)
+const priceCache = new Map();
 async function showPrices() {
   const el = $("pxList");
   if (!el) return;
-  try {
-    const r = await (await fetch(`/land/api/prices?face=${P.face}&u=${P.u.toFixed(2)}&v=${P.v.toFixed(2)}&unit=${encodeURIComponent(priceUnit)}`)).json();
-    if ($("pxList") !== el) return;
+  const draw = (r) => {
     const rows = Object.entries(r.values).sort((a, b) => b[1] - a[1]);
-    el.innerHTML = rows.length ? rows.map(([id, v]) => {
+    const out = $("pxList");
+    if (!out) return;
+    out.innerHTML = rows.length ? rows.map(([id, v]) => {
       const was = r.before[id], arrow = was ? (v > was * 1.02 ? " ▲" : v < was * 0.98 ? " ▼" : "") : "";
       return `<div>${esc(T("pxRow", "{i}: {v} × {u}", { i: nameOf(id), v: fmtQty(v), u: nameOf(priceUnit) }))}${arrow}</div>`;
     }).join("") : esc(T("pxNone", "No trades here yet in that — prices come from the offers people take."));
-  } catch (e) { el.textContent = ""; }
+  };
+  const unit = priceUnit;
+  if (priceCache.has(unit)) draw(priceCache.get(unit));
+  try {
+    const r = await (await fetch(`/land/api/prices?face=${P.face}&u=${P.u.toFixed(2)}&v=${P.v.toFixed(2)}&unit=${encodeURIComponent(unit)}`)).json();
+    priceCache.set(unit, r);
+    if (unit === priceUnit) draw(r);
+  } catch (e) {}
 }
 function renderBag() {
   if (!RULES) return;
   if (!net.me) { $("palGrid").innerHTML = `<p class="dim">${esc(T("bagSignIn", "Sign in to gather, make things and trade."))}</p>`; return; }
   const items = Object.entries(inv.items).filter(([, n]) => n > 0);
   const atStand = !!standNear(RULES.market ? RULES.market.at : 6);   // MARKETS (#161): trade is done at a trading stand
-  const opts = Object.keys(RULES.items).map((id) => `<option value="${id}">${esc(nameOf(id))}</option>`).join("");
+  // (a quest's parcel is carried, not traded)
+  const opts = Object.keys(RULES.items).filter((id) => !RULES.items[id].quest).map((id) => `<option value="${id}">${esc(nameOf(id))}</option>`).join("");
   $("palGrid").innerHTML = `
     <h3>${esc(T("have", "You have"))}</h3>
     <div class="chips">${items.length ? items.map(([id, n]) => `<button class="chip${placeable(id) ? " pl" : ""}" data-pick="${id}">${n} × ${esc(nameOf(id))}</button>`).join("") : `<span class="dim">${esc(T("nothingYet", "Nothing yet — pick up the stones and sticks lying on the ground, and pull grass and leaves by hand."))}</span>`}
@@ -1522,6 +1635,8 @@ function renderBag() {
       `<button class="chip pl" data-eat="${id}">${esc(T("eatIt", "Eat {i}", { i: nameOf(id) }))}</button>`).join("")}</div>` : ""}
     ${performance.now() < fedUntil ? `<div class="dim">${esc(T("fedFor", "Well fed: work goes quicker for {m} more min.", { m: Math.ceil((fedUntil - performance.now()) / 60000) }))}</div>` : ""}
     <div class="dim">${esc(T("bagHint", "Click a block to put it on your hotbar. Tools work as soon as you have them."))}</div>
+    ${(inv.quests || []).length ? `<h3>${esc(T("qLog", "Quests"))}</h3>` + inv.quests.map((q) => `<div class="rcp"><div>${esc(questText(q))}<div class="dim">${esc(q.ready ? T("qReady", "Done — hand it in") : T("qFrom", "for {who}", { who: (RULES.quests.npcs.find((n) => n.id === (q.to || q.giver)) || {}).name || "" }))}</div></div>
+      <button class="ghost" data-qdrop="${q.id}">${esc(T("qDrop", "Drop"))}</button></div>`).join("") : ""}
     <h3>${esc(T("pieceSize", "Piece size"))}</h3>
     <div class="tradeform">${PRESETS.map((x, i) => `<button class="chip pl" data-preset="${i}">${x.join("×")}</button>`).join("")}</div>
     <div class="tradeform"><span>W</span><input id="pzW" type="number" min="1" max="1600" value="${piece.w}"><span>D</span><input id="pzD" type="number" min="1" max="1600" value="${piece.d}">
@@ -1557,6 +1672,7 @@ function renderBag() {
   const g = $("palGrid"), req = (m) => net.send(Object.assign({ req: ++net.req }, m));
   g.querySelectorAll("[data-make]").forEach((b) => { b.onclick = () => req({ t: "craft", recipe: b.dataset.make }); });
   g.querySelectorAll("[data-eat]").forEach((b) => { b.onclick = () => req({ t: "eat", item: b.dataset.eat }); });
+  g.querySelectorAll("[data-qdrop]").forEach((b) => { b.onclick = () => req({ t: "quest", op: "drop", id: b.dataset.qdrop }); });
   if ($("pxUnit")) { $("pxUnit").onchange = () => { priceUnit = $("pxUnit").value; showPrices(); }; showPrices(); }
   g.querySelectorAll("[data-pick]").forEach((b) => { b.onclick = () => { const id = b.dataset.pick; if (!placeable(id)) return; if (!hot.includes(id)) { if (hot.length < 9) hot.push(id); else hot[slot] = id; } slot = hot.indexOf(id); save(); hotbar(); }; });
   g.querySelectorAll("[data-accept]").forEach((b) => { b.onclick = () => req({ t: "accept", id: b.dataset.accept }); });
@@ -1685,6 +1801,7 @@ function useDoor() {
   if (flying) return leaveCraft();                                             // Use at the controls: step out
   const a = aim();
   if (a && a.box && a.box.b[6] === B.pilotseat) return board({ plot: a.box.plot, box: a.box.b });   // take the seat
+  { const n = npcAimed(); if (n) return openNpc(n); }                          // Use on a person: talk to them (#165)
   if (a && !a.box && a.hit && net.me && tillAt(a.hit)) return;                 // Use on the ground with a hoe: till it
   if (!(a && a.box && [B.door, B.chest, B.smelter, B.assembler, B.generator, B.well, B.bed].includes(a.box.b[6]))) { const mine = nearMyCraft(); if (mine) return board({ craft: mine }); }
   if (a && a.box && a.box.b[6] === B.chest) return openChest(a.box);           // Q uses what you aim at: a door or a chest
@@ -2153,6 +2270,7 @@ function wireInput(canvas) {
   $("chestClose").onclick = () => { $("chestPanel").classList.add("hidden"); chest = null; };
   $("machClose").onclick = () => { $("machPanel").classList.add("hidden"); machine = null; };
   $("deathGo").onclick = () => wakeUp();                // the death card (#162)
+  $("npcClose").onclick = () => { $("npcPanel").classList.add("hidden"); talkingTo = null; };
   $("wardClose").onclick = () => wardrobe(false);
   $("wardOpen").onclick = () => { palette(false); wardrobe(true); };
 }
@@ -2690,6 +2808,7 @@ function frame(now) {
   for (const m of [farMesh, farSea, borderMesh]) if (m) { const a = m.userData.anchor; m.position.set(a[0] - cam[0], a[1] - cam[1], a[2] - cam[2]); }
   for (const c of crafts.values()) if (c.pose) craftPlace(c.mesh, c.pose, cam);
   animalsFrame(Math.min(0.1, (now - (frame.lastAnimals || now)) / 1000), cam); frame.lastAnimals = now;
+  npcsFrame(cam);
   for (const r of others.values()) {
     if (!r.p) continue;
     const [f, u, v, h, yaw] = r.p, q = Wd.posOf(f, u, v, h), ofr = Wd.frameOf(f, u, v);

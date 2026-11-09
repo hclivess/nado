@@ -102,9 +102,9 @@
   #palette .card{max-width:min(620px,calc(100vw - 32px));max-height:80vh;overflow:auto;background:var(--elev);border:1px solid var(--border);border-radius:14px;padding:16px}
   #palette h2{margin:0 0 10px;font-size:16px;display:flex;align-items:center}#palette h2 button:first-of-type{margin-left:auto}#palette h2{gap:6px}
   #palGrid{font-size:13px}
-  #chestPanel,#machPanel{position:fixed;inset:0;z-index:8;display:grid;place-items:center;background:rgba(0,0,0,.45)}
-  #machPanel .card,#chestPanel .card{max-width:min(560px,calc(100vw - 32px));max-height:80vh;overflow:auto;background:var(--elev);border:1px solid var(--border);border-radius:14px;padding:16px;font-size:13px}
-  #chestPanel h2,#machPanel h2{margin:0 0 10px;font-size:16px;display:flex;align-items:center}#chestPanel h2 button,#machPanel h2 button{margin-left:auto}
+  #chestPanel,#machPanel,#npcPanel{position:fixed;inset:0;z-index:8;display:grid;place-items:center;background:rgba(0,0,0,.45)}
+  #machPanel .card,#chestPanel .card,#npcPanel .card{max-width:min(560px,calc(100vw - 32px));max-height:80vh;overflow:auto;background:var(--elev);border:1px solid var(--border);border-radius:14px;padding:16px;font-size:13px}
+  #chestPanel h2,#machPanel h2,#npcPanel h2{margin:0 0 10px;font-size:16px;display:flex;align-items:center}#chestPanel h2 button,#machPanel h2 button,#npcPanel h2 button{margin-left:auto}
   .mrow{display:flex;gap:8px;align-items:center;justify-content:space-between;padding:6px 0;border-top:1px solid var(--border)}.mrow.on b{color:var(--accent2)}
   #wardPanel{position:fixed;inset:0;z-index:8;display:grid;place-items:center;background:rgba(0,0,0,.45)}
   #wardPanel .card{max-width:min(560px,calc(100vw - 32px));max-height:80vh;overflow:auto;background:var(--elev);border:1px solid var(--border);border-radius:14px;padding:16px;font-size:13px}
@@ -172,6 +172,10 @@
 <div id="machPanel" class="hidden"><div class="card">
   <h2><span id="machTitle"></span><button id="machClose" class="ghost" data-i18n="land.close">Close</button></h2>
   <div id="machGrid"></div>
+</div></div>
+<div id="npcPanel" class="hidden"><div class="card">
+  <h2><span id="npcTitle"></span><button id="npcClose" class="ghost" data-i18n="land.close">Close</button></h2>
+  <div id="npcGrid"></div>
 </div></div>
 <div id="wardPanel" class="hidden"><div class="card">
   <h2><span data-i18n="land.wardTitle">Wardrobe</span><button id="wardClose" class="ghost" data-i18n="land.close">Close</button></h2>

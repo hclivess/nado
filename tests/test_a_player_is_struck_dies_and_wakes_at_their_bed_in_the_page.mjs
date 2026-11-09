@@ -153,10 +153,10 @@ try {
   await stand(B, bu, bv - 2.2, top + 1, 0, -0.35);
 
   // 1. hearts, and a strike
-  ok(await until(B, `/ ${MAX}\\/${MAX}$/.test((document.getElementById('hudHp') || {}).textContent || '') && !document.getElementById('hudHp').classList.contains('hidden')`, 10000),
+  ok(await until(B, `/ ${MAX}\\/${MAX}\\b/.test((document.getElementById('hudHp') || {}).textContent || '') && !document.getElementById('hudHp').classList.contains('hidden')`, 10000),
      "signed in, the HUD shows full hearts: " + await hud());
   await getJ("/fixture/hurt?dmg=3&by=deer");
-  ok(await until(B, `/ ${MAX - 3}\\/${MAX}$/.test(document.getElementById('hudHp').textContent)`, 8000), "struck by a stag, the hearts drop: " + await hud());
+  ok(await until(B, `/ ${MAX - 3}\\/${MAX}\\b/.test(document.getElementById('hudHp').textContent)`, 8000), "struck by a stag, the hearts drop: " + await hud());
   ok(await evl(B, "!!document.getElementById('hurtFlash')"), "…and the screen has its red flash");
 
   // 2. the bed: look at it — checked with /aim, tilting until the crosshair is on it, as a player would — and Use it
@@ -199,7 +199,7 @@ try {
   ok(Math.hypot(at[1] - bu, at[2] - bv) < 3, `Wake up puts them beside their bed (${at[1].toFixed(1)}, ${at[2].toFixed(1)}; the bed at ${bu}, ${bv})`);
   const died = [...frames.values()].flat().filter((f) => f.includes('"t": "died"') || f.includes('"t":"died"')).length;
   ok(await evl(B, "document.getElementById('deathCard').classList.contains('hidden')"), `…the card gone (${died} death message${died === 1 ? "" : "s"} heard)`);
-  ok(await until(B, `/ ${MAX}\\/${MAX}$/.test(document.getElementById('hudHp').textContent)`, 8000), "…with full hearts");
+  ok(await until(B, `/ ${MAX}\\/${MAX}\\b/.test(document.getElementById('hudHp').textContent)`, 8000), "…with full hearts");
   await evl(B, "document.getElementById('tPal').click(), true"); await sleep(900);
   ok(/7 × Planks/.test(await evl(B, "document.getElementById('palGrid').textContent")), "…and their bag kept");
   await evl(B, "document.getElementById('palClose').click(), true");

@@ -15,6 +15,7 @@ under /land/) and a fake exec node (/exec/*) that says OWNER holds plot PA and h
                                 Hub.hurt): their pages hear "hurt", or "died" and where they wake
   GET /fixture/accept?id=&u=&v=  -> AGENT, standing at (u, v) on face 0, takes that offer (world.accept, a stand's
                                 rules applied) — the second player of a market walk -> {error}
+  GET /fixture/quests        -> the elder offers OWNER two known quests (bring 3 sticks; carry a parcel to the trader)
   GET /fixture/ripen         -> every sown crop and planted sapling is due now: the world server's own ecology loop
                                 grows them on its next tick (a field's twenty minutes, without the wait)
 """
@@ -123,6 +124,11 @@ async def main():
             await hub.inv(world, OWNER["address"]); await hub.offers(world)
         return web.json_response({"error": err})
 
+    async def quests(req):
+        world.player(OWNER["address"])["offered"] = {"elder": [{"id": "qb", "kind": "bring", "giver": "elder", "item": "sticks", "n": 3},
+                                                              {"id": "qd", "kind": "deliver", "giver": "elder", "to": "trader"}]}
+        return web.json_response({"ok": True})
+
     async def ripen(req):
         n = 0
         for rec in world.plots.values():
@@ -143,7 +149,8 @@ async def main():
                     web.get("/exec/asset", asset), web.get("/exec/view", view), web.get("/fixture/owner_token", owner_token),
                     web.get("/fixture/agent_build", agent_build), web.get("/fixture/plot", plot), web.get("/fixture/seed", seed),
                     web.get("/fixture/ripen", ripen), web.get("/fixture/animal", animal),
-                    web.get("/fixture/hurt", hurt), web.get("/fixture/accept", accept)])
+                    web.get("/fixture/hurt", hurt), web.get("/fixture/accept", accept),
+                    web.get("/fixture/quests", quests)])
     app.router.add_static("/static", STATIC)
     app.router.add_route("*", "/{tail:.*}", empty)
     runner = web.AppRunner(app); await runner.setup()

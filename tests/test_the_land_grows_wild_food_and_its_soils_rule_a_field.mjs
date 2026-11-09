@@ -17,7 +17,9 @@
  *   7. MARKETS (#161): a trading stand is reached from bare hands and placed whole; a market is local (an offer is made
  *      within a few metres of a stand, seen within tens of metres, never world-wide) and keeps a small share;
  *   8. CURRENCIES (#163): a mint is reached from bare hands; it strikes coins only from mined metal; no item carries a
- *      fixed price anywhere in the rules; the board speaks 17 languages.
+ *      fixed price anywhere in the rules; the board speaks 17 languages;
+ *   9. QUESTS (#165): the NPCs stand on the town's street; every bring quest asks for an item the land yields or bare
+ *      hands make, every hunt quest for game that lives here; a delivery is worth less than work; 17 languages.
  *
  * Run: node tests/test_the_land_grows_wild_food_and_its_soils_rule_a_field.mjs
  */
@@ -166,6 +168,18 @@ ok(MK.half_life_s > 0 && MK.window_s >= MK.half_life_s && MK.keep_trades > 1000,
 const keys8 = ["land.i.copper_coin", "land.i.silver_coin", "land.i.gold_coin", "land.s.mint", "land.pxIn", "land.pxRow", "land.pxNone"];
 ok(langs.every((l) => keys8.every((k) => L10N[l][k])) && langs.every((l) => ["{i}", "{v}", "{u}"].every((p) => L10N[l]["land.pxRow"].includes(p))),
    "coins, the mint and the board speak all 17 languages, placeholders kept");
+
+// 9. quests
+const Qr = R.quests;
+ok(Qr.npcs.length >= 3 && Qr.npcs.every((n) => n.at[0] === 0 && Math.abs(n.at[1] - (3440 * 16 + 8)) < 10 && n.at[2] >= 5000 * 16 && n.at[2] < 5000 * 16 + 2)
+   && Qr.npcs.some((n) => n.gives), "the NPCs stand on the town hall's street, one of them giving work");
+ok(Qr.bring.every(([i, n]) => have.has(i) && n > 0) && Qr.hunt.every(([k, n]) => Hn.species[k] && n > 0),
+   "every bring quest asks for something the land yields or hands make; every hunt quest for game that lives here");
+ok(Qr.xp.deliver < Qr.xp.bring && Qr.xp.deliver < Qr.xp.hunt && Qr.reward_share > 0 && Qr.reward_share < 0.1 && R.items.parcel.quest,
+   "a delivery is worth less than work, the town pays a small share, and a parcel is a quest's");
+const keys9 = ["land.npc.elder", "land.npc.trader", "land.npc.smith", "land.qBring", "land.qHunt", "land.qDeliver", "land.qTurnIn", "land.qAccept", "land.qDone", "land.qPaid", "land.level", "land.qLog", "land.qDrop", "land.i.parcel"];
+ok(langs.every((l) => keys9.every((k) => L10N[l][k])) && langs.every((l) => L10N[l]["land.qBring"].includes("{n}") && L10N[l]["land.qBring"].includes("{i}") && L10N[l]["land.qDone"].includes("{x}")),
+   "the quests speak all 17 languages, placeholders kept");
 
 if (fails) { console.log(`${fails} FAILURES`); process.exit(1); }
 console.log("ALL PASS");

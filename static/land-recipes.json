@@ -415,6 +415,10 @@
   "gold_coin": {
    "name": "Gold coin",
    "coin": true
+  },
+  "parcel": {
+   "name": "Parcel",
+   "quest": true
   }
  },
  "tools": {
@@ -3584,5 +3588,125 @@
   "regen_s": 6,
   "calm_s": 10,
   "grace_s": 5
+ },
+ "quests": {
+  "about": "NPCS AND QUESTS (#165, doc/land-civilisation.md; operator 2026-11-09: \"we may need npcs and quests and move this a little towards world of warcraft as well\"). NPCs stand where `at` says (face, u, v), kept by the world server; a player within talk metres talks to one. The quest giver offers each player up to `offered` quests made from the world as it is — bring items the land holds, hunt game that lives here, carry a parcel to another NPC — and a player holds up to `max_open`. A quest pays experience and — a bring or hunt quest, which costs the player something; a delivery is a walk, free to repeat, and pays experience only — from the TOWN TREASURY (the market's share of every trade, and what quests bring in), up to `reward_share` of the treasury's largest stock: nothing is made from nothing. Levels: level n needs level_xp × n × (n - 1) / 2 experience.",
+  "talk": 4,
+  "offered": 3,
+  "max_open": 3,
+  "reward_share": 0.02,
+  "level_xp": 100,
+  "npcs": [
+   {
+    "id": "elder",
+    "name": "Maren",
+    "role": "elder",
+    "at": [
+     0,
+     55046.0,
+     80001.0
+    ],
+    "look": {
+     "skin": 2,
+     "hair": 7,
+     "body": 1,
+     "face": 1
+    },
+    "gives": true
+   },
+   {
+    "id": "trader",
+    "name": "Tobin",
+    "role": "trader",
+    "at": [
+     0,
+     55052.0,
+     80001.0
+    ],
+    "look": {
+     "skin": 4,
+     "hair": 2,
+     "body": 0,
+     "face": 0
+    }
+   },
+   {
+    "id": "smith",
+    "name": "Ida",
+    "role": "smith",
+    "at": [
+     0,
+     55043.0,
+     80001.0
+    ],
+    "look": {
+     "skin": 1,
+     "hair": 9,
+     "body": 1,
+     "face": 3
+    }
+   }
+  ],
+  "bring": [
+   [
+    "sticks",
+    10
+   ],
+   [
+    "stone",
+    6
+   ],
+   [
+    "fiber",
+    12
+   ],
+   [
+    "wood",
+    4
+   ],
+   [
+    "clay",
+    4
+   ],
+   [
+    "berries",
+    6
+   ],
+   [
+    "grain",
+    6
+   ],
+   [
+    "flax",
+    6
+   ],
+   [
+    "cobble",
+    8
+   ],
+   [
+    "planks",
+    4
+   ]
+  ],
+  "hunt": [
+   [
+    "rabbit",
+    2
+   ],
+   [
+    "deer",
+    1
+   ],
+   [
+    "boar",
+    1
+   ]
+  ],
+  "xp": {
+   "bring": 20,
+   "hunt": 35,
+   "deliver": 15
+  }
  }
 }
