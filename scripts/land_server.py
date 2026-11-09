@@ -68,6 +68,7 @@ FLOWERS = {58, 59, 60, 61}        # static/land-world.js FLOWERS: picked by hand
 # FOOD AND FARMING (#153, #154; doc/land-civilisation.md): static/land-world.js B.berrybush, wheat (ripe or wild grain),
 # wheatyoung (sown), farmland (tilled). A hoe tills, a seed is sown on farmland and ripens by its soil (RULES "farming").
 BERRYBUSH, WHEAT, WHEATYOUNG, FARMLAND = 70, 71, 72, 73
+SEA = 96                          # static/land-world.js SEA: the sea surface layer (animals keep to dry land)
 WELL = 74                         # static/land-world.js B.well: Use on it with a bucket draws water (#155)
 SWEPT = {34, 35, 51, BERRYBUSH, WHEAT} | FLOWERS   # static/land-world.js SWEPT: pebble, twigs, flax, flowers, wild food — a placed block takes their place
 # THE DEEP (#129, doc/land-core.md): layers below 0, down to DEEP_MIN (static/land-world.js DEEP_MIN), are the deep crust.
@@ -359,6 +360,8 @@ class World:
         for c in self.crafts.values():                    # a restart lands every pilot: the craft is parked where it was
             c["pilot"] = None
         self.cdirty = False
+        # HUNTING (#156): the animals near players — the world server's own, never saved (they wander off and others come)
+        self.animals, self.animal_seq, self.rng = {}, 0, random.Random()
         self.http = self.oracle = None
         self.shots = os.path.join(self.dir, "shots")      # <plot>.jpg + <plot>.json {"ver", "at"} (THE LISTING)
         os.makedirs(self.shots, exist_ok=True)
@@ -542,6 +545,115 @@ class World:
         if await self.moist(face, u, v, h - 1):
             t *= F["moist"]
         return (time.time() if now is None else now) + t
+
+    async def cols(self, cells):
+        """[height, top, biome] of each [face, u, v] column's untouched ground (land_terrain.mjs cols)."""
+        if not cells:
+            return []
+        async with self.oracle_lock:
+            self.oracle.stdin.write((json.dumps({"cols": cells}) + "\n").encode())
+            await self.oracle.stdin.drain()
+            r = json.loads(await self.oracle.stdout.readline())
+        if "error" in r:
+            raise RuntimeError("terrain oracle: " + r["error"])
+        return r["cols"]
+
+    # -- HUNTING (#156, doc/land-civilisation.md) ---------------------------------------------------------------------
+    async def herd(self, present, dt=0.5):
+        """One step of the animals near the players present ([face, u, v, h, ...] each): those no player is near go,
+        each player's surroundings fill up to per_area (a couple a step, 18-40 m off, on dry land, of the kinds its biome
+        holds), and every animal wanders — or flees at full speed from a player within flee metres."""
+        Hn = RULES["hunting"]
+        near = lambda a, q, r: a["face"] == q[0] and abs(a["u"] - q[1]) < r and abs(a["v"] - q[2]) < r
+        for k in [k for k, a in self.animals.items() if not any(near(a, q, Hn["keep"]) for q in present)]:
+            del self.animals[k]
+        want = []
+        for q in present:
+            n = sum(1 for a in self.animals.values() if near(a, q, Hn["area"]))
+            for _ in range(min(2, Hn["per_area"] - n)):
+                ang, d = self.rng.random() * math.tau, 18 + self.rng.random() * 22
+                u, v = q[1] + math.cos(ang) * d, q[2] + math.sin(ang) * d
+                if 0 <= u < W and 0 <= v < W:
+                    want.append([int(q[0]), u, v])
+        now = time.time()
+        for (f, u, v), (hgt, top, biome) in zip(want, await self.cols(want)):
+            kinds = [k for k, sp in Hn["species"].items() if biome in sp["biomes"]]
+            if top <= SEA or not kinds:
+                continue
+            self.animal_seq += 1
+            kind = self.rng.choice(kinds)
+            self.animals[self.animal_seq] = {"id": self.animal_seq, "kind": kind, "face": f, "u": u, "v": v, "h": hgt,
+                                              "yaw": self.rng.random() * math.tau, "hp": Hn["species"][kind]["hp"],
+                                              "go": now + self.rng.random() * 4, "flee": 0}
+        moved = []
+        for a in self.animals.values():
+            sp = Hn["species"][a["kind"]]["speed"]
+            threat = min(((math.hypot(q[1] - a["u"], q[2] - a["v"]), q) for q in present if q[0] == a["face"]), default=(1e9, None), key=lambda x: x[0])
+            if threat[0] < Hn["flee"] or a["flee"] > now:
+                if threat[1] is not None:
+                    a["yaw"] = math.atan2(a["u"] - threat[1][1], a["v"] - threat[1][2])
+                step = sp * dt
+            elif now >= a["go"]:                              # wander: a new heading now and then, a pause between
+                a["yaw"] += (self.rng.random() - 0.5) * 2.0
+                a["go"] = now + 2 + self.rng.random() * 5
+                a["walk"] = self.rng.random() < 0.6
+                continue
+            else:
+                step = sp * 0.3 * dt if a.get("walk") else 0
+            if step:
+                nu, nv = a["u"] + math.sin(a["yaw"]) * step, a["v"] + math.cos(a["yaw"]) * step
+                if 0 <= nu < W and 0 <= nv < W:
+                    moved.append((a, nu, nv))
+        for (a, nu, nv), (hgt, top, _) in zip(moved, await self.cols([[a["face"], nu, nv] for a, nu, nv in moved])):
+            if top <= SEA:                                    # never into the sea: it turns back
+                a["yaw"] += math.pi
+                continue
+            a["u"], a["v"], a["h"] = nu, nv, hgt
+
+    def animals_near(self, pos, r):
+        return [[a["id"], a["kind"], round(a["u"], 2), round(a["v"], 2), round(a["h"], 2), round(a["yaw"], 2)]
+                for a in self.animals.values() if a["face"] == pos[0] and abs(a["u"] - pos[1]) < r and abs(a["v"] - pos[2]) < r]
+
+    def hunt(self, who, aid, pos):
+        """A strike at animal `aid` from `pos` (where the hunter stands): a spear within its reach, else a bow within its
+        reach spending an arrow; a strike costs strike_s of work. Returns ({"hit", "killed", "drops"}, error)."""
+        Hn = RULES["hunting"]
+        a = self.animals.get(aid) if isinstance(aid, int) and not isinstance(aid, bool) else None
+        if not a:
+            return None, "it is gone"
+        if not pos or pos[0] != a["face"]:
+            return None, "too far away"
+        pl = self.player(who)
+        d = math.hypot(a["u"] - pos[1], a["v"] - pos[2], a["h"] + 0.5 - (pos[3] + 1.5))
+        weapon = None
+        for w in ("spear", "bow"):
+            spec = Hn["weapons"][w]
+            if self._has_class(pl, w) and d <= spec["reach"] and (not spec.get("ammo") or pl["items"].get(spec["ammo"], 0) > 0):
+                weapon = w
+                break
+        if not weapon:
+            if not (self._has_class(pl, "spear") or self._has_class(pl, "bow")):
+                return None, "hunting needs a spear or a bow"
+            if self._has_class(pl, "bow") and pl["items"].get("arrow", 0) < 1 and d <= Hn["weapons"]["bow"]["reach"]:
+                return None, "no arrows"
+            return None, "too far away"
+        if not self.work(who, Hn["strike_s"]):
+            return None, "too fast"
+        spec = Hn["weapons"][weapon]
+        if spec.get("ammo"):
+            pl["items"][spec["ammo"]] -= 1
+            if not pl["items"][spec["ammo"]]:
+                del pl["items"][spec["ammo"]]
+        a["hp"] -= spec["damage"]
+        a["flee"] = time.time() + 8                          # struck, it runs
+        self.pdirty.add(who)
+        if a["hp"] > 0:
+            return {"hit": a["kind"], "killed": None, "drops": []}, None
+        del self.animals[aid]
+        drops = Hn["species"][a["kind"]]["drops"]
+        for item, n in drops:
+            pl["items"][item] = pl["items"].get(item, 0) + n
+        return {"hit": a["kind"], "killed": a["kind"], "drops": drops}, None
 
     async def terrain_card(self, p):
         """The untouched plot's facts (land_terrain.mjs card): a pure function of the seed, so kept forever."""
@@ -1835,8 +1947,9 @@ class Hub:
                     if c["id"] not in seen:
                         o["pieces"] = c["pieces"]; seen.add(c["id"])
                     crafts.append(o)
+            animals = world.animals_near(me, self.NEAR) if world else []
             try:
-                await ws.send_json({"t": "players", "list": near, "crafts": crafts})
+                await ws.send_json({"t": "players", "list": near, "crafts": crafts, "animals": animals})
             except Exception:
                 pass
 
@@ -1846,7 +1959,8 @@ def make_app(world, hub, site_origin, wallet_url, secure_cookies=True, shot_page
         world.http = ClientSession(timeout=ClientTimeout(total=10))
         await world.start_oracle()
         app["bg"] = [asyncio.ensure_future(_flusher()), asyncio.ensure_future(_mover()), asyncio.ensure_future(_regrower()),
-                     asyncio.ensure_future(_ecology()), asyncio.ensure_future(_fire()), asyncio.ensure_future(_factory())]
+                     asyncio.ensure_future(_ecology()), asyncio.ensure_future(_fire()), asyncio.ensure_future(_factory()),
+                     asyncio.ensure_future(_herd())]
         if shot_page:
             app["bg"].append(asyncio.ensure_future(_photographer()))
 
@@ -1939,6 +2053,14 @@ def make_app(world, hub, site_origin, wallet_url, secure_cookies=True, shot_page
         while True:
             await asyncio.sleep(0.2)
             await hub.positions(world)
+
+    async def _herd():                                     # HUNTING (#156): the animals near the players present
+        while True:
+            await asyncio.sleep(0.5)
+            try:
+                await world.herd([st["pos"] for st in hub.socks.values() if st.get("pos")])
+            except Exception:
+                pass
 
     def plot_json(p, addr, may):
         rec = world.plots.get(p) or {"edits": {}, "ver": 0}
@@ -2104,6 +2226,18 @@ def make_app(world, hub, site_origin, wallet_url, secure_cookies=True, shot_page
             await hub.inv(world, addr)
         return web.json_response({"ok": not err, "error": err, "inventory": world.inv_json(addr)})
 
+    async def hunt(request):
+        addr, d = need_addr(request), await request.json()
+        pos = next((st["pos"] for st in hub.socks.values() if st.get("who") == addr and st.get("pos")), None) or world.player(addr).get("pos")
+        res, err = world.hunt(addr, d.get("id"), pos)
+        if res:                                                     # game in the bag, or an arrow spent
+            await hub.inv(world, addr)
+        return web.json_response(dict(res or {}, ok=not err, error=err, inventory=world.inv_json(addr)))
+
+    async def animals(request):
+        f, u, v = (float(request.query.get(k, "0")) for k in ("face", "u", "v"))
+        return web.json_response({"animals": world.animals_near([int(f), u, v], Hub.NEAR)})
+
     async def give(request):
         addr, d = need_addr(request), await request.json()
         err = world.give(addr, d.get("to", ""), d.get("items"))
@@ -2266,6 +2400,14 @@ def make_app(world, hub, site_origin, wallet_url, secure_cookies=True, shot_page
                                         "items": items, "error": err})
                     if not err:
                         await hub.inv(world, addr)
+                elif t == "hunt":                                   # HUNTING (#156): a strike from where the hunter stands
+                    if not addr:
+                        await ws.send_json({"t": "hunt", "req": m.get("req"), "error": "sign in first"})
+                        continue
+                    res, err = world.hunt(addr, m.get("id"), st.get("pos"))
+                    await ws.send_json(dict(res or {}, t="hunt", req=m.get("req"), error=err))
+                    if res:                                         # game in the bag, or an arrow spent: the bag changed
+                        await hub.inv(world, addr)
                 elif t in ("eat", "well"):                         # FOOD AND WATER (#155)
                     if not addr:
                         await ws.send_json({"t": "done", "req": m.get("req"), "error": "sign in first"})
@@ -2317,6 +2459,8 @@ def make_app(world, hub, site_origin, wallet_url, secure_cookies=True, shot_page
         web.post("/land/api/craft", craft),
         web.post("/land/api/give", give),
         web.post("/land/api/eat", eat),
+        web.post("/land/api/hunt", hunt),
+        web.get("/land/api/animals", animals),
         web.post("/land/api/well", draw_well),
         web.get("/land/api/offers", offers),
         web.post("/land/api/offer", offer),

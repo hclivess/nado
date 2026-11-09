@@ -18,6 +18,8 @@
 //       plot's facts for its market listing (#125): its commonest biome, its ground in metres above the sea (lowest,
 //       highest, mean), how many of its 256 columns lie under the sea, its trees (trunked: a bush is not one) and its flax. A listing states what
 //       the planet IS there, so it is read from the generator, never estimated.
+//   {"cols": [[face, u, v], ...]}      ->  {"cols": [[height, top, biome], ...]}  — the untouched ground under each column
+//       (land-world column): where the world server's animals walk and what kinds live there (HUNTING, #156).
 //   {"soil": [face, u, v]}             ->  {"soil": "loam" | "sandy" | "clay" | "peat" | "stony"}  — the column's soil
 //       (land-world soilOf), which rules a field there (FARMING, #154).
 import { createInterface } from "node:readline";
@@ -91,6 +93,10 @@ rl.on("line", (line) => {
     else if (req.grow) out = { cells: grow(...req.grow) };
     else if ("card" in req) out = card(req.card);
     else if ("trees" in req) out = { roots: trees(req.trees) };
+    else if (req.cols) out = { cols: req.cols.map(([f, u, v]) => {
+      if (!(f >= 0 && f < 6 && u >= 0 && u < W.W && v >= 0 && v < W.W)) return [0, 0, "rock"];
+      const c = col(f, Math.floor(u), Math.floor(v)); return [c.height, c.top, c.biome];
+    }) };
     else if (req.soil) {
       const [f, u, v] = req.soil;
       if (!(f >= 0 && f < 6 && u >= 0 && u < W.W && v >= 0 && v < W.W)) throw new Error("bad column");

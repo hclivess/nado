@@ -11,7 +11,9 @@
  *   4. nothing from nothing: berries, grain and seed come from the planet's breaking table, the hoe from a recipe of what
  *      bare hands gather; every new name is in all 17 languages;
  *   5. BREAD AND A WELL (#155): from bare hands, following the rules as a player would, a quern, flour, bread and a well
- *      are reached; only food is eaten, a meal never punishes, and the well is a placed piece with its own name.
+ *      are reached; only food is eaten, a meal never punishes, and the well is a placed piece with its own name;
+ *   6. HUNTING (#156): a spear, a bow, arrows and a tanning rack are reached from bare hands; every species drops real
+ *      items and lives in real biomes; cooked meat is food and raw meat is not; every name speaks 17 languages.
  *
  * Run: node tests/test_the_land_grows_wild_food_and_its_soils_rule_a_field.mjs
  */
@@ -127,6 +129,20 @@ ok(R.items.well.places === B.well && R.items.well.unit && W.BLOCKS[B.well].solid
 const keys5 = ["land.i.flour", "land.i.bread", "land.i.well", "land.s.quern", "land.eatIt", "land.fedFor", "land.ate", "land.wellBucket"];
 ok(langs.every((l) => keys5.every((k) => L10N[l][k])) && langs.every((l) => L10N[l]["land.eatIt"].includes("{i}") && L10N[l]["land.fedFor"].includes("{m}")),
    "bread, the quern, the well and eating speak all 17 languages, placeholders kept");
+
+// 6. hunting
+const Hn = R.hunting, biomes = new Set(["grass", "forest", "snow", "desert", "beach", "rock"]);
+ok(tools.has("spear") && tools.has("bow") && have.has("arrow") && stations.has("tanning_rack"), "a spear, a bow, arrows and a tanning rack are reached from bare hands");
+ok(Object.values(Hn.species).every((sp) => sp.hp > 0 && sp.speed > 0 && sp.drops.every(([i, n]) => R.items[i] && n > 0) && sp.biomes.every((b) => biomes.has(b))),
+   "every species lives in real biomes and drops real items");
+ok(R.food.items.cooked_meat > 0 && !R.food.items.meat && R.recipes.some((r) => r.makes[0][0] === "cooked_meat" && (r.with || []).includes("campfire"))
+   && R.recipes.some((r) => r.makes[0][0] === "leather" && r.uses.some(([i]) => i === "hide")), "meat is cooked before it is eaten; hide tans into leather");
+ok(Hn.weapons.spear.reach < Hn.weapons.bow.reach && Hn.weapons.bow.ammo === "arrow" && Hn.flee > Hn.weapons.spear.reach,
+   "a spear is close work (an animal runs before it is that close), a bow reaches far and spends arrows");
+const keys6 = ["land.i.meat", "land.i.cooked_meat", "land.i.hide", "land.i.bone", "land.i.leather", "land.i.arrow", "land.t.spear", "land.t.bow", "land.s.tanning_rack",
+  ...Object.keys(Hn.species).map((k) => "land.a." + k), "land.huntNeeds", "land.huntFar", "land.huntArrows", "land.huntKilled", "land.huntHit"];
+ok(langs.every((l) => keys6.every((k) => L10N[l][k])) && langs.every((l) => L10N[l]["land.huntKilled"].includes("{a}") && L10N[l]["land.huntHit"].includes("{a}")),
+   "hunting speaks all 17 languages, placeholders kept");
 
 if (fails) { console.log(`${fails} FAILURES`); process.exit(1); }
 console.log("ALL PASS");

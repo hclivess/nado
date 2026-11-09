@@ -9,6 +9,8 @@ under /land/) and a fake exec node (/exec/*) that says OWNER holds plot PA and h
   GET /fixture/plot          -> {plot, owner, agent, other_plot, other}
   GET /fixture/seed?who=owner|agent&items={json}[&tools=[json]]  -> stocks that player's inventory (what gathering and
                                 crafting would have given)
+  GET /fixture/animal?kind=&u=&v=  -> the herd held still (its loop stopped: nothing wanders, flees, comes or goes)
+                                and one animal of that kind standing at (u, v) on face 0 -> {id}; a hunt can aim at it
   GET /fixture/ripen         -> every sown crop and planted sapling is due now: the world server's own ecology loop
                                 grows them on its next tick (a field's twenty minutes, without the wait)
 """
@@ -92,6 +94,17 @@ async def main():
         await hub.inv(world, who)
         return web.json_response(world.inv_json(who))
 
+    async def animal(req):
+        for f in app["bg"][-1:]:                                     # land_server _herd: the last background loop
+            f.cancel()
+        u, v = float(req.query["u"]), float(req.query["v"])
+        (hgt, top, biome), = await world.cols([[0, u, v]])
+        world.animal_seq += 1
+        kind = req.query["kind"]
+        world.animals[world.animal_seq] = {"id": world.animal_seq, "kind": kind, "face": 0, "u": u, "v": v, "h": hgt, "yaw": 0.0,
+                                           "hp": S.RULES["hunting"]["species"][kind]["hp"], "go": 1e18, "flee": 0}
+        return web.json_response({"id": world.animal_seq})
+
     async def ripen(req):
         n = 0
         for rec in world.plots.values():
@@ -111,7 +124,7 @@ async def main():
     app.add_routes([web.get("/", page), web.get("/protocol.js", proto), web.get("/exec/assets", assets),
                     web.get("/exec/asset", asset), web.get("/exec/view", view), web.get("/fixture/owner_token", owner_token),
                     web.get("/fixture/agent_build", agent_build), web.get("/fixture/plot", plot), web.get("/fixture/seed", seed),
-                    web.get("/fixture/ripen", ripen)])
+                    web.get("/fixture/ripen", ripen), web.get("/fixture/animal", animal)])
     app.router.add_static("/static", STATIC)
     app.router.add_route("*", "/{tail:.*}", empty)
     runner = web.AppRunner(app); await runner.setup()

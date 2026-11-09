@@ -1069,6 +1069,15 @@ function connect() {
       }
       for (const [id, r] of others) if (!seen.has(id)) { scene.remove(r.mesh); others.delete(id); }
       craftsSeen(m.crafts);
+      animalsSeen(m.animals);
+    } else if (m.t === "hunt") {
+      // the strike's answer: a miss the world server explains, a hit (it runs), or game for the bag
+      if (m.error === "too far away") notify(T("huntFar", "Too far — get closer, or use a bow."));
+      else if (m.error === "no arrows") notify(T("huntArrows", "No arrows — make some from sticks, stone and fiber."));
+      else if (m.error === "hunting needs a spear or a bow") notify(T("huntNeeds", "Hunting needs a spear or a bow."));
+      else if (m.error && m.error !== "too fast" && m.error !== "it is gone") notify(String(m.error));
+      else if (m.killed) notify(T("huntKilled", "You hunted a {a}.", { a: animalName(m.killed) }));
+      else if (m.hit) notify(T("huntHit", "A hit — the {a} runs!", { a: animalName(m.hit) }));
     } else if (m.t === "machine") {
       if (machine && m.plot === machine.plot) renderMachine(m);
     } else if (m.t === "craft_ok") {
@@ -1086,6 +1095,8 @@ function connect() {
     net.online = false; net.ws = null;
     for (const r of others.values()) scene.remove(r.mesh);
     others.clear();
+    for (const r of animals.values()) scene.remove(r.mesh);
+    animals.clear();
     if (was) hud();
     setTimeout(connect, Math.min(30000, 1000 * 2 ** Math.min(5, net.tries++)));   // back off; a page without a server stays local
   };
@@ -1166,6 +1177,107 @@ function avatar(seed, look) {
     cl.material.side = THREE.DoubleSide;
   }
   return g;
+}
+// ---- ANIMALS (#156, "hunting", operator 2026-11-09): the world server keeps them near players (land_server.py herd) and
+// sends where each is with the players near; the page draws each kind — a deer, a boar, a rabbit — glides it to where
+// the server says, stands it on the drawn ground, and swings its legs while it moves. Break on one under the crosshair
+// strikes it with a spear (close) or a bow (far, an arrow each).
+const animals = new Map();                        // id -> { kind, mesh, legs, u, v, h, yaw, cu, cv, cyaw, gh, moving }
+const ANIMAL_LOOK = {
+  deer: { body: 0x8a5a33, belly: 0xd9c3a0, len: 1.15, high: 0.85, girth: 0.32, head: 0.18, neck: 0.45 },
+  boar: { body: 0x4b3b31, belly: 0x5e4c40, len: 0.95, high: 0.5, girth: 0.34, head: 0.22, neck: 0.12 },
+  rabbit: { body: 0x9a8a78, belly: 0xe8e0d4, len: 0.3, high: 0.16, girth: 0.13, head: 0.1, neck: 0.06 },
+};
+function animalMesh(kind, id) {
+  const L = ANIMAL_LOOK[kind] || ANIMAL_LOOK.deer, g = new THREE.Group(), legs = [];
+  const mat = (col) => new THREE.MeshLambertMaterial({ color: col });
+  const put = (geo, col, x, y, z, parent = g) => { const m = new THREE.Mesh(geo, mat(col)); m.position.set(x, y, z); parent.add(m); return m; };
+  const body = put(new THREE.SphereGeometry(1, 16, 10), L.body, 0, L.high + L.girth * 0.3, 0);
+  body.scale.set(L.girth, L.girth * 1.05, L.len * 0.5);
+  put(new THREE.SphereGeometry(1, 12, 8), L.belly, 0, L.high + L.girth * 0.05, 0).scale.set(L.girth * 0.85, L.girth * 0.7, L.len * 0.42);
+  // the head on its neck, forward (+z) and up
+  const hz = L.len * 0.5 + L.head * 0.4, hy = L.high + L.girth * 0.3 + L.neck;
+  if (L.neck > 0.1) put(new THREE.CylinderGeometry(L.head * 0.45, L.girth * 0.5, L.neck * 1.15, 10), L.body, 0, L.high + L.girth * 0.3 + L.neck * 0.5, hz - L.head * 0.6).rotation.x = 0.45;
+  const head = put(new THREE.SphereGeometry(L.head, 14, 10), L.body, 0, hy, hz);
+  head.scale.set(0.85, 0.9, 1.35);
+  for (const s of [-1, 1]) put(new THREE.SphereGeometry(L.head * 0.12, 8, 6), 0x111111, s * L.head * 0.55, hy + L.head * 0.25, hz + L.head * 0.75);   // eyes
+  if (kind === "boar") { put(new THREE.CylinderGeometry(L.head * 0.35, L.head * 0.42, L.head * 0.5, 10), 0x6e5548, 0, hy - L.head * 0.15, hz + L.head * 1.2).rotation.x = Math.PI / 2;
+    for (const s of [-1, 1]) put(new THREE.ConeGeometry(0.02, 0.1, 6), 0xeeeadd, s * L.head * 0.4, hy - L.head * 0.2, hz + L.head * 1.05).rotation.x = -0.6; }   // tusks
+  if (kind === "rabbit") for (const s of [-1, 1]) { const e = put(new THREE.CapsuleGeometry(0.025, 0.14, 4, 8), L.body, s * 0.04, hy + 0.12, hz - 0.03); e.rotation.z = s * 0.2; }
+  if (kind === "deer") {
+    for (const s of [-1, 1]) put(new THREE.ConeGeometry(0.05, 0.12, 8), L.body, s * L.head * 0.7, hy + L.head * 0.6, hz - L.head * 0.4);       // ears
+    if (id % 2) for (const s of [-1, 1]) {                                                                                                   // a stag's antlers
+      const a = put(new THREE.CylinderGeometry(0.015, 0.025, 0.4, 6), 0xcbb48c, s * 0.08, hy + 0.32, hz - 0.08); a.rotation.z = -s * 0.5;
+      const b = put(new THREE.CylinderGeometry(0.01, 0.015, 0.18, 6), 0xcbb48c, s * 0.2, hy + 0.42, hz); b.rotation.x = 0.6;
+    }
+    put(new THREE.SphereGeometry(0.07, 8, 6), 0xf4efe6, 0, L.high + L.girth * 0.55, -L.len * 0.5);                                             // white tail
+  }
+  // four legs, each hung from its hip so it can swing
+  for (const [x, z] of [[-1, 1], [1, 1], [-1, -1], [1, -1]]) {
+    const hip = new THREE.Group(); hip.position.set(x * L.girth * 0.55, L.high, z * L.len * 0.32); g.add(hip);
+    put(new THREE.CylinderGeometry(L.girth * 0.16, L.girth * 0.12, L.high, 8), kind === "boar" ? 0x3a2d25 : L.body, 0, -L.high / 2, 0, hip);   // hip to hoof
+    legs.push(hip);
+  }
+  return { g, legs };
+}
+function animalsSeen(list) {
+  const seen = new Set();
+  for (const [id, kind, u, v, h, yaw] of list || []) {
+    seen.add(id);
+    let r = animals.get(id);
+    if (!r) { const m = animalMesh(kind, id); r = { kind, mesh: m.g, legs: m.legs, cu: u, cv: v, cyaw: yaw, gh: h, phase: Math.random() * 6 }; scene.add(r.mesh); animals.set(id, r); }
+    r.moving = Math.hypot(u - (r.u ?? u), v - (r.v ?? v)) > 0.01;
+    Object.assign(r, { u, v, h, yaw });
+  }
+  for (const [id, r] of animals) if (!seen.has(id)) { scene.remove(r.mesh); animals.delete(id); }
+}
+/** Each frame: glide every animal to where the server says, on the drawn ground, its legs swinging while it moves. */
+function animalsFrame(dt, cam) {
+  const k = Math.min(1, dt * 5);
+  for (const r of animals.values()) {
+    r.cu += (r.u - r.cu) * k; r.cv += (r.v - r.cv) * k;
+    r.cyaw += Math.atan2(Math.sin(r.yaw - r.cyaw), Math.cos(r.yaw - r.cyaw)) * k;
+    if (!r.gat || Math.hypot(r.cu - r.gat[0], r.cv - r.gat[1]) > 0.15) { r.gh = groundAt(P.face, r.cu, r.cv) - 0.05; r.gat = [r.cu, r.cv]; }
+    const q = Wd.posOf(P.face, r.cu, r.cv, r.gh), ofr = Wd.frameOf(P.face, r.cu, r.cv);
+    r.mesh.position.set(q[0] - cam[0], q[1] - cam[1], q[2] - cam[2]);
+    r.mesh.up.set(ofr.up[0], ofr.up[1], ofr.up[2]);
+    const sy = Math.sin(r.cyaw), cy = Math.cos(r.cyaw);
+    r.mesh.lookAt(r.mesh.position.x + sy * ofr.east[0] + cy * ofr.north[0], r.mesh.position.y + sy * ofr.east[1] + cy * ofr.north[1], r.mesh.position.z + sy * ofr.east[2] + cy * ofr.north[2]);
+    r.phase += dt * (r.moving ? 9 : 0);
+    r.legs.forEach((l, i) => { l.rotation.x = r.moving ? Math.sin(r.phase + (i === 0 || i === 3 ? 0 : Math.PI)) * 0.5 : 0; });
+  }
+}
+/** The animal under the crosshair within `reach` m, nearer than any cell or piece the view meets: { id, kind, d } or null. */
+function animalAimed(reach) {
+  if (!animals.size) return null;
+  const { fr, fw } = look();
+  const d = [fr.east, fr.north, fr.up].map((ax) => fw[0] * ax[0] + fw[1] * ax[1] + fw[2] * ax[2]);
+  // what hides an animal: a cell or a piece, never the litter on the ground — flax and flowers in front of a deer took the
+  // strike and were picked instead (the first hunting walk, 2026-11-09)
+  const o = [P.u, P.v, P.h + EYE], a = aim(), low = a && !a.box && a.hit && Wd.LITTER.has(blockAt(P.face, a.hit[0], a.hit[1], a.hit[2]));
+  const wall = a && !low ? Math.hypot(a.point[0] - o[0], a.point[1] - o[1], a.point[2] - o[2]) : Infinity;
+  let best = null;
+  for (const [id, r] of animals) {
+    const L = ANIMAL_LOOK[r.kind] || ANIMAL_LOOK.deer, c = [r.cu, r.cv, r.gh + L.high + L.girth * 0.3];
+    const w = [c[0] - o[0], c[1] - o[1], c[2] - o[2]], t = w[0] * d[0] + w[1] * d[1] + w[2] * d[2];
+    if (t < 0 || t > reach || t > wall + 0.3) continue;
+    const miss = Math.hypot(w[0] - d[0] * t, w[1] - d[1] * t, w[2] - d[2] * t);
+    if (miss < Math.max(L.len * 0.55, L.girth + 0.15) && (!best || t < best.d)) best = { id, kind: r.kind, d: t };
+  }
+  return best;
+}
+const animalName = (k) => T("a." + k, { deer: "deer", boar: "boar", rabbit: "rabbit" }[k] || k);
+/** Break on an animal: a strike, if there is a weapon that reaches it (the world server judges it again). */
+function huntAt(an) {
+  const H = RULES && RULES.hunting;
+  if (!H) return false;
+  const spear = hasClass("spear"), bow = hasClass("bow");
+  if (!spear && !bow) { notify(T("huntNeeds", "Hunting needs a spear or a bow.")); return true; }
+  const canSpear = spear && an.d <= H.weapons.spear.reach, canBow = bow && an.d <= H.weapons.bow.reach;
+  if (!canSpear && !canBow) { notify(T("huntFar", "Too far — get closer, or use a bow.")); return true; }
+  if (!canSpear && !(inv.items.arrow > 0)) { notify(T("huntArrows", "No arrows — make some from sticks, stone and fiber.")); return true; }
+  net.send({ t: "hunt", id: an.id, req: ++net.req });
+  return true;
 }
 /** One of FACES kawaii faces on skin colour `skin`, 64 px: 0 sparkly eyes and a smile, 1 happy closed eyes (^ ^),
  *  2 a wink, 3 a cat mouth (:3), 4 sleepy, 5 surprised. Big dark eyes with white glints, pink blush, a small mouth. */
@@ -1706,6 +1818,7 @@ function act(place, mouse) {
   // signed out, a tap says so whatever it points at: it used to say nothing when the view held no target (sky, a gap in
   // a crown) — a visitor tapping in a forest got silence (the live two-player walk, 2026-11-07)
   if (!net.me) return notify(T("signInBuild2", "Sign in to gather and build."));
+  if (!place) { const an = animalAimed(RULES && RULES.hunting ? RULES.hunting.weapons.bow.reach : 30); if (an && huntAt(an)) return; }   // game first (#156)
   const a = aim();
   if (!a) return;
   if (place) {
@@ -2493,6 +2606,7 @@ function frame(now) {
   for (const c of chunks.values()) if (c.anchor) for (const me of c.meshes) me.position.set(c.anchor[0] - cam[0], c.anchor[1] - cam[1], c.anchor[2] - cam[2]);
   for (const m of [farMesh, farSea, borderMesh]) if (m) { const a = m.userData.anchor; m.position.set(a[0] - cam[0], a[1] - cam[1], a[2] - cam[2]); }
   for (const c of crafts.values()) if (c.pose) craftPlace(c.mesh, c.pose, cam);
+  animalsFrame(Math.min(0.1, (now - (frame.lastAnimals || now)) / 1000), cam); frame.lastAnimals = now;
   for (const r of others.values()) {
     if (!r.p) continue;
     const [f, u, v, h, yaw] = r.p, q = Wd.posOf(f, u, v, h), ofr = Wd.frameOf(f, u, v);

@@ -376,6 +376,24 @@
     120,
     90
    ]
+  },
+  "meat": {
+   "name": "Raw meat"
+  },
+  "cooked_meat": {
+   "name": "Cooked meat"
+  },
+  "hide": {
+   "name": "Hide"
+  },
+  "bone": {
+   "name": "Bone"
+  },
+  "leather": {
+   "name": "Leather"
+  },
+  "arrow": {
+   "name": "Arrow"
   }
  },
  "tools": {
@@ -463,6 +481,16 @@
    "name": "Stone hoe",
    "class": "hoe",
    "speed": 3
+  },
+  "spear": {
+   "name": "Stone spear",
+   "class": "spear",
+   "speed": 1
+  },
+  "bow": {
+   "name": "Bow",
+   "class": "bow",
+   "speed": 1
   }
  },
  "stations": {
@@ -492,6 +520,9 @@
   },
   "quern": {
    "name": "Quern"
+  },
+  "tanning_rack": {
+   "name": "Tanning rack"
   }
  },
  "breaking": {
@@ -3058,6 +3089,136 @@
    "with": [
     "workbench"
    ]
+  },
+  {
+   "id": "spear",
+   "makes": [
+    [
+     "spear",
+     1
+    ]
+   ],
+   "uses": [
+    [
+     "sticks",
+     2
+    ],
+    [
+     "stone",
+     2
+    ],
+    [
+     "cordage",
+     1
+    ]
+   ]
+  },
+  {
+   "id": "bow",
+   "makes": [
+    [
+     "bow",
+     1
+    ]
+   ],
+   "uses": [
+    [
+     "wood",
+     1
+    ],
+    [
+     "cordage",
+     3
+    ]
+   ],
+   "with": [
+    "workbench"
+   ]
+  },
+  {
+   "id": "arrow",
+   "makes": [
+    [
+     "arrow",
+     4
+    ]
+   ],
+   "uses": [
+    [
+     "sticks",
+     2
+    ],
+    [
+     "stone",
+     1
+    ],
+    [
+     "fiber",
+     2
+    ]
+   ]
+  },
+  {
+   "id": "cooked_meat",
+   "makes": [
+    [
+     "cooked_meat",
+     1
+    ]
+   ],
+   "uses": [
+    [
+     "meat",
+     1
+    ]
+   ],
+   "with": [
+    "campfire"
+   ]
+  },
+  {
+   "id": "tanning_rack",
+   "makes": [
+    [
+     "tanning_rack",
+     1
+    ]
+   ],
+   "uses": [
+    [
+     "sticks",
+     6
+    ],
+    [
+     "cordage",
+     2
+    ]
+   ],
+   "with": [
+    "workbench"
+   ]
+  },
+  {
+   "id": "leather",
+   "makes": [
+    [
+     "leather",
+     1
+    ]
+   ],
+   "uses": [
+    [
+     "hide",
+     1
+    ],
+    [
+     "lime",
+     1
+    ]
+   ],
+   "with": [
+    "tanning_rack"
+   ]
   }
  ],
  "wilderness_regrow_s": 900,
@@ -3154,7 +3315,107 @@
   "max_s": 1800,
   "items": {
    "berries": 120,
-   "bread": 900
+   "bread": 900,
+   "cooked_meat": 600
+  }
+ },
+ "hunting": {
+  "about": "HUNTING (#156, doc/land-civilisation.md): animals wander the wilderness near players — the world server keeps them (scripts/land_server.py herd): up to per_area within area metres of each player, spawned 18-40 m away on dry land by the biome's kinds, wandering, and fleeing at full speed from a player within flee metres; gone when no player is within keep metres. A weapon strikes one within its reach (a spear close, a bow far, spending an arrow); a strike costs strike_s of work; at 0 hp it drops its items into the hunter's bag. Animals only — weapons never touch a player.",
+  "per_area": 5,
+  "area": 48,
+  "keep": 96,
+  "flee": 9,
+  "strike_s": 0.8,
+  "species": {
+   "deer": {
+    "hp": 3,
+    "speed": 4.0,
+    "size": [
+     1.5,
+     0.5,
+     1.3
+    ],
+    "biomes": [
+     "forest",
+     "grass"
+    ],
+    "drops": [
+     [
+      "meat",
+      3
+     ],
+     [
+      "hide",
+      1
+     ],
+     [
+      "bone",
+      1
+     ]
+    ]
+   },
+   "boar": {
+    "hp": 5,
+    "speed": 3.0,
+    "size": [
+     1.2,
+     0.55,
+     0.9
+    ],
+    "biomes": [
+     "forest"
+    ],
+    "drops": [
+     [
+      "meat",
+      4
+     ],
+     [
+      "hide",
+      1
+     ],
+     [
+      "bone",
+      2
+     ]
+    ]
+   },
+   "rabbit": {
+    "hp": 1,
+    "speed": 4.5,
+    "size": [
+     0.4,
+     0.25,
+     0.35
+    ],
+    "biomes": [
+     "grass",
+     "forest",
+     "snow",
+     "desert"
+    ],
+    "drops": [
+     [
+      "meat",
+      1
+     ],
+     [
+      "hide",
+      1
+     ]
+    ]
+   }
+  },
+  "weapons": {
+   "spear": {
+    "reach": 3.5,
+    "damage": 2
+   },
+   "bow": {
+    "reach": 30,
+    "damage": 2,
+    "ammo": "arrow"
+   }
   }
  }
 }

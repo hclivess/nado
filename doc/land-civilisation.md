@@ -68,6 +68,9 @@ Trading exists (a gift; an offer that escrows what it gives and is taken atomica
 * **1c bread and a well — built** (#155): a quern grinds grain to flour, flour and water bake bread at the campfire;
   berries and bread are eaten from the bag (breaking takes 0.8 of its time while a meal lasts, up to 30 min; no
   hunger); a well (cobble, planks, cordage) gives a bucketful on Use, and never runs dry.
-* Next: hunting (#156), then the trading stands (#161).
+* **2 hunting — built** (#156): deer, boar and rabbits wander near players (the world server keeps them, 5 within
+  48 m of each, by biome) and run from a player within 9 m; a stone spear strikes close, a bow far for an arrow; game
+  gives meat, hide and bone; meat is cooked at the campfire (a meal), hide and lime tan into leather at a tanning rack.
+* Next: the trading stands (#161).
 
 Order: slice 1 first (one piece at a time, each live before the next), then 2, then the rest as listed.
