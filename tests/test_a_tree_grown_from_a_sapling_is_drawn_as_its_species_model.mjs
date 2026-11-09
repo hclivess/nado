@@ -31,10 +31,35 @@ const whole = mesh(planted());
 ok(verts(whole, "bark") > verts(base, "bark") + 100 && verts(whole, "foliage") > verts(base, "foliage") + 100 && verts(whole, "trees") === verts(base, "trees"),
    `a planted ${t.kind} is its grown model: bark ${verts(whole, "bark") - verts(base, "bark")} and leaf ${verts(whole, "foliage") - verts(base, "foliage")} vertices, no log cell drawn as a trunk segment`);
 // it stands on the cell's floor: the model's lowest bark sits at the ground layer's top, not the column's untouched height
-let lowest = Infinity;
-{ const p = whole.bark.pos, a = whole.anchor; const fr = W.frameOf(0, u + 0.5, v + 0.5); const R0 = W.R0;
-  for (let i = 0; i < p.length; i += 3) { const x = p[i] + a[0], y = p[i + 1] + a[1], z = p[i + 2] + a[2], r = Math.hypot(x, y, z) - R0; const d = Math.hypot(x - (fr.up[0] * (R0 + g0 + 1)), 0, 0); lowest = Math.min(lowest, r); } }
-ok(Math.abs(lowest - (g0 + 1 - 0.3)) < 0.6, `…standing on the levelled ground's floor (its trunk reaches down to ${lowest.toFixed(2)} m, the floor at ${g0 + 1})`);
+// (only the bark the planted tree ADDS, by THIS trunk's axis: the chunk holds the planet's own trees and fallen sticks
+// lying on the surface too, and a minimum over them measured their feet — both checks once passed on one natural tree's
+// 136.84 m, and on a stick's 137.55 m with or without the fix)
+const footOf = (r, without) => {
+  const key = (r2, i) => [0, 1, 2].map((c) => (r2.bark.pos[i + c] + r2.anchor[c]).toFixed(3)).join(",");
+  const had = new Set(); for (let i = 0; i < without.bark.pos.length; i += 3) had.add(key(without, i));
+  const p = r.bark.pos, a = r.anchor, up = W.frameOf(0, u + 0.5, v + 0.5).up, R0 = W.R0; let lo = Infinity;
+  for (let i = 0; i < p.length; i += 3) {
+    if (had.has(key(r, i))) continue;
+    const x = p[i] + a[0], y = p[i + 1] + a[1], z = p[i + 2] + a[2], d = x * up[0] + y * up[1] + z * up[2];
+    if (Math.hypot(x - d * up[0], y - d * up[1], z - d * up[2]) < 1.5) lo = Math.min(lo, Math.hypot(x, y, z) - R0);
+  }
+  return lo;
+};
+const lowest = footOf(whole, base);
+ok(Math.abs(lowest - (g0 + 1 - 0.2)) < 0.25, `…standing on the levelled ground's floor (its trunk reaches down to ${lowest.toFixed(2)} m, the floor at ${g0 + 1})`);
+// 2b. ON UNTOUCHED GROUND (a sapling planted in the meadow, or a forest spreading by seed): the smooth surface is the
+// column's own unrounded height, up to a metre under the trunk's first cell; the tree stands there, not on that cell's
+// floor ("most of the trees dont grow from the ground but from like 1 meter above it", operator 2026-11-09)
+{
+  const n0 = col.top, ed = new Map();
+  for (let du = -2; du <= 2; du++) for (let dv = -2; dv <= 2; dv++) for (let dh = 1; dh <= t.height + 2; dh++) {
+    const b = W.treeCell(t, du, dv, dh); if (b) ed.set(`0:${u + du}:${v + dv}:${n0 + dh}`, b);
+  }
+  const r = M.meshChunk(0, Math.floor(u / 16), Math.floor(v / 16), Math.floor((n0 + 1) / 16), ed, null, 0);
+  const low = footOf(r, M.meshChunk(0, Math.floor(u / 16), Math.floor(v / 16), Math.floor((n0 + 1) / 16), new Map(), null, 0));
+  ok(Math.abs(low - (col.height - 0.2)) < 0.25 && col.height < n0 + 1 - 0.05,
+     `…and on untouched ground it stands on the drawn surface (its trunk reaches down to ${low.toFixed(2)} m; the ground at ${col.height.toFixed(2)}, the cell's floor at ${n0 + 1})`);
+}
 // 3. a crown cell picked
 // (a model's leaf card is left out when its centre lies in a picked cell: the crown's upper layers are picked here)
 const picked = planted();

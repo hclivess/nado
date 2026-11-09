@@ -352,7 +352,13 @@ export function meshChunk(face, cu, cv, ch, edits, boxes, lod, grassOn = true) {
     if (i < 0 || j < 0 || i >= CHUNK || j >= CHUNK || g0 < h0 || g0 >= h0 + CHUNK) continue;
     const gone = (cu, cv, ch) => { const b = treeCell(t, cu - gu, cv - gv, ch - g0); return !!b && edits.get(face + ":" + cu + ":" + cv + ":" + ch) !== b; };
     gone.cut = Infinity;
-    placeTree(t, face, gu, gv, gh, lod, place, bark, foliage, gone);
+    // its foot on the ground as drawn: on the column's own untouched top cell the smooth surface is the column's
+    // unrounded height, up to a metre under the trunk's first cell — planted and self-seeded trees stood on that cell's
+    // floor and floated ("most of the trees dont grow from the ground but from like 1 meter above it", operator
+    // 2026-11-09); on edited soil (levelled, placed) the surface is the cell's floor
+    const c0 = colCache(face, gu, gv);
+    const foot = under === undefined && g0 === c0.top ? c0.height : gh;
+    placeTree(t, face, gu, gv, foot, lod, place, bark, foliage, gone);
   }
   // litter: a loose stone is a small rough rock in its own part, drawn with the ground's material (its weights all rock);
   // a fallen stick is a short forked branch in the bark mesh. Both lie on the drawn surface.
