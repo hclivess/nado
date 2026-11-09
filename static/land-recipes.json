@@ -278,6 +278,52 @@
     24,
     320
    ]
+  },
+  "steel": {
+   "name": "Steel"
+  },
+  "copper": {
+   "name": "Copper"
+  },
+  "wire": {
+   "name": "Copper wire"
+  },
+  "steel_plate": {
+   "name": "Steel plate",
+   "places": 64
+  },
+  "gear": {
+   "name": "Gear"
+  },
+  "silicon": {
+   "name": "Silicon"
+  },
+  "circuit": {
+   "name": "Circuit board"
+  },
+  "power_cell": {
+   "name": "Power cell"
+  },
+  "motor": {
+   "name": "Electric motor"
+  },
+  "thruster": {
+   "name": "Thruster",
+   "places": 65,
+   "unit": [
+    100,
+    100,
+    140
+   ]
+  },
+  "pilot_seat": {
+   "name": "Pilot seat",
+   "places": 66,
+   "unit": [
+    80,
+    90,
+    110
+   ]
   }
  },
  "tools": {
@@ -380,6 +426,12 @@
   },
   "loom": {
    "name": "Loom"
+  },
+  "blast_furnace": {
+   "name": "Blast furnace"
+  },
+  "machine_shop": {
+   "name": "Machine shop"
   }
  },
  "breaking": {
@@ -915,6 +967,37 @@
    "yields": [
     [
      "lamppost",
+     1
+    ]
+   ]
+  },
+  "64": {
+   "hard": 3.0,
+   "class": "pick",
+   "yields": [
+    [
+     "steel_plate",
+     1
+    ]
+   ],
+   "needs": "pick"
+  },
+  "65": {
+   "hard": 2.0,
+   "class": "pick",
+   "yields": [
+    [
+     "thruster",
+     1
+    ]
+   ]
+  },
+  "66": {
+   "hard": 2.0,
+   "class": "pick",
+   "yields": [
+    [
+     "pilot_seat",
      1
     ]
    ]
@@ -2316,6 +2399,318 @@
    "with": [
     "anvil",
     "hammer"
+   ]
+  },
+  {
+   "id": "blast_furnace",
+   "makes": [
+    [
+     "blast_furnace",
+     1
+    ]
+   ],
+   "uses": [
+    [
+     "stonebrick",
+     12
+    ],
+    [
+     "clay",
+     6
+    ],
+    [
+     "iron",
+     4
+    ]
+   ],
+   "with": [
+    "bloomery"
+   ]
+  },
+  {
+   "id": "steel",
+   "makes": [
+    [
+     "steel",
+     1
+    ]
+   ],
+   "uses": [
+    [
+     "iron",
+     2
+    ],
+    [
+     "coal",
+     1
+    ]
+   ],
+   "with": [
+    "blast_furnace"
+   ]
+  },
+  {
+   "id": "copper",
+   "makes": [
+    [
+     "copper",
+     1
+    ]
+   ],
+   "uses": [
+    [
+     "copperore",
+     2
+    ],
+    [
+     "charcoal",
+     1
+    ]
+   ],
+   "with": [
+    "bloomery"
+   ]
+  },
+  {
+   "id": "wire",
+   "makes": [
+    [
+     "wire",
+     4
+    ]
+   ],
+   "uses": [
+    [
+     "copper",
+     1
+    ]
+   ],
+   "with": [
+    "anvil",
+    "hammer"
+   ]
+  },
+  {
+   "id": "steel_plate",
+   "makes": [
+    [
+     "steel_plate",
+     1
+    ]
+   ],
+   "uses": [
+    [
+     "steel",
+     1
+    ]
+   ],
+   "with": [
+    "anvil",
+    "hammer"
+   ]
+  },
+  {
+   "id": "machine_shop",
+   "makes": [
+    [
+     "machine_shop",
+     1
+    ]
+   ],
+   "uses": [
+    [
+     "steel",
+     6
+    ],
+    [
+     "iron",
+     4
+    ],
+    [
+     "planks",
+     4
+    ]
+   ],
+   "with": [
+    "anvil"
+   ]
+  },
+  {
+   "id": "gear",
+   "makes": [
+    [
+     "gear",
+     2
+    ]
+   ],
+   "uses": [
+    [
+     "steel",
+     1
+    ]
+   ],
+   "with": [
+    "machine_shop"
+   ]
+  },
+  {
+   "id": "silicon",
+   "makes": [
+    [
+     "silicon",
+     1
+    ]
+   ],
+   "uses": [
+    [
+     "sand",
+     4
+    ],
+    [
+     "coal",
+     2
+    ]
+   ],
+   "with": [
+    "blast_furnace"
+   ]
+  },
+  {
+   "id": "circuit",
+   "makes": [
+    [
+     "circuit",
+     1
+    ]
+   ],
+   "uses": [
+    [
+     "silicon",
+     1
+    ],
+    [
+     "wire",
+     2
+    ],
+    [
+     "tinore",
+     1
+    ]
+   ],
+   "with": [
+    "machine_shop"
+   ]
+  },
+  {
+   "id": "power_cell",
+   "makes": [
+    [
+     "power_cell",
+     1
+    ]
+   ],
+   "uses": [
+    [
+     "copper",
+     1
+    ],
+    [
+     "tinore",
+     1
+    ],
+    [
+     "lime",
+     1
+    ]
+   ],
+   "with": [
+    "machine_shop"
+   ]
+  },
+  {
+   "id": "motor",
+   "makes": [
+    [
+     "motor",
+     1
+    ]
+   ],
+   "uses": [
+    [
+     "wire",
+     6
+    ],
+    [
+     "iron",
+     2
+    ],
+    [
+     "gear",
+     1
+    ]
+   ],
+   "with": [
+    "machine_shop"
+   ]
+  },
+  {
+   "id": "thruster",
+   "makes": [
+    [
+     "thruster",
+     1
+    ]
+   ],
+   "uses": [
+    [
+     "steel_plate",
+     4
+    ],
+    [
+     "motor",
+     2
+    ],
+    [
+     "circuit",
+     2
+    ],
+    [
+     "power_cell",
+     4
+    ]
+   ],
+   "with": [
+    "machine_shop"
+   ]
+  },
+  {
+   "id": "pilot_seat",
+   "makes": [
+    [
+     "pilot_seat",
+     1
+    ]
+   ],
+   "uses": [
+    [
+     "steel",
+     2
+    ],
+    [
+     "glass",
+     4
+    ],
+    [
+     "circuit",
+     3
+    ],
+    [
+     "chair",
+     1
+    ]
+   ],
+   "with": [
+    "machine_shop"
    ]
   }
  ],

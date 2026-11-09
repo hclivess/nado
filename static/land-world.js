@@ -229,9 +229,15 @@ export const BLOCKS = [
   // unit pieces drawn as their models; they light the night much farther than a torch (land.js LIGHTS)
   { key: "lantern", solid: true, glow: true, tex: [23, 23, 23] },
   { key: "lamppost", solid: true, glow: true, tex: [23, 23, 23] },
+  // TOWARD FLIGHT (#146, "tech up and build an X fighter … you add techs all the way until you can build an X fighter",
+  // operator 2026-11-09): steel plate to build a hull with, and the two working parts of a craft — a thruster and a pilot
+  // seat — each made by recipe from what the planet holds (land-recipes.json; doc/land-tech-to-flight.md)
+  { key: "steelplate", solid: true, tex: [48, 48, 48] },
+  { key: "thruster", solid: true, tex: [49, 49, 49] },
+  { key: "pilotseat", solid: true, tex: [50, 50, 50] },
 ];
 export const B = Object.fromEntries(BLOCKS.map((b, i) => [b.key, i]));
-export const ATLAS_TILES = 48;              // tiles 0..47 (0 unused)
+export const ATLAS_TILES = 51;              // tiles 0..50 (0 unused)
 export const opaque = (id) => BLOCKS[id].solid && !BLOCKS[id].see;
 
 // ---- terrain ---------------------------------------------------------------------------------------------------

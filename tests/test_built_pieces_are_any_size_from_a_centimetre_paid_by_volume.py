@@ -171,6 +171,17 @@ async def main():
     applied, refused, _ = await world.apply(A["address"], [[0, u0 + 6, v0 + 5, 200, 2]])
     check("…and placed in the empty cell beside it", applied and not refused, (applied, refused))
 
+    # the X fighter's parts build (#146): a hull of steel plate cut to any size, paid by volume; a thruster and a pilot
+    # seat placed whole, one item each
+    rest()
+    pa["items"].update({"steel_plate": 2, "thruster": 1, "pilot_seat": 1})
+    hull = [600, 900, 20000, 400, 150, 5, 64]                                   # 0.3 m³ of plate
+    added, _, refused = await world.boxes(A["address"], PA, [hull, [600, 1100, 20000, 100, 100, 140, 65], [800, 1100, 20000, 80, 90, 110, 66]], [])
+    check("steel plate, a thruster and a pilot seat are built", len(added) == 3 and not refused, (added, refused))
+    check("…the plate paid by volume, the thruster and the seat one item each",
+          pa["items"].get("steel_plate") == 1 and pa["vol"].get("steel_plate") == 1_000_000 - 300_000
+          and pa["items"].get("thruster", 0) == 0 and pa["items"].get("pilot_seat", 0) == 0, (pa["items"], pa["vol"]))
+
     # persistence and the index
     world.flush()
     w3 = S.World(data, "http://127.0.0.1:1", "")

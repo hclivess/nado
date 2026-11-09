@@ -23,14 +23,14 @@ hinges, bronze, coal, copper ore, tin ore, lime, mortar, glass, silver, gold, th
 | machine shop (station) | | steel ×6 + iron ×4 + planks ×4 | anvil |
 | gear | gear ×2 | steel ×1 | machine shop |
 | silicon | silicon ×1 | sand ×4 + coal ×2 | blast furnace |
-| circuit | circuit ×1 | silicon ×1 + wire ×2 + gold ×1 | machine shop |
+| circuit | circuit ×1 | silicon ×1 + wire ×2 + tin ore ×1 (solder) | machine shop |
 | power cell | power cell ×1 | copper ×1 + tin ore ×1 + lime ×1 | machine shop |
 | motor | motor ×1 | wire ×6 + iron ×2 + gear ×1 | machine shop |
 | **thruster** (placeable, works) | thruster ×1 | steel plate ×4 + motor ×2 + circuit ×2 + power cell ×4 | machine shop |
 | **pilot seat** (placeable, works) | pilot seat ×1 | steel ×2 + glass ×4 + circuit ×3 + chair ×1 | machine shop |
 
-No new raw resource is needed: every input above is already in the ground (coal, copper/tin ore, sand, clay, iron ore,
-silver/gold in the deep). If balancing later wants one (e.g. bauxite for a lighter hull), it is added as ore in rock,
+No new raw resource is needed: every input above is already in the ground (coal, copper/tin ore, sand, clay, iron ore —
+tin, not deep gold, solders the circuits so a basic part is not a 300 m expedition). If balancing later wants one (e.g. bauxite for a lighter hull), it is added as ore in rock,
 like iron.
 
 ## 2. A craft flies

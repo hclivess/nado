@@ -97,6 +97,7 @@ const PAINT = {
   37: ["#7d7570", 0.14, "ore"], 38: ["#6e4a2c", 0.06, "door"], 39: ["#7a5534", 0.08, "beam"], 40: ["#c9a95a", 0.14, "thatch"],
   41: ["#5a3a22", 0.06, "door"], 42: ["#2b2b2d", 0.18, "coal"], 43: ["#7d7570", 0.14, "copper"], 44: ["#7d7570", 0.14, "tin"],
   45: ["#a5765a", 0.1], 46: ["#7d7570", 0.14, "silver"], 47: ["#7d7570", 0.14, "gold"],
+  48: ["#9aa3ad", 0.05, "steel"], 49: ["#3b3f45", 0.08, "thruster"], 50: ["#4a5058", 0.06, "seat"],
 };
 function paintAtlas() {
   const cv = document.createElement("canvas");
@@ -126,6 +127,8 @@ function paintAtlas() {
       if (kind === "door" && x === TILE - 4 && y === 8) k = 2.2;                 // the handle
       if (kind === "beam" && y % 5 === 2) k *= 0.82;
       if (kind === "thatch" && (x * 3 + y) % 4 === 0) k *= 0.75;
+      if (kind === "steel" && (x === 0 || y === 0 || x === TILE - 1 || y === TILE - 1)) k *= 0.72;         // a panel's seams
+      if (kind === "steel" && (x === 2 || x === TILE - 3) && (y === 2 || y === TILE - 3)) k = 1.35;        // its rivets
       let col = c.clone().multiplyScalar(k);
       if (kind === "grassSide" && y < 4 + (rnd() < 0.4 ? 1 : 0)) col = new THREE.Color("#5f9e3a").multiplyScalar(k);
       if (kind === "snowSide" && y < 4 + (rnd() < 0.4 ? 1 : 0)) col = new THREE.Color("#f2f6f8").multiplyScalar(k);
@@ -135,6 +138,8 @@ function paintAtlas() {
       if (kind === "tin" && (x * 7 + y * 2) % 9 < 2) col = new THREE.Color("#c9ccd2").multiplyScalar(k);     // pale metal
       if (kind === "silver" && (x * 3 + y * 7) % 8 < 2) col = new THREE.Color("#e4e8ee").multiplyScalar(k);  // bright metal
       if (kind === "gold" && (x * 5 + y * 2) % 8 < 2) col = new THREE.Color("#e8c547").multiplyScalar(k);    // gold flecks
+      if (kind === "thruster" && Math.hypot(x - 7.5, y - 7.5) < 4.5) col = new THREE.Color("#ff8a3a").multiplyScalar(k * (1.3 - Math.hypot(x - 7.5, y - 7.5) / 7));   // the nozzle's glow
+      if (kind === "seat" && y < 7 && x > 2 && x < 13) col = new THREE.Color("#6fd3e8").multiplyScalar(k * 0.9);             // the canopy glass
       const a = kind === "glass" && !(x === 0 || y === 0 || x === TILE - 1 || y === TILE - 1) ? 0.25 : t === 6 ? 0.75 : 1;
       g.fillStyle = `rgba(${Math.min(255, col.r * 255) | 0},${Math.min(255, col.g * 255) | 0},${Math.min(255, col.b * 255) | 0},${a})`;
       g.fillRect(x0 + x, y0 + y, 1, 1);
@@ -1924,6 +1929,8 @@ const PIECE_TEX = {
   // furniture and fittings: joinery in planed planks, a fence in weathered split rails, a torch's charred shaft
   45: ["planks", 0.92, 0.7], 46: ["planks", 0.92, 0.7], 47: ["planks", 0.85, 0.8], 48: ["planks", 0.88, 0.75], 49: ["planks", 0.68, 0.95],
   50: ["darkwood", 1, 0.9], 53: ["planks", 0.75, 0.9], 54: ["planks", 0.95, 0.7],
+  // steel (#146): plate in brushed panels; a thruster and a pilot seat in darker steel until flight draws their models
+  64: ["steel", 1, 0.38], 65: ["steel", 0.55, 0.45], 66: ["steel", 0.75, 0.5],
 };
 const pieceMats = new Map();
 function pieceMaterial(blk) {
@@ -1937,12 +1944,28 @@ function pieceMaterial(blk) {
   } else if (spec) {
     const [name, tint, rough] = spec;
     m = new THREE.MeshStandardNodeMaterial({ roughness: rough, metalness: 0 });
-    const uv = TSL.uv(), col = name === "thatch" ? thatchTexture() : loadTex(name + "_col");
+    const uv = TSL.uv(), col = name === "thatch" ? thatchTexture() : name === "steel" ? steelTexture() : loadTex(name + "_col");
     m.colorNode = TSL.texture(col, uv).rgb.mul(tint).mul(TSL.attribute("color", "vec3"));
-    if (name !== "thatch") { const nor = loadTex(name + "_nor"); nor.colorSpace = THREE.NoColorSpace; m.normalNode = TSL.normalMap(TSL.texture(nor, uv)); }
+    if (name === "steel") m.metalness = 0.55;                                 // metal: it takes the sky's colour a little
+    if (name !== "thatch" && name !== "steel") { const nor = loadTex(name + "_nor"); nor.colorSpace = THREE.NoColorSpace; m.normalNode = TSL.normalMap(TSL.texture(nor, uv)); }
   }
   pieceMats.set(blk, m);
   return m;
+}
+// steel has no scan either: brushed metal in 1 m panels — fine streaks along the grain, darker seams, a rivet at each
+// corner — painted once
+let steelTex = null;
+function steelTexture() {
+  if (steelTex) return steelTex;
+  const cv = document.createElement("canvas"); cv.width = cv.height = 256;
+  const g = cv.getContext("2d");
+  g.fillStyle = "#a3abb4"; g.fillRect(0, 0, 256, 256);
+  let seed = 91; const R = () => { seed = (seed * 16807) % 2147483647; return seed / 2147483647; };
+  for (let i = 0; i < 900; i++) { const y = R() * 256, l = 58 + R() * 16; g.strokeStyle = `hsla(210,8%,${l}%,.35)`; g.lineWidth = 0.6 + R(); g.beginPath(); g.moveTo(0, y); g.lineTo(256, y + (R() - 0.5) * 2); g.stroke(); }
+  g.strokeStyle = "#5d646c"; g.lineWidth = 3; g.strokeRect(1.5, 1.5, 253, 253);
+  g.fillStyle = "#d4dae0"; for (const x of [12, 244]) for (const y of [12, 244]) { g.beginPath(); g.arc(x, y, 4, 0, Math.PI * 2); g.fill(); }
+  steelTex = new THREE.CanvasTexture(cv); steelTex.wrapS = steelTex.wrapT = THREE.RepeatWrapping; steelTex.colorSpace = THREE.SRGBColorSpace;
+  return steelTex;
 }
 // thatch has no scan: bundles of straw painted in layers, each course overlapping the one below
 let thatchTex = null;
