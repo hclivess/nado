@@ -52,6 +52,7 @@ Trading exists (a gift; an offer that escrows what it gives and is taken atomica
 | stone age | **2. hunting** | animals wander the wilderness (deer, boar, rabbit), simulated by the world server and drawn near players; a stone spear, then a bow and arrows; game gives meat, hide and bone; meat is cooked at the campfire |
 | stone age | **2. leather and bone** | hide tans into leather (lime, at a tanning rack); bone needles, leather clothes and a pack |
 | bronze/iron | **3. weapons ladder** | spear, bow, bronze then iron then steel blades, crossbow — each a better hunting tool |
+| all ages | **3b. ballistics, knife, carpentry** (operator: *"ballistics? bow and arrow? knife? carpentry tools?"*) | an arrow (and a thrown spear) is a real projectile: it leaves the bow at its draw speed, falls under gravity, takes time to arrive and can miss a running animal — aim leads the target and drops with range; a spent arrow can be picked up again. A **knife** (flint, then bronze, iron, steel) butchers game (without one a kill gives only meat; with one, hide and bone too) and cuts cordage and leather. **Carpentry tools** — saw, chisel, plane, mallet — make the finer things of wood: a saw cuts planks and beams from a log at better yield, chisel and plane make furniture, doors and windows, wheels for carts |
 | iron age | **4. mills** | a windmill and a watermill: machines (the factory system, #148) that grind grain without a hand, a sawmill that cuts planks |
 | iron age | **5. transport I** | a hand cart (wheels and a bed of planks) that carries a chest's worth; a boat that floats on water |
 | industrial | **5. transport II** | a car: a motor and four wheels on the ground, driven like the craft but held to the surface (the flight physics with ground contact) |
@@ -71,6 +72,9 @@ Trading exists (a gift; an offer that escrows what it gives and is taken atomica
 * **2 hunting — built** (#156): deer, boar and rabbits wander near players (the world server keeps them, 5 within
   48 m of each, by biome) and run from a player within 9 m; a stone spear strikes close, a bow far for an arrow; game
   gives meat, hide and bone; meat is cooked at the campfire (a meal), hide and lime tan into leather at a tanning rack.
-* Next: the trading stands (#161).
+* **markets, part 1 — built** (#161): the trading stand; offers made and taken at stands, seen within 64 m (a market),
+  gifts handed over in person (8 m), the market keeps 5% of what the maker receives. Still open: tools that wear, food that
+  spoils, decay; then post, telegraph and the internet widening a market.
+* Next: aggressive deer, death and respawn (#162); ballistics, a knife, carpentry tools (#157).
 
 Order: slice 1 first (one piece at a time, each live before the next), then 2, then the rest as listed.

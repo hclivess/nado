@@ -52,7 +52,7 @@ CHALLENGE_TTL = 300
 SESSION_TTL = 7 * 86400
 sid = lambda token: hashlib.blake2b(token.encode(), digest_size=32).hexdigest()   # a session's name on disk (World.sessions)
 FACE_N, PLOT, W, H = L.FACE_N, L.PLOT, L.FACE_N * L.PLOT, 256
-N_BLOCKS = 75                     # static/land-world.js BLOCKS.length (tests/test_the_land_planet_… checks the two agree)
+N_BLOCKS = 76                     # static/land-world.js BLOCKS.length (tests/test_the_land_planet_… checks the two agree)
 DOOR = 37                         # static/land-world.js B.door: a piece that swings open and shut ("door" op)
 THRUSTER, SEAT = 65, 66           # static/land-world.js B.thruster, B.pilotseat: a craft's working parts (FLIGHT, #147)
 SMELTER, ASSEMBLER, GENERATOR = 67, 68, 69   # static/land-world.js: FACTORIES (#148) — machines and their power
@@ -69,6 +69,7 @@ FLOWERS = {58, 59, 60, 61}        # static/land-world.js FLOWERS: picked by hand
 # wheatyoung (sown), farmland (tilled). A hoe tills, a seed is sown on farmland and ripens by its soil (RULES "farming").
 BERRYBUSH, WHEAT, WHEATYOUNG, FARMLAND = 70, 71, 72, 73
 SEA = 96                          # static/land-world.js SEA: the sea surface layer (animals keep to dry land)
+STAND = 75                        # static/land-world.js B.stand: a trading stand — offers are made and taken at one (#161)
 WELL = 74                         # static/land-world.js B.well: Use on it with a bucket draws water (#155)
 SWEPT = {34, 35, 51, BERRYBUSH, WHEAT} | FLOWERS   # static/land-world.js SWEPT: pebble, twigs, flax, flowers, wild food — a placed block takes their place
 # THE DEEP (#129, doc/land-core.md): layers below 0, down to DEEP_MIN (static/land-world.js DEEP_MIN), are the deep crust.
@@ -1421,6 +1422,8 @@ class World:
                 refused.append([b, "no such piece here"]); continue
             if b[6] == CHEST and (rec.get("chests") or {}).get(chest_key(b)):
                 refused.append([b, "empty the chest first"]); continue          # its items are never lost with it
+            if b[6] == STAND and any((o.get("stand") or [None])[0] == p and o["stand"][1] == b for o in self.offers.values()):
+                refused.append([b, "offers are open at this stand — they are withdrawn first"]); continue
             rule = RULES["breaking"].get(str(b[6])) or {"hard": 1.0}
             unit = RULES["items"][places[b[6]]].get("unit")
             speed = self._speed(pl, rule.get("class"))
@@ -1753,12 +1756,52 @@ class World:
             out[k] = n
         return out
 
-    def give(self, who, to, items):
+    # -- MARKETS (#161, doc/land-civilisation.md): "local markets first, global only with the invention of the internet"
+    # (operator 2026-11-09). An offer lives at the trading stand it was made at; it is seen and taken at the stands of
+    # its market (within market.reach of it); a gift is handed over in person. `pos` is where the caller stands
+    # ([face, u, v, h, ...]: their open page's place, else the place kept for them) — None: nowhere known.
+    def stands_near(self, pos, r):
+        """The trading stands within r metres (across the ground) of pos: [(plot, box, [face, u, v]), ...], nearest first."""
+        if not pos:
+            return []
+        f, u, v = int(pos[0]), pos[1], pos[2]
+        out, n = [], int(r // PLOT) + 1
+        for dp in range(-n, n + 1):
+            for dq in range(-n, n + 1):
+                if not (0 <= u + dp * PLOT < W and 0 <= v + dq * PLOT < W):
+                    continue
+                p = plot_of(f, int(u + dp * PLOT), int(v + dq * PLOT))
+                rec = self.plots.get(p)
+                if not rec or not rec.get("boxes"):
+                    continue
+                fc, fr = p % FACE_N, (p // FACE_N) % FACE_N
+                for b in rec["boxes"]:
+                    if b[6] != STAND:
+                        continue
+                    cu, cv = fc * PLOT + (b[0] + b[3] / 2) / 100, fr * PLOT + (b[1] + b[4] / 2) / 100
+                    d = math.hypot(cu - u, cv - v)
+                    if d <= r:
+                        out.append((d, p, b, [f, cu, cv]))
+        return [(p, b, spot) for d, p, b, spot in sorted(out, key=lambda x: x[0])]
+
+    def offer_seen(self, o, who, pos):
+        """An offer is seen by its maker anywhere (to withdraw it), and by anyone else within market.reach of its stand."""
+        if o["by"] == who:
+            return True
+        spot = o.get("spot")
+        return bool(spot and pos and spot[0] == int(pos[0]) and math.hypot(spot[1] - pos[1], spot[2] - pos[2]) <= RULES["market"]["reach"])
+
+    def offers_for(self, who, pos):
+        return sorted((o for o in self.offers.values() if self.offer_seen(o, who, pos)), key=lambda o: -o["at"])[:500]
+
+    def give(self, who, to, items, pos=None, to_pos=None):
         bag = self._bag(items)
         if not bag:
             return "name the items and counts to give"
         if not validate_address(to, allow_reserved=False) or to == who:
             return "that is not another player's address"
+        if not (pos and to_pos and int(pos[0]) == int(to_pos[0]) and math.hypot(pos[1] - to_pos[1], pos[2] - to_pos[2]) <= RULES["market"]["hand"]):
+            return "a gift is handed over in person — stand beside them"
         pl = self.player(who)
         if any(pl["items"].get(k, 0) < n for k, n in bag.items()):
             return "you do not have that much"
@@ -1768,10 +1811,13 @@ class World:
         self.pdirty.update((who, to))
         return None
 
-    def offer(self, who, give, want):
+    def offer(self, who, give, want, pos=None):
         g, w = self._bag(give), self._bag(want)
         if not g or not w:
             return None, "an offer gives some items and wants some items"
+        at = self.stands_near(pos, RULES["market"]["at"])
+        if not at:
+            return None, "an offer is made at a trading stand — build one, or go to a market"
         pl = self.player(who)
         if any(pl["items"].get(k, 0) < n for k, n in g.items()):
             return None, "you do not have what you offer"
@@ -1780,21 +1826,26 @@ class World:
         for k, n in g.items():                                     # escrowed until taken or cancelled
             pl["items"][k] -= n
         oid = secrets.token_hex(6)
-        self.offers[oid] = {"id": oid, "by": who, "give": g, "want": w, "at": int(time.time())}
+        self.offers[oid] = {"id": oid, "by": who, "give": g, "want": w, "at": int(time.time()), "stand": [at[0][0], at[0][1]], "spot": at[0][2]}
         self.pdirty.add(who); self.odirty = True
         return oid, None
 
-    def accept(self, who, oid):
+    def accept(self, who, oid, pos=None):
         o = self.offers.get(oid)
         if not o:
             return "that offer is gone"
         if o["by"] == who:
             return "that is your own offer"
+        if not o.get("spot"):                                     # made before the markets: only its maker withdraws it
+            return "that offer is from before the markets — only its maker can withdraw it"
+        if not self.stands_near(pos, RULES["market"]["at"]) or not self.offer_seen(o, who, pos):
+            return "an offer is taken at a trading stand of its market — go there"
         pl, maker = self.player(who), self.player(o["by"])
         if any(pl["items"].get(k, 0) < n for k, n in o["want"].items()):
             return "you do not have what it asks for"
-        for k, n in o["want"].items():
-            pl["items"][k] -= n; maker["items"][k] = maker["items"].get(k, 0) + n
+        fee = RULES["market"]["fee"]
+        for k, n in o["want"].items():                            # the market's share of what the maker gets is gone (a sink)
+            pl["items"][k] -= n; maker["items"][k] = maker["items"].get(k, 0) + n - int(n * fee)
         for k, n in o["give"].items():
             pl["items"][k] = pl["items"].get(k, 0) + n
         del self.offers[oid]
@@ -1920,12 +1971,16 @@ class Hub:
                     pass
 
     async def offers(self, world):
-        snap = {"t": "offers", "offers": sorted(world.offers.values(), key=lambda o: -o["at"])[:500]}
-        for ws in list(self.socks):
+        """Each socket the offers of the market where its player stands, and their own (#161: markets are local)."""
+        for ws, st in list(self.socks.items()):
             try:
-                await ws.send_json(snap)
+                await ws.send_json({"t": "offers", "offers": world.offers_for(st["who"], st.get("pos"))})
             except Exception:
                 pass
+
+    def where(self, world, addr):
+        """Where a player stands: their open page's place, else the place the world server kept for them."""
+        return next((st["pos"] for st in self.socks.values() if st.get("who") == addr and st.get("pos")), None) or (world.player(addr).get("pos") if addr else None)
 
     async def positions(self, world=None):
         socks = list(self.socks.items())
@@ -2240,17 +2295,20 @@ def make_app(world, hub, site_origin, wallet_url, secure_cookies=True, shot_page
 
     async def give(request):
         addr, d = need_addr(request), await request.json()
-        err = world.give(addr, d.get("to", ""), d.get("items"))
+        err = world.give(addr, d.get("to", ""), d.get("items"), hub.where(world, addr), hub.where(world, d.get("to")))
         if not err:
             await hub.inv(world, addr); await hub.inv(world, d.get("to"))
         return web.json_response({"ok": not err, "error": err, "inventory": world.inv_json(addr)})
 
     async def offers(request):
-        return web.json_response({"offers": sorted(world.offers.values(), key=lambda o: -o["at"])[:500]})
+        # the offers of the market where the caller stands (#161), or of the place named by face/u/v
+        addr, q = world.who(request), request.query
+        pos = [int(q["face"]), float(q["u"]), float(q["v"])] if all(k in q for k in ("face", "u", "v")) else hub.where(world, addr)
+        return web.json_response({"offers": world.offers_for(addr, pos)})
 
     async def offer(request):
         addr, d = need_addr(request), await request.json()
-        oid, err = world.offer(addr, d.get("give"), d.get("want"))
+        oid, err = world.offer(addr, d.get("give"), d.get("want"), hub.where(world, addr))
         if not err:
             await hub.inv(world, addr); await hub.offers(world)
         return web.json_response({"ok": not err, "id": oid, "error": err, "inventory": world.inv_json(addr)})
@@ -2258,7 +2316,7 @@ def make_app(world, hub, site_origin, wallet_url, secure_cookies=True, shot_page
     async def accept(request):
         addr, d = need_addr(request), await request.json()
         maker = (world.offers.get(d.get("id")) or {}).get("by")
-        err = world.accept(addr, d.get("id"))
+        err = world.accept(addr, d.get("id"), hub.where(world, addr))
         if not err:
             await hub.inv(world, addr); await hub.inv(world, maker); await hub.offers(world)
         return web.json_response({"ok": not err, "error": err, "inventory": world.inv_json(addr)})
@@ -2283,7 +2341,7 @@ def make_app(world, hub, site_origin, wallet_url, secure_cookies=True, shot_page
                             **({"pos": world.player(addr).get("pos"), "pos_at": world.player(addr).get("pos_at")} if addr else {})})
         if addr:
             await ws.send_json(dict(world.inv_json(addr), t="inv"))
-        await ws.send_json({"t": "offers", "offers": sorted(world.offers.values(), key=lambda o: -o["at"])[:500]})
+        await ws.send_json({"t": "offers", "offers": world.offers_for(addr, world.player(addr).get("pos") if addr else None)})
         try:
             async for msg in ws:
                 if msg.type != WSMsgType.TEXT:
@@ -2304,6 +2362,9 @@ def make_app(world, hub, site_origin, wallet_url, secure_cookies=True, shot_page
                     if (isinstance(p, list) and len(p) == 5 and all(isinstance(x, (int, float)) and not isinstance(x, bool) for x in p)
                             and 0 <= p[0] < 6 and 0 <= p[1] < W and 0 <= p[2] < W and DEEP_MIN <= p[3] < H + 400):
                         st["pos"] = [int(p[0]), float(p[1]), float(p[2]), float(p[3]), float(p[4])]
+                        if time.time() - st.get("offers_at", 0) > 5:      # the market where they stand now (#161)
+                            st["offers_at"] = time.time()
+                            await ws.send_json({"t": "offers", "offers": world.offers_for(addr, st["pos"])})
                         if addr and time.time() - st.get("pos_at", 0) > POS_SAVE_S:
                             world.keep_place(addr, st["pos"]); st["pos_at"] = time.time()
                 elif t == "set":
@@ -2421,10 +2482,11 @@ def make_app(world, hub, site_origin, wallet_url, secure_cookies=True, shot_page
                         await ws.send_json({"t": "done", "req": m.get("req"), "error": "sign in first"})
                         continue
                     other = (world.offers.get(m.get("id")) or {}).get("by") if t == "accept" else m.get("to") if t == "give" else None
+                    here = st.get("pos") or hub.where(world, addr)        # (#161: markets and gifts are where you stand)
                     err = (world.craft(addr, m.get("recipe"), m.get("times", 1)) if t == "craft"
-                           else world.give(addr, m.get("to", ""), m.get("items")) if t == "give"
-                           else world.offer(addr, m.get("give"), m.get("want"))[1] if t == "offer"
-                           else world.accept(addr, m.get("id")) if t == "accept" else world.cancel(addr, m.get("id")))
+                           else world.give(addr, m.get("to", ""), m.get("items"), here, hub.where(world, m.get("to"))) if t == "give"
+                           else world.offer(addr, m.get("give"), m.get("want"), here)[1] if t == "offer"
+                           else world.accept(addr, m.get("id"), here) if t == "accept" else world.cancel(addr, m.get("id")))
                     await ws.send_json({"t": "done", "req": m.get("req"), "error": err})
                     if not err:
                         await hub.inv(world, addr)

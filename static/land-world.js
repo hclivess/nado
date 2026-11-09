@@ -250,6 +250,8 @@ export const BLOCKS = [
   { key: "farmland", solid: true, tex: [3, 3, 3] },
   // A WELL (#155): a piece of dressed stone over water; Use on it with a bucket draws a bucketful, and it never runs dry
   { key: "well", solid: true, tex: [19, 19, 19] },
+  // A TRADING STAND (#161): a market stall of planks; offers are made at one and taken at the stands near it
+  { key: "stand", solid: true, tex: [12, 12, 12] },
 ];
 export const B = Object.fromEntries(BLOCKS.map((b, i) => [b.key, i]));
 export const ATLAS_TILES = 54;              // tiles 0..53 (0 unused; the farm's blocks reuse earth's and leaves')

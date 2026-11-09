@@ -394,6 +394,15 @@
   },
   "arrow": {
    "name": "Arrow"
+  },
+  "stand": {
+   "name": "Trading stand",
+   "places": 75,
+   "unit": [
+    200,
+    100,
+    110
+   ]
   }
  },
  "tools": {
@@ -1174,6 +1183,16 @@
    "yields": [
     [
      "well",
+     1
+    ]
+   ]
+  },
+  "75": {
+   "hard": 1.5,
+   "class": "axe",
+   "yields": [
+    [
+     "stand",
      1
     ]
    ]
@@ -3219,6 +3238,32 @@
    "with": [
     "tanning_rack"
    ]
+  },
+  {
+   "id": "stand",
+   "makes": [
+    [
+     "stand",
+     1
+    ]
+   ],
+   "uses": [
+    [
+     "planks",
+     6
+    ],
+    [
+     "beam",
+     2
+    ],
+    [
+     "cordage",
+     2
+    ]
+   ],
+   "with": [
+    "workbench"
+   ]
   }
  ],
  "wilderness_regrow_s": 900,
@@ -3417,5 +3462,12 @@
     "ammo": "arrow"
    }
   }
+ },
+ "market": {
+  "about": "MARKETS (#161, doc/land-civilisation.md; operator 2026-11-09: \"local markets first, global only with the invention of the internet\", \"trading stands\"). An offer is made standing at a trading stand (within at metres of one) and lives there; it is seen and taken only by a player standing at a stand within reach metres of it — the stands of one market. A gift is handed over in person (within hand metres). On every offer taken the maker receives what it asked for less fee of each item (rounded down) — a sink that grows with trade itself.",
+  "at": 6,
+  "reach": 64,
+  "hand": 8,
+  "fee": 0.05
  }
 }

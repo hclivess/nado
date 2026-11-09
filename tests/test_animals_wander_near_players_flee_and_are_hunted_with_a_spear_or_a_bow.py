@@ -107,7 +107,7 @@ async def main():
     check("an animal a player comes close to runs away", a["id"] in world.animals and dist(a, pos) > d0 + 2, (d0, dist(a, pos)))
 
     # ---- hunting ----------------------------------------------------------------------------------------------------
-    a["u"], a["v"], a["flee"] = pos[1] + 2, pos[2], 0
+    a["u"], a["v"], a["h"], a["flee"] = pos[1] + 2, pos[2], pos[3], 0
     r = await (await api("/land/api/hunt", {"id": a["id"]})).json()
     check("nothing is hunted without a weapon", not r["ok"] and "spear or a bow" in r["error"], r)
     for k, n in (("sticks", 6), ("stone", 4), ("cordage", 6), ("fiber", 4), ("wood", 1)):
@@ -132,7 +132,8 @@ async def main():
     check("…and what it drops is in the hunter's bag", r["killed"] == a["kind"] and all(items().get(i, 0) >= n for i, n in drops), (r, items()))
     world.workb[me] = [0, time.time()]
     b = next(iter(world.animals.values()), None) or a
-    world.animals[b["id"]] = b; b["u"], b["v"] = pos[1] + 2, pos[2]
+    # (on the hunter's own ground: an animal spawned on a slope stands metres higher or lower, out of a spear's reach)
+    world.animals[b["id"]] = b; b["u"], b["v"], b["h"] = pos[1] + 2, pos[2], pos[3]
     r = await (await api("/land/api/hunt", {"id": b["id"]})).json()
     check("a strike costs work: no strikes faster than a hand", not r["ok"] and "fast" in r["error"], r)
 

@@ -13,7 +13,9 @@
  *   5. BREAD AND A WELL (#155): from bare hands, following the rules as a player would, a quern, flour, bread and a well
  *      are reached; only food is eaten, a meal never punishes, and the well is a placed piece with its own name;
  *   6. HUNTING (#156): a spear, a bow, arrows and a tanning rack are reached from bare hands; every species drops real
- *      items and lives in real biomes; cooked meat is food and raw meat is not; every name speaks 17 languages.
+ *      items and lives in real biomes; cooked meat is food and raw meat is not; every name speaks 17 languages;
+ *   7. MARKETS (#161): a trading stand is reached from bare hands and placed whole; a market is local (an offer is made
+ *      within a few metres of a stand, seen within tens of metres, never world-wide) and keeps a small share.
  *
  * Run: node tests/test_the_land_grows_wild_food_and_its_soils_rule_a_field.mjs
  */
@@ -143,6 +145,15 @@ const keys6 = ["land.i.meat", "land.i.cooked_meat", "land.i.hide", "land.i.bone"
   ...Object.keys(Hn.species).map((k) => "land.a." + k), "land.huntNeeds", "land.huntFar", "land.huntArrows", "land.huntKilled", "land.huntHit"];
 ok(langs.every((l) => keys6.every((k) => L10N[l][k])) && langs.every((l) => L10N[l]["land.huntKilled"].includes("{a}") && L10N[l]["land.huntHit"].includes("{a}")),
    "hunting speaks all 17 languages, placeholders kept");
+
+// 7. markets
+const MK = R.market;
+ok(have.has("stand") && R.items.stand.places === B.stand && R.items.stand.unit && W.BLOCKS[B.stand].solid, "a trading stand is reached from bare hands and placed whole");
+ok(MK.at > 0 && MK.at < 20 && MK.reach > MK.at && MK.reach <= 256 && MK.hand > 0 && MK.hand < 20 && MK.fee > 0 && MK.fee < 0.2,
+   `a market is local: offers made within ${MK.at} m of a stand, seen within ${MK.reach} m, gifts in person (${MK.hand} m); it keeps ${MK.fee * 100}%`);
+const keys7 = ["land.i.stand", "land.mkHere", "land.mkNoStand", "land.mkOld", "land.giftNear"];
+ok(langs.every((l) => keys7.every((k) => L10N[l][k])) && langs.every((l) => L10N[l]["land.mkHere"].includes("{m}") && L10N[l]["land.mkHere"].includes("{p}")),
+   "the market speaks all 17 languages, placeholders kept");
 
 if (fails) { console.log(`${fails} FAILURES`); process.exit(1); }
 console.log("ALL PASS");

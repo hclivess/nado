@@ -1439,10 +1439,25 @@ function canMake(r) {
   return (r.with || []).every((w) => hasClass(w) || inv.stations.includes(w))
     && r.uses.every(([id, n]) => (inv.items[id] || 0) >= n);
 }
+/** The trading stand nearest the player within r m (its plot and box), or null — the world server judges it again. */
+function standNear(r) {
+  let best = null;
+  for (const [plot, pb] of plotBoxes) {
+    const q = Wd.plotCoords(plot);
+    if (q.face !== P.face || Math.abs(q.u0 + 8 - P.u) > r + 12 || Math.abs(q.v0 + 8 - P.v) > r + 12) continue;
+    for (const b of pb.list || []) {
+      if (b[6] !== B.stand) continue;
+      const d = Math.hypot(q.u0 + (b[0] + b[3] / 2) / Wd.CM - P.u, q.v0 + (b[1] + b[4] / 2) / Wd.CM - P.v);
+      if (d <= r && (!best || d < best.d)) best = { plot, box: b, d };
+    }
+  }
+  return best;
+}
 function renderBag() {
   if (!RULES) return;
   if (!net.me) { $("palGrid").innerHTML = `<p class="dim">${esc(T("bagSignIn", "Sign in to gather, make things and trade."))}</p>`; return; }
   const items = Object.entries(inv.items).filter(([, n]) => n > 0);
+  const atStand = !!standNear(RULES.market ? RULES.market.at : 6);   // MARKETS (#161): trade is done at a trading stand
   const opts = Object.keys(RULES.items).map((id) => `<option value="${id}">${esc(nameOf(id))}</option>`).join("");
   $("palGrid").innerHTML = `
     <h3>${esc(T("have", "You have"))}</h3>
@@ -1469,12 +1484,14 @@ function renderBag() {
         <button class="ghost" data-make="${r.id}" ${canMake(r) && !own ? "" : "disabled"}>${esc(own ? T("haveIt", "You have it") : T("makeGo", "Make"))}</button></div>`;
     }).join("")}</div>
     <h3>${esc(T("trade", "Trade"))}</h3>
-    <div class="offers">${offers.length ? offers.map((o) => `<div class="rcp"><div>${esc(T("offerLine", "{g} for {w}", { g: bagText(o.give), w: bagText(o.want) }))}<div class="dim">${esc(o.by === net.me ? T("yourOffer", "Your offer") : disp(o.by))}</div></div>
-        ${o.by === net.me ? `<button class="ghost" data-cancel="${o.id}">${esc(T("cancelOffer", "Withdraw"))}</button>` : `<button class="ghost" data-accept="${o.id}" ${Object.entries(o.want).every(([id, n]) => (inv.items[id] || 0) >= n) ? "" : "disabled"}>${esc(T("acceptOffer", "Trade"))}</button>`}</div>`).join("") : `<span class="dim">${esc(T("noOffers", "No offers yet."))}</span>`}</div>
+    <div class="dim">${esc(atStand ? T("mkHere", "At a market: offers made here are seen at the stands within {m} m; the market keeps {p}% of what you receive.", { m: RULES.market.reach, p: Math.round(RULES.market.fee * 100) })
+      : T("mkNoStand", "Offers are made and taken at a trading stand — build one (planks, beams and cordage, at a workbench), or go to a market."))}</div>
+    <div class="offers">${offers.length ? offers.map((o) => `<div class="rcp"><div>${esc(T("offerLine", "{g} for {w}", { g: bagText(o.give), w: bagText(o.want) }))}<div class="dim">${esc(o.by === net.me ? (o.spot ? T("yourOffer", "Your offer") : T("mkOld", "Your offer from before the markets — withdraw it.")) : disp(o.by))}</div></div>
+        ${o.by === net.me ? `<button class="ghost" data-cancel="${o.id}">${esc(T("cancelOffer", "Withdraw"))}</button>` : `<button class="ghost" data-accept="${o.id}" ${atStand && Object.entries(o.want).every(([id, n]) => (inv.items[id] || 0) >= n) ? "" : "disabled"}>${esc(T("acceptOffer", "Trade"))}</button>`}</div>`).join("") : `<span class="dim">${esc(T("noOffers", "No offers yet."))}</span>`}</div>
     <div class="tradeform">
       <span>${esc(T("offerGive", "Give"))}</span><input id="ofGN" type="number" min="1" value="1"><select id="ofG">${opts}</select>
       <span>${esc(T("offerWant", "for"))}</span><input id="ofWN" type="number" min="1" value="1"><select id="ofW">${opts}</select>
-      <button class="ghost" id="ofPost">${esc(T("offerPost", "Post offer"))}</button>
+      <button class="ghost" id="ofPost" ${atStand ? "" : "disabled"}>${esc(T("offerPost", "Post offer"))}</button>
     </div>
     <div class="tradeform">
       <span>${esc(T("giveTo", "Give"))}</span><input id="gvN" type="number" min="1" value="1"><select id="gvI">${opts}</select>
@@ -1501,6 +1518,9 @@ function renderBag() {
   $("gvGo").onclick = () => {
     const to = $("gvTo").value.trim();
     if (!isAddress(to) || to === net.me) return alertBar(T("inviteBad", "That is not someone else's NADO address."));
+    // a gift is handed over in person (#161): to a player standing beside you
+    const near = [...others.values()].some((r) => r.who === to && r.p && r.p[0] === P.face && Math.hypot(r.p[1] - P.u, r.p[2] - P.v) <= RULES.market.hand);
+    if (!near) return alertBar(T("giftNear", "A gift is handed over in person — stand beside them."));
     req({ t: "give", to, items: { [$("gvI").value]: Number($("gvN").value) } });
   };
 }

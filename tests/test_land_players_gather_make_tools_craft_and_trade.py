@@ -19,7 +19,9 @@ holds, so a yield is what the ground really is.
     gathered wilderness cell grows back, a built one stays;
   * placing spends one item and only on a plot the caller may build on;
   * trade: a gift moves items; an offer escrows what it gives, is taken atomically (both sides move or neither), and a
-    withdrawn offer returns its escrow; nobody can offer what they lack or take their own offer;
+    withdrawn offer returns its escrow; nobody can offer what they lack or take their own offer — the two players
+    standing at a trading stand, beside each other (MARKETS, #161: tests/test_offers_are_made_and_taken_at_trading_stands…
+    pins the local rules);
   * persistence: inventories, offers and regrow times survive a restart.
 
 Run: python3 tests/test_land_players_gather_make_tools_craft_and_trade.py
@@ -292,6 +294,14 @@ async def main():
     check("another player cannot build on the plot", r["applied"] == 0, r)
 
     # ---- trade ----------------------------------------------------------------------------------------------------
+    # (MARKETS, #161: an offer is made and taken at a trading stand, a gift handed over in person — A builds a stand on
+    # its plot and both players stand at it)
+    world.player(A["address"])["items"]["stand"] = 1
+    stand = [500, 500, 20000, 200, 100, 110, 75]
+    r = await (await post("/land/api/boxes", {"plot": PA, "add": [stand]}, ha)).json()
+    check("a trading stand is built", r.get("added") == 1, r)
+    here = [0, COL * 16 + 6, ROW * 16 + 5.5, 200.0, 0.0]
+    world.keep_place(A["address"], here); world.keep_place(Bk["address"], here[:1] + [here[1] + 1] + here[2:])
     world.player(Bk["address"])["items"].update({"sand": 10})
     r = await (await post("/land/api/give", {"to": Bk["address"], "items": {"brick": 2}}, ha)).json()
     check("a gift moves items", r["ok"] and inv(Bk["address"])["items"].get("brick") == 2 and inv(A["address"])["items"].get("brick", 0) == 2, r)

@@ -370,7 +370,12 @@
   "land.huntFar": "Too far — get closer, or use a bow.",
   "land.huntArrows": "No arrows — make some from sticks, stone and fiber.",
   "land.huntKilled": "You hunted a {a}.",
-  "land.huntHit": "A hit — the {a} runs!"
+  "land.huntHit": "A hit — the {a} runs!",
+  "land.i.stand": "Trading stand",
+  "land.mkHere": "At a market: offers made here are seen at the stands within {m} m; the market keeps {p}% of what you receive.",
+  "land.mkNoStand": "Offers are made and taken at a trading stand — build one (planks, beams and cordage, at a workbench), or go to a market.",
+  "land.mkOld": "Your offer from before the markets — withdraw it.",
+  "land.giftNear": "A gift is handed over in person — stand beside them."
  },
  "cs": {
   "land.notYours": "Pozemek {p} patří někomu jinému. Kupte si pozemek, nebo požádejte jeho vlastníka o pozvání.",
@@ -743,7 +748,12 @@
   "land.huntFar": "Příliš daleko — přibližte se, nebo použijte luk.",
   "land.huntArrows": "Žádné šípy — vyrobte je z klacků, kamene a vlákna.",
   "land.huntKilled": "Ulovili jste: {a}.",
-  "land.huntHit": "Zásah — {a} utíká!"
+  "land.huntHit": "Zásah — {a} utíká!",
+  "land.i.stand": "Tržní stánek",
+  "land.mkHere": "Na trhu: nabídky odsud vidí stánky do {m} m; trh si nechá {p} % z toho, co dostanete.",
+  "land.mkNoStand": "Nabídky se dávají a přijímají u tržního stánku — postavte si ho (prkna, trámy a provaz, na ponku), nebo jděte na trh.",
+  "land.mkOld": "Vaše nabídka z doby před trhy — stáhněte ji.",
+  "land.giftNear": "Dar se předává osobně — stoupněte si vedle."
  },
  "es": {
   "land.notYours": "La parcela {p} pertenece a otra persona. Compra una parcela o pide a su dueño que te invite.",
@@ -1116,7 +1126,12 @@
   "land.huntFar": "Demasiado lejos: acércate o usa un arco.",
   "land.huntArrows": "No tienes flechas: hazlas con palos, piedra y fibra.",
   "land.huntKilled": "Has cazado: {a}.",
-  "land.huntHit": "¡Impacto! El {a} huye."
+  "land.huntHit": "¡Impacto! El {a} huye.",
+  "land.i.stand": "Puesto de mercado",
+  "land.mkHere": "En un mercado: las ofertas hechas aquí se ven en los puestos a {m} m; el mercado se queda el {p}% de lo que recibes.",
+  "land.mkNoStand": "Las ofertas se hacen y se aceptan en un puesto de mercado: construye uno (tablones, vigas y cuerda, en un banco de trabajo) o ve a un mercado.",
+  "land.mkOld": "Tu oferta de antes de los mercados: retírala.",
+  "land.giftNear": "Un regalo se entrega en persona: ponte a su lado."
  },
  "pt": {
   "land.notYours": "O lote {p} pertence a outra pessoa. Compre um lote ou peça ao dono que convide você.",
@@ -1489,7 +1504,12 @@
   "land.huntFar": "Longe demais — aproxime-se, ou use um arco.",
   "land.huntArrows": "Sem flechas — faça-as com paus, pedra e fibra.",
   "land.huntKilled": "Caçou: {a}.",
-  "land.huntHit": "Acertou — o {a} foge!"
+  "land.huntHit": "Acertou — o {a} foge!",
+  "land.i.stand": "Banca de mercado",
+  "land.mkHere": "Num mercado: as ofertas feitas aqui são vistas nas bancas a {m} m; o mercado fica com {p}% do que recebe.",
+  "land.mkNoStand": "As ofertas fazem-se e aceitam-se numa banca de mercado — construa uma (tábuas, vigas e corda, numa bancada), ou vá a um mercado.",
+  "land.mkOld": "A sua oferta de antes dos mercados — retire-a.",
+  "land.giftNear": "Um presente entrega-se em pessoa — fique ao lado da pessoa."
  },
  "fr": {
   "land.notYours": "La parcelle {p} appartient à quelqu'un d'autre. Achetez une parcelle ou demandez à son propriétaire de vous inviter.",
@@ -1862,7 +1882,12 @@
   "land.huntFar": "Trop loin — approchez-vous, ou prenez un arc.",
   "land.huntArrows": "Plus de flèches — fabriquez-en avec des bâtons, de la pierre et de la fibre.",
   "land.huntKilled": "Vous avez chassé : {a}.",
-  "land.huntHit": "Touché — le {a} s'enfuit !"
+  "land.huntHit": "Touché — le {a} s'enfuit !",
+  "land.i.stand": "Étal de marché",
+  "land.mkHere": "Au marché : les offres faites ici sont vues aux étals à moins de {m} m ; le marché garde {p} % de ce que vous recevez.",
+  "land.mkNoStand": "Les offres se font et se prennent à un étal de marché — construisez-en un (planches, poutres et corde, à l'établi), ou allez au marché.",
+  "land.mkOld": "Votre offre d'avant les marchés — retirez-la.",
+  "land.giftNear": "Un cadeau se remet en main propre — mettez-vous à côté."
  },
  "de": {
   "land.notYours": "Grundstück {p} gehört jemand anderem. Kauf dir ein Grundstück oder bitte den Besitzer um eine Einladung.",
@@ -2235,7 +2260,12 @@
   "land.huntFar": "Zu weit — geh näher heran oder nimm einen Bogen.",
   "land.huntArrows": "Keine Pfeile — mach welche aus Stöcken, Stein und Fasern.",
   "land.huntKilled": "Erlegt: {a}.",
-  "land.huntHit": "Treffer — {a} flieht!"
+  "land.huntHit": "Treffer — {a} flieht!",
+  "land.i.stand": "Marktstand",
+  "land.mkHere": "Auf dem Markt: Angebote von hier sieht man an den Ständen im Umkreis von {m} m; der Markt behält {p} % von dem, was du bekommst.",
+  "land.mkNoStand": "Angebote werden an einem Marktstand gemacht und angenommen — bau einen (Bretter, Balken und Schnur, an der Werkbank) oder geh zu einem Markt.",
+  "land.mkOld": "Dein Angebot aus der Zeit vor den Märkten — zieh es zurück.",
+  "land.giftNear": "Ein Geschenk wird persönlich übergeben — stell dich neben die Person."
  },
  "it": {
   "land.notYours": "Il lotto {p} appartiene a qualcun altro. Compra un lotto o chiedi al proprietario di invitarti.",
@@ -2608,7 +2638,12 @@
   "land.huntFar": "Troppo lontano: avvicinati o usa un arco.",
   "land.huntArrows": "Niente frecce: costruiscile con bastoni, pietra e fibra.",
   "land.huntKilled": "Hai cacciato: {a}.",
-  "land.huntHit": "Colpito: il {a} fugge!"
+  "land.huntHit": "Colpito: il {a} fugge!",
+  "land.i.stand": "Bancarella",
+  "land.mkHere": "Al mercato: le offerte fatte qui si vedono alle bancarelle entro {m} m; il mercato trattiene il {p}% di ciò che ricevi.",
+  "land.mkNoStand": "Le offerte si fanno e si accettano a una bancarella: costruiscine una (assi, travi e corda, al banco da lavoro) o vai a un mercato.",
+  "land.mkOld": "La tua offerta di prima dei mercati: ritirala.",
+  "land.giftNear": "Un regalo si consegna di persona: mettiti accanto."
  },
  "ru": {
   "land.notYours": "Участок {p} принадлежит другому игроку. Купите участок или попросите владельца пригласить вас.",
@@ -2981,7 +3016,12 @@
   "land.huntFar": "Слишком далеко — подойдите ближе или возьмите лук.",
   "land.huntArrows": "Нет стрел — сделайте их из палок, камня и волокна.",
   "land.huntKilled": "Добыча: {a}.",
-  "land.huntHit": "Попадание — {a} убегает!"
+  "land.huntHit": "Попадание — {a} убегает!",
+  "land.i.stand": "Торговый прилавок",
+  "land.mkHere": "На рынке: предложения отсюда видны у прилавков в пределах {m} м; рынок забирает {p}% от полученного.",
+  "land.mkNoStand": "Предложения делают и принимают у торгового прилавка — постройте его (доски, балки и верёвка, на верстаке) или идите на рынок.",
+  "land.mkOld": "Ваше предложение времён до рынков — отзовите его.",
+  "land.giftNear": "Подарок передают лично — встаньте рядом."
  },
  "zh": {
   "land.notYours": "地块 {p} 属于别人。购买一块地，或请它的所有者邀请你。",
@@ -3354,7 +3394,12 @@
   "land.huntFar": "太远了——靠近些，或者用弓。",
   "land.huntArrows": "没有箭——用木棍、石头和纤维做一些。",
   "land.huntKilled": "你猎到了{a}。",
-  "land.huntHit": "命中——{a}逃跑了！"
+  "land.huntHit": "命中——{a}逃跑了！",
+  "land.i.stand": "交易摊位",
+  "land.mkHere": "在集市上：在这里发出的报价可在{m}米内的摊位看到；集市收取你所得的{p}%。",
+  "land.mkNoStand": "报价要在交易摊位发出和接受——建一个（木板、梁和绳子，在工作台上），或去集市。",
+  "land.mkOld": "你在有集市之前的报价——请撤回。",
+  "land.giftNear": "礼物要当面交给对方——站到他身边。"
  },
  "ja": {
   "land.notYours": "区画 {p} は他の人のものです。区画を購入するか、所有者に招待してもらいましょう。",
@@ -3727,7 +3772,12 @@
   "land.huntFar": "遠すぎます — 近づくか、弓を使いましょう。",
   "land.huntArrows": "矢がありません — 枝、石、繊維で作りましょう。",
   "land.huntKilled": "{a}を仕留めました。",
-  "land.huntHit": "命中 — {a}が逃げていく！"
+  "land.huntHit": "命中 — {a}が逃げていく！",
+  "land.i.stand": "露店",
+  "land.mkHere": "市場にて：ここでの申し出は{m}m以内の露店で見られます。市場は受け取る分の{p}%を取ります。",
+  "land.mkNoStand": "申し出は露店で出し、露店で受けます — 作業台で板、梁、ひもから作るか、市場へ行きましょう。",
+  "land.mkOld": "市場ができる前のあなたの申し出です — 取り下げてください。",
+  "land.giftNear": "贈り物は手渡しです — 相手のそばに立ってください。"
  },
  "ko": {
   "land.notYours": "구역 {p}은(는) 다른 사람의 땅입니다. 구역을 사거나 소유자에게 초대를 요청하세요.",
@@ -4100,7 +4150,12 @@
   "land.huntFar": "너무 멉니다 — 더 다가가거나 활을 쓰세요.",
   "land.huntArrows": "화살이 없습니다 — 막대기, 돌, 섬유로 만드세요.",
   "land.huntKilled": "{a}을(를) 사냥했습니다.",
-  "land.huntHit": "명중 — {a}이(가) 달아납니다!"
+  "land.huntHit": "명중 — {a}이(가) 달아납니다!",
+  "land.i.stand": "노점",
+  "land.mkHere": "시장에서: 여기서 낸 제안은 {m}m 안의 노점에서 보입니다. 시장은 받는 것의 {p}%를 가져갑니다.",
+  "land.mkNoStand": "제안은 노점에서 내고 받습니다 — 작업대에서 판자, 들보, 끈으로 하나 만들거나 시장으로 가세요.",
+  "land.mkOld": "시장이 생기기 전의 제안입니다 — 철회하세요.",
+  "land.giftNear": "선물은 직접 건넵니다 — 그 사람 옆에 서세요."
  },
  "ar": {
   "land.notYours": "القطعة {p} ملك لشخص آخر. اشترِ قطعة، أو اطلب من مالكها أن يدعوك.",
@@ -4473,7 +4528,12 @@
   "land.huntFar": "بعيد جدًا — اقترب، أو استخدم قوسًا.",
   "land.huntArrows": "لا سهام — اصنع بعضها من العيدان والحجر والألياف.",
   "land.huntKilled": "اصطدت {a}.",
-  "land.huntHit": "إصابة — {a} يهرب!"
+  "land.huntHit": "إصابة — {a} يهرب!",
+  "land.i.stand": "كشك تجارة",
+  "land.mkHere": "في السوق: العروض المقدَّمة هنا تُرى عند الأكشاك ضمن {m} م؛ ويأخذ السوق {p}% مما تتلقاه.",
+  "land.mkNoStand": "تُقدَّم العروض وتُقبَل عند كشك تجارة — ابنِ واحدًا (ألواح وعوارض وحبال، على منضدة العمل) أو اذهب إلى سوق.",
+  "land.mkOld": "عرضك من قبل الأسواق — اسحبه.",
+  "land.giftNear": "تُسلَّم الهدية يدًا بيد — قف بجانبه."
  },
  "hi": {
   "land.notYours": "प्लॉट {p} किसी और का है। कोई प्लॉट खरीदें, या उसके मालिक से आपको आमंत्रित करने को कहें।",
@@ -4846,7 +4906,12 @@
   "land.huntFar": "बहुत दूर — पास जाएँ, या धनुष चलाएँ।",
   "land.huntArrows": "तीर नहीं — डंडियों, पत्थर और रेशे से बनाएँ।",
   "land.huntKilled": "आपने {a} का शिकार किया।",
-  "land.huntHit": "निशाना लगा — {a} भाग रहा है!"
+  "land.huntHit": "निशाना लगा — {a} भाग रहा है!",
+  "land.i.stand": "व्यापार की दुकान",
+  "land.mkHere": "बाज़ार में: यहाँ दिए प्रस्ताव {m} मी के भीतर की दुकानों पर दिखते हैं; बाज़ार आपको मिलने वाले का {p}% रखता है।",
+  "land.mkNoStand": "प्रस्ताव व्यापार की दुकान पर दिए और लिए जाते हैं — एक बनाएँ (तख्ते, शहतीर और रस्सी, कार्यबेंच पर), या बाज़ार जाएँ।",
+  "land.mkOld": "बाज़ारों से पहले का आपका प्रस्ताव — इसे वापस लें।",
+  "land.giftNear": "उपहार आमने-सामने दिया जाता है — उनके पास खड़े हों।"
  },
  "tr": {
   "land.notYours": "{p} arsası başkasına ait. Bir arsa satın al ya da sahibinden seni davet etmesini iste.",
@@ -5219,7 +5284,12 @@
   "land.huntFar": "Çok uzak — yaklaşın ya da yay kullanın.",
   "land.huntArrows": "Ok yok — çubuk, taş ve lifle birkaç tane yapın.",
   "land.huntKilled": "Avladınız: {a}.",
-  "land.huntHit": "İsabet — {a} kaçıyor!"
+  "land.huntHit": "İsabet — {a} kaçıyor!",
+  "land.i.stand": "Pazar tezgâhı",
+  "land.mkHere": "Pazarda: burada verilen teklifler {m} m içindeki tezgâhlarda görünür; pazar aldığınızın %{p}'sini alır.",
+  "land.mkNoStand": "Teklifler bir pazar tezgâhında verilir ve alınır — bir tane yapın (tahta, kiriş ve ip, tezgâhta) ya da pazara gidin.",
+  "land.mkOld": "Pazarlardan önceki teklifiniz — geri çekin.",
+  "land.giftNear": "Hediye elden verilir — yanında durun."
  },
  "id": {
   "land.notYours": "Petak {p} milik orang lain. Beli sebuah petak, atau minta pemiliknya mengundangmu.",
@@ -5592,7 +5662,12 @@
   "land.huntFar": "Terlalu jauh — mendekatlah, atau pakai busur.",
   "land.huntArrows": "Tidak ada anak panah — buat dari ranting, batu, dan serat.",
   "land.huntKilled": "Anda berhasil berburu {a}.",
-  "land.huntHit": "Kena — {a} lari!"
+  "land.huntHit": "Kena — {a} lari!",
+  "land.i.stand": "Lapak dagang",
+  "land.mkHere": "Di pasar: penawaran dari sini terlihat di lapak dalam {m} m; pasar mengambil {p}% dari yang Anda terima.",
+  "land.mkNoStand": "Penawaran dibuat dan diambil di lapak dagang — bangun satu (papan, balok, dan tali, di meja kerja), atau pergi ke pasar.",
+  "land.mkOld": "Penawaran Anda dari sebelum ada pasar — tarik kembali.",
+  "land.giftNear": "Hadiah diserahkan langsung — berdirilah di sampingnya."
  },
  "vi": {
   "land.notYours": "Mảnh đất {p} thuộc về người khác. Hãy mua một mảnh, hoặc nhờ chủ của nó mời bạn.",
@@ -5965,7 +6040,12 @@
   "land.huntFar": "Quá xa — lại gần hơn, hoặc dùng cung.",
   "land.huntArrows": "Hết tên — làm từ que, đá và sợi.",
   "land.huntKilled": "Bạn đã săn được {a}.",
-  "land.huntHit": "Trúng — {a} bỏ chạy!"
+  "land.huntHit": "Trúng — {a} bỏ chạy!",
+  "land.i.stand": "Quầy hàng",
+  "land.mkHere": "Ở chợ: đề nghị đưa ra ở đây được thấy tại các quầy trong {m} m; chợ giữ {p}% những gì bạn nhận.",
+  "land.mkNoStand": "Đề nghị được đưa ra và nhận tại quầy hàng — dựng một quầy (ván, xà và dây, ở bàn chế tác), hoặc đến chợ.",
+  "land.mkOld": "Đề nghị của bạn từ trước khi có chợ — hãy rút lại.",
+  "land.giftNear": "Quà được trao tận tay — hãy đứng cạnh họ."
  },
  "pl": {
   "land.notYours": "Działka {p} należy do kogoś innego. Kup działkę albo poproś jej właściciela o zaproszenie.",
@@ -6338,6 +6418,11 @@
   "land.huntFar": "Za daleko — podejdź bliżej albo użyj łuku.",
   "land.huntArrows": "Brak strzał — zrób je z patyków, kamienia i włókna.",
   "land.huntKilled": "Upolowano: {a}.",
-  "land.huntHit": "Trafienie — {a} ucieka!"
+  "land.huntHit": "Trafienie — {a} ucieka!",
+  "land.i.stand": "Stragan",
+  "land.mkHere": "Na targu: oferty złożone tu widać przy straganach w promieniu {m} m; targ zatrzymuje {p}% tego, co dostajesz.",
+  "land.mkNoStand": "Oferty składa się i przyjmuje przy straganie — zbuduj go (deski, belki i sznurek, przy stole warsztatowym) albo idź na targ.",
+  "land.mkOld": "Twoja oferta sprzed targów — wycofaj ją.",
+  "land.giftNear": "Prezent wręcza się osobiście — stań obok tej osoby."
  }
 }
