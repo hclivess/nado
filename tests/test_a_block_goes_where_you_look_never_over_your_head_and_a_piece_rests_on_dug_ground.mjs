@@ -276,6 +276,20 @@ try {
   ok(d0[0] === d1[1] && d0[1] === d1[0] && d0[0] !== d0[1], `…and Turn turns it a quarter: ${d0.join("×")} -> ${d1.join("×")}`);
   await evl(B, "document.querySelector('[data-shape=\"0\"]').click(), document.getElementById('palClose').click(), true");
 
+  // 3c. A 1 m SHAFT: dug four cells straight down, a player standing over it drops to its floor — the smooth surface
+  // rounded into the hole and a body 60 cm wide hung inside it (the agent's first mine, 2026-11-09)
+  const SH = spot(5, 9), shu = Math.floor(SH.u), shv = Math.floor(SH.v), shTop = Math.floor(SH.h) - 1;
+  for (let k = 0; k < 4; k++) for (let t = 0; t < 40; t++) {
+    const r = await (await fetch(base + "/land/api/set", { method: "POST", headers: { "Content-Type": "application/json", Authorization: "Bearer " + token },
+      body: JSON.stringify({ cells: [[q.face, shu, shv, shTop - k, 0]] }) })).json();
+    if (!r.refused.length) break;
+    await sleep(400);
+  }
+  await stand(B, shu + 0.5, shv + 0.5, SH.h + 0.5, 0, -1.5);
+  const floorH = Math.round(shTop - 3 - Wd.SEA);
+  ok(await until(B, `document.getElementById('hudPos').textContent.includes('height ${floorH} m')`, 15000),
+     `standing over a 1 m shaft four cells deep, they drop to its floor (height ${floorH} m): ` + await hudText(B));
+
   // 4. REAL TIME AT A LOW FRAME RATE: a frame's time was cut to 0.05 s, so below 20 fps everything ran in slow motion — on
   // the live page at 2 fps, nine seconds of walking moved about a metre ("very laggy on a phone", 2026-11-08). With the
   // processor slowed fourfold, holding Forward for 3 s walks most of the 13.8 m a walker covers in that time.

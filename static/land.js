@@ -219,8 +219,12 @@ function setPlotBoxes(plot, list) {
 }
 function solidAt(f, u, v, h) {
   if (boxAt(f, u, v, h)) return true;
-  const b = blockAt(f, Math.floor(u), Math.floor(v), Math.floor(h));
+  const cu = Math.floor(u), cv = Math.floor(v), ch = Math.floor(h), b = blockAt(f, cu, cv, ch);
   if (crispB(b)) return BLOCKS[b].solid;
+  // A DUG CELL IS OPEN: the smooth surface rounds into a narrow hole, so a body 60 cm wide hung inside a 1 m shaft and
+  // could not climb down it to the ore it was dug for (the agent's first mine, 2026-11-09). A cell someone dug out is
+  // air all through; untouched ground keeps its smooth surface (a slope stays a slope underfoot).
+  if (b === B.air && edits.get(key(f, cu, cv, ch)) === B.air) return false;
   return fieldAt(f, u, v, h) > 0;
 }
 
@@ -630,7 +634,7 @@ function startWorkers() {
   for (let i = 0; i < n; i++) {
     const w = new Worker("/static/land-mesher.js", { type: "module" });
     w.busy = false;
-    w.onmessage = (e) => { w.busy = false; done(e.data); pump(); };
+    w.onmessage = (e) => { w.busy = false; pt("mesh", () => done(e.data)); pump(); };
     w.onerror = () => { w.busy = false; pump(); };
     workers.push(w);
   }
@@ -1737,7 +1741,7 @@ function applySetting(k) {
 }
 const CMDS = {
   help: () => [["/help", T("cHelp", "this list")], ["/pos", T("cPos", "where you are")], ["/tp spawn | /tp <u> <v>", T("cTp", "go to the landing, or to a column of this face")],
-    ["/aim", T("cAim", "what you aim at, and where a block would go")], ["/dock", T("cDock", "set your landed craft down as pieces")], ["/fly", T("cFly", "fly or walk")], ["/settings", T("cSettings", "your settings")], ["/set <name> <value>", T("cSet", "change one (e.g. /set fov 90)")],
+    ["/aim", T("cAim", "what you aim at, and where a block would go")], ["/prof", T("cProf", "the profiler: where each frame's time goes")], ["/dock", T("cDock", "set your landed craft down as pieces")], ["/fly", T("cFly", "fly or walk")], ["/settings", T("cSettings", "your settings")], ["/set <name> <value>", T("cSet", "change one (e.g. /set fov 90)")],
     ["/clear", T("cClear", "clear this log")], ["…", T("cChat", "anything else is chat to the players around you")]].forEach(([c, d]) => conLine(c + " — " + d)),
   pos: () => conLine(`${T("cFace", "face")} ${P.face} · u ${Math.floor(P.u)} · v ${Math.floor(P.v)} · h ${P.h.toFixed(1)} · ${T("cPlot", "plot")} ${Wd.plotOf(P.face, Math.floor(P.u), Math.floor(P.v))}`),
   tp: (a) => {
@@ -1783,6 +1787,7 @@ const CMDS = {
     conLine(k === "effects" ? T("cSetReload", "{k} = {v} — reload the page to apply it.", { k, v }) : `${k} = ${v}`);
   },
   clear: () => { $("conLog").textContent = ""; },
+  prof: () => { profToggle(); conLine(PROF.on ? T("cProfOn", "Profiler on — ` (the key left of 1) or /prof closes it.") : T("cProfOff", "Profiler off.")); },
 };
 function conRun(line) {
   const text = String(line || "").trim();
@@ -1853,6 +1858,7 @@ function wireInput(canvas) {
     if (e.code === "KeyR") { const i = PRESETS.findIndex((x) => x[0] === piece.w && x[1] === piece.d && x[2] === piece.h); [piece.w, piece.d, piece.h] = PRESETS[(i + 1) % PRESETS.length]; pieceInfo(); }
     if (e.code === "KeyT") turnPiece();
     if (e.code === "KeyQ") useDoor();
+    if (e.code === "Backquote") profToggle();                     // the profiler (True Wind's key)
     if (e.code === "KeyX") ignite();
     if (e.code === "KeyV") wardrobe($("wardPanel").classList.contains("hidden"));
     if (e.code === "KeyL") startLevel();
@@ -2369,6 +2375,53 @@ function statsTick(now) {
   const r = renderer.info.render;
   $("hudGpu").textContent = `${gpu} · ${fps} fps · ${Math.round(r.triangles / 1000)}k tris · ${r.drawCalls ?? r.calls} calls · ${chunks.size} chunks`;
 }
+// ---- THE PROFILER (` the key left of 1, ?prof=1, or /prof; "work on performance, take a hint from true wind", operator
+// 2026-11-09 — True Wind's js/profiler.js, "measure performance; don't guess"): where the frame's time goes, live — the
+// frame rate over the last 2 s, the frame's work (mean and p99), the ms a frame of every timed part (the frame's own
+// parts, the 4-a-second tick's, and the meshes the workers hand back), the rest as "other", and the last frame over
+// PROF_LONG ms with its breakdown and how long ago. Closed, it costs nothing: pt() just calls through.
+const PROF = { on: false, cur: {}, ring: [], last: null, shown: 0, wall: 0 };
+const PROF_WINDOW = 2000, PROF_LONG = 250, PROF_EVERY = 250;
+function pt(label, fn) {
+  if (!PROF.on) return fn();
+  const t0 = performance.now(), r = fn();
+  PROF.cur[label] = (PROF.cur[label] || 0) + performance.now() - t0;
+  return r;
+}
+function profFrame(now, workMs) {
+  if (!PROF.on) return;
+  const dt = PROF.wall ? now - PROF.wall : 0; PROF.wall = now;
+  const per = PROF.cur; PROF.cur = {};
+  // "other": the frame's own untimed work — the 4-a-second tick and the workers' meshes run between frames, apart
+  const timed = ["step", "break", "sky", "aim", "render"].reduce((a, k) => a + (per[k] || 0), 0);
+  per.other = Math.max(0, workMs - timed);
+  PROF.ring.push({ now, dt, ms: workMs, per });
+  while (PROF.ring.length > 1 && now - PROF.ring[0].now > PROF_WINDOW) PROF.ring.shift();
+  if (workMs > PROF_LONG || dt > PROF_LONG * 2) PROF.last = { now, ms: workMs, dt, per };
+  if (now - PROF.shown > PROF_EVERY) { PROF.shown = now; profShow(now); }
+}
+function profShow(now) {
+  const el = $("prof"), R = PROF.ring;
+  if (!el || !R.length) return;
+  const wall = R.reduce((a, r) => a + r.dt, 0), ms = R.map((r) => r.ms).sort((a, b) => a - b);
+  const mean = ms.reduce((a, b) => a + b, 0) / ms.length, p99 = ms[Math.min(ms.length - 1, Math.ceil(0.99 * ms.length) - 1)];
+  const per = {};
+  for (const r of R) for (const [k, v] of Object.entries(r.per)) per[k] = (per[k] || 0) + v / R.length;
+  const f = (v) => (v >= 100 ? v.toFixed(0) : v >= 10 ? v.toFixed(1) : v.toFixed(2));
+  const rows = Object.entries(per).filter(([, v]) => v >= 0.05).sort((a, b) => b[1] - a[1])
+    .map(([k, v]) => `${k.padEnd(9)} ${f(v).padStart(6)} ms ${"▇".repeat(Math.min(30, Math.round((v / Math.max(mean, 1)) * 30)))}`);
+  const r = renderer.info.render, last = PROF.last;
+  el.textContent = [
+    T("profHead", "{f} fps · frame {m} ms (p99 {p}) · {t}k tris · {c} calls", { f: wall > 0 ? (1000 * R.length / wall).toFixed(1) : "–", m: f(mean), p: f(p99), t: Math.round(r.triangles / 1000), c: r.drawCalls ?? r.calls }),
+    ...rows,
+    last ? T("profLong", "last frame over {n} ms: {t} ms, {s} s ago — {w}", { n: PROF_LONG, t: f(last.ms), s: ((now - last.now) / 1000).toFixed(0),
+      w: Object.entries(last.per).sort((a, b) => b[1] - a[1]).slice(0, 3).map(([k, v]) => `${k} ${f(v)}`).join(", ") }) : "",
+  ].join("\n");
+}
+function profToggle(on = !PROF.on) {
+  PROF.on = on; PROF.ring = []; PROF.cur = {}; PROF.wall = 0;
+  $("prof").classList.toggle("hidden", !on);
+}
 function frame(now) {
   if (shotTick(now)) return;
   // REAL TIME, IN STEPS: a frame's time used to be cut to 0.05 s, so below 20 fps the whole game ran in slow motion — a
@@ -2376,10 +2429,10 @@ function frame(now) {
   // live page in a software-rendered browser at 2 fps, where nine seconds of walking moved a metre). The body now moves
   // the whole elapsed time in steps of at most STEP_DT, so its collisions stay exact; a stall past FRAME_MAX (a hidden
   // tab, a long pause) is not caught up.
+  const work0 = performance.now();
   const dt = Math.min(FRAME_MAX, (now - lastT) / 1000 || 0); lastT = now;
-  for (let left = dt; left > 1e-6; left -= STEP_DT) step(Math.min(STEP_DT, left));
-  breakTick(dt);
-  levelTick(now);
+  pt("step", () => { for (let left = dt; left > 1e-6; left -= STEP_DT) step(Math.min(STEP_DT, left)); });
+  pt("break", () => { breakTick(dt); levelTick(now); });
   const cam = eyePos(), { fr, fw } = look();
   camera.up.set(fr.up[0], fr.up[1], fr.up[2]);
   camera.lookAt(fw[0], fw[1], fw[2]);
@@ -2395,10 +2448,9 @@ function frame(now) {
     const fx = Math.sin(yaw) * ofr.east[0] + Math.cos(yaw) * ofr.north[0], fy = Math.sin(yaw) * ofr.east[1] + Math.cos(yaw) * ofr.north[1], fz = Math.sin(yaw) * ofr.east[2] + Math.cos(yaw) * ofr.north[2];
     r.mesh.lookAt(r.mesh.position.x + fx, r.mesh.position.y + fy, r.mesh.position.z + fz);
   }
-  sky(fr);
-  torchTick(now, cam);
+  pt("sky", () => { sky(fr); torchTick(now, cam); });
   // the aimed block's outline
-  const a = aim();
+  const a = pt("aim", () => aim());
   // a cell's outline, or the piece's own box; and where the chosen piece would go (green: it fits, red: it does not)
   const frameBox = (obj, plot, b) => {
     const q = Wd.plotCoords(plot), cx = q.u0 + (b[0] + b[3] / 2) / Wd.CM, cz = q.v0 + (b[1] + b[4] / 2) / Wd.CM, cy = (b[2] + b[5] / 2) / Wd.CM;
@@ -2432,8 +2484,9 @@ function frame(now) {
     shown = `${cu},${cv},${ch}${go ? "" : ",no"}`;
   }
   if (document.body.dataset.place !== shown) document.body.dataset.place = shown;
-  if (pipeline) pipeline.render(); else renderer.render(scene, camera);
+  pt("render", () => { if (pipeline) pipeline.render(); else renderer.render(scene, camera); });
   statsTick(now);                                         // after the draw: what this frame drew
+  profFrame(now, performance.now() - work0);
 }
 let tick = 0;
 // ---- OWNERSHIP BORDERS ("there should be some kind of a visual cue marking the ownership borders", operator 2026-11-07):
@@ -2528,13 +2581,12 @@ function updateBorders() {
   scene.add(borderMesh);
 }
 function slow() {
-  updateChunks();
-  updateBorders();
-  netTick();
-  if (!farAt || farAt.face !== P.face || Math.abs(farAt.u - P.u) > 400 || Math.abs(farAt.v - P.v) > 400) buildFar();
-  hud();
+  pt("chunks", updateChunks);
+  pt("borders", updateBorders);
+  pt("net", netTick);
+  if (!farAt || farAt.face !== P.face || Math.abs(farAt.u - P.u) > 400 || Math.abs(farAt.v - P.v) > 400) pt("far", buildFar);
+  pt("hud", hud);                                          // (4 a second; flying, its line too)
   if (++tick % 20 === 0) save();
-  if (flying && tick % 4 === 0) hud();                       // the flight line: speed and height change every moment
 }
 
 // ---- PHOTO MODE (#125, "the land plot should have a screenshot attached like in a realtor ad"): ?shot=<plot> shows the
@@ -2654,6 +2706,7 @@ async function start() {
   hotbar();
   updateChunks(); buildFar();
   setInterval(slow, 250);
+  try { if (new URLSearchParams(location.search).get("prof") === "1") profToggle(true); } catch (e) {}
   renderer.setAnimationLoop(frame);
   connect();
   $("loading").classList.add("hidden");

@@ -102,6 +102,13 @@ check("/ opens the console with a command, Enter with chat (not over the bag), E
       and 'e.code === "NumpadEnter") && $("palette").classList.contains("hidden")) { e.preventDefault(); keys.clear(); return conShow(true, ""); }' in js
       and 'else if (e.key === "Escape") { e.preventDefault(); conShow(false); }' in js and 'id="conIn"' in html)
 cmds = js[js.index("const CMDS = {"):js.index("function conRun(")]
+# THE PROFILER ("work on performance, take a hint from true wind", operator 2026-11-09): /prof, ` and ?prof=1 open it; it
+# times the frame's parts, the 4-a-second tick and the workers' meshes; closed, pt() only calls through
+prof = js[js.index("const PROF = {"):js.index("function frame(now)")]
+check("the profiler opens with /prof, ` or ?prof=1, and times the frame, the tick and the meshes",
+      re.search(r"\n  prof: ", cmds) and 'if (e.code === "Backquote") profToggle();' in js and 'get("prof") === "1") profToggle(true)' in js
+      and "if (!PROF.on) return fn();" in prof and all(f'pt("{k}"' in js for k in ("step", "aim", "sky", "render", "chunks", "hud", "mesh"))
+      and "profFrame(now, performance.now() - work0);" in js and 'id="prof"' in html)
 check("the commands exist: help, pos, tp, fly, settings, set, clear",
       all(re.search(r"\n  %s: " % k, cmds) for k in ("help", "pos", "tp", "fly", "settings", "set", "clear")))
 check("a line without a slash goes to the server as chat", 'net.send({ t: "chat", text: text.slice(0, 200) });' in js
