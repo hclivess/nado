@@ -102,7 +102,8 @@ LONE_ODDS = 40
 # items with "wear": its slot) is put ON from the bag and taken off back into it — one per slot, kept with the player and
 # shown to everyone near them. The look's other half is chosen, not made: skin and hair, a palette index each.
 WEAR_SLOTS = ("head", "body", "legs", "back")
-LOOK_SKIN, LOOK_HAIR = 6, 6       # static/land.js SKIN / HAIR palettes
+LOOK_SKIN, LOOK_HAIR = 6, 12      # static/land.js SKIN / HAIR palettes (hair: six natural, six bright — #145)
+LOOK_BODY, LOOK_FACE = 2, 6       # static/land.js BODIES / FACES: a body type and a drawn kawaii face (#145)
 POS_SAVE_S = 10                   # a signed-in player's place is kept at most this often (and when they leave)
 MAX_CELLS = 4096                  # per /set call or ws "set"
 RATE = 400                        # cells per second per caller, refilling a bucket that holds one full call (MAX_CELLS)
@@ -610,7 +611,9 @@ class World:
     def look_of(self, addr):
         """What others see of a player: what they wear and their skin and hair."""
         pl = self.player(addr)
-        return {"worn": dict(sorted(pl["worn"].items())), "skin": pl["look"].get("skin", 0), "hair": pl["look"].get("hair", 0)}
+        lk = pl["look"]
+        return {"worn": dict(sorted(pl["worn"].items())), "skin": lk.get("skin", 0), "hair": lk.get("hair", 0),
+                "body": lk.get("body", 0), "face": lk.get("face", 0)}
 
     def wear(self, addr, slot, item):
         """Put `item` on (from the bag) in `slot`, or take off what is there (item None) back into the bag. One per slot:
@@ -633,10 +636,16 @@ class World:
         self.pdirty.add(addr)
         return None
 
-    def set_look(self, addr, skin, hair):
-        if not all(isinstance(x, int) and not isinstance(x, bool) for x in (skin, hair)) or not (0 <= skin < LOOK_SKIN and 0 <= hair < LOOK_HAIR):
+    def set_look(self, addr, skin, hair, body=None, face=None):
+        """The player's own look: skin and hair colour, body type and face ("let users customize the basics like gender and
+        face and hair color", operator 2026-11-09, #145). A part not given keeps what it was (an older page sends two)."""
+        cur = self.player(addr)["look"]
+        body = cur.get("body", 0) if body is None else body
+        face = cur.get("face", 0) if face is None else face
+        parts = ((skin, LOOK_SKIN), (hair, LOOK_HAIR), (body, LOOK_BODY), (face, LOOK_FACE))
+        if not all(isinstance(x, int) and not isinstance(x, bool) and 0 <= x < n for x, n in parts):
             return "no such look"
-        self.player(addr)["look"] = {"skin": skin, "hair": hair}
+        self.player(addr)["look"] = {"skin": skin, "hair": hair, "body": body, "face": face}
         self.pdirty.add(addr)
         return None
 
@@ -1774,7 +1783,7 @@ def make_app(world, hub, site_origin, wallet_url, secure_cookies=True, shot_page
                     if not addr:
                         await ws.send_json({"t": "done", "req": m.get("req"), "error": "sign in first"})
                         continue
-                    err = world.wear(addr, m.get("slot"), m.get("item")) if t == "wear" else world.set_look(addr, m.get("skin"), m.get("hair"))
+                    err = world.wear(addr, m.get("slot"), m.get("item")) if t == "wear" else world.set_look(addr, m.get("skin"), m.get("hair"), m.get("body"), m.get("face"))
                     await ws.send_json({"t": "done", "req": m.get("req"), "error": err})
                     if not err:
                         await hub.inv(world, addr)

@@ -142,7 +142,10 @@ try {
   const card = await evl(B, "(() => { const r = document.getElementById('help').getBoundingClientRect(); return [r.x + r.width / 2, r.y + r.height / 2]; })()");
   await drag(card[0], Math.min(890, card[0] + 400));
   ok(await evl(B, "location.href") === base + "/", "a sideways drag starting on the card keeps the page in the game: " + await evl(B, "location.href"));
-  ok(await evl(B, "document.getElementById('help').classList.contains('hidden')"), "…and the card is put away");
+  await send(B, "Input.dispatchTouchEvent", { type: "touchStart", touchPoints: [{ x: card[0], y: card[1], id: 2 }] });
+  await send(B, "Input.dispatchTouchEvent", { type: "touchEnd", touchPoints: [] });
+  await sleep(1500);
+  ok(await evl(B, "document.getElementById('help').classList.contains('hidden')"), "…and a tap on the card puts it away");
   // …for good on this device: it came back after every chat line and every reload ("the popup keeps popping up",
   // operator 2026-11-09)
   await send(B, "Page.reload", {});

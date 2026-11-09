@@ -70,13 +70,17 @@ check("a second garment in a slot sends the first back to the bag",
       w.wear(A, "body", "linen_shirt") is None and pa["items"]["linen_shirt"] == before and pa["worn"]["body"] == "linen_shirt")
 w.wear(A, "head", "linen_cap"); w.wear(A, "legs", "linen_trousers")
 check("taking off puts it back in the bag", w.wear(A, "legs", None) is None and "legs" not in pa["worn"] and pa["items"]["linen_trousers"] == 1)
-check("skin and hair come from the palettes", w.set_look(A, 3, 5) is None and pa["look"] == {"skin": 3, "hair": 5})
-check("…and nothing else", w.set_look(A, S.LOOK_SKIN, 0) and w.set_look(A, -1, 0) and w.set_look(A, 1.5, 0) and w.set_look(A, True, 0) and pa["look"] == {"skin": 3, "hair": 5})
+check("skin and hair come from the palettes", w.set_look(A, 3, 5) is None and pa["look"] == {"skin": 3, "hair": 5, "body": 0, "face": 0})
+check("…and nothing else", w.set_look(A, S.LOOK_SKIN, 0) and w.set_look(A, -1, 0) and w.set_look(A, 1.5, 0) and w.set_look(A, True, 0) and pa["look"]["skin"] == 3)
+# body type and a kawaii face ("let users customize the basics like gender and face and hair color", operator 2026-11-09)
+check("a body type and a face are chosen too, and a bright hair colour", w.set_look(A, 3, 9, 1, 4) is None and pa["look"] == {"skin": 3, "hair": 9, "body": 1, "face": 4})
+check("…from their ranges only", w.set_look(A, 3, 9, S.LOOK_BODY, 0) and w.set_look(A, 3, 9, 0, S.LOOK_FACE) and w.set_look(A, 3, 9, -1, 0) and pa["look"]["body"] == 1)
+check("…and an older page sending skin and hair only keeps the body and face", w.set_look(A, 3, 5) is None and pa["look"] == {"skin": 3, "hair": 5, "body": 1, "face": 4})
 check("the bag the page is sent carries what is worn and the look",
-      w.inv_json(A)["worn"] == {"body": "linen_shirt", "head": "linen_cap"} and w.inv_json(A)["look"] == {"skin": 3, "hair": 5})
+      w.inv_json(A)["worn"] == {"body": "linen_shirt", "head": "linen_cap"} and w.inv_json(A)["look"] == {"skin": 3, "hair": 5, "body": 1, "face": 4})
 w.flush()
 w2 = S.World(data, "http://127.0.0.1:1", "")
-check("what is worn and the look survive a restart", w2.look_of(A) == {"worn": {"body": "linen_shirt", "head": "linen_cap"}, "skin": 3, "hair": 5}, w2.look_of(A))
+check("what is worn and the look survive a restart", w2.look_of(A) == {"worn": {"body": "linen_shirt", "head": "linen_cap"}, "skin": 3, "hair": 5, "body": 1, "face": 4}, w2.look_of(A))
 
 
 # 3. players nearby are sent each other's look
@@ -101,23 +105,31 @@ js = """
 class Color { setHSL(h, s, l) { this.v = Math.round(h * 1000) * 7 + 1; return this; } getHex() { return this.v; } }
 const THREE = { Color };
 const SKIN = %s
-console.log(JSON.stringify({ skin: SKIN.length, hair: HAIR.length, bare: lookColours("x", {}), dressed: lookColours("x", { skin: 2, hair: 4, worn: { body: "linen_shirt", legs: "linen_trousers", head: "linen_cap", back: "linen_cloak" } }), WEAR, SKIN, HAIR }));
+console.log(JSON.stringify({ skin: SKIN.length, hair: HAIR.length, bodies: BODIES, faces: FACES, bare: lookColours("x", {}), dressed: lookColours("x", { skin: 2, hair: 4, worn: { body: "linen_shirt", legs: "linen_trousers", head: "linen_cap", back: "linen_cloak" } }), WEAR, SKIN, HAIR }));
 """ % fn
 r = subprocess.run(["node", "--input-type=module", "-e", js], capture_output=True, text=True, timeout=60)
 J = json.loads(r.stdout.strip().splitlines()[-1]) if r.stdout.strip() else {}
-check("the page's palettes are the server's", J.get("skin") == S.LOOK_SKIN and J.get("hair") == S.LOOK_HAIR, (J, r.stderr[-300:]))
+check("the page's palettes are the server's", J.get("skin") == S.LOOK_SKIN and J.get("hair") == S.LOOK_HAIR
+      and J.get("bodies") == S.LOOK_BODY and J.get("faces") == S.LOOK_FACE, (J, r.stderr[-300:]))
+# not blocks ("rework characters to not be fucking blocks", operator 2026-11-09): the body is round — capsules and spheres
+av = page[page.index("function avatar("):page.index("function faceCanvas(")]
+check("a player is a rounded figure, not boxes: capsule limbs and body, a sphere head, no box at all",
+      "new THREE.CapsuleGeometry(" in av and "new THREE.SphereGeometry(" in av and "BoxGeometry" not in av)
+check("the page draws the body type and the face, and the wardrobe chooses them",
+      "girl = (look && look.body) === 1" in page and "const tex = faceTexture((look && look.face) || 0);" in page
+      and "data-body=" in page and "data-face=" in page and 'body: look.body, face: look.face' in page)
 d, b, W = J.get("dressed", {}), J.get("bare", {}), J.get("WEAR", {})
 check("what you wear is what is drawn: each garment's colour on its part, the chosen skin and hair",
       d.get("top") == W.get("linen_shirt") and d.get("legs") == W.get("linen_trousers") and d.get("cap") == W.get("linen_cap")
       and d.get("cloak") == W.get("linen_cloak") and d.get("skin") == J["SKIN"][2] and d.get("hair") == J["HAIR"][4], J)
 check("…and unclothed is plain: no cap, no cloak, an undershirt", b.get("cap") is None and b.get("cloak") is None and b.get("top") not in W.values(), b)
 check("…every wearable has a colour", all(g in W for g in GARMENTS))
-check("the 3D body and the wardrobe figure share one colouring", "const c = lookColours(seed, look), g = new THREE.Group();" in page
+check("the 3D body and the wardrobe figure share one colouring", "const c = lookColours(seed, look), g = new THREE.Group()" in page
       and "c = lookColours(net.me || \"\", look)" in page)
 # 4
 check("the wardrobe opens with V and from the bag", 'if (e.code === "KeyV") wardrobe(' in page and 'id="wardOpen"' in html and 'id="wardPanel"' in html
       and '<kbd>V</kbd>' in html)
-check("…and sends the world server's own wear and look", 'send({ t: "wear", slot: b.dataset.slot, item: b.dataset.wear })' in page and 'send({ t: "look",' in page)
+check("…and sends the world server's own wear and look", 'send({ t: "wear", slot: b.dataset.slot, item: b.dataset.wear })' in page and 'send(Object.assign({ t: "look",' in page)
 srv = open(os.path.join(ROOT, "scripts", "land_server.py"), encoding="utf-8").read()
 check("the world server takes wear and look only from a signed-in player", 'elif t in ("wear", "look"):' in srv and "await hub.positions(world)" in srv)
 tr = json.load(open(os.path.join(ROOT, "static", "i18n_games", "land.json"), encoding="utf-8"))

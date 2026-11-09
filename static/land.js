@@ -969,7 +969,10 @@ async function resync(plot) {
 // covered shows a plain undershirt, tinted per player so two strangers are told apart, and dark breeches. Front is +Z
 // (lookAt), so hair and a cloak hang at -Z.
 const SKIN = [0xf1d2b6, 0xe0b48f, 0xc68c62, 0x9b6440, 0x6e4229, 0x4a2c1b];   // land_server.py LOOK_SKIN = 6
-const HAIR = [0x2a1d14, 0x5a3a22, 0x9c6b3a, 0xd9b26a, 0x8e2f1c, 0xb9b4ad];   // land_server.py LOOK_HAIR = 6
+// hair: six natural, then six bright for a kawaii look — pink, sky, lilac, mint, silver-white, tangerine (#145)
+const HAIR = [0x2a1d14, 0x5a3a22, 0x9c6b3a, 0xd9b26a, 0x8e2f1c, 0xb9b4ad,
+  0xf28cb8, 0x5aa9e6, 0x9b7be0, 0x6fd3a0, 0xf4f1ea, 0xff7a3d];               // land_server.py LOOK_HAIR = 12
+const BODIES = 2, FACES = 6;                                                     // land_server.py LOOK_BODY, LOOK_FACE
 const WEAR = { linen_shirt: 0xe6dcc3, linen_trousers: 0xcabd98, linen_cap: 0xeee5cf, linen_cloak: 0xb9a57c };
 const WEAR_SLOTS = ["head", "body", "legs", "back"];
 function lookColours(seed, look) {
@@ -979,17 +982,79 @@ function lookColours(seed, look) {
   return { skin: SKIN[look.skin] ?? SKIN[0], hair: HAIR[look.hair] ?? HAIR[0], top: WEAR[worn.body] ?? under,
            legs: WEAR[worn.legs] ?? 0x3b3f46, cap: WEAR[worn.head] ?? null, cloak: WEAR[worn.back] ?? null };
 }
+// BODY AND FACE (#145, "add kawaii faces and let users customize the basics like gender and face and hair color",
+// operator 2026-11-09) — and NOT BLOCKS ("rework characters to not be fucking blocks", the same evening): a rounded chibi
+// figure — a big round head with one of FACES drawn kawaii faces on its front (faceCanvas, on a cap of the sphere), a
+// capsule body, rounded arms and legs with hands and shoes. Body type 0: a fringe of short hair; 1: longer hair, pigtails
+// and a skirt. Clothes keep their colours (lookColours): a soft cap, a cloak that drapes behind. ~1.75 m, front +Z.
 function avatar(seed, look) {
-  const c = lookColours(seed, look), g = new THREE.Group();
-  const box = (w, h, d, x, y, z, col) => { const m = new THREE.Mesh(new THREE.BoxGeometry(w, h, d), new THREE.MeshLambertMaterial({ color: col })); m.position.set(x, y, z); g.add(m); };
-  box(0.22, 0.8, 0.24, -0.13, 0.4, 0, c.legs); box(0.22, 0.8, 0.24, 0.13, 0.4, 0, c.legs);          // legs
-  box(0.56, 0.7, 0.3, 0, 1.15, 0, c.top);                                                           // torso
-  box(0.16, 0.66, 0.2, -0.37, 1.13, 0, c.top); box(0.16, 0.66, 0.2, 0.37, 1.13, 0, c.top);          // arms
-  box(0.38, 0.38, 0.38, 0, 1.69, 0, c.skin);                                                        // head
-  box(0.4, 0.24, 0.07, 0, 1.75, -0.19, c.hair);                                                     // hair, behind
-  if (c.cap != null) box(0.42, 0.14, 0.42, 0, 1.92, 0, c.cap); else box(0.4, 0.1, 0.4, 0, 1.92, 0, c.hair);
-  if (c.cloak != null) box(0.62, 1.15, 0.05, 0, 1.0, -0.19, c.cloak);                              // a cloak hangs behind
+  const c = lookColours(seed, look), g = new THREE.Group(), girl = (look && look.body) === 1;
+  const mat = (col) => new THREE.MeshLambertMaterial({ color: col });
+  const put = (geo, col, x, y, z, rx = 0, rz = 0) => { const m = new THREE.Mesh(geo, typeof col === "number" ? mat(col) : col); m.position.set(x, y, z); m.rotation.set(rx, 0, rz); g.add(m); return m; };
+  const capsule = (r, len) => new THREE.CapsuleGeometry(r, len, 4, 12);
+  const sphere = (r, ...cut) => new THREE.SphereGeometry(r, 24, 16, ...cut);
+  // legs and shoes
+  for (const x of [-0.09, 0.09]) { put(capsule(0.075, 0.42), c.legs, x, 0.33, 0); put(sphere(0.085), 0x3a2e2a, x, 0.06, 0.03).scale.set(1, 0.6, 1.4); }
+  if (girl) put(new THREE.CylinderGeometry(0.16, 0.29, 0.34, 20, 1, true), c.top, 0, 0.62, 0).material.side = THREE.DoubleSide;   // a skirt
+  // the body, a little narrower for body type 1; arms hang slightly out, hands in skin
+  put(capsule(girl ? 0.16 : 0.18, 0.34), c.top, 0, 0.92, 0).scale.set(1, 1, 0.82);
+  for (const s of [-1, 1]) {
+    const x = s * (girl ? 0.21 : 0.24);
+    put(capsule(0.06, 0.34), c.top, x, 0.94, 0, 0, s * 0.12);
+    put(sphere(0.065), c.skin, x + s * 0.03, 0.7, 0.01);
+  }
+  // the head: round and big, its face a cap of the sphere just over the skin (the drawn face is mirrored to read right)
+  const R = 0.25, hy = 1.42;
+  put(sphere(R), c.skin, 0, hy, 0);
+  const tex = faceTexture((look && look.face) || 0);
+  put(sphere(R + 0.003, Math.PI / 2 - 0.8, 1.6, 0.85, 1.25), new THREE.MeshLambertMaterial({ map: tex, transparent: true, depthWrite: false }), 0, hy, 0);
+  // hair: a cap over the top and back, a fringe in front; for body type 1 longer at the back and two pigtails
+  put(sphere(R + 0.03, 0, Math.PI * 2, 0, 1.0), c.hair, 0, hy, 0);                                   // the crown
+  put(sphere(R + 0.03, Math.PI * 1.5 - 1.75, 3.5, 0.9, girl ? 1.75 : 1.15), c.hair, 0, hy, 0);       // sides and back
+  put(sphere(R + 0.035, Math.PI / 2 - 0.85, 1.7, 0.55, 0.42), c.hair, 0, hy, 0);                      // a fringe
+  if (girl) for (const s of [-1, 1]) {                                                                // two pigtails, hanging
+    put(sphere(0.06), c.hair, s * 0.27, hy + 0.02, -0.02);
+    put(capsule(0.065, 0.26), c.hair, s * 0.31, hy - 0.18, -0.03, 0, s * 0.22);
+  }
+  if (c.cap != null) put(sphere(R + 0.045, 0, Math.PI * 2, 0, 1.0), c.cap, 0, hy + 0.03, 0).scale.set(1.05, 0.8, 1.05);   // a soft cap
+  if (c.cloak != null) {                                                                                                 // a cloak drapes behind
+    const cl = put(new THREE.CylinderGeometry(0.24, 0.36, 0.95, 20, 1, true, Math.PI * 0.6, Math.PI * 0.8), c.cloak, 0, 0.78, 0);
+    cl.material.side = THREE.DoubleSide;
+  }
   return g;
+}
+/** One of FACES kawaii faces on skin colour `skin`, 64 px: 0 sparkly eyes and a smile, 1 happy closed eyes (^ ^),
+ *  2 a wink, 3 a cat mouth (:3), 4 sleepy, 5 surprised. Big dark eyes with white glints, pink blush, a small mouth. */
+function faceCanvas(face, skin) {
+  const cv = document.createElement("canvas"); cv.width = cv.height = 64;
+  const g = cv.getContext("2d");
+  if (skin != null) { g.fillStyle = "#" + skin.toString(16).padStart(6, "0"); g.fillRect(0, 0, 64, 64); }   // none: a decal
+  const eye = (x) => {                                       // a big round eye with two glints
+    g.fillStyle = "#2b1e2e"; g.beginPath(); g.ellipse(x, 34, 6, 8, 0, 0, Math.PI * 2); g.fill();
+    g.fillStyle = "#fff"; g.beginPath(); g.arc(x - 2, 31, 2.4, 0, Math.PI * 2); g.fill(); g.beginPath(); g.arc(x + 2.5, 37, 1.2, 0, Math.PI * 2); g.fill();
+  };
+  const arc = (x, up) => { g.strokeStyle = "#2b1e2e"; g.lineWidth = 2.4; g.lineCap = "round"; g.beginPath(); g.arc(x, up ? 37 : 31, 5, up ? Math.PI * 1.15 : Math.PI * 0.15, up ? Math.PI * 1.85 : Math.PI * 0.85); g.stroke(); };
+  const line = (x) => { g.strokeStyle = "#2b1e2e"; g.lineWidth = 2.4; g.lineCap = "round"; g.beginPath(); g.moveTo(x - 5, 35); g.lineTo(x + 5, 35); g.stroke(); };
+  if (face === 1) { arc(21, true); arc(43, true); } else if (face === 2) { eye(21); arc(43, true); }
+  else if (face === 4) { line(21); line(43); } else { eye(21); eye(43); }
+  g.fillStyle = "rgba(255,120,150,.45)"; g.beginPath(); g.ellipse(13, 44, 5, 3, 0, 0, Math.PI * 2); g.fill(); g.beginPath(); g.ellipse(51, 44, 5, 3, 0, 0, Math.PI * 2); g.fill();
+  g.strokeStyle = "#7a2f3a"; g.fillStyle = "#c2414f"; g.lineWidth = 2; g.lineCap = "round"; g.beginPath();
+  if (face === 3) { g.arc(29, 47, 3, 0, Math.PI); g.moveTo(41, 47); g.arc(35, 47, 3, 0, Math.PI); g.stroke(); }          // :3
+  else if (face === 5) { g.ellipse(32, 49, 3, 4, 0, 0, Math.PI * 2); g.fill(); }                                       // o
+  else if (face === 4) { g.moveTo(29, 48); g.lineTo(35, 48); g.stroke(); }
+  else { g.arc(32, 45, 4, 0.15 * Math.PI, 0.85 * Math.PI); g.stroke(); }                                              // a smile
+  return cv;
+}
+const faceTex = new Map();
+/** A face as a decal for the head's front cap: transparent around it; mirrored, as the sphere's u runs right to left
+ *  seen from the front. */
+function faceTexture(face) {
+  if (!faceTex.has(face)) {
+    const t = new THREE.CanvasTexture(faceCanvas(face, null));
+    t.colorSpace = THREE.SRGBColorSpace; t.wrapS = THREE.RepeatWrapping; t.repeat.x = -1; t.offset.x = 1;
+    faceTex.set(face, t);
+  }
+  return faceTex.get(face);
 }
 function netTick() {
   if (!net.online) return;
@@ -1279,13 +1344,20 @@ function wardrobe(open) {
 function renderWard() {
   const box = $("wardGrid");
   if (!box) return;
-  const look = Object.assign({ skin: 0, hair: 0 }, inv.look, { worn: inv.worn || {} }), c = lookColours(net.me || "", look);
+  const look = Object.assign({ skin: 0, hair: 0, body: 0, face: 0 }, inv.look, { worn: inv.worn || {} }), c = lookColours(net.me || "", look);
   const hex = (n) => "#" + n.toString(16).padStart(6, "0");
-  const part = (x, y, w, h, col, z = 1) => `<i style="left:${x}px;top:${y}px;width:${w}px;height:${h}px;background:${hex(col)};z-index:${z}"></i>`;
-  // the figure, front on, drawn from the same colours as the 3D body (lookColours)
-  const fig = part(37, 0, 46, 10, c.cap ?? c.hair, 3) + part(41, 8, 38, 36, c.skin, 2) + part(31, 44, 58, 70, c.top, 2)
-    + part(15, 46, 16, 64, c.top, 2) + part(89, 46, 16, 64, c.top, 2) + part(33, 114, 24, 80, c.legs, 2) + part(63, 114, 24, 80, c.legs, 2)
-    + (c.cloak != null ? part(25, 40, 70, 120, c.cloak, 1) : "");
+  const part = (x, y, w, h, col, z = 1, r = "8px", extra = "") => `<i style="left:${x}px;top:${y}px;width:${w}px;height:${h}px;background:${hex(col)};z-index:${z};border-radius:${r};${extra}"></i>`;
+  // the figure, front on, as the 3D one is made (avatar): a big round head with the chosen face, a rounded body, limbs and
+  // hands, a skirt and pigtails for body type 1 — in the same colours (lookColours)
+  const faceUrl = (f) => faceCanvas(f, c.skin).toDataURL(), girl = look.body === 1;
+  const fig = (c.cloak != null ? part(26, 64, 68, 112, c.cloak, 0, "18px 18px 6px 6px") : "")
+    + part(24, 2, 72, 66, c.hair, 1, "50%") + (girl ? part(26, 34, 68, 46, c.hair, 1, "10px 10px 22px 22px") + part(8, 34, 16, 40, c.hair, 1) + part(96, 34, 16, 40, c.hair, 1) : "")
+    + `<i style="left:30px;top:10px;width:60px;height:60px;z-index:3;border-radius:50%;background:url(${faceUrl(look.face)}) center/cover"></i>`
+    + (c.cap != null ? part(26, 0, 68, 24, c.cap, 4, "34px 34px 6px 6px") : part(30, 6, 60, 16, c.hair, 4, "30px 30px 4px 4px"))
+    + part(36, 70, 48, 62, c.top, 2, "22px") + part(20, 74, 15, 54, c.top, 2) + part(85, 74, 15, 54, c.top, 2)
+    + part(20, 124, 15, 15, c.skin, 3, "50%") + part(85, 124, 15, 15, c.skin, 3, "50%")
+    + (girl ? part(30, 112, 60, 30, c.top, 3, "4px", "clip-path:polygon(20% 0,80% 0,100% 100%,0 100%)") : "")
+    + part(41, 128, 16, 58, c.legs, 2) + part(63, 128, 16, 58, c.legs, 2) + part(38, 182, 22, 10, 0x3a2e2a, 3, "6px") + part(60, 182, 22, 10, 0x3a2e2a, 3, "6px");
   const sw = (list, key) => list.map((col, i) => `<button class="sw${look[key] === i ? " on" : ""}" data-${key}="${i}" style="background:${hex(col)}" aria-label="${i + 1}"></button>`).join("");
   const slots = WEAR_SLOTS.map((slot) => {
     const on = look.worn[slot], have = Object.entries(inv.items || {}).filter(([id, n]) => n > 0 && RULES.items[id] && RULES.items[id].wear === slot);
@@ -1295,11 +1367,16 @@ function renderWard() {
   box.innerHTML = `<div class="ward"><div class="fig">${fig}</div><div>
     <h3>${esc(T("wSkin", "Skin"))}</h3><div class="sws">${sw(SKIN, "skin")}</div>
     <h3>${esc(T("wHair", "Hair"))}</h3><div class="sws">${sw(HAIR, "hair")}</div>
+    <h3>${esc(T("wBody", "Body"))}</h3><div class="sws">${[T("wBoy", "Boy"), T("wGirl", "Girl")].map((n, i) => `<button class="chip pl${look.body === i ? " tool" : ""}" data-body="${i}" aria-pressed="${look.body === i}">${esc(n)}</button>`).join("")}</div>
+    <h3>${esc(T("wFace", "Face"))}</h3><div class="sws">${Array.from({ length: FACES }, (_, i) => `<button class="sw face${look.face === i ? " on" : ""}" data-face="${i}" style="background:url(${faceUrl(i)}) center/cover" aria-label="${i + 1}"></button>`).join("")}</div>
     <h3>${esc(T("wClothes", "Clothes"))}</h3>${slots}</div></div>
     <p class="small dim">${esc(T("wHint", "Sew clothes from linen with a needle — make them in the bag (E). What you wear is what others see."))}</p>`;
   const send = (m) => net.send(Object.assign(m, { req: ++net.req }));
-  box.querySelectorAll("[data-skin]").forEach((b) => { b.onclick = () => send({ t: "look", skin: Number(b.dataset.skin), hair: look.hair }); });
-  box.querySelectorAll("[data-hair]").forEach((b) => { b.onclick = () => send({ t: "look", skin: look.skin, hair: Number(b.dataset.hair) }); });
+  const lookSend = (part) => send(Object.assign({ t: "look", skin: look.skin, hair: look.hair, body: look.body, face: look.face }, part));
+  box.querySelectorAll("[data-skin]").forEach((b) => { b.onclick = () => lookSend({ skin: Number(b.dataset.skin) }); });
+  box.querySelectorAll("[data-hair]").forEach((b) => { b.onclick = () => lookSend({ hair: Number(b.dataset.hair) }); });
+  box.querySelectorAll("[data-body]").forEach((b) => { b.onclick = () => lookSend({ body: Number(b.dataset.body) }); });
+  box.querySelectorAll("[data-face]").forEach((b) => { b.onclick = () => lookSend({ face: Number(b.dataset.face) }); });
   box.querySelectorAll("[data-wear]").forEach((b) => { b.onclick = () => send({ t: "wear", slot: b.dataset.slot, item: b.dataset.wear }); });
   box.querySelectorAll("[data-off]").forEach((b) => { b.onclick = () => send({ t: "wear", slot: b.dataset.off, item: null }); });
 }
@@ -1559,8 +1636,10 @@ function wireInput(canvas) {
   const welcome = $("help");
   const away = () => { if (welcome.classList.contains("hidden")) return; welcome.classList.add("hidden"); try { localStorage.setItem(WELCOME_SEEN, "1"); } catch (e) {} };
   try { if (localStorage.getItem(WELCOME_SEEN)) welcome.classList.add("hidden"); } catch (e) {}
-  for (const ev of ["pointerdown", "touchstart", "keydown"]) document.addEventListener(ev, away, { capture: true, passive: true });
-  $("helpPlay").onclick = () => { away(); if (!touch) lockPointer(); };
+  // a press on the card itself is left to the card's own click: hidden on the press, the card was gone before the release,
+  // and its Play button never got its click (the live e2e, 2026-11-09)
+  for (const ev of ["pointerdown", "touchstart", "keydown"]) document.addEventListener(ev, (e) => { if (!(e.target && e.target.closest && e.target.closest("#help"))) away(); }, { capture: true, passive: true });
+  welcome.addEventListener("click", () => { away(); if (!touch) lockPointer(); });
   document.addEventListener("pointerlockchange", () => { locked = document.pointerLockElement === canvas; if (locked) away(); });
   document.addEventListener("mousemove", (e) => {
     if (!locked) return;

@@ -111,7 +111,8 @@ check("the help card stays hidden while the console is open", 'if (open) $("help
 # could not put it away at all, operator 2026-11-09); sending a line captures the mouse again, quietly retrying the
 # browser's "cannot be acquired immediately" refusal instead of showing it
 check("the welcome card is shown once per device: any tap, click or key, or Play, puts it away for good",
-      'for (const ev of ["pointerdown", "touchstart", "keydown"]) document.addEventListener(ev, away, { capture: true, passive: true });' in js
+      'for (const ev of ["pointerdown", "touchstart", "keydown"]) document.addEventListener(ev, (e) => { if (!(e.target && e.target.closest && e.target.closest("#help"))) away(); }, { capture: true, passive: true });' in js
+      and 'welcome.addEventListener("click", () => { away(); if (!touch) lockPointer(); });' in js
       and 'localStorage.setItem(WELCOME_SEEN, "1")' in js and 'if (localStorage.getItem(WELCOME_SEEN)) welcome.classList.add("hidden");' in js
       and '$("help").classList.toggle(' not in js)
 check("…sending a line goes back to play, and a refused pointer capture is retried, never shown",

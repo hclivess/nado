@@ -133,6 +133,15 @@ try {
   }
   await evl(B, "document.querySelector('#wardGrid [data-skin=\"3\"]').click(), true");
   ok(await until(B, "document.querySelector('#wardGrid [data-skin=\"3\"]').classList.contains('on')", 8000), "picks a skin");
+  // a body type, a kawaii face and a bright hair colour (#145, operator 2026-11-09)
+  await evl(B, "document.querySelector('#wardGrid [data-body=\"1\"]').click(), true");
+  ok(await until(B, "document.querySelector('#wardGrid [data-body=\"1\"]').getAttribute('aria-pressed') === 'true'", 8000), "picks a body type (Girl)");
+  await evl(B, "document.querySelector('#wardGrid [data-face=\"3\"]').click(), true");
+  ok(await until(B, "document.querySelector('#wardGrid [data-face=\"3\"]').classList.contains('on')", 8000), "picks a face (:3)");
+  await evl(B, "document.querySelector('#wardGrid [data-hair=\"6\"]').click(), true");
+  ok(await until(B, "document.querySelector('#wardGrid [data-hair=\"6\"]').classList.contains('on')", 8000), "picks pink hair");
+  ok(await evl(B, "document.querySelectorAll('#wardGrid [data-face]').length === 6 && document.querySelectorAll('#wardGrid [data-hair]').length === 12"),
+     "the wardrobe offers six faces and twelve hair colours");
   const txt = await evl(B, "document.getElementById('wardGrid').textContent");
   ok(["Linen shirt", "Linen trousers", "Linen cap", "Linen cloak"].every((n) => txt.includes(n)) && (txt.match(/Take off/g) || []).length === 4,
      "the wardrobe shows all four worn: " + txt.slice(0, 160));
@@ -143,9 +152,10 @@ try {
   // the hub sends positions every few seconds; under load (the pre-push runs tests side by side) the first one carrying
   // the new look can take a while — wait for it, never a fixed sleep
   const lookSeen = () => { const l = (frames.get(A) || []).filter((f) => /"t": ?"players"/.test(f)).map((f) => JSON.parse(f)).flatMap((m) => m.list).map((o) => o.look).filter(Boolean); return l[l.length - 1] || {}; };
-  for (let t = 0; t < 20000 && !(lookSeen().worn && lookSeen().worn.back && lookSeen().skin === 3); t += 250) await sleep(250);
+  for (let t = 0; t < 20000 && !(lookSeen().worn && lookSeen().worn.back && lookSeen().skin === 3 && lookSeen().face === 3); t += 250) await sleep(250);
   const last = lookSeen();
-  ok(last.worn && last.worn.body === "linen_shirt" && last.worn.legs === "linen_trousers" && last.worn.head === "linen_cap" && last.worn.back === "linen_cloak" && last.skin === 3,
+  ok(last.worn && last.worn.body === "linen_shirt" && last.worn.legs === "linen_trousers" && last.worn.head === "linen_cap" && last.worn.back === "linen_cloak" && last.skin === 3
+     && last.body === 1 && last.face === 3 && last.hair === 6,
      "the visitor is sent the owner's look: " + JSON.stringify(last));
   await shot(A, "visitor");
 
