@@ -381,7 +381,14 @@
   "land.wakeLanding": "You wake at the landing — use a bed to wake there instead.",
   "land.respawn": "Wake up",
   "land.bedSet": "Your bed: you will wake here.",
-  "land.huntHitFight": "A hit — the {a} turns on you!"
+  "land.huntHitFight": "A hit — the {a} turns on you!",
+  "land.i.copper_coin": "Copper coin",
+  "land.i.silver_coin": "Silver coin",
+  "land.i.gold_coin": "Gold coin",
+  "land.s.mint": "Mint",
+  "land.pxIn": "Prices here, in",
+  "land.pxRow": "{i}: {v} × {u}",
+  "land.pxNone": "No trades here yet in that — prices come from the offers people take."
  },
  "cs": {
   "land.notYours": "Pozemek {p} patří někomu jinému. Kupte si pozemek, nebo požádejte jeho vlastníka o pozvání.",
@@ -765,7 +772,14 @@
   "land.wakeLanding": "Probudíte se na přistávací ploše — použijte postel, ať se budíte tam.",
   "land.respawn": "Probudit se",
   "land.bedSet": "Vaše postel: tady se probudíte.",
-  "land.huntHitFight": "Zásah — {a} se na vás obrací!"
+  "land.huntHitFight": "Zásah — {a} se na vás obrací!",
+  "land.i.copper_coin": "Měděná mince",
+  "land.i.silver_coin": "Stříbrná mince",
+  "land.i.gold_coin": "Zlatá mince",
+  "land.s.mint": "Mincovna",
+  "land.pxIn": "Ceny zde, v jednotce",
+  "land.pxRow": "{i}: {v} × {u}",
+  "land.pxNone": "Tady se v tom ještě neobchodovalo — ceny vznikají z přijatých nabídek."
  },
  "es": {
   "land.notYours": "La parcela {p} pertenece a otra persona. Compra una parcela o pide a su dueño que te invite.",
@@ -1149,7 +1163,14 @@
   "land.wakeLanding": "Despiertas en el desembarco: usa una cama para despertar allí.",
   "land.respawn": "Despertar",
   "land.bedSet": "Tu cama: despertarás aquí.",
-  "land.huntHitFight": "¡Impacto! El {a} se vuelve contra ti."
+  "land.huntHitFight": "¡Impacto! El {a} se vuelve contra ti.",
+  "land.i.copper_coin": "Moneda de cobre",
+  "land.i.silver_coin": "Moneda de plata",
+  "land.i.gold_coin": "Moneda de oro",
+  "land.s.mint": "Casa de la moneda",
+  "land.pxIn": "Precios aquí, en",
+  "land.pxRow": "{i}: {v} × {u}",
+  "land.pxNone": "Aún no hay intercambios aquí en eso: los precios salen de las ofertas aceptadas."
  },
  "pt": {
   "land.notYours": "O lote {p} pertence a outra pessoa. Compre um lote ou peça ao dono que convide você.",
@@ -1533,7 +1554,14 @@
   "land.wakeLanding": "Acorda no desembarque — use uma cama para acordar lá.",
   "land.respawn": "Acordar",
   "land.bedSet": "A sua cama: vai acordar aqui.",
-  "land.huntHitFight": "Acertou — o {a} vira-se contra si!"
+  "land.huntHitFight": "Acertou — o {a} vira-se contra si!",
+  "land.i.copper_coin": "Moeda de cobre",
+  "land.i.silver_coin": "Moeda de prata",
+  "land.i.gold_coin": "Moeda de ouro",
+  "land.s.mint": "Casa da moeda",
+  "land.pxIn": "Preços aqui, em",
+  "land.pxRow": "{i}: {v} × {u}",
+  "land.pxNone": "Ainda não há trocas aqui nisso — os preços vêm das ofertas aceites."
  },
  "fr": {
   "land.notYours": "La parcelle {p} appartient à quelqu'un d'autre. Achetez une parcelle ou demandez à son propriétaire de vous inviter.",
@@ -1917,7 +1945,14 @@
   "land.wakeLanding": "Vous vous réveillez au débarcadère — utilisez un lit pour vous y réveiller.",
   "land.respawn": "Se réveiller",
   "land.bedSet": "Votre lit : vous vous réveillerez ici.",
-  "land.huntHitFight": "Touché — le {a} se retourne contre vous !"
+  "land.huntHitFight": "Touché — le {a} se retourne contre vous !",
+  "land.i.copper_coin": "Pièce de cuivre",
+  "land.i.silver_coin": "Pièce d'argent",
+  "land.i.gold_coin": "Pièce d'or",
+  "land.s.mint": "Atelier monétaire",
+  "land.pxIn": "Prix ici, en",
+  "land.pxRow": "{i} : {v} × {u}",
+  "land.pxNone": "Pas encore d'échange ici dans cette unité — les prix viennent des offres prises."
  },
  "de": {
   "land.notYours": "Grundstück {p} gehört jemand anderem. Kauf dir ein Grundstück oder bitte den Besitzer um eine Einladung.",
@@ -2301,7 +2336,14 @@
   "land.wakeLanding": "Du wachst am Landeplatz auf — benutze ein Bett, um dort aufzuwachen.",
   "land.respawn": "Aufwachen",
   "land.bedSet": "Dein Bett: hier wachst du auf.",
-  "land.huntHitFight": "Treffer — {a} geht auf dich los!"
+  "land.huntHitFight": "Treffer — {a} geht auf dich los!",
+  "land.i.copper_coin": "Kupfermünze",
+  "land.i.silver_coin": "Silbermünze",
+  "land.i.gold_coin": "Goldmünze",
+  "land.s.mint": "Münzprägestätte",
+  "land.pxIn": "Preise hier, in",
+  "land.pxRow": "{i}: {v} × {u}",
+  "land.pxNone": "Hier noch kein Handel darin — Preise entstehen aus angenommenen Angeboten."
  },
  "it": {
   "land.notYours": "Il lotto {p} appartiene a qualcun altro. Compra un lotto o chiedi al proprietario di invitarti.",
@@ -2685,7 +2727,14 @@
   "land.wakeLanding": "Ti svegli all'approdo: usa un letto per svegliarti lì.",
   "land.respawn": "Svegliati",
   "land.bedSet": "Il tuo letto: ti sveglierai qui.",
-  "land.huntHitFight": "Colpito: il {a} ti si rivolta contro!"
+  "land.huntHitFight": "Colpito: il {a} ti si rivolta contro!",
+  "land.i.copper_coin": "Moneta di rame",
+  "land.i.silver_coin": "Moneta d'argento",
+  "land.i.gold_coin": "Moneta d'oro",
+  "land.s.mint": "Zecca",
+  "land.pxIn": "Prezzi qui, in",
+  "land.pxRow": "{i}: {v} × {u}",
+  "land.pxNone": "Ancora nessuno scambio qui in questa unità: i prezzi nascono dalle offerte accettate."
  },
  "ru": {
   "land.notYours": "Участок {p} принадлежит другому игроку. Купите участок или попросите владельца пригласить вас.",
@@ -3069,7 +3118,14 @@
   "land.wakeLanding": "Вы просыпаетесь на месте высадки — используйте кровать, чтобы просыпаться у неё.",
   "land.respawn": "Проснуться",
   "land.bedSet": "Ваша кровать: вы проснётесь здесь.",
-  "land.huntHitFight": "Попадание — {a} бросается на вас!"
+  "land.huntHitFight": "Попадание — {a} бросается на вас!",
+  "land.i.copper_coin": "Медная монета",
+  "land.i.silver_coin": "Серебряная монета",
+  "land.i.gold_coin": "Золотая монета",
+  "land.s.mint": "Монетный двор",
+  "land.pxIn": "Цены здесь, в",
+  "land.pxRow": "{i}: {v} × {u}",
+  "land.pxNone": "Здесь ещё не торговали за это — цены складываются из принятых предложений."
  },
  "zh": {
   "land.notYours": "地块 {p} 属于别人。购买一块地，或请它的所有者邀请你。",
@@ -3453,7 +3509,14 @@
   "land.wakeLanding": "你在登陆点醒来——使用一张床就能在那里醒来。",
   "land.respawn": "醒来",
   "land.bedSet": "你的床：你会在这里醒来。",
-  "land.huntHitFight": "命中——{a}朝你扑来！"
+  "land.huntHitFight": "命中——{a}朝你扑来！",
+  "land.i.copper_coin": "铜币",
+  "land.i.silver_coin": "银币",
+  "land.i.gold_coin": "金币",
+  "land.s.mint": "铸币厂",
+  "land.pxIn": "此处价格，单位",
+  "land.pxRow": "{i}：{v} × {u}",
+  "land.pxNone": "这里还没有以此成交的交易——价格来自被接受的报价。"
  },
  "ja": {
   "land.notYours": "区画 {p} は他の人のものです。区画を購入するか、所有者に招待してもらいましょう。",
@@ -3837,7 +3900,14 @@
   "land.wakeLanding": "上陸地点で目覚めます — ベッドを使えばそこで目覚めます。",
   "land.respawn": "目覚める",
   "land.bedSet": "あなたのベッド：ここで目覚めます。",
-  "land.huntHitFight": "命中 — {a}が向かってくる！"
+  "land.huntHitFight": "命中 — {a}が向かってくる！",
+  "land.i.copper_coin": "銅貨",
+  "land.i.silver_coin": "銀貨",
+  "land.i.gold_coin": "金貨",
+  "land.s.mint": "造幣所",
+  "land.pxIn": "ここでの価格、単位",
+  "land.pxRow": "{i}：{v} × {u}",
+  "land.pxNone": "ここではまだその単位での取引がありません — 価格は受けられた申し出から決まります。"
  },
  "ko": {
   "land.notYours": "구역 {p}은(는) 다른 사람의 땅입니다. 구역을 사거나 소유자에게 초대를 요청하세요.",
@@ -4221,7 +4291,14 @@
   "land.wakeLanding": "상륙 지점에서 깨어납니다 — 침대를 쓰면 거기서 깨어납니다.",
   "land.respawn": "깨어나기",
   "land.bedSet": "당신의 침대: 여기서 깨어납니다.",
-  "land.huntHitFight": "명중 — {a}이(가) 덤벼듭니다!"
+  "land.huntHitFight": "명중 — {a}이(가) 덤벼듭니다!",
+  "land.i.copper_coin": "동전",
+  "land.i.silver_coin": "은화",
+  "land.i.gold_coin": "금화",
+  "land.s.mint": "조폐소",
+  "land.pxIn": "여기 가격, 단위",
+  "land.pxRow": "{i}: {v} × {u}",
+  "land.pxNone": "여기서는 아직 그 단위로 거래가 없습니다 — 가격은 성사된 제안에서 정해집니다."
  },
  "ar": {
   "land.notYours": "القطعة {p} ملك لشخص آخر. اشترِ قطعة، أو اطلب من مالكها أن يدعوك.",
@@ -4605,7 +4682,14 @@
   "land.wakeLanding": "تستيقظ عند نقطة الهبوط — استخدم سريرًا لتستيقظ عنده.",
   "land.respawn": "استيقظ",
   "land.bedSet": "سريرك: ستستيقظ هنا.",
-  "land.huntHitFight": "إصابة — {a} ينقضّ عليك!"
+  "land.huntHitFight": "إصابة — {a} ينقضّ عليك!",
+  "land.i.copper_coin": "عملة نحاسية",
+  "land.i.silver_coin": "عملة فضية",
+  "land.i.gold_coin": "عملة ذهبية",
+  "land.s.mint": "دار سك العملة",
+  "land.pxIn": "الأسعار هنا، بوحدة",
+  "land.pxRow": "{i}: {v} × {u}",
+  "land.pxNone": "لا صفقات هنا بعد بهذه الوحدة — الأسعار تأتي من العروض المقبولة."
  },
  "hi": {
   "land.notYours": "प्लॉट {p} किसी और का है। कोई प्लॉट खरीदें, या उसके मालिक से आपको आमंत्रित करने को कहें।",
@@ -4989,7 +5073,14 @@
   "land.wakeLanding": "आप उतरने की जगह पर जागते हैं — वहाँ जागने के लिए बिस्तर इस्तेमाल करें।",
   "land.respawn": "जागें",
   "land.bedSet": "आपका बिस्तर: आप यहीं जागेंगे।",
-  "land.huntHitFight": "निशाना लगा — {a} आप पर झपटता है!"
+  "land.huntHitFight": "निशाना लगा — {a} आप पर झपटता है!",
+  "land.i.copper_coin": "तांबे का सिक्का",
+  "land.i.silver_coin": "चाँदी का सिक्का",
+  "land.i.gold_coin": "सोने का सिक्का",
+  "land.s.mint": "टकसाल",
+  "land.pxIn": "यहाँ के दाम, इकाई",
+  "land.pxRow": "{i}: {v} × {u}",
+  "land.pxNone": "यहाँ अभी इसमें कोई सौदा नहीं — दाम स्वीकार किए गए प्रस्तावों से बनते हैं।"
  },
  "tr": {
   "land.notYours": "{p} arsası başkasına ait. Bir arsa satın al ya da sahibinden seni davet etmesini iste.",
@@ -5373,7 +5464,14 @@
   "land.wakeLanding": "İniş yerinde uyanırsınız — orada uyanmak için bir yatak kullanın.",
   "land.respawn": "Uyan",
   "land.bedSet": "Yatağınız: burada uyanacaksınız.",
-  "land.huntHitFight": "İsabet — {a} size saldırıyor!"
+  "land.huntHitFight": "İsabet — {a} size saldırıyor!",
+  "land.i.copper_coin": "Bakır sikke",
+  "land.i.silver_coin": "Gümüş sikke",
+  "land.i.gold_coin": "Altın sikke",
+  "land.s.mint": "Darphane",
+  "land.pxIn": "Buradaki fiyatlar, birim",
+  "land.pxRow": "{i}: {v} × {u}",
+  "land.pxNone": "Burada henüz bununla takas yok — fiyatlar kabul edilen tekliflerden oluşur."
  },
  "id": {
   "land.notYours": "Petak {p} milik orang lain. Beli sebuah petak, atau minta pemiliknya mengundangmu.",
@@ -5757,7 +5855,14 @@
   "land.wakeLanding": "Anda bangun di tempat pendaratan — gunakan tempat tidur agar bangun di sana.",
   "land.respawn": "Bangun",
   "land.bedSet": "Tempat tidur Anda: Anda akan bangun di sini.",
-  "land.huntHitFight": "Kena — {a} menyerang Anda!"
+  "land.huntHitFight": "Kena — {a} menyerang Anda!",
+  "land.i.copper_coin": "Koin tembaga",
+  "land.i.silver_coin": "Koin perak",
+  "land.i.gold_coin": "Koin emas",
+  "land.s.mint": "Percetakan uang",
+  "land.pxIn": "Harga di sini, dalam",
+  "land.pxRow": "{i}: {v} × {u}",
+  "land.pxNone": "Belum ada transaksi di sini dengan itu — harga muncul dari penawaran yang diambil."
  },
  "vi": {
   "land.notYours": "Mảnh đất {p} thuộc về người khác. Hãy mua một mảnh, hoặc nhờ chủ của nó mời bạn.",
@@ -6141,7 +6246,14 @@
   "land.wakeLanding": "Bạn tỉnh dậy ở bãi đáp — hãy dùng một chiếc giường để tỉnh dậy ở đó.",
   "land.respawn": "Tỉnh dậy",
   "land.bedSet": "Giường của bạn: bạn sẽ tỉnh dậy ở đây.",
-  "land.huntHitFight": "Trúng — {a} lao vào bạn!"
+  "land.huntHitFight": "Trúng — {a} lao vào bạn!",
+  "land.i.copper_coin": "Đồng xu đồng",
+  "land.i.silver_coin": "Đồng xu bạc",
+  "land.i.gold_coin": "Đồng xu vàng",
+  "land.s.mint": "Xưởng đúc tiền",
+  "land.pxIn": "Giá ở đây, tính bằng",
+  "land.pxRow": "{i}: {v} × {u}",
+  "land.pxNone": "Chưa có giao dịch nào ở đây bằng thứ đó — giá đến từ các đề nghị được nhận."
  },
  "pl": {
   "land.notYours": "Działka {p} należy do kogoś innego. Kup działkę albo poproś jej właściciela o zaproszenie.",
@@ -6525,6 +6637,13 @@
   "land.wakeLanding": "Budzisz się na lądowisku — użyj łóżka, by budzić się przy nim.",
   "land.respawn": "Obudź się",
   "land.bedSet": "Twoje łóżko: tu się obudzisz.",
-  "land.huntHitFight": "Trafienie — {a} rzuca się na ciebie!"
+  "land.huntHitFight": "Trafienie — {a} rzuca się na ciebie!",
+  "land.i.copper_coin": "Moneta miedziana",
+  "land.i.silver_coin": "Moneta srebrna",
+  "land.i.gold_coin": "Moneta złota",
+  "land.s.mint": "Mennica",
+  "land.pxIn": "Ceny tutaj, w",
+  "land.pxRow": "{i}: {v} × {u}",
+  "land.pxNone": "Tu jeszcze nikt tym nie handlował — ceny biorą się z przyjętych ofert."
  }
 }

@@ -355,6 +355,10 @@ class World:
         except Exception:
             self.offers = {}
         self.odirty = False
+        try:                                              # PRICES (#163): the trades taken, the record prices come from
+            self.trades = json.load(open(os.path.join(self.dir, "trades.json")))
+        except Exception:
+            self.trades = []
         try:                                              # FLIGHT: crafts flying or parked, kept across restarts
             self.crafts = json.load(open(os.path.join(self.dir, "crafts.json")))
         except Exception:
@@ -411,6 +415,7 @@ class World:
             self.pdirty.discard(a)
         if self.odirty:
             self._write("offers.json", self.offers)
+            self._write("trades.json", self.trades)
             self.odirty = False
         if self.cdirty:
             self._write("crafts.json", self.crafts)
@@ -1916,8 +1921,53 @@ class World:
         for k, n in o["give"].items():
             pl["items"][k] = pl["items"].get(k, 0) + n
         del self.offers[oid]
+        # on the record (#163): what went for what, where and when — the market's prices come from these
+        self.trades.append({"at": int(time.time()), "spot": o["spot"], "give": o["give"], "want": o["want"]})
+        del self.trades[:-RULES["market"]["keep_trades"]]
         self.pdirty.update((who, o["by"])); self.odirty = True
         return None
+
+    def prices(self, pos, unit, now=None):
+        """PRICES (#163): what each item is worth in `unit` at the market where `pos` stands, from its trades alone — the
+        volume-weighted ratio of each pair's trades in the window, each trade weighing half as much every half_life_s;
+        an item never traded for `unit` priced through the items linking them, the best-traded path first.
+        Returns {"unit", "values": {item: value}, "trades": n}. A trade of several items on a side splits nothing: it
+        names no single price, and is left out."""
+        MK, now = RULES["market"], time.time() if now is None else now
+        pair = {}                                                # (x, y) -> [weight, w*qx, w*qy]
+        n = 0
+        for t in self.trades:
+            age = now - t["at"]
+            if age < 0 or age > MK["window_s"] or not pos or t["spot"][0] != int(pos[0]) \
+                    or math.hypot(t["spot"][1] - pos[1], t["spot"][2] - pos[2]) > MK["reach"]:
+                continue
+            if len(t["give"]) != 1 or len(t["want"]) != 1:
+                continue
+            (x, qx), = t["give"].items()
+            (y, qy), = t["want"].items()
+            if x == y:
+                continue
+            w = 0.5 ** (age / MK["half_life_s"])
+            n += 1
+            for a, qa, b, qb in ((x, qx, y, qy), (y, qy, x, qx)):
+                e = pair.setdefault((a, b), [0.0, 0.0, 0.0])
+                e[0] += w; e[1] += w * qa; e[2] += w * qb
+        values, best = {unit: 1.0}, {unit: float("inf")}
+        frontier = [unit]
+        while frontier:                                          # widest path: the best-traded link first
+            frontier.sort(key=lambda k: -best[k])
+            y = frontier.pop(0)
+            for (a, b), (w, wa, wb) in pair.items():
+                if b != y or wa <= 0:
+                    continue
+                strength = min(best[y], w)
+                if a not in best or strength > best[a]:
+                    best[a] = strength
+                    values[a] = values[y] * wb / wa              # one a is worth wb/wa of y
+                    if a not in frontier:
+                        frontier.append(a)
+        values.pop(unit, None)                                   # (one of the unit is worth one: not a price)
+        return {"unit": unit, "values": {k: round(v, 6) for k, v in sorted(values.items())}, "trades": n}
 
     def cancel(self, who, oid):
         o = self.offers.get(oid)
@@ -2399,6 +2449,16 @@ def make_app(world, hub, site_origin, wallet_url, secure_cookies=True, shot_page
         pos = [int(q["face"]), float(q["u"]), float(q["v"])] if all(k in q for k in ("face", "u", "v")) else hub.where(world, addr)
         return web.json_response({"offers": world.offers_for(addr, pos)})
 
+    async def prices(request):
+        # what things are worth at the market where the caller stands (#163), or at the place named by face/u/v, in `unit`
+        addr, q = world.who(request), request.query
+        pos = [int(q["face"]), float(q["u"]), float(q["v"])] if all(k in q for k in ("face", "u", "v")) else hub.where(world, addr)
+        unit = q.get("unit", "copper_coin")
+        if unit not in RULES["items"]:
+            raise web.HTTPBadRequest(text="unit: an item")
+        now, day = time.time(), 86400
+        return web.json_response(dict(world.prices(pos, unit, now), before=world.prices(pos, unit, now - day)["values"]))
+
     async def offer(request):
         addr, d = need_addr(request), await request.json()
         oid, err = world.offer(addr, d.get("give"), d.get("want"), hub.where(world, addr))
@@ -2620,6 +2680,7 @@ def make_app(world, hub, site_origin, wallet_url, secure_cookies=True, shot_page
         web.post("/land/api/hunt", hunt),
         web.post("/land/api/bed", bed),
         web.get("/land/api/animals", animals),
+        web.get("/land/api/prices", prices),
         web.post("/land/api/well", draw_well),
         web.get("/land/api/offers", offers),
         web.post("/land/api/offer", offer),

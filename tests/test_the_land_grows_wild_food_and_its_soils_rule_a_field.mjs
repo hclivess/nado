@@ -15,7 +15,9 @@
  *   6. HUNTING (#156): a spear, a bow, arrows and a tanning rack are reached from bare hands; every species drops real
  *      items and lives in real biomes; cooked meat is food and raw meat is not; every name speaks 17 languages;
  *   7. MARKETS (#161): a trading stand is reached from bare hands and placed whole; a market is local (an offer is made
- *      within a few metres of a stand, seen within tens of metres, never world-wide) and keeps a small share.
+ *      within a few metres of a stand, seen within tens of metres, never world-wide) and keeps a small share;
+ *   8. CURRENCIES (#163): a mint is reached from bare hands; it strikes coins only from mined metal; no item carries a
+ *      fixed price anywhere in the rules; the board speaks 17 languages.
  *
  * Run: node tests/test_the_land_grows_wild_food_and_its_soils_rule_a_field.mjs
  */
@@ -154,6 +156,16 @@ ok(MK.at > 0 && MK.at < 20 && MK.reach > MK.at && MK.reach <= 256 && MK.hand > 0
 const keys7 = ["land.i.stand", "land.mkHere", "land.mkNoStand", "land.mkOld", "land.giftNear"];
 ok(langs.every((l) => keys7.every((k) => L10N[l][k])) && langs.every((l) => L10N[l]["land.mkHere"].includes("{m}") && L10N[l]["land.mkHere"].includes("{p}")),
    "the market speaks all 17 languages, placeholders kept");
+
+// 8. currencies
+const coins = Object.keys(R.items).filter((i) => R.items[i].coin);
+ok(stations.has("mint") && coins.length >= 3 && coins.every((c) => R.recipes.some((r) => r.makes[0][0] === c && (r.with || []).includes("mint") && r.uses.every(([u]) => ["copper", "silver", "gold"].includes(u)))),
+   `a mint is reached from bare hands and strikes ${coins.join(", ")} only from mined metal`);
+ok(!JSON.stringify(R.items).includes('"price"') && !JSON.stringify(R.items).includes('"value"'), "no item carries a fixed price: prices come from trades");
+ok(MK.half_life_s > 0 && MK.window_s >= MK.half_life_s && MK.keep_trades > 1000, "the market weighs recent trades more and keeps a long record");
+const keys8 = ["land.i.copper_coin", "land.i.silver_coin", "land.i.gold_coin", "land.s.mint", "land.pxIn", "land.pxRow", "land.pxNone"];
+ok(langs.every((l) => keys8.every((k) => L10N[l][k])) && langs.every((l) => ["{i}", "{v}", "{u}"].every((p) => L10N[l]["land.pxRow"].includes(p))),
+   "coins, the mint and the board speak all 17 languages, placeholders kept");
 
 if (fails) { console.log(`${fails} FAILURES`); process.exit(1); }
 console.log("ALL PASS");

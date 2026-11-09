@@ -6,6 +6,8 @@
  *   2. a stand built on the plot; standing at it the bag says this is a market (its reach and its share), Post offer is
  *      on, and an offer posted there shows as the player's own — its planks held in escrow;
  *   3. Withdraw gives them back; a gift to someone who is not beside the player is turned away in the player's language;
+ *   3b. PRICES (#163): an offer posted and taken by another player at the stand — the board at the stand, asked in sand,
+ *      says what planks are worth here: the trade's ratio;
  *   4. no page errors.
  *
  * Run:  node tests/test_an_offer_is_posted_at_a_trading_stand_in_the_page.mjs   (needs chrome, python3)
@@ -159,6 +161,22 @@ try {
   ok(await until(B, "/\\b10 × Planks/.test(document.getElementById('palGrid').textContent) && !/Your offer/.test(document.getElementById('palGrid').textContent)", 10000), "Withdraw gives the planks back");
   await evl(B, `(() => { document.getElementById("gvTo").value = ${JSON.stringify(other)}; document.getElementById("gvGo").click(); return true; })()`);
   ok(await until(B, "/A gift is handed over in person/.test((document.getElementById('alertBar') || {}).textContent || '')", 6000), "a gift to someone not beside the player is turned away, in the player's language");
+  await closeBag();
+
+  // 3b. a trade taken, and the board's price
+  t = await openBag();
+  await evl(B, `(() => { const s = (id, v) => { const e = document.getElementById(id); e.value = v; e.dispatchEvent(new Event("change")); };
+    s("ofG", "planks"); s("ofGN", "4"); s("ofW", "sand"); s("ofWN", "6"); document.getElementById("ofPost").click(); return true; })()`);
+  ok(await until(B, "/Your offer/.test(document.getElementById('palGrid').textContent)", 10000), "a second offer posted: 4 planks for 6 sand");
+  await closeBag();
+  const mine = (await (await fetch(base + "/land/api/offers", { headers: { Authorization: "Bearer " + token } })).json()).offers.find((o) => o.give.planks === 4);
+  const took = await getJ(`/fixture/accept?id=${mine.id}&u=${q.u0 + 7}&v=${q.v0 + 6.5}`);
+  ok(!took.error, "another player at the stand takes it" + (took.error ? ": " + took.error : ""));
+  await sleep(1500);
+  await openBag();
+  await evl(B, `(() => { const e = document.getElementById("pxUnit"); e.value = "sand"; e.dispatchEvent(new Event("change")); return true; })()`);
+  ok(await until(B, "/Planks: 1\\.5 × Sand/.test((document.getElementById('pxList') || {}).textContent || '')", 10000),
+     "the board, asked in sand, says planks are worth 1.5 sand here: " + await evl(B, "(document.getElementById('pxList') || {}).textContent"));
   await closeBag();
   await shot(B, "market");
   ok(errors.length === 0, "no page errors" + (errors.length ? ": " + errors.join(" | ") : ""));

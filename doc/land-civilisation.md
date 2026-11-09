@@ -130,7 +130,11 @@ The genre's mechanics, in this world's own names and look (no other game's chara
 * **aggressive deer, death and respawn — built** (#162): stags charge and strike, any deer or boar struck fights back;
   health 20 in the HUD, regenerating; death shows what killed you; you wake at the bed you used, or the landing; the bag
   is kept.
-* Next: currencies and supply-and-demand prices (#163), NPCs and quests (#165), ballistics, a knife, carpentry (#157);
+* **currencies, part 1 — built** (#163): a mint strikes copper, silver and gold coins from mined metal; every offer taken
+  is a trade on the record; each market's going rates come from its own trades (recent ones weighing more, a 2-day
+  half-life over a week), linked through what trades between them; the stand's board shows them in any unit. Still to
+  come: offers in NADO, a bank's notes.
+* Next: NPCs and quests (#165), ballistics, a knife, carpentry (#157);
   research (#164) waits for the operator.
 
 Order: slice 1 first (one piece at a time, each live before the next), then 2, then the rest as listed.

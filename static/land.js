@@ -1491,6 +1491,23 @@ function standNear(r) {
   }
   return best;
 }
+// PRICES (#163): the market's board — what each thing is worth here, in the unit the player picks, from the trades
+// taken at its stands (land_server.py prices); an arrow says how it moved in a day. Nothing has a fixed price.
+let priceUnit = "copper_coin";
+const fmtQty = (x) => (x >= 100 ? Math.round(x).toString() : x >= 1 ? x.toFixed(x >= 10 ? 1 : 2).replace(/\.?0+$/, "") : x.toPrecision(2));
+async function showPrices() {
+  const el = $("pxList");
+  if (!el) return;
+  try {
+    const r = await (await fetch(`/land/api/prices?face=${P.face}&u=${P.u.toFixed(2)}&v=${P.v.toFixed(2)}&unit=${encodeURIComponent(priceUnit)}`)).json();
+    if ($("pxList") !== el) return;
+    const rows = Object.entries(r.values).sort((a, b) => b[1] - a[1]);
+    el.innerHTML = rows.length ? rows.map(([id, v]) => {
+      const was = r.before[id], arrow = was ? (v > was * 1.02 ? " ▲" : v < was * 0.98 ? " ▼" : "") : "";
+      return `<div>${esc(T("pxRow", "{i}: {v} × {u}", { i: nameOf(id), v: fmtQty(v), u: nameOf(priceUnit) }))}${arrow}</div>`;
+    }).join("") : esc(T("pxNone", "No trades here yet in that — prices come from the offers people take."));
+  } catch (e) { el.textContent = ""; }
+}
 function renderBag() {
   if (!RULES) return;
   if (!net.me) { $("palGrid").innerHTML = `<p class="dim">${esc(T("bagSignIn", "Sign in to gather, make things and trade."))}</p>`; return; }
@@ -1524,6 +1541,8 @@ function renderBag() {
     <h3>${esc(T("trade", "Trade"))}</h3>
     <div class="dim">${esc(atStand ? T("mkHere", "At a market: offers made here are seen at the stands within {m} m; the market keeps {p}% of what you receive.", { m: RULES.market.reach, p: Math.round(RULES.market.fee * 100) })
       : T("mkNoStand", "Offers are made and taken at a trading stand — build one (planks, beams and cordage, at a workbench), or go to a market."))}</div>
+    ${atStand ? `<div class="tradeform"><span>${esc(T("pxIn", "Prices here, in"))}</span><select id="pxUnit">${Object.keys(RULES.items).map((id) =>
+      `<option value="${id}"${id === priceUnit ? " selected" : ""}>${esc(nameOf(id))}</option>`).join("")}</select></div><div id="pxList" class="dim">…</div>` : ""}
     <div class="offers">${offers.length ? offers.map((o) => `<div class="rcp"><div>${esc(T("offerLine", "{g} for {w}", { g: bagText(o.give), w: bagText(o.want) }))}<div class="dim">${esc(o.by === net.me ? (o.spot ? T("yourOffer", "Your offer") : T("mkOld", "Your offer from before the markets — withdraw it.")) : disp(o.by))}</div></div>
         ${o.by === net.me ? `<button class="ghost" data-cancel="${o.id}">${esc(T("cancelOffer", "Withdraw"))}</button>` : `<button class="ghost" data-accept="${o.id}" ${atStand && Object.entries(o.want).every(([id, n]) => (inv.items[id] || 0) >= n) ? "" : "disabled"}>${esc(T("acceptOffer", "Trade"))}</button>`}</div>`).join("") : `<span class="dim">${esc(T("noOffers", "No offers yet."))}</span>`}</div>
     <div class="tradeform">
@@ -1538,6 +1557,7 @@ function renderBag() {
   const g = $("palGrid"), req = (m) => net.send(Object.assign({ req: ++net.req }, m));
   g.querySelectorAll("[data-make]").forEach((b) => { b.onclick = () => req({ t: "craft", recipe: b.dataset.make }); });
   g.querySelectorAll("[data-eat]").forEach((b) => { b.onclick = () => req({ t: "eat", item: b.dataset.eat }); });
+  if ($("pxUnit")) { $("pxUnit").onchange = () => { priceUnit = $("pxUnit").value; showPrices(); }; showPrices(); }
   g.querySelectorAll("[data-pick]").forEach((b) => { b.onclick = () => { const id = b.dataset.pick; if (!placeable(id)) return; if (!hot.includes(id)) { if (hot.length < 9) hot.push(id); else hot[slot] = id; } slot = hot.indexOf(id); save(); hotbar(); }; });
   g.querySelectorAll("[data-accept]").forEach((b) => { b.onclick = () => req({ t: "accept", id: b.dataset.accept }); });
   g.querySelectorAll("[data-cancel]").forEach((b) => { b.onclick = () => req({ t: "cancel_offer", id: b.dataset.cancel }); });

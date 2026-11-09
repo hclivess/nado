@@ -403,6 +403,18 @@
     100,
     110
    ]
+  },
+  "copper_coin": {
+   "name": "Copper coin",
+   "coin": true
+  },
+  "silver_coin": {
+   "name": "Silver coin",
+   "coin": true
+  },
+  "gold_coin": {
+   "name": "Gold coin",
+   "coin": true
   }
  },
  "tools": {
@@ -532,6 +544,9 @@
   },
   "tanning_rack": {
    "name": "Tanning rack"
+  },
+  "mint": {
+   "name": "Mint"
   }
  },
  "breaking": {
@@ -3264,6 +3279,87 @@
    "with": [
     "workbench"
    ]
+  },
+  {
+   "id": "mint",
+   "makes": [
+    [
+     "mint",
+     1
+    ]
+   ],
+   "uses": [
+    [
+     "stonebrick",
+     6
+    ],
+    [
+     "iron",
+     4
+    ],
+    [
+     "planks",
+     4
+    ]
+   ],
+   "with": [
+    "anvil",
+    "hammer"
+   ]
+  },
+  {
+   "id": "copper_coin",
+   "makes": [
+    [
+     "copper_coin",
+     10
+    ]
+   ],
+   "uses": [
+    [
+     "copper",
+     1
+    ]
+   ],
+   "with": [
+    "mint"
+   ]
+  },
+  {
+   "id": "silver_coin",
+   "makes": [
+    [
+     "silver_coin",
+     10
+    ]
+   ],
+   "uses": [
+    [
+     "silver",
+     1
+    ]
+   ],
+   "with": [
+    "mint"
+   ]
+  },
+  {
+   "id": "gold_coin",
+   "makes": [
+    [
+     "gold_coin",
+     10
+    ]
+   ],
+   "uses": [
+    [
+     "gold",
+     1
+    ]
+   ],
+   "with": [
+    "mint"
+   ]
   }
  ],
  "wilderness_regrow_s": 900,
@@ -3473,11 +3569,14 @@
   "strike_every_s": 1.5
  },
  "market": {
-  "about": "MARKETS (#161, doc/land-civilisation.md; operator 2026-11-09: \"local markets first, global only with the invention of the internet\", \"trading stands\"). An offer is made standing at a trading stand (within at metres of one) and lives there; it is seen and taken only by a player standing at a stand within reach metres of it — the stands of one market. A gift is handed over in person (within hand metres). On every offer taken the maker receives what it asked for less fee of each item (rounded down) — a sink that grows with trade itself.",
+  "about": "MARKETS (#161, doc/land-civilisation.md; operator 2026-11-09: \"local markets first, global only with the invention of the internet\", \"trading stands\"). An offer is made standing at a trading stand (within at metres of one) and lives there; it is seen and taken only by a player standing at a stand within reach metres of it — the stands of one market. A gift is handed over in person (within hand metres). On every offer taken the maker receives what it asked for less fee of each item (rounded down) — a sink that grows with trade itself. PRICES (#163: \"we need currencies of all types so we need a flexible value system based on supply and demand\"): every offer taken is a trade on the record; the going rate of X in Y at a market is the volume-weighted ratio of the market's trades of X for Y within window_s, each weighing half as much every half_life_s; X and Y that never traded directly are priced through the items that link them, the best-traded path first. No item has a fixed price — coins included: a coin is worth what the market gives for it.",
   "at": 6,
   "reach": 64,
   "hand": 8,
-  "fee": 0.05
+  "fee": 0.05,
+  "window_s": 604800,
+  "half_life_s": 172800,
+  "keep_trades": 20000
  },
  "health": {
   "about": "HEALTH (#162): a player has max health; nothing that hurt them for calm_s, it comes back one point every regen_s; at 0 they die — the bag is kept — and wake at the bed they last used, or at the landing, with grace_s in which nothing hurts them.",

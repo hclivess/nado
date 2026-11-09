@@ -13,6 +13,8 @@ under /land/) and a fake exec node (/exec/*) that says OWNER holds plot PA and h
                                 and one animal of that kind standing at (u, v) on face 0 -> {id}; a hunt can aim at it
   GET /fixture/hurt?dmg=&by=  -> OWNER is struck for dmg by an animal of kind `by`, as the herd would (land_server
                                 Hub.hurt): their pages hear "hurt", or "died" and where they wake
+  GET /fixture/accept?id=&u=&v=  -> AGENT, standing at (u, v) on face 0, takes that offer (world.accept, a stand's
+                                rules applied) — the second player of a market walk -> {error}
   GET /fixture/ripen         -> every sown crop and planted sapling is due now: the world server's own ecology loop
                                 grows them on its next tick (a field's twenty minutes, without the wait)
 """
@@ -111,6 +113,16 @@ async def main():
         res = await hub.hurt(world, OWNER["address"], int(req.query["dmg"]), req.query.get("by", "deer"))
         return web.json_response({"res": res and [res[0], res[1] if res[0] == "hurt" else (res[1] or [])[:4]]})
 
+    async def accept(req):
+        world.keep_place(AGENT["address"], [0, float(req.query["u"]), float(req.query["v"]), 200.0, 0.0])
+        o = world.offers.get(req.query["id"]) or {}
+        for k, n in (o.get("want") or {}).items():                 # what the offer asks, as AGENT would have gathered it
+            world.player(AGENT["address"])["items"][k] = world.player(AGENT["address"])["items"].get(k, 0) + n
+        err = world.accept(AGENT["address"], req.query["id"], world.player(AGENT["address"])["pos"])
+        if not err:
+            await hub.inv(world, OWNER["address"]); await hub.offers(world)
+        return web.json_response({"error": err})
+
     async def ripen(req):
         n = 0
         for rec in world.plots.values():
@@ -131,7 +143,7 @@ async def main():
                     web.get("/exec/asset", asset), web.get("/exec/view", view), web.get("/fixture/owner_token", owner_token),
                     web.get("/fixture/agent_build", agent_build), web.get("/fixture/plot", plot), web.get("/fixture/seed", seed),
                     web.get("/fixture/ripen", ripen), web.get("/fixture/animal", animal),
-                    web.get("/fixture/hurt", hurt)])
+                    web.get("/fixture/hurt", hurt), web.get("/fixture/accept", accept)])
     app.router.add_static("/static", STATIC)
     app.router.add_route("*", "/{tail:.*}", empty)
     runner = web.AppRunner(app); await runner.setup()
