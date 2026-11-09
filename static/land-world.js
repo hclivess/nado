@@ -240,9 +240,17 @@ export const BLOCKS = [
   { key: "smelter", solid: true, tex: [51, 51, 51] },
   { key: "assembler", solid: true, tex: [52, 52, 52] },
   { key: "generator", solid: true, tex: [53, 53, 53] },
+  // FOOD AND FARMING (#153, #154: "we will need all the civilisation essentials like berries, hunting, crops…",
+  // "farmland, farming, soil types, etc", operator 2026-11-09; doc/land-civilisation.md): a berry bush and wild grain
+  // grow on the planet as litter does (models, walked through), sown wheat grows on tilled FARMLAND — natural ground,
+  // drawn smooth as earth tinted by its soil
+  { key: "berrybush", solid: false, see: true, tex: [11, 11, 11] },
+  { key: "wheat", solid: false, see: true, tex: [11, 11, 11] },
+  { key: "wheatyoung", solid: false, see: true, tex: [11, 11, 11] },
+  { key: "farmland", solid: true, tex: [3, 3, 3] },
 ];
 export const B = Object.fromEntries(BLOCKS.map((b, i) => [b.key, i]));
-export const ATLAS_TILES = 54;              // tiles 0..53 (0 unused)
+export const ATLAS_TILES = 54;              // tiles 0..53 (0 unused; the farm's blocks reuse earth's and leaves')
 export const opaque = (id) => BLOCKS[id].solid && !BLOCKS[id].see;
 
 // ---- terrain ---------------------------------------------------------------------------------------------------
@@ -277,6 +285,22 @@ export function column(face, u, v) {
   // operator 2026-11-06: it was 3 everywhere, so a spade met rock almost at once)
   const soil = 4 + Math.min(5, Math.max(0, Math.floor((at(PERM[3], 60, 2) * 0.5 + 0.5) * 6)));
   return { top, height, biome, soil, temp, wet, woods };
+}
+
+// ---- SOILS (#154, "farmland, farming, soil types, etc", operator 2026-11-09): the ground under the turf is not one
+// dirt. Its kind follows what the generator already knows — sand by the sea and in deserts, stone on the heights, peat
+// where it is cold and wet, clay where the subsoil's clay beds lie, loam everywhere else — and it rules a field: how
+// long a crop takes and what it gives (land-recipes.json "farming"). A pure function of the place: page, server and
+// tests read the same soil.
+export const SOILS = ["loam", "sandy", "clay", "peat", "stony"];
+export function soilOf(face, u, v, col) {
+  col = col || column(face, u, v);
+  if (col.biome === "beach" || col.biome === "desert") return "sandy";
+  if (col.biome === "rock" || col.top > SEA + 70) return "stony";
+  if (col.temp < -0.12 && col.wet > 0.05) return "peat";
+  if (noise3(PERM[2], u / 37, v / 37, face * 131) > 0.18) return "clay";        // over the subsoil's clay beds (terrainBlock)
+  if (col.wet > 0.32 && col.top < SEA + 14) return "peat";                       // a wet lowland: a fen
+  return "loam";
 }
 
 function hash32(a, b, c) {
@@ -372,20 +396,21 @@ export function treeCell(t, du, dv, dh) {
 // leaves, which nobody could find without reading the source. A litter cell is the air cell just above the ground; it is
 // a function of place like everything else, and like every gathered cell in the commons it lies there again later.
 export const FLOWERS = [B.poppy, B.cornflower, B.daisy, B.buttercup];
-export const LITTER = new Set([B.pebble, B.twigs, B.flax, B.sapling, ...FLOWERS]);   // drawn as models, walked through
+export const LITTER = new Set([B.pebble, B.twigs, B.flax, B.sapling, ...FLOWERS, B.berrybush, B.wheat, B.wheatyoung]);   // drawn as models, walked through
 // A BLOCK TAKES THE PLACE OF LOOSE LITTER (a pebble, twigs, flax, a wild flower) and the placer picks it up, as in every
 // block game's tall grass: they filled the meadow's air cells, so a block aimed at a flowery spot went into the empty
 // cell over it, a metre up ("sometimes it places it above", 2026-11-08). A planted sapling is someone's — never swept.
 // scripts/land_server.py SWEPT is the same set.
-export const SWEPT = new Set([B.pebble, B.twigs, B.flax, ...FLOWERS]);
+export const SWEPT = new Set([B.pebble, B.twigs, B.flax, ...FLOWERS, B.berrybush, B.wheat]);   // a sown crop is not swept: someone's field
 // WHAT BURNS (#124), and what it leaves: a cell of grass burns to bare earth, wood, leaves, litter and plants to air; a
 // built piece of these materials burns down whole (scripts/land_server.py FIRE). Stone, earth, sand, brick, metal,
 // glass and water do not burn — they are what stops a fire.
 export const BURNS = new Map([[B.grass, B.dirt], [B.log, 0], [B.birchlog, 0], [B.leaves, 0], [B.needles, 0], [B.fronds, 0],
-  [B.twigs, 0], [B.flax, 0], [B.sapling, 0], [B.poppy, 0], [B.cornflower, 0], [B.daisy, 0], [B.buttercup, 0]]);
+  [B.twigs, 0], [B.flax, 0], [B.sapling, 0], [B.poppy, 0], [B.cornflower, 0], [B.daisy, 0], [B.buttercup, 0],
+  [B.berrybush, 0], [B.wheat, 0], [B.wheatyoung, 0]]);
 export const PIECE_BURNS = new Set([B.planks, B.darkwood, B.thatch, B.beam, B.door, B.window, B.table, B.chair, B.bench,
   B.bed, B.fence, B.torch, B.ladder, B.chest]);
-/** The litter on column (face, u, v): B.pebble, B.twigs, B.flax or 0. */
+/** The litter on column (face, u, v): B.pebble, B.twigs, B.flax, a flower, wild grain, a berry bush or 0. */
 export function litterAt(face, u, v, col) {
   if (col.top <= SEA) return 0;
   const hh = hash32(face + 17, v, u);
@@ -396,8 +421,11 @@ export function litterAt(face, u, v, col) {
     // four of it in bloom — a walk across the meadow passes a red patch, then a white one
     case "grass": return hh % 17 === 4 ? B.pebble : hh % 19 === 9 ? B.twigs
       : hash32(face + 53, v >> 3, u >> 3) % 9 === 0 && hh % 5 < 3 ? B.flax
-      : hash32(face + 61, v >> 3, u >> 3) % 7 === 0 && hh % 4 === 1 ? FLOWERS[hash32(face + 67, v >> 3, u >> 3) % 4] : 0;
-    case "forest": return hh % 23 === 4 ? B.pebble : hh % 9 === 2 ? B.twigs : 0;       // a forest floor is strewn with sticks
+      : hash32(face + 61, v >> 3, u >> 3) % 7 === 0 && hh % 4 === 1 ? FLOWERS[hash32(face + 67, v >> 3, u >> 3) % 4]
+      // WILD GRAIN in stands like flax (one 8 m region in eleven), BERRY BUSHES scattered at the meadow's edge (#153) —
+      // only where nothing else stood, so every older litter cell is where it was
+      : hash32(face + 71, v >> 3, u >> 3) % 11 === 0 && hh % 5 < 2 ? B.wheat : hh % 97 === 17 ? B.berrybush : 0;
+    case "forest": return hh % 23 === 4 ? B.pebble : hh % 9 === 2 ? B.twigs : hh % 71 === 13 ? B.berrybush : 0;   // a forest floor is strewn with sticks
     case "desert": return hh % 13 === 6 ? B.pebble : 0;
     case "rock": return hh % 6 === 1 ? B.pebble : 0;
     case "beach": return hh % 23 === 5 ? B.pebble : hh % 41 === 7 ? B.twigs : 0;
@@ -473,7 +501,7 @@ export function terrainBlock(face, u, v, h, colCache) {
 //   an edited cell:     +1 if a natural material was put there, -1 otherwise (dug out, or a built block, which carves
 //                       its own room in the ground and is drawn crisp).
 export const NATURAL = new Set([B.grass, B.dirt, B.stone, B.sand, B.snow, B.gravel, B.basalt, B.bedrock, B.ironore, B.coal, B.copperore, B.tinore, B.clay,
-  B.silverore, B.goldore]);
+  B.silverore, B.goldore, B.farmland]);   // farmland: tilled earth, smooth ground like the rest (#154)
 export function fieldOf(col, h, edit) {
   if (edit !== undefined) return NATURAL.has(edit) ? 1 : -1;
   if (h <= 0) return 1;

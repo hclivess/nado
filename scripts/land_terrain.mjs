@@ -18,6 +18,8 @@
 //       plot's facts for its market listing (#125): its commonest biome, its ground in metres above the sea (lowest,
 //       highest, mean), how many of its 256 columns lie under the sea, its trees (trunked: a bush is not one) and its flax. A listing states what
 //       the planet IS there, so it is read from the generator, never estimated.
+//   {"soil": [face, u, v]}             ->  {"soil": "loam" | "sandy" | "clay" | "peat" | "stony"}  — the column's soil
+//       (land-world soilOf), which rules a field there (FARMING, #154).
 import { createInterface } from "node:readline";
 import { fileURLToPath } from "node:url";
 import { dirname, join } from "node:path";
@@ -89,6 +91,11 @@ rl.on("line", (line) => {
     else if (req.grow) out = { cells: grow(...req.grow) };
     else if ("card" in req) out = card(req.card);
     else if ("trees" in req) out = { roots: trees(req.trees) };
+    else if (req.soil) {
+      const [f, u, v] = req.soil;
+      if (!(f >= 0 && f < 6 && u >= 0 && u < W.W && v >= 0 && v < W.W)) throw new Error("bad column");
+      out = { soil: W.soilOf(f, u, v, col(f, u, v)) };
+    }
     else out = { blocks: req.cells.map(([f, u, v, h]) => {
       if (!(f >= 0 && f < 6 && u >= 0 && u < W.W && v >= 0 && v < W.W && Number.isInteger(h))) return -1;
       return h < W.DEEP_MIN ? W.B.bedrock : h >= W.H ? W.B.air : W.terrainBlock(f, u, v, h, col);   // the deep too (#129)

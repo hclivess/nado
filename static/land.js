@@ -266,6 +266,7 @@ const roomFor = (c) => !inBody(c) || (c[2] < P.h + FEET && !collides(P.u, P.v, c
  *  tap did nothing (planting by the town pavilion, 2026-11-08). Anything else goes anywhere. */
 const rootsIn = ([cu, cv, ch]) => {
   const held = RULES && RULES.items[hot[slot]] && RULES.items[hot[slot]].places;
+  if (held === B.wheatyoung) return blockAt(P.face, cu, cv, ch - 1) === B.farmland;   // seed is sown on a field (#154)
   if (held !== B.sapling && !Wd.FLOWERS.includes(held)) return true;
   const below = blockAt(P.face, cu, cv, ch - 1);
   return below === B.grass || below === B.dirt;
@@ -1448,10 +1449,43 @@ function ignite() {
   const w = Wd.wrap(P.face, c[0], c[1]);
   net.send({ t: "ignite", cell: [w.face, w.u, w.v, c[2]], req: ++net.req });
 }
+// ---- FARMING (#154, "farmland, farming, soil types, etc", operator 2026-11-09): Use on turf or earth with a hoe tills
+// it into farmland and says what the soil is — its kind rules how long a crop takes and what it gives (land-recipes.json
+// "farming"); seed is then placed on the field like any block, and the world server ripens it
+const SOIL_SAYS = {
+  loam: () => T("soilLoam", "loam — crops grow at full speed and yield well"),
+  clay: () => T("soilClay", "clay soil — slow to ripen, but rich"),
+  peat: () => T("soilPeat", "peat — rich, a little slow"),
+  sandy: () => T("soilSandy", "sandy soil — slow, and a poor harvest"),
+  stony: () => T("soilStony", "stony ground — a hoe cannot work it"),
+};
+/** Water within the farming rule's reach, at the field's layer or under it: a moist field ripens sooner (server moist()). */
+function moistAt(u, v, h) {
+  const r = RULES.farming.moist_reach;
+  for (let du = -r; du <= r; du++) for (let dv = -r; dv <= r; dv++) for (const dh of [0, -1])
+    if (blockAt(P.face, u + du, v + dv, h + dh) === B.water) return true;
+  return false;
+}
+/** Use on the ground: till it when it is turf or earth. False when the aimed cell is no such ground (Use goes on). */
+function tillAt([u, v, h]) {
+  const b = blockAt(P.face, u, v, h);
+  if (b !== B.grass && b !== B.dirt) return false;
+  if (!RULES || !RULES.farming) return false;
+  if (!hasClass("hoe")) { notify(T("tillNeedsHoe", "Tilling needs a hoe — make one from sticks, stone and cordage.")); return true; }
+  const soil = Wd.soilOf(P.face, u, v, colAt(P.face, u, v));
+  if (!RULES.farming.soil[soil] || RULES.farming.soil[soil].till === false) { notify(SOIL_SAYS.stony()); return true; }
+  const over = blockAt(P.face, u, v, h + 1);
+  if (over !== B.air && !Wd.SWEPT.has(over)) { notify(T("tillOpen", "A field needs open air over it.")); return true; }
+  if (setBlock(P.face, u, v, h, B.farmland))
+    notify(T("tilled", "Tilled: {s}.", { s: SOIL_SAYS[soil]() }) + (moistAt(u, v, h) ? " " + T("tillMoist", "Water is near: it ripens sooner.") : "") + " " +
+           T("tillSow", "Sow wheat seed on it."), 6000);
+  return true;
+}
 function useDoor() {
   if (flying) return leaveCraft();                                             // Use at the controls: step out
   const a = aim();
   if (a && a.box && a.box.b[6] === B.pilotseat) return board({ plot: a.box.plot, box: a.box.b });   // take the seat
+  if (a && !a.box && a.hit && net.me && tillAt(a.hit)) return;                 // Use on the ground with a hoe: till it
   if (!(a && a.box && [B.door, B.chest, B.smelter, B.assembler, B.generator].includes(a.box.b[6]))) { const mine = nearMyCraft(); if (mine) return board({ craft: mine }); }
   if (a && a.box && a.box.b[6] === B.chest) return openChest(a.box);           // Q uses what you aim at: a door or a chest
   if (a && a.box && [B.smelter, B.assembler, B.generator].includes(a.box.b[6])) return openMachine(a.box);   // a machine
@@ -1593,7 +1627,7 @@ function breakTick(dt) {
     else setBlock(P.face, j.cell[0], j.cell[1], j.cell[2], B.air);
   }
 }
-const NATURAL_ITEMS = new Set(["dirt", "sand", "gravel", "snow", "sapling", "water", "poppy", "cornflower", "daisy", "buttercup"]);   // these fill the ground's cells; the rest are pieces
+const NATURAL_ITEMS = new Set(["dirt", "sand", "gravel", "snow", "sapling", "water", "poppy", "cornflower", "daisy", "buttercup", "seed"]);   // these fill the ground's cells; the rest are pieces
 
 // ---- LEVELLING ("it is currently not possible to level ground ... to have a nice clean structure", operator 2026-11-06;
 // Enshrouded and Valheim level a site with a hoe first). L with a shovel flattens the 5 x 5 columns around the aimed cell
@@ -1759,12 +1793,16 @@ const CMDS = {
     if (!a) return conLine(T("cAimNone", "Nothing within reach."));
     // a block by the item that places it, or the item of its own name (ores, clay, flax), or its own name (land.b.*)
     const named = (b) => {
+      if (b === B.wheatyoung) return T("b.wheatyoung", "Young wheat");     // a growing crop, not the seed it was sown as
       const k = BLOCKS[b].key, id = RULES && Object.keys(RULES.items).find((i) => RULES.items[i].places === b);
       return id ? nameOf(id) : RULES && RULES.items[k] ? nameOf(k) : T("b." + k, k);
     };
     const at = a.box ? [Wd.plotCoords(a.box.plot).u0 + Math.floor(a.box.b[0] / Wd.CM), Wd.plotCoords(a.box.plot).v0 + Math.floor(a.box.b[1] / Wd.CM), Math.floor(a.box.b[2] / Wd.CM)] : a.hit;
     conLine(T("cAimAt", "Aiming at {b} — u {u} · v {v} · h {h}.", { b: named(a.box ? a.box.b[6] : blockAt(P.face, at[0], at[1], at[2])), u: at[0], v: at[1], h: at[2] }));
     if (a.prev) conLine(T("cAimPut", "A block goes to u {u} · v {v} · h {h}.", { u: a.prev[0], v: a.prev[1], h: a.prev[2] }));
+    // the ground's soil (#154): what a field there would be
+    if (!a.box && [B.grass, B.dirt, B.farmland].includes(blockAt(P.face, at[0], at[1], at[2])))
+      conLine(T("cAimSoil", "Soil: {s}.", { s: SOIL_SAYS[Wd.soilOf(P.face, at[0], at[1], colAt(P.face, at[0], at[1]))]() }));
   },
   // /dock: your parked craft nearby (or the one you fly, landed) set down as pieces on the plot under its seat
   dock: () => {

@@ -36,7 +36,8 @@ const tb = (u, v, h) => W.terrainBlock(f, u, v, h);
 const spots = [];
 for (let pr = 0; pr < 40 && spots.length < 3; pr++) {
   const q = W.plotCoords(W.plotId(0, W.SPAWN_PLOT_ROW + pr, W.SPAWN_PLOT_COL)), u = q.u0 + 8, v = q.v0 + 8, c = W.column(f, u, v);
-  let ok = tb(u, v, c.top) === B.grass && tb(u, v, c.top - 1) === B.dirt;
+  // (open air over it: wild grain or a berry bush there takes no sapling, as flax never did)
+  let ok = tb(u, v, c.top) === B.grass && tb(u, v, c.top - 1) === B.dirt && tb(u, v, c.top + 1) === B.air;
   for (let du = -3; du <= 3 && ok; du++) for (let dv = -3; dv <= 3 && ok; dv++) {
     const cc = W.column(f, u + du, v + dv);
     if (W.treeAt(f, u + du, v + dv, cc) || Math.abs(cc.top - c.top) > 1 || tb(u + du, v + dv, cc.top) !== B.grass) ok = false;

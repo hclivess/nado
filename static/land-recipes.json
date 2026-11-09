@@ -351,6 +351,16 @@
     100,
     120
    ]
+  },
+  "berries": {
+   "name": "Berries"
+  },
+  "grain": {
+   "name": "Grain"
+  },
+  "seed": {
+   "name": "Wheat seed",
+   "places": 72
   }
  },
  "tools": {
@@ -433,6 +443,11 @@
    "name": "Wooden bucket",
    "class": "bucket",
    "speed": 1
+  },
+  "hoe": {
+   "name": "Stone hoe",
+   "class": "hoe",
+   "speed": 3
   }
  },
  "stations": {
@@ -1055,6 +1070,51 @@
    "yields": [
     [
      "generator",
+     1
+    ]
+   ]
+  },
+  "70": {
+   "hard": 0.25,
+   "yields": [
+    [
+     "berries",
+     3
+    ]
+   ],
+   "bonus": [
+    "sticks",
+    2
+   ]
+  },
+  "71": {
+   "hard": 0.25,
+   "yields": [
+    [
+     "grain",
+     1
+    ],
+    [
+     "seed",
+     1
+    ]
+   ]
+  },
+  "72": {
+   "hard": 0.15,
+   "yields": [
+    [
+     "seed",
+     1
+    ]
+   ]
+  },
+  "73": {
+   "hard": 0.6,
+   "class": "shovel",
+   "yields": [
+    [
+     "dirt",
      1
     ]
    ]
@@ -2859,6 +2919,29 @@
    "with": [
     "machine_shop"
    ]
+  },
+  {
+   "id": "hoe",
+   "makes": [
+    [
+     "hoe",
+     1
+    ]
+   ],
+   "uses": [
+    [
+     "sticks",
+     2
+    ],
+    [
+     "stone",
+     2
+    ],
+    [
+     "cordage",
+     1
+    ]
+   ]
   }
  ],
  "wilderness_regrow_s": 900,
@@ -2917,5 +3000,36 @@
   },
   "power_reach": 12,
   "tick_s": 4
+ },
+ "farming": {
+  "about": "FARMING (#154, doc/land-civilisation.md; operator 2026-11-09: \"farmland, farming, soil types, etc\"). A hoe tills grass or earth with open air over it into farmland (not stony ground); a seed sown on farmland grows into ripe wheat in crop_s x its soil's time x moist when water lies within moist_reach columns at or below the field, and a harvest of it gives its soil's grain and seeds (wild grain gives 1 and 1). Read by the page (what the hoe says) and the world server (the rule).",
+  "crop_s": 1200,
+  "moist_reach": 3,
+  "moist": 0.7,
+  "soil": {
+   "loam": {
+    "time": 1.0,
+    "grain": 3,
+    "seed": 2
+   },
+   "clay": {
+    "time": 1.3,
+    "grain": 4,
+    "seed": 2
+   },
+   "peat": {
+    "time": 1.2,
+    "grain": 4,
+    "seed": 2
+   },
+   "sandy": {
+    "time": 1.6,
+    "grain": 2,
+    "seed": 1
+   },
+   "stony": {
+    "till": false
+   }
+  }
  }
 }

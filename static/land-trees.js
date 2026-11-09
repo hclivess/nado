@@ -210,6 +210,41 @@ export function flaxModel(seed) {
   }
   return { bark, leaves };
 }
+/** WHEAT (land-world B.wheat, B.wheatyoung; #153, #154): a tuft of stems. Ripe (wild grain on the meadow, or a field's
+ *  harvest) 70-100 cm, golden, each topped with a fat ear and its awns; sown and still growing, a short green tuft —
+ *  the field is seen to ripen. Stems and ears in the bark part, tinted as flax's are (the tints lift the bark texture). */
+export function wheatModel(seed, ripe) {
+  const R = rng(seed), bark = part(), leaves = part(), n = ripe ? 7 + Math.floor(R() * 4) : 5 + Math.floor(R() * 3);
+  const stem = ripe ? [5.2, 4.3, 1.5] : [1.3, 3.1, 1.0], ear = [5.8, 4.6, 1.7];
+  for (let k = 0; k < n; k++) {
+    const a = R() * Math.PI * 2, r = 0.04 + R() * 0.13, h = ripe ? 0.7 + R() * 0.3 : 0.22 + R() * 0.14, lean = (R() - 0.5) * (ripe ? 0.16 : 0.08);
+    const b0 = [Math.cos(a) * r, Math.sin(a) * r, 0], top = [b0[0] + Math.cos(a) * lean, b0[1] + Math.sin(a) * lean, h];
+    tube(bark, [b0, [(b0[0] + top[0]) / 2, (b0[1] + top[1]) / 2, h * 0.5], top], [0.008, 0.006, 0.004], 3, (i) => i * 0.4, 0, stem);
+    if (!ripe) continue;
+    const nod = [Math.cos(a) * 0.03, Math.sin(a) * 0.03, 0.09];                  // the ear nods a little under its weight
+    tube(bark, [top, add(top, mul(nod, 0.5)), add(top, nod)], [0.012, 0.016, 0.006], 5, () => 0.8, 0, ear);
+    tube(bark, [add(top, nod), add(top, add(nod, [0, 0, 0.06]))], [0.002, 0.001], 3, () => 0.9, 0, ear);   // the awns
+  }
+  return { bark, leaves };
+}
+/** A BERRY BUSH (land-world B.berrybush; #153): a low round bush of leaves, half a metre to 80 cm, hung with red berries
+ *  — what a forager looks for at the meadow's edge. Leaves as cards (the leaves part), berries small red beads. */
+export function berryBushModel(seed) {
+  const R = rng(seed), bark = part(), leaves = part(), h = 0.5 + R() * 0.3, w = 0.35 + R() * 0.15;
+  for (let k = 0; k < 5; k++) {
+    const a = R() * Math.PI * 2;
+    tube(bark, [[0, 0, 0], [Math.cos(a) * w * 0.5, Math.sin(a) * w * 0.5, h * 0.6]], [0.015, 0.008], 4, (i) => i * 0.3, 0, [1, 1, 1]);
+  }
+  for (let k = 0; k < 11; k++) {
+    const a = R() * Math.PI * 2, z = h * (0.3 + R() * 0.7), d = w * (0.2 + R() * 0.7);
+    cluster(leaves, R, [Math.cos(a) * d, Math.sin(a) * d, z], 0.3 + R() * 0.12, 0, [0, 0, h * 0.5], 0.3, [0.85, 1, 0.85]);
+  }
+  for (let k = 0; k < 16; k++) {
+    const a = R() * Math.PI * 2, z = h * (0.25 + R() * 0.7), d = w * (0.55 + R() * 0.5), c = [Math.cos(a) * d, Math.sin(a) * d, z];
+    tube(bark, [add(c, [0, 0, -0.018]), c, add(c, [0, 0, 0.018])], [0.004, 0.02, 0.004], 5, () => 0.3, 0, [6.4, 0.5, 0.8]);
+  }
+  return { bark, leaves };
+}
 /** A wild flower (land-world FLOWERS): a few stems, 25-45 cm, each topped with its flower head — kind 0 a red poppy
  *  (a wide cup), 1 a blue cornflower, 2 a white daisy (a flat disc), 3 a yellow buttercup (a small cup). The tints LIFT
  *  the bark texture, as flax's do, so the colours read true. */

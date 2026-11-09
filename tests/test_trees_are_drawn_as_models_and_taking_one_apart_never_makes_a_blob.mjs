@@ -38,8 +38,9 @@ for (let dx = 0; dx < 3; dx++) for (let dy = 0; dy < 3; dy++) {
     lo = Math.min(lo, col.top); hi = Math.max(hi, col.top);
     if (t) { roots++; if (!chunkOf && t.kind !== "bush") chunkOf = { cu, cv, u: cu * 16 + i, v: cv * 16 + j, col, t }; }
     // a clump of flax and a wild flower sway in the wind too (land-trees.js flaxModel, flowerModel): one swaying model
-    // per plant, counted beside the trees
-    { const lb = Wd.terrainBlock(q.face, cu * 16 + i, cv * 16 + j, col.top + 1); if (lb === Wd.B.flax || Wd.FLOWERS.includes(lb)) plants++; }
+    // per plant, counted beside the trees — and wild grain and a berry bush (#153, wheatModel, berryBushModel)
+    { const lb = Wd.terrainBlock(q.face, cu * 16 + i, cv * 16 + j, col.top + 1);
+      if (lb === Wd.B.flax || Wd.FLOWERS.includes(lb) || lb === Wd.B.wheat || lb === Wd.B.berrybush) plants++; }
   }
   for (let ch = Math.floor(lo / 16); ch <= Math.floor((hi + 12) / 16); ch++) {
     const r = M.meshChunk(q.face, cu, cv, ch, null, null, 0);
@@ -50,7 +51,7 @@ for (let dx = 0; dx < 3; dx++) for (let dy = 0; dy < 3; dy++) {
 }
 ok(roots > 10, `the block grows a forest (${roots} trees)`);
 ok(cellParts === 0, `no tree cell is drawn where the trees are untouched (${cellParts} chunks with cell canopy)`);
-ok(modelled === roots + plants, `one model per tree: ${modelled} swaying models for ${roots} roots and ${plants} flax plants and wild flowers`);
+ok(modelled === roots + plants, `one model per tree: ${modelled} swaying models for ${roots} roots and ${plants} flax plants, wild flowers, wild grain and berry bushes`);
 
 // 3: every species, both details
 for (const kind of ["broadleaf", "birch", "conifer", "palm", "bush"]) for (const lod of [0, 2]) {

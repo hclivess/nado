@@ -9,6 +9,8 @@ under /land/) and a fake exec node (/exec/*) that says OWNER holds plot PA and h
   GET /fixture/plot          -> {plot, owner, agent, other_plot, other}
   GET /fixture/seed?who=owner|agent&items={json}[&tools=[json]]  -> stocks that player's inventory (what gathering and
                                 crafting would have given)
+  GET /fixture/ripen         -> every sown crop and planted sapling is due now: the world server's own ecology loop
+                                grows them on its next tick (a field's twenty minutes, without the wait)
 """
 import os, sys, tempfile
 os.environ["HOME"] = tempfile.mkdtemp(prefix="nado-test-land-live-")       # CLAUDE.md rule 4
@@ -90,6 +92,13 @@ async def main():
         await hub.inv(world, who)
         return web.json_response(world.inv_json(who))
 
+    async def ripen(req):
+        n = 0
+        for rec in world.plots.values():
+            for k in list((rec.get("grow") or {})):
+                rec["grow"][k] = 0; n += 1
+        return web.json_response({"due": n})
+
     async def page(req):
         return web.FileResponse(os.path.join(STATIC, "land.html"))
 
@@ -101,7 +110,8 @@ async def main():
 
     app.add_routes([web.get("/", page), web.get("/protocol.js", proto), web.get("/exec/assets", assets),
                     web.get("/exec/asset", asset), web.get("/exec/view", view), web.get("/fixture/owner_token", owner_token),
-                    web.get("/fixture/agent_build", agent_build), web.get("/fixture/plot", plot), web.get("/fixture/seed", seed)])
+                    web.get("/fixture/agent_build", agent_build), web.get("/fixture/plot", plot), web.get("/fixture/seed", seed),
+                    web.get("/fixture/ripen", ripen)])
     app.router.add_static("/static", STATIC)
     app.router.add_route("*", "/{tail:.*}", empty)
     runner = web.AppRunner(app); await runner.setup()

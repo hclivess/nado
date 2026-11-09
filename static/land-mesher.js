@@ -19,8 +19,8 @@
 // Cells are generated with a one-cell border (wrapped across face seams by land-world.wrap). A surface edge is drawn by
 // the chunk that holds its LOWER cell, so every edge of the world belongs to exactly one chunk (no gaps, no doubles).
 // Positions are metres RELATIVE TO THE CHUNK'S ANCHOR; the page places each mesh at anchor - camera in doubles.
-import { CHUNK, H, R0, W, B, BLOCKS, ATLAS_TILES, NATURAL, CM, DEEP_MIN, TREE_WOOD, TREE_LEAVES, isTree, opaque, dirOf, frameOf, wrap, column, terrainBlock, fieldOf, treeAt, treeCell, LITTER, shapeOf, FLOWERS, saplingTree } from "./land-world.js";
-import { treeModel, leafCellModel, twigModel, flaxModel, saplingModel, flowerModel } from "./land-trees.js";
+import { CHUNK, H, R0, W, B, BLOCKS, ATLAS_TILES, NATURAL, CM, DEEP_MIN, TREE_WOOD, TREE_LEAVES, isTree, opaque, dirOf, frameOf, wrap, column, terrainBlock, fieldOf, treeAt, treeCell, LITTER, shapeOf, FLOWERS, saplingTree, soilOf } from "./land-world.js";
+import { treeModel, leafCellModel, twigModel, flaxModel, saplingModel, flowerModel, wheatModel, berryBushModel } from "./land-trees.js";
 
 const N = CHUNK + 2;                                     // cells with the border: real index r in -1..16 is r + 1
 const TILE_COLS = 8;                                      // the atlas is TILE_COLS tiles across (static/land.js paints it)
@@ -53,7 +53,7 @@ export function groundWeights(b, up) {          // (static/land.js weighs the fa
   const w = [0, 0, 0, 0, 0, 0];                          // grass, dirt, rock, sand, snow, gravel
   const steep = smoothstep(0.62, 0.38, up);              // 1 on a cliff, 0 on the flat
   if (b === B.grass) { const g = smoothstep(0.62, 0.85, up); w[0] = g; w[1] = 1 - g; }
-  else if (b === B.dirt || b === B.clay) w[1] = 1;    // clay: earth's texture, its own tint (groundGrain)
+  else if (b === B.dirt || b === B.clay || b === B.farmland) w[1] = 1;    // clay, a field: earth's texture, their own tint (groundGrain)
   else if (b === B.sand) w[3] = 1;
   else if (b === B.snow) w[4] = 1;
   else if (b === B.gravel) w[5] = 1;
@@ -67,8 +67,10 @@ export function groundWeights(b, up) {          // (static/land.js weighs the fa
 // seen to be followed (2026-11-07): coal dark, iron rusty, copper verdigris, tin pale, clay a reddish earth
 const ORE_TINT = { [B.coal]: [0.38, 0.38, 0.4], [B.ironore]: [1.12, 0.82, 0.66], [B.copperore]: [0.78, 1.08, 0.92],
   [B.tinore]: [1.18, 1.18, 1.22], [B.clay]: [1.12, 0.86, 0.72], [B.silverore]: [1.3, 1.32, 1.38], [B.goldore]: [1.35, 1.15, 0.55] };
-const groundGrain = (b, up, u, v, h) => {
-  const j = 0.9 + 0.2 * hash3(u, v, h), t = ORE_TINT[b];
+// a FIELD is earth tinted by its soil (#154): dark loam, pale sand, red clay, black peat — the soil is seen where it is tilled
+const SOIL_TINT = { loam: [0.62, 0.52, 0.44], sandy: [1.15, 1.02, 0.78], clay: [1.05, 0.72, 0.58], peat: [0.4, 0.36, 0.34], stony: [0.9, 0.9, 0.9] };
+const groundGrain = (b, up, u, v, h, face) => {
+  const j = 0.9 + 0.2 * hash3(u, v, h), t = b === B.farmland && face !== undefined ? SOIL_TINT[soilOf(face, u, v)] : ORE_TINT[b];
   return t ? [j * t[0], j * t[1], j * t[2]] : [j, j, j];
 };
 
@@ -244,7 +246,7 @@ export function meshChunk(face, cu, cv, ch, edits, boxes, lod, grassOn = true) {
       // its grass — the hole stayed green and grew blades, which read as grass growing straight back ("collecting grass
       // somehow regenerates it", "and at the bottom theres grass?", operator 2026-11-06). Turned turf is earth.
       if (mat === B.grass) for (let c = 0; c < 8; c++) if (dug[((pk + (c >> 2)) * N + pj + ((c >> 1) & 1)) * N + pi + (c & 1)]) { mat = B.dirt; break; }
-      const p = place(gu, gv, gh), col = colourOf(mat, nh, Math.floor(gu), Math.floor(gv), Math.floor(gh));
+      const p = place(gu, gv, gh), col = colourOf(mat, nh, Math.floor(gu), Math.floor(gv), Math.floor(gh), face);
       vid[(pk * S + pj) * S + pi] = out.n;
       out.pos.push(p[0], p[1], p[2]); out.nor.push(nw[0], nw[1], nw[2]); out.col.push(col[0], col[1], col[2]);
       if (extra) extra(out, mat, nu, nv, nh, gu, gv, gh);
@@ -383,6 +385,11 @@ export function meshChunk(face, cu, cv, ch, edits, boxes, lod, grassOn = true) {
                                              col.height - 0.02, rot, 1, 0.001 + hash3(gv, gu, 31) * 6.28, place, bark, foliage, null);
     else if (b === B.flax) placeModel(flaxModel(1 + Math.floor(hash3(gu, gv, 13) * 997)), face, gu + 0.5, gv + 0.5, col.height - 0.02, rot, 1,
                                       0.001 + hash3(gv, gu, 21) * 6.28, place, bark, foliage, null);
+    // FOOD (#153, #154): wild grain and a field's wheat (ripe, or still green and short), a berry bush
+    else if (b === B.wheat || b === B.wheatyoung) placeModel(wheatModel(1 + Math.floor(hash3(gu, gv, 37) * 997), b === B.wheat), face, gu + 0.5, gv + 0.5,
+                                                             col.height - 0.02, rot, 1, 0.001 + hash3(gv, gu, 41) * 6.28, place, bark, foliage, null);
+    else if (b === B.berrybush) placeModel(berryBushModel(1 + Math.floor(hash3(gu, gv, 43) * 997)), face, gu + 0.5, gv + 0.5, col.height - 0.02, rot, 1,
+                                           0.001 + hash3(gv, gu, 47) * 6.28, place, bark, foliage, null);
     else pebble(stones, face, gu + ou, gv + ov, col.height, 0.11 + 0.1 * hash3(gv, gh, gu), hash3(gu, gv, 11), rot, place);
   }
   // FIRE (#124): three crossed flame quads in a burning cell, its texture drawn by the page's flame material from uv

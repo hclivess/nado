@@ -52,7 +52,7 @@ CHALLENGE_TTL = 300
 SESSION_TTL = 7 * 86400
 sid = lambda token: hashlib.blake2b(token.encode(), digest_size=32).hexdigest()   # a session's name on disk (World.sessions)
 FACE_N, PLOT, W, H = L.FACE_N, L.PLOT, L.FACE_N * L.PLOT, 256
-N_BLOCKS = 70                     # static/land-world.js BLOCKS.length (tests/test_the_land_planet_… checks the two agree)
+N_BLOCKS = 74                     # static/land-world.js BLOCKS.length (tests/test_the_land_planet_… checks the two agree)
 DOOR = 37                         # static/land-world.js B.door: a piece that swings open and shut ("door" op)
 THRUSTER, SEAT = 65, 66           # static/land-world.js B.thruster, B.pilotseat: a craft's working parts (FLIGHT, #147)
 SMELTER, ASSEMBLER, GENERATOR = 67, 68, 69   # static/land-world.js: FACTORIES (#148) — machines and their power
@@ -65,7 +65,10 @@ UNBUILDABLE = {30}                # bedrock: never placed (no item in land-recip
 # where something holds it — on a block or on more water — so a pond, a basin or a fountain holds; it does not flow.
 WATER = 5
 FLOWERS = {58, 59, 60, 61}        # static/land-world.js FLOWERS: picked by hand, planted in soil like a sapling
-SWEPT = {34, 35, 51} | FLOWERS    # static/land-world.js SWEPT: pebble, twigs, flax, flowers — a placed block takes their place
+# FOOD AND FARMING (#153, #154; doc/land-civilisation.md): static/land-world.js B.berrybush, wheat (ripe or wild grain),
+# wheatyoung (sown), farmland (tilled). A hoe tills, a seed is sown on farmland and ripens by its soil (RULES "farming").
+BERRYBUSH, WHEAT, WHEATYOUNG, FARMLAND = 70, 71, 72, 73
+SWEPT = {34, 35, 51, BERRYBUSH, WHEAT} | FLOWERS   # static/land-world.js SWEPT: pebble, twigs, flax, flowers, wild food — a placed block takes their place
 # THE DEEP (#129, doc/land-core.md): layers below 0, down to DEEP_MIN (static/land-world.js DEEP_MIN), are the deep crust.
 # Nobody owns them — anyone signed in digs and builds there, under an owned plot too — and a dug deep cell never grows
 # back: a mine stays a mine. The deep is kept with the plot above it but is never part of that plot's commitment.
@@ -117,7 +120,7 @@ PLANET = 0
 # with nothing left to burn it dies. It spreads ONLY where its starter may build (the commons, their own plot, a plot
 # they are invited to): nobody can burn another's plot. Fires are transient: a restart puts them out.
 FIRE = 55
-BURNS = {1: 2, 7: 0, 31: 0, 8: 0, 32: 0, 33: 0, 35: 0, 51: 0, 52: 0, 58: 0, 59: 0, 60: 0, 61: 0}   # land-world BURNS (the test checks they agree)
+BURNS = {1: 2, 7: 0, 31: 0, 8: 0, 32: 0, 33: 0, 35: 0, 51: 0, 52: 0, 58: 0, 59: 0, 60: 0, 61: 0, 70: 0, 71: 0, 72: 0}   # land-world BURNS (the test checks they agree)
 PIECE_BURNS = {9, 15, 39, 38, 37, 40, 45, 46, 47, 48, 49, 50, 53, 54}  # land-world PIECE_BURNS
 BURN_TICKS = {7: 8, 31: 8, 1: 3}  # ticks a cell takes to burn through (default 3: leaves, litter, plants)
 PIECE_TICKS = 6                   # ticks a built piece takes to burn down
@@ -513,6 +516,32 @@ class World:
             raise RuntimeError("terrain oracle: " + r["error"])
         return r["cells"]
 
+    async def soil_at(self, face, u, v):
+        """The column's soil (land_terrain.mjs soil → land-world soilOf): loam, sandy, clay, peat or stony."""
+        async with self.oracle_lock:
+            self.oracle.stdin.write((json.dumps({"soil": [face, u, v]}) + "\n").encode())
+            await self.oracle.stdin.drain()
+            r = json.loads(await self.oracle.stdout.readline())
+        if "error" in r:
+            raise RuntimeError("terrain oracle: " + r["error"])
+        return r["soil"]
+
+    async def moist(self, face, u, v, h):
+        """FARMING: water (the sea, a lake, a bucketful poured) within moist_reach columns of the field cell (face, u, v, h),
+        at its layer or the one under it — a field by the water, or one a player irrigates, grows quicker."""
+        r = RULES["farming"]["moist_reach"]
+        look = [[face, u + du, v + dv, h + dh] for du in range(-r, r + 1) for dv in range(-r, r + 1) for dh in (0, -1)
+                if 0 <= u + du < W and 0 <= v + dv < W]
+        return WATER in (await self.blocks_at(look)).values()
+
+    async def crop_due(self, face, u, v, h, now=None):
+        """When a seed sown at (face, u, v, h) — on the farmland at h - 1 — ripens: crop_s by its soil's time, sooner moist."""
+        F = RULES["farming"]
+        t = F["crop_s"] * F["soil"][await self.soil_at(face, u, v)]["time"]
+        if await self.moist(face, u, v, h - 1):
+            t *= F["moist"]
+        return (time.time() if now is None else now) + t
+
     async def terrain_card(self, p):
         """The untouched plot's facts (land_terrain.mjs card): a pure function of the seed, so kept forever."""
         if p not in self.cards:
@@ -812,7 +841,12 @@ class World:
                 speed = self._speed(pl, rule.get("class"))
                 if not self.work(who, rule["hard"] / speed):
                     refused.append([c, "too fast — breaking takes time (a better tool is quicker)"]); continue
-                for item, n in rule["yields"]:
+                yields = rule["yields"]
+                if cur == WHEAT and (await self.blocks_at([[face, u, v, h - 1]]))[(face, u, v, h - 1)] == FARMLAND:
+                    # a HARVEST (#154): ripe wheat on a field gives what its soil gives, more than wild grain
+                    sl = RULES["farming"]["soil"][await self.soil_at(face, u, v)]
+                    yields = [["grain", sl.get("grain", 1)], ["seed", sl.get("seed", 1)]]
+                for item, n in yields:
                     pl["items"][item] = pl["items"].get(item, 0) + n
                 if rule.get("bonus") and (face * 7919 + u * 31 + v * 17 + h) % rule["bonus"][1] == 0:
                     pl["items"][rule["bonus"][0]] = pl["items"].get(rule["bonus"][0], 0) + 1
@@ -841,6 +875,24 @@ class World:
                 # "you can build anywhere unless it is owned" (operator, 2026-11-06): unowned land is open to everyone
                 if titled and not may:
                     refused.append([c, "not your plot — only its owner and the builders they invite build here"]); continue
+                if b == FARMLAND:                                   # ---- TILL (#154): a hoe turns turf or earth to a field
+                    if cur not in (GRASS, DIRT):
+                        refused.append([c, "a hoe tills grass or earth"]); continue
+                    if not self._has_class(pl, "hoe"):
+                        refused.append([c, "tilling needs a hoe"]); continue
+                    if (await self.blocks_at([[face, u, v, h + 1]]))[(face, u, v, h + 1)] not in (0, *SWEPT):
+                        refused.append([c, "a field needs open air over it"]); continue
+                    soil = await self.soil_at(face, u, v)
+                    if not RULES["farming"]["soil"][soil].get("till", True):
+                        refused.append([c, f"{soil} ground: too stony to till"]); continue
+                    changed = True
+                    rec = self.plot(p)
+                    rec["edits"][k] = FARMLAND
+                    rec.get("exp", {}).pop(k, None)                 # a field is a build: it stays
+                    rec["ver"] += 1
+                    self.dirty.add(p)
+                    applied.setdefault(p, []).append([face, u, v, h, FARMLAND])
+                    continue
                 swept = None
                 if cur == FIRE:                                     # earth, sand or a block put on a fire smothers it
                     self.fires.pop((face, u, v, h), None)
@@ -854,6 +906,8 @@ class World:
                     refused.append([c, "a built piece is there"]); continue
                 if (b == SAPLING or b in FLOWERS) and (await self.blocks_at([[face, u, v, h - 1]]))[(face, u, v, h - 1)] not in (GRASS, DIRT):
                     refused.append([c, "a plant is planted in earth or grass"]); continue
+                if b == WHEATYOUNG and (await self.blocks_at([[face, u, v, h - 1]]))[(face, u, v, h - 1)] != FARMLAND:
+                    refused.append([c, "seed is sown on farmland — till the ground with a hoe first"]); continue
                 if b == WATER and (cur == WATER or (await self.blocks_at([[face, u, v, h - 1]]))[(face, u, v, h - 1)] in PASSABLE - {WATER}):
                     refused.append([c, "water needs something under it to hold it"]); continue
                 item = places.get(b)
@@ -869,6 +923,8 @@ class World:
                 rec.get("exp", {}).pop(k, None)
                 if b == SAPLING:
                     rec.setdefault("grow", {})[k] = time.time() + GROW_S
+                elif b == WHEATYOUNG:                               # sown: it ripens in its soil's time (#154)
+                    rec.setdefault("grow", {})[k] = await self.crop_due(face, u, v, h)
             rec["ver"] += 1
             self.dirty.add(p)
             self.pdirty.add(who)
@@ -889,9 +945,15 @@ class World:
             due = [k for k, t in (rec.get("grow") or {}).items() if t <= now]
             for k in due:
                 rec["grow"].pop(k, None)
+                face, row, col = plot_coords(p)
+                if rec["edits"].get(k) == WHEATYOUNG:               # a sown crop ripens where it stands (#154)
+                    rec["edits"][k] = WHEAT
+                    rec["ver"] += 1
+                    self.dirty.add(p)
+                    out.setdefault(p, []).append([face, col * PLOT + k[0], row * PLOT + k[1], k[2], WHEAT])
+                    continue
                 if rec["edits"].get(k) != SAPLING:
                     continue
-                face, row, col = plot_coords(p)
                 u, v = col * PLOT + k[0], row * PLOT + k[1]
                 cells = [c for c in await self.grow_cells(face, u, v, k[2]) if plot_of(c[0], c[1], c[2]) == p]
                 here = await self.blocks_at([c[:4] for c in cells])
