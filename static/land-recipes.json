@@ -2714,5 +2714,30 @@
    ]
   }
  ],
- "wilderness_regrow_s": 900
+ "wilderness_regrow_s": 900,
+ "flight": {
+  "about": "#147 (doc/land-tech-to-flight.md): a craft is built pieces touching one another, with a pilot seat and at least one thruster. Its mass is each piece's volume x its material's density (t per m3; a unit part by its own mass); it rises only if its thrusters (kN each) beat its weight. Read by the page (it flies the craft) and the world server (it bounds what a pilot may claim).",
+  "g": 9.8,
+  "thrust_kn": 30,
+  "vmax": 60,
+  "turn": 1.2,
+  "density": {
+   "9": 0.5,
+   "15": 0.6,
+   "38": 0.6,
+   "39": 0.15,
+   "12": 1.0,
+   "64": 1.5,
+   "10": 1.6,
+   "16": 1.6,
+   "11": 1.4,
+   "13": 1.2,
+   "14": 1.0,
+   "default": 1.0
+  },
+  "unit_mass": {
+   "65": 0.4,
+   "66": 0.15
+  }
+ }
 }

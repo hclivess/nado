@@ -36,7 +36,7 @@ import atexit, shutil; atexit.register(shutil.rmtree, os.environ["HOME"], ignore
 # and every test that imports this left one in /tmp: 640 of them by 2026-11-08)
 REPO = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 sys.path.insert(0, REPO)
-import argparse, asyncio, hashlib, json, random, secrets, shutil, time, urllib.parse
+import argparse, asyncio, hashlib, json, math, random, secrets, shutil, time, urllib.parse
 
 from aiohttp import web, ClientSession, ClientTimeout, WSMsgType
 
@@ -54,6 +54,7 @@ sid = lambda token: hashlib.blake2b(token.encode(), digest_size=32).hexdigest() 
 FACE_N, PLOT, W, H = L.FACE_N, L.PLOT, L.FACE_N * L.PLOT, 256
 N_BLOCKS = 67                     # static/land-world.js BLOCKS.length (tests/test_the_land_planet_… checks the two agree)
 DOOR = 37                         # static/land-world.js B.door: a piece that swings open and shut ("door" op)
+THRUSTER, SEAT = 65, 66           # static/land-world.js B.thruster, B.pilotseat: a craft's working parts (FLIGHT, #147)
 CHEST = 54                        # static/land-world.js B.chest: a piece that keeps items on its plot ("chest" op, #114)
 CHEST_MAX = 2000                  # items one chest holds
 TREE_WOOD = {7, 31}                # static/land-world.js TREE_WOOD (log, birchlog): cutting one fells its tree above
@@ -232,6 +233,58 @@ class BoxIndex:
         return False
 
 
+# ---- FLIGHT (#147, doc/land-tech-to-flight.md; "you must add actual physics like engines and gravity to the game and
+# build a real usable xfighter", operator 2026-11-09). A craft is built pieces that touch one another and hold a pilot
+# seat and at least one thruster. Boarding the seat lifts them off the plot into a craft record — its pieces kept
+# relative to the seat, a pose [face, u, v, h, yaw] — that the pilot's page flies; the server bounds the pilot's claims by
+# the craft's own top speed, keeps it across restarts, shows it to everyone near, and docks it back onto a plot as pieces.
+FLIGHT = RULES["flight"]
+CRAFT_PAD = 1                     # cm: pieces this close count as touching (one craft)
+CRAFT_PIECES = 400                # pieces one craft holds at most
+CRAFT_SLACK = 12.0                # m a pose may run ahead of vmax x the time since the last (a slow network's bunching)
+
+
+def boxes_touch(a, b):
+    return all(a[i] - CRAFT_PAD < b[i] + b[i + 3] and b[i] - CRAFT_PAD < a[i] + a[i + 3] for i in range(3))
+
+
+def connected(boxes, seed):
+    """The pieces that touch `seed`, and those touching them, and so on (a craft is one connected build)."""
+    left, out, todo = [b for b in boxes if b != seed], [seed], [seed]
+    while todo and len(out) <= CRAFT_PIECES:
+        cur = todo.pop()
+        near = [b for b in left if boxes_touch(cur, b)]
+        for b in near:
+            left.remove(b); out.append(b); todo.append(b)
+    return out
+
+
+def craft_mass(pieces):
+    """Tonnes: a unit part by its own mass, any other piece by its volume x its material's density."""
+    dens, unit = FLIGHT["density"], FLIGHT["unit_mass"]
+    return sum(unit[str(b[6])] if str(b[6]) in unit else b[3] * b[4] * b[5] / 1e6 * dens.get(str(b[6]), dens["default"]) for b in pieces)
+
+
+def craft_thrust(pieces):
+    """kN: every thruster's push."""
+    return sum(FLIGHT["thrust_kn"] for b in pieces if b[6] == THRUSTER)
+
+
+def turn_pieces(pieces, quarter):
+    """The pieces (x east, z north, relative to the seat) as they lie when the craft's yaw is `quarter` quarter-turns:
+    yaw +90° sends its nose (+z) east and its right side (+x) south — a point (x, z) goes to (z, -x) — the page's frame
+    (land.js craftMesh: forward = sin(yaw)·east + cos(yaw)·north). A slope rises the next way round: +x -> -z -> -x -> +z."""
+    out = []
+    for b in pieces:
+        x, z, y, w, d, h = b[:6]
+        shape = b[7] if len(b) > 7 else 0
+        for _ in range(quarter % 4):
+            x, z, w, d = z, -(x + w), d, w
+            shape = {1: 4, 4: 2, 2: 3, 3: 1}.get(shape, 0)
+        out.append([x, z, y, w, d, h, b[6]] + ([shape] if shape else []))
+    return out
+
+
 def chest_key(b):
     """A chest's identity on its plot: its box (a chest never moves; taking it down needs it empty)."""
     return ",".join(str(int(x)) for x in b[:7])
@@ -276,6 +329,13 @@ class World:
         except Exception:
             self.offers = {}
         self.odirty = False
+        try:                                              # FLIGHT: crafts flying or parked, kept across restarts
+            self.crafts = json.load(open(os.path.join(self.dir, "crafts.json")))
+        except Exception:
+            self.crafts = {}
+        for c in self.crafts.values():                    # a restart lands every pilot: the craft is parked where it was
+            c["pilot"] = None
+        self.cdirty = False
         self.http = self.oracle = None
         self.shots = os.path.join(self.dir, "shots")      # <plot>.jpg + <plot>.json {"ver", "at"} (THE LISTING)
         os.makedirs(self.shots, exist_ok=True)
@@ -321,6 +381,9 @@ class World:
         if self.odirty:
             self._write("offers.json", self.offers)
             self.odirty = False
+        if self.cdirty:
+            self._write("crafts.json", self.crafts)
+            self.cdirty = False
 
     def _write(self, rel, body):
         path = os.path.join(self.dir, rel)
@@ -1176,6 +1239,109 @@ class World:
         self.dirty.add(p)
         return nb, b, None
 
+    # -- FLIGHT (#147): board, fly, leave, dock
+    async def board(self, who, p=None, b=None, cid=None):
+        """Take the pilot seat. Of a parked craft `cid` (its owner only), or of seat piece `b` on plot `p`: the pieces
+        touching it (connected) become a new craft, lifted off the plot — where the caller may build, holding at least one
+        thruster. Returns (craft, the plot's removed pieces, error)."""
+        if cid is not None:
+            c = self.crafts.get(cid)
+            if not c:
+                return None, [], "no such craft"
+            if c["owner"] != who:
+                return None, [], "only its owner flies it"
+            if c["pilot"] and c["pilot"] != who:
+                return None, [], "someone is flying it"
+            c["pilot"] = who; c["at"] = time.time(); self.cdirty = True
+            return c, [], None
+        rec = self.plots.get(p)
+        b = list(b) if isinstance(b, (list, tuple)) else b
+        if not rec or not isinstance(b, list) or b not in rec.get("boxes", []) or b[6] != SEAT:
+            return None, [], "no pilot seat here"
+        if (await self.holder(p)) is not None and not await self.may_build(p, who):
+            return None, [], "not your plot — only its owner and the builders they invite take off from it"
+        parts = connected(rec["boxes"], b)
+        if len(parts) > CRAFT_PIECES:
+            return None, [], f"a craft holds at most {CRAFT_PIECES} pieces"
+        if not any(x[6] == THRUSTER for x in parts):
+            return None, [], "a craft needs a thruster touching it"
+        if sum(1 for x in parts if x[6] == SEAT) != 1:
+            return None, [], "one pilot seat to a craft"
+        face, row, col = plot_coords(p)
+        sx, sz, sy = b[0] + b[3] / 2, b[1] + b[4] / 2, b[2]
+        pieces = [[x[0] - sx, x[1] - sz, x[2] - sy] + list(x[3:]) for x in parts]
+        cid = secrets.token_hex(6)
+        c = self.crafts[cid] = {"id": cid, "owner": who, "pilot": who, "pieces": pieces,
+                                "pose": [face, col * PLOT + sx / CM, row * PLOT + sz / CM, sy / CM, 0.0], "at": time.time(),
+                                "mass": round(craft_mass(pieces), 3), "thrust": craft_thrust(pieces)}
+        if "index" not in rec:
+            rec["index"] = BoxIndex(rec["boxes"])
+        for x in parts:
+            rec["boxes"].remove(x); rec["index"].remove(x)
+        rec["ver"] += 1
+        self.dirty.add(p); self.cdirty = True
+        return c, parts, None
+
+    def fly(self, who, cid, pose):
+        """The pilot's page says where the craft is. Taken when it is in the world and no farther from the last pose than
+        the craft's top speed allows (CRAFT_SLACK for a bunched network); otherwise refused, and the page is told the
+        pose the server holds. Returns error or None."""
+        c = self.crafts.get(cid)
+        if not c or c["pilot"] != who:
+            return "you are not flying that"
+        if not (isinstance(pose, list) and len(pose) == 5 and all(isinstance(x, (int, float)) and not isinstance(x, bool) for x in pose)
+                and pose[0] == c["pose"][0] and 0 <= pose[1] < W and 0 <= pose[2] < W and DEEP_MIN <= pose[3] < H + 400):
+            return "not a place"
+        now = time.time()
+        far = math.dist(pose[1:4], c["pose"][1:4])
+        if far > FLIGHT["vmax"] * max(0.05, now - c["at"]) + CRAFT_SLACK:
+            return "faster than it can fly"
+        c["pose"] = [int(pose[0]), round(float(pose[1]), 3), round(float(pose[2]), 3), round(float(pose[3]), 3), round(float(pose[4]), 4)]
+        c["at"] = now; self.cdirty = True
+        return None
+
+    def leave(self, who, cid):
+        c = self.crafts.get(cid)
+        if not c or c["pilot"] != who:
+            return "you are not flying that"
+        c["pilot"] = None; self.cdirty = True
+        return None
+
+    async def dock(self, who, cid):
+        """Set a parked craft down as pieces on the plot under its seat — its owner, where they may build, its yaw taken to
+        the nearest quarter turn (pieces stand square on a plot); every piece inside that plot and clear of the pieces
+        there. Returns (plot, added pieces, error)."""
+        c = self.crafts.get(cid)
+        if not c or c["owner"] != who:
+            return None, [], "not your craft"
+        if c["pilot"] and c["pilot"] != who:
+            return None, [], "someone is flying it"
+        face, u, v, h, yaw = c["pose"]
+        p = plot_of(face, int(u), int(v))
+        if (await self.holder(p)) is not None and not await self.may_build(p, who):
+            return None, [], "not your plot — land where you may build to set it down"
+        _, row, col = plot_coords(p)
+        quarter = round(yaw / (math.pi / 2)) % 4
+        ox, oz, oy = round((u - col * PLOT) * CM), round((v - row * PLOT) * CM), round(h * CM)
+        add = [[round(x[0]) + ox, round(x[1]) + oz, round(x[2]) + oy] + list(x[3:]) for x in turn_pieces(c["pieces"], quarter)]
+        if not all(box_ok(x) for x in add):
+            return None, [], "it does not fit inside this plot — land with all of it over one plot"
+        rec = self.plot(p)
+        rec.setdefault("boxes", [])
+        if "index" not in rec:
+            rec["index"] = BoxIndex(rec["boxes"])
+        if any(rec["index"].overlaps(x) for x in add):
+            return None, [], "it would overlap a piece here"
+        for x in add:
+            rec["boxes"].append(x); rec["index"].add(x)
+        rec["ver"] += 1
+        del self.crafts[cid]
+        self.dirty.add(p); self.cdirty = True
+        return p, add, None
+
+    def crafts_near(self, pos, near):
+        return [c for c in self.crafts.values() if c["pose"][0] == pos[0] and abs(c["pose"][1] - pos[1]) < near and abs(c["pose"][2] - pos[2]) < near]
+
     async def chest(self, who, p, b, put, take):
         """Move items between the caller's bag and chest `b` on plot `p` (#114): `put` and `take` are {item: count}. On an
         owned plot only its owner and their builders open it; in the commons a chest is everyone's. All or nothing: a
@@ -1429,8 +1595,17 @@ class Hub:
                     for w2, o in socks
                     if w2 is not ws and o["pos"] and o["pos"][0] == me[0]
                     and abs(o["pos"][1] - me[1]) < self.NEAR and abs(o["pos"][2] - me[2]) < self.NEAR]
+            # FLIGHT: the crafts near, flying or parked — each one's pieces once per socket, then its pose
+            crafts = []
+            if world:
+                seen = st.setdefault("crafts_seen", set())
+                for c in world.crafts_near(me, self.NEAR):
+                    o = {"id": c["id"], "owner": c["owner"], "pilot": c["pilot"], "pose": c["pose"], "mass": c["mass"], "thrust": c["thrust"]}
+                    if c["id"] not in seen:
+                        o["pieces"] = c["pieces"]; seen.add(c["id"])
+                    crafts.append(o)
             try:
-                await ws.send_json({"t": "players", "list": near})
+                await ws.send_json({"t": "players", "list": near, "crafts": crafts})
             except Exception:
                 pass
 
@@ -1599,6 +1774,15 @@ def make_app(world, hub, site_origin, wallet_url, secure_cookies=True, shot_page
         if not 0 <= p < 6 * FACE_N * FACE_N:
             raise web.HTTPBadRequest(text="no such plot")
         return p
+
+    async def crafts_api(request):
+        """GET /land/api/crafts?face=&u=&v= -> {crafts: [...]}: the crafts within 192 m, flying or parked (FLIGHT, #147) —
+        what a page near them is sent, read-only, for agents and tests."""
+        try:
+            f, u, v = int(request.query.get("face", 0)), float(request.query["u"]), float(request.query["v"])
+        except (KeyError, ValueError):
+            raise web.HTTPBadRequest(text="face, u and v")
+        return web.json_response({"crafts": world.crafts_near([f, u, v], Hub.NEAR)})
 
     async def card(request):
         p = _plot_q(request)
@@ -1771,6 +1955,31 @@ def make_app(world, hub, site_origin, wallet_url, secure_cookies=True, shot_page
                     await ws.send_json({"t": "done", "req": m.get("req"), "error": err})
                     if not err:
                         await hub.boxes(m.get("plot"), [nb], [ob], addr)
+                elif t in ("board", "fly", "leave", "dock"):
+                    # FLIGHT (#147): take the seat, say where the craft is, leave it parked, set it down as pieces
+                    if not addr:
+                        await ws.send_json({"t": "craft_ok", "req": m.get("req"), "error": "sign in first"})
+                        continue
+                    if t == "board":
+                        c, parts, err = await world.board(addr, m.get("plot"), m.get("box"), m.get("craft"))
+                        await ws.send_json({"t": "craft_ok", "op": t, "req": m.get("req"), "error": err, "craft": c})
+                        if parts:
+                            await hub.boxes(m.get("plot"), [], parts, addr)
+                            for s2 in hub.socks.values():                # every page draws the new craft afresh
+                                s2.get("crafts_seen", set()).discard(c["id"])
+                    elif t == "fly":
+                        err = world.fly(addr, m.get("craft"), m.get("pose"))
+                        if err and m.get("craft") in world.crafts:
+                            await ws.send_json({"t": "craft_fix", "craft": m.get("craft"), "pose": world.crafts[m.get("craft")]["pose"], "error": err})
+                    elif t == "leave":
+                        await ws.send_json({"t": "craft_ok", "op": t, "req": m.get("req"), "error": world.leave(addr, m.get("craft"))})
+                    else:
+                        p, added, err = await world.dock(addr, m.get("craft"))
+                        await ws.send_json({"t": "craft_ok", "op": t, "req": m.get("req"), "error": err, "plot": p})
+                        if added:
+                            await hub.boxes(p, added, [], addr)
+                            for s2 in hub.socks.values():
+                                s2.get("crafts_seen", set()).discard(m.get("craft"))
                 elif t == "ignite":
                     if not addr:
                         await ws.send_json({"t": "ignite", "req": m.get("req"), "error": "sign in first"})
@@ -1831,6 +2040,7 @@ def make_app(world, hub, site_origin, wallet_url, secure_cookies=True, shot_page
         web.get("/land/api/plot", plot),
         web.get("/land/api/region", region),
         web.get("/land/api/card", card),
+        web.get("/land/api/crafts", crafts_api),
         web.get("/land/api/shot", shot),
         web.post("/land/api/set", set_cells),
         web.post("/land/api/boxes", boxes),
