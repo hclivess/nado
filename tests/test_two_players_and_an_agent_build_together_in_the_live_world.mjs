@@ -139,10 +139,12 @@ try {
 
   // 5. the visitor tries
   await evl(A, "document.getElementById('tPlace').click(), true");
+  // the notice is read as it shows (it fades after a few seconds; under load the checks below took longer than that)
+  const toldSignIn = await until(A, "/Sign in to gather and build/.test(document.body.textContent)", 5000);
   await sleep(1500);
   ok(/ · 9 changed blocks · 1 piece \|/.test(await hudText(A)) && / · 9 changed blocks · 1 piece \|/.test(await hudText(B)), "a visitor's tap changes nothing, for anyone");
   ok(!/[{}]/.test(await hudText(A) + await hudText(B)), "the HUD shows words, never a raw {placeholder} token");
-  ok(await evl(A, "/Sign in to gather and build/.test(document.body.textContent)"), "and the page tells them to sign in");
+  ok(toldSignIn, "and the page tells them to sign in");
   ok(errors.length === 0, "no page errors" + (errors.length ? ": " + errors.join(" | ") : ""));
 } catch (e) {
   ok(false, "harness: " + (e && e.message || e) + "\n" + fxOut.slice(-1500));

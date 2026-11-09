@@ -79,6 +79,11 @@ ok(/const rootsIn = [\s\S]{0,300}held !== B\.sapling && !Wd\.FLOWERS\.includes\(
 // test_built_pieces_are_any_size_from_a_centimetre_paid_by_volume.py)
 ok(/&& !pieceIn\(q\);/.test(pc) && /function pieceIn\(\[u, v, h\]\)[\s\S]{0,400}Wd\.boxesOverlap\(cell, o\)/.test(land), "a cell a piece reaches into takes no block");
 
+// litter catches the look only near its small model — low in its cell, near its middle — not across the whole metre: a
+// pebble in front of a chest hid the chest (the factory walk, 2026-11-09)
+ok(/if \(Wd\.LITTER\.has\(b\)\) \{ if \(p\[2\] - c\[2\] < LITTER_H && Math\.hypot\(p\[0\] - c\[0\] - 0\.5, p\[1\] - c\[1\] - 0\.5\) < LITTER_R\) hit = c; \}/.test(land)
+   && /const LITTER_H = 0\.45, LITTER_R = 0\.42;/.test(land), "litter catches the look only near its model");
+
 // 6: the finished picture is colour-graded ("we need professional color grading too"): S-curve, saturation, split toning,
 // a vignette — after tone mapping, before anti-aliasing
 const gr = land.slice(land.indexOf("function grade("), land.indexOf("function buildPipeline"));

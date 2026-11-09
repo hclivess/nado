@@ -94,9 +94,10 @@
   #palette .card{max-width:min(620px,calc(100vw - 32px));max-height:80vh;overflow:auto;background:var(--elev);border:1px solid var(--border);border-radius:14px;padding:16px}
   #palette h2{margin:0 0 10px;font-size:16px;display:flex;align-items:center}#palette h2 button:first-of-type{margin-left:auto}#palette h2{gap:6px}
   #palGrid{font-size:13px}
-  #chestPanel{position:fixed;inset:0;z-index:8;display:grid;place-items:center;background:rgba(0,0,0,.45)}
-  #chestPanel .card{max-width:min(560px,calc(100vw - 32px));max-height:80vh;overflow:auto;background:var(--elev);border:1px solid var(--border);border-radius:14px;padding:16px;font-size:13px}
-  #chestPanel h2{margin:0 0 10px;font-size:16px;display:flex;align-items:center}#chestPanel h2 button{margin-left:auto}
+  #chestPanel,#machPanel{position:fixed;inset:0;z-index:8;display:grid;place-items:center;background:rgba(0,0,0,.45)}
+  #machPanel .card,#chestPanel .card{max-width:min(560px,calc(100vw - 32px));max-height:80vh;overflow:auto;background:var(--elev);border:1px solid var(--border);border-radius:14px;padding:16px;font-size:13px}
+  #chestPanel h2,#machPanel h2{margin:0 0 10px;font-size:16px;display:flex;align-items:center}#chestPanel h2 button,#machPanel h2 button{margin-left:auto}
+  .mrow{display:flex;gap:8px;align-items:center;justify-content:space-between;padding:6px 0;border-top:1px solid var(--border)}.mrow.on b{color:var(--accent2)}
   #wardPanel{position:fixed;inset:0;z-index:8;display:grid;place-items:center;background:rgba(0,0,0,.45)}
   #wardPanel .card{max-width:min(560px,calc(100vw - 32px));max-height:80vh;overflow:auto;background:var(--elev);border:1px solid var(--border);border-radius:14px;padding:16px;font-size:13px}
   #wardPanel h2{margin:0 0 10px;font-size:16px;display:flex;align-items:center;gap:6px}#wardPanel h2 button:first-of-type{margin-left:auto}
@@ -104,7 +105,7 @@
   .ward{display:flex;gap:18px;align-items:flex-start;flex-wrap:wrap}.fig{position:relative;width:120px;height:196px;flex:none}.fig i{position:absolute;border-radius:3px}
   .sws{display:flex;gap:6px;flex-wrap:wrap}.sw{width:26px;height:26px;border-radius:50%;border:2px solid var(--border);cursor:pointer;padding:0}.sw.on{border-color:var(--accent2)}.sw.face{width:38px;height:38px;border-radius:10px}
   .wslot{margin:6px 0;display:flex;gap:6px;align-items:center;flex-wrap:wrap}.wslot b{min-width:52px}
-  #chestPanel h3{margin:10px 0 6px;font-size:12px;color:var(--dim)}.chestRow{display:flex;flex-wrap:wrap;gap:6px}.chestRow .pb{padding:6px 9px;display:block}
+  #chestPanel h3{margin:10px 0 6px;font-size:12px;color:var(--dim)}.chestRow{display:flex;flex-wrap:wrap;gap:6px}.crow{display:inline-flex;gap:2px}.chestRow .pb{padding:6px 9px;display:block}
   .pb{font:inherit;font-size:11px;color:var(--txt);background:#0b0f14;border:1px solid var(--border);border-radius:9px;padding:8px 4px;cursor:pointer;display:grid;justify-items:center;gap:5px}
   .pb:hover{border-color:var(--accent2)}.pb canvas{width:40px;height:40px;image-rendering:pixelated}
   #loading{position:fixed;inset:0;display:grid;place-items:center;z-index:9;background:var(--bg);font-size:15px;color:var(--dim);padding:24px;text-align:center}
@@ -153,6 +154,10 @@
 <div id="chestPanel" class="hidden"><div class="card">
   <h2><span data-i18n="land.i.chest">Chest</span><button id="chestClose" class="ghost" data-i18n="land.close">Close</button></h2>
   <div id="chestGrid"></div>
+</div></div>
+<div id="machPanel" class="hidden"><div class="card">
+  <h2><span id="machTitle"></span><button id="machClose" class="ghost" data-i18n="land.close">Close</button></h2>
+  <div id="machGrid"></div>
 </div></div>
 <div id="wardPanel" class="hidden"><div class="card">
   <h2><span data-i18n="land.wardTitle">Wardrobe</span><button id="wardClose" class="ghost" data-i18n="land.close">Close</button></h2>

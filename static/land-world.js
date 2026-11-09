@@ -235,9 +235,14 @@ export const BLOCKS = [
   { key: "steelplate", solid: true, tex: [48, 48, 48] },
   { key: "thruster", solid: true, tex: [49, 49, 49] },
   { key: "pilotseat", solid: true, tex: [50, 50, 50] },
+  // FACTORIES (#148, "we also may need factorization like factorio or Satisfactory … for advanced tech", operator
+  // 2026-11-09): machines that run a recipe by themselves from the chests beside them, and the generator that powers them
+  { key: "smelter", solid: true, tex: [51, 51, 51] },
+  { key: "assembler", solid: true, tex: [52, 52, 52] },
+  { key: "generator", solid: true, tex: [53, 53, 53] },
 ];
 export const B = Object.fromEntries(BLOCKS.map((b, i) => [b.key, i]));
-export const ATLAS_TILES = 51;              // tiles 0..50 (0 unused)
+export const ATLAS_TILES = 54;              // tiles 0..53 (0 unused)
 export const opaque = (id) => BLOCKS[id].solid && !BLOCKS[id].see;
 
 // ---- terrain ---------------------------------------------------------------------------------------------------

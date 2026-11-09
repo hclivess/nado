@@ -82,5 +82,16 @@ const langs = Object.keys(L10N);
 ok(langs.length === 17 && langs.every((l) => keys.every((k) => L10N[l][k])), `every new item and station is named in all 17 languages (${langs.length})`);
 ok(/64: \["steel", 1, 0\.38\]/.test(land) && /if \(name === "steel"\) m\.metalness = 0\.55;/.test(land), "built steel is drawn as metal");
 
+// 5. FACTORIES (#148): the smelter, the assembler and the generator are reached too, placed whole, tiled, named; each machine
+// stands in only for real stations and tools, and burns only real items
+for (const [id, key] of [["smelter", "smelter"], ["assembler", "assembler"], ["generator", "generator"]]) {
+  ok(have.has(id) && R.items[id].places === Wd.B[key] && R.items[id].unit, `the ${id} is reached from bare hands and placed whole`);
+  const tile = Wd.BLOCKS[Wd.B[key]].tex[1];
+  ok(tile < Wd.ATLAS_TILES && new RegExp(`\\b${tile}: \\[`).test(paint) && langs.every((l) => L10N[l]["land.i." + id]), `…with its own tile and its name in 17 languages`);
+}
+const M = R.machines, classes2 = new Set(Object.values(R.tools).map((t) => t.class));
+ok(["67", "68"].every((b) => M[b].does.every((w) => w in R.stations || w in R.tools || classes2.has(w))), "a machine stands in only for real stations and tools");
+ok(Object.keys(M.fuel).every((f) => f in R.items) && M.generator === Wd.B.generator, "a generator burns real items");
+
 if (fails) { console.log(`${fails} FAILURES`); process.exit(1); }
 console.log("ALL PASS");

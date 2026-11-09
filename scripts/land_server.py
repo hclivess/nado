@@ -52,9 +52,10 @@ CHALLENGE_TTL = 300
 SESSION_TTL = 7 * 86400
 sid = lambda token: hashlib.blake2b(token.encode(), digest_size=32).hexdigest()   # a session's name on disk (World.sessions)
 FACE_N, PLOT, W, H = L.FACE_N, L.PLOT, L.FACE_N * L.PLOT, 256
-N_BLOCKS = 67                     # static/land-world.js BLOCKS.length (tests/test_the_land_planet_… checks the two agree)
+N_BLOCKS = 70                     # static/land-world.js BLOCKS.length (tests/test_the_land_planet_… checks the two agree)
 DOOR = 37                         # static/land-world.js B.door: a piece that swings open and shut ("door" op)
 THRUSTER, SEAT = 65, 66           # static/land-world.js B.thruster, B.pilotseat: a craft's working parts (FLIGHT, #147)
+SMELTER, ASSEMBLER, GENERATOR = 67, 68, 69   # static/land-world.js: FACTORIES (#148) — machines and their power
 CHEST = 54                        # static/land-world.js B.chest: a piece that keeps items on its plot ("chest" op, #114)
 CHEST_MAX = 2000                  # items one chest holds
 TREE_WOOD = {7, 31}                # static/land-world.js TREE_WOOD (log, birchlog): cutting one fells its tree above
@@ -285,6 +286,24 @@ def turn_pieces(pieces, quarter):
     return out
 
 
+# ---- FACTORIES (#148, "we also may need factorization like factorio or Satisfactory … for advanced tech", operator
+# 2026-11-09): a smelter or an assembler runs one chosen recipe by itself, on the world server's clock — taking what it
+# needs from the chests touching it, making into a chest touching it — while a generator within power_reach metres on the
+# same plot burns coal or charcoal from a chest beside it. land-recipes.json "machines" holds what each one stands in for.
+MACH = RULES["machines"]
+
+
+def machine_can(blk, r):
+    """Machine `blk` can run recipe `r`: every station or tool it asks for is one the machine stands in for, and it makes
+    items only (a machine never makes a station or a tool)."""
+    does = MACH.get(str(blk), {}).get("does", [])
+    return all(w in does for w in r.get("with", [])) and all(m in RULES["items"] for m, _ in r["makes"])
+
+
+def centre(b):
+    return (b[0] + b[3] / 2, b[1] + b[4] / 2, b[2] + b[5] / 2)
+
+
 def chest_key(b):
     """A chest's identity on its plot: its box (a chest never moves; taking it down needs it empty)."""
     return ",".join(str(int(x)) for x in b[:7])
@@ -352,7 +371,8 @@ class World:
                                                "exp": {tuple(map(int, k.split(":"))): t for k, t in d.get("exp", {}).items()},
                                                "grow": {tuple(map(int, k.split(":"))): t for k, t in d.get("grow", {}).items()},
                                                "chests": {k: {i: int(n) for i, n in v.items()} for k, v in d.get("chests", {}).items()},
-                                               "boxes": [list(b) for b in d.get("boxes", [])]}
+                                               "boxes": [list(b) for b in d.get("boxes", [])],
+                                               "machines": d.get("machines") or {}, "gens": d.get("gens") or {}}
                     rec = self.plots[int(f[:-5])]
                     for k in [k for k, b in rec["edits"].items() if b == FIRE]:      # a restart puts every fire out
                         rec["edits"].pop(k)
@@ -372,7 +392,9 @@ class World:
             body = {"edits": {f"{x}:{z}:{y}": b for (x, z, y), b in rec["edits"].items()}, "salt": rec["salt"].hex(), "ver": rec["ver"],
                     "exp": {f"{x}:{z}:{y}": t for (x, z, y), t in (rec.get("exp") or {}).items()},
                     "grow": {f"{x}:{z}:{y}": t for (x, z, y), t in (rec.get("grow") or {}).items()},
-                    "chests": {k: v for k, v in (rec.get("chests") or {}).items() if v}, "boxes": rec.get("boxes", [])}
+                    "chests": {k: v for k, v in (rec.get("chests") or {}).items() if v}, "boxes": rec.get("boxes", []),
+                    # FACTORIES (#148): each machine's recipe and status, each generator's charge (not in the commitment)
+                    "machines": rec.get("machines") or {}, "gens": {k: v for k, v in (rec.get("gens") or {}).items() if v}}
             self._write(f"{p}.json", body)
             self.dirty.discard(p)
         for a in list(self.pdirty):
@@ -1239,6 +1261,104 @@ class World:
         self.dirty.add(p)
         return nb, b, None
 
+    # -- FACTORIES (#148)
+    async def set_machine(self, who, p, b, recipe):
+        """Choose what machine `b` on plot `p` makes (its owner and their builders; in the commons anyone). recipe None
+        just reads it. Returns (its record, the recipes it can run, error)."""
+        rec = self.plots.get(p)
+        b = list(b) if isinstance(b, (list, tuple)) else b
+        if not rec or not isinstance(b, list) or b not in rec.get("boxes", []) or b[6] not in (SMELTER, ASSEMBLER, GENERATOR):
+            return None, [], "no machine here"
+        if b[6] == GENERATOR:
+            return {"charge": (rec.get("gens") or {}).get(chest_key(b), 0)}, [], None
+        can = [r["id"] for r in RULES["recipes"] if machine_can(b[6], r)]
+        cfg = (rec.get("machines") or {}).get(chest_key(b)) or {"recipe": None, "status": "idle", "made": 0}
+        if recipe is None:
+            return cfg, can, None
+        if (await self.holder(p)) is not None and not await self.may_build(p, who):
+            return None, can, "not your plot — only its owner and the builders they invite set its machines"
+        if recipe not in can:
+            return None, can, "this machine cannot make that"
+        cfg = rec.setdefault("machines", {})[chest_key(b)] = {"recipe": recipe, "status": "idle", "made": 0}
+        self.dirty.add(p)
+        return cfg, can, None
+
+    def factory_tick(self):
+        """One run of every machine that can run: power from a generator near (burning a fuel from the chest beside it when
+        its charge is spent), inputs from the chests touching the machine, the product into a touching chest with room.
+        Each machine's status says why it waits. Returns the plots whose chests changed."""
+        changed = set()
+        recipes = {r["id"]: r for r in RULES["recipes"]}
+        for p, rec in list(self.plots.items()):
+            cfgs = rec.get("machines")
+            if not cfgs:
+                continue
+            boxes = rec.get("boxes", [])
+            bykey = {chest_key(b): b for b in boxes if b[6] in (SMELTER, ASSEMBLER)}
+            for key in [k for k in cfgs if k not in bykey]:            # a machine taken down forgets its recipe
+                del cfgs[key]; self.dirty.add(p)
+            store = rec.setdefault("chests", {})
+            for key, cfg in cfgs.items():
+                b, r = bykey[key], recipes.get(cfg.get("recipe"))
+                def status(st):
+                    if cfg.get("status") != st:
+                        cfg["status"] = st; self.dirty.add(p)
+                if not r:
+                    status("idle"); continue
+                chests = [c for c in boxes if c[6] == CHEST and boxes_touch(c, b)]
+                if not chests:
+                    status("no chest beside it"); continue
+                have = {}
+                for c in chests:
+                    for item, n in store.get(chest_key(c), {}).items():
+                        have[item] = have.get(item, 0) + n
+                short = [item for item, n in r["uses"] if have.get(item, 0) < n]
+                if short:
+                    status("needs " + RULES["items"][short[0]]["name"].lower()); continue
+                made = sum(n for _, n in r["makes"])
+                out = next((c for c in chests if sum(store.get(chest_key(c), {}).values()) + made <= CHEST_MAX), None)
+                if not out:
+                    status("its chest is full"); continue
+                # power: the nearest generator in reach with charge, or one that can burn a fuel beside it
+                reach = MACH["power_reach"] * CM
+                gens = sorted((g for g in boxes if g[6] == GENERATOR and math.dist(centre(g), centre(b)) <= reach), key=lambda g: math.dist(centre(g), centre(b)))
+                charges = rec.setdefault("gens", {})
+                gen = None
+                for g in gens:
+                    gk = chest_key(g)
+                    if charges.get(gk, 0) <= 0:
+                        for fc in (c for c in boxes if c[6] == CHEST and boxes_touch(c, g)):
+                            fs = store.get(chest_key(fc), {})
+                            fuel = next((f for f in MACH["fuel"] if fs.get(f, 0) > 0), None)
+                            if fuel:
+                                fs[fuel] -= 1
+                                if not fs[fuel]:
+                                    del fs[fuel]
+                                charges[gk] = charges.get(gk, 0) + MACH["fuel"][fuel]
+                                changed.add(p); break
+                    if charges.get(gk, 0) > 0:
+                        gen = gk; break
+                if not gen:
+                    status("no power — a generator with coal or charcoal beside it, within %d m" % MACH["power_reach"]); continue
+                for item, n in r["uses"]:                              # take from the chests beside it, in order
+                    for c in chests:
+                        cs = store.get(chest_key(c), {})
+                        k = min(n, cs.get(item, 0))
+                        if k:
+                            cs[item] -= k; n -= k
+                            if not cs[item]:
+                                del cs[item]
+                        if not n:
+                            break
+                os_ = store.setdefault(chest_key(out), {})
+                for item, n in r["makes"]:
+                    os_[item] = os_.get(item, 0) + n
+                charges[gen] -= 1
+                cfg["made"] = cfg.get("made", 0) + 1
+                status("running")
+                changed.add(p); self.dirty.add(p)
+        return changed
+
     # -- FLIGHT (#147): board, fly, leave, dock
     async def board(self, who, p=None, b=None, cid=None):
         """Take the pilot seat. Of a parked craft `cid` (its owner only), or of seat piece `b` on plot `p`: the pieces
@@ -1615,7 +1735,7 @@ def make_app(world, hub, site_origin, wallet_url, secure_cookies=True, shot_page
         world.http = ClientSession(timeout=ClientTimeout(total=10))
         await world.start_oracle()
         app["bg"] = [asyncio.ensure_future(_flusher()), asyncio.ensure_future(_mover()), asyncio.ensure_future(_regrower()),
-                     asyncio.ensure_future(_ecology()), asyncio.ensure_future(_fire())]
+                     asyncio.ensure_future(_ecology()), asyncio.ensure_future(_fire()), asyncio.ensure_future(_factory())]
         if shot_page:
             app["bg"].append(asyncio.ensure_future(_photographer()))
 
@@ -1672,6 +1792,14 @@ def make_app(world, hub, site_origin, wallet_url, secure_cookies=True, shot_page
                     seeded = await world.seed()
                     if seeded:
                         await hub.edits(seeded, "planet")
+            except Exception:
+                pass
+
+    async def _factory():
+        while True:
+            await asyncio.sleep(MACH["tick_s"])
+            try:
+                world.factory_tick()
             except Exception:
                 pass
 
@@ -1955,6 +2083,13 @@ def make_app(world, hub, site_origin, wallet_url, secure_cookies=True, shot_page
                     await ws.send_json({"t": "done", "req": m.get("req"), "error": err})
                     if not err:
                         await hub.boxes(m.get("plot"), [nb], [ob], addr)
+                elif t == "machine":
+                    # FACTORIES (#148): read a machine (what it makes, its status, what it can make) or choose its recipe
+                    if not addr:
+                        await ws.send_json({"t": "machine", "req": m.get("req"), "error": "sign in first"})
+                        continue
+                    cfg, can, err = await world.set_machine(addr, m.get("plot"), m.get("box"), m.get("recipe"))
+                    await ws.send_json({"t": "machine", "req": m.get("req"), "plot": m.get("plot"), "box": m.get("box"), "cfg": cfg, "can": can, "error": err})
                 elif t in ("board", "fly", "leave", "dock"):
                     # FLIGHT (#147): take the seat, say where the craft is, leave it parked, set it down as pieces
                     if not addr:

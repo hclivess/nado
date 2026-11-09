@@ -99,6 +99,7 @@ const PAINT = {
   41: ["#5a3a22", 0.06, "door"], 42: ["#2b2b2d", 0.18, "coal"], 43: ["#7d7570", 0.14, "copper"], 44: ["#7d7570", 0.14, "tin"],
   45: ["#a5765a", 0.1], 46: ["#7d7570", 0.14, "silver"], 47: ["#7d7570", 0.14, "gold"],
   48: ["#9aa3ad", 0.05, "steel"], 49: ["#3b3f45", 0.08, "thruster"], 50: ["#4a5058", 0.06, "seat"],
+  51: ["#5a5f66", 0.08, "smelter"], 52: ["#5f6670", 0.06, "assembler"], 53: ["#4d5a4f", 0.06, "generator"],
 };
 function paintAtlas() {
   const cv = document.createElement("canvas");
@@ -141,6 +142,9 @@ function paintAtlas() {
       if (kind === "gold" && (x * 5 + y * 2) % 8 < 2) col = new THREE.Color("#e8c547").multiplyScalar(k);    // gold flecks
       if (kind === "thruster" && Math.hypot(x - 7.5, y - 7.5) < 4.5) col = new THREE.Color("#ff8a3a").multiplyScalar(k * (1.3 - Math.hypot(x - 7.5, y - 7.5) / 7));   // the nozzle's glow
       if (kind === "seat" && y < 7 && x > 2 && x < 13) col = new THREE.Color("#6fd3e8").multiplyScalar(k * 0.9);             // the canopy glass
+      if (kind === "smelter" && y > 8 && y < 13 && x > 4 && x < 11) col = new THREE.Color("#ff7a2a").multiplyScalar(k * 1.2);   // its mouth, glowing
+      if (kind === "assembler" && (x === 7 || y === 7)) col = new THREE.Color("#e8c547").multiplyScalar(k);                   // a hazard cross
+      if (kind === "generator" && Math.hypot(x - 7.5, y - 7.5) < 3) col = new THREE.Color("#6fe39a").multiplyScalar(k * 1.1);  // a green lamp
       const a = kind === "glass" && !(x === 0 || y === 0 || x === TILE - 1 || y === TILE - 1) ? 0.25 : t === 6 ? 0.75 : 1;
       g.fillStyle = `rgba(${Math.min(255, col.r * 255) | 0},${Math.min(255, col.g * 255) | 0},${Math.min(255, col.b * 255) | 0},${a})`;
       g.fillRect(x0 + x, y0 + y, 1, 1);
@@ -235,7 +239,8 @@ function eyePos() {
   const { fr, fw } = look();
   return [0, 1, 2].map((i) => e[i] - fw[i] * CHASE_BACK + fr.up[i] * CHASE_UP);
 }
-const CHASE_BACK = 9, CHASE_UP = 2.5;                    // m behind (along the look) and above the pilot's eye
+const CHASE_BACK = 9, CHASE_UP = 2.5;
+const LITTER_H = 0.45, LITTER_R = 0.42;                // m: how high and how far round its middle litter catches the look                    // m behind (along the look) and above the pilot's eye
 
 // ---- movement (grid space: u ~ east, v ~ north, h ~ up, ~1 m per unit) ------------------------------------------------
 function collides(u, v, h) {
@@ -441,7 +446,11 @@ function aim() {
     const b = blockAt(P.face, c[0], c[1], c[2]);
     if (!wet && BLOCKS[b].liquid) wet = c;
     let hit = null;
-    if (crispB(b) || Wd.isTree(b)) hit = c;
+    // LITTER (a pebble, sticks, flax, a flower) is a small model on the ground, not a cube: it catches the look only near
+    // it — low in its cell and near its middle. Caught anywhere in the cell, a pebble hid the chest standing behind it, so
+    // a chest or a machine could not be opened from there (the factory walk, 2026-11-09)
+    if (Wd.LITTER.has(b)) { if (p[2] - c[2] < LITTER_H && Math.hypot(p[0] - c[0] - 0.5, p[1] - c[1] - 0.5) < LITTER_R) hit = c; }
+    else if (crispB(b) || Wd.isTree(b)) hit = c;
     // the foot of a trunk: the drawn trunk stands on the smooth surface, inside the grass cell below its first log, so a
     // ray at it reaches the ground cell first — and dug grass from under the tree ("it goes through it and digs grass")
     else if (Wd.TREE_WOOD.has(blockAt(P.face, c[0], c[1], c[2] + 1)) && Math.hypot(p[0] - c[0] - 0.5, p[1] - c[1] - 0.5) < TRUNK_R + 0.1) hit = [c[0], c[1], c[2] + 1];
@@ -1053,6 +1062,8 @@ function connect() {
       }
       for (const [id, r] of others) if (!seen.has(id)) { scene.remove(r.mesh); others.delete(id); }
       craftsSeen(m.crafts);
+    } else if (m.t === "machine") {
+      if (machine && m.plot === machine.plot) renderMachine(m);
     } else if (m.t === "craft_ok") {
       // FLIGHT: the world server's answer to board / leave / dock
       if (m.error) { notify(m.error, 5000); conLine(m.error, "err"); }
@@ -1437,11 +1448,50 @@ function useDoor() {
   if (flying) return leaveCraft();                                             // Use at the controls: step out
   const a = aim();
   if (a && a.box && a.box.b[6] === B.pilotseat) return board({ plot: a.box.plot, box: a.box.b });   // take the seat
-  if (!(a && a.box && (a.box.b[6] === B.door || a.box.b[6] === B.chest))) { const mine = nearMyCraft(); if (mine) return board({ craft: mine }); }
+  if (!(a && a.box && [B.door, B.chest, B.smelter, B.assembler, B.generator].includes(a.box.b[6]))) { const mine = nearMyCraft(); if (mine) return board({ craft: mine }); }
   if (a && a.box && a.box.b[6] === B.chest) return openChest(a.box);           // Q uses what you aim at: a door or a chest
+  if (a && a.box && [B.smelter, B.assembler, B.generator].includes(a.box.b[6])) return openMachine(a.box);   // a machine
   if (!a || !a.box || a.box.b[6] !== B.door) return notify(T("noUse", "Aim at a door or a chest to use it."));
   if (!net.online || !net.me) return notify(T("signInFirst", "Sign in first."));
   net.send({ t: "door", plot: a.box.plot, box: a.box.b, req: ++net.req });
+}
+// ---- a machine (#148): Use on a smelter or an assembler shows what it makes and why it waits, and the recipes it can
+// run — choosing one sets it going (scripts/land_server.py set_machine / factory_tick); on a generator, its power left
+let machine = null;                              // { plot, box } of the machine panel open
+function openMachine(bx) {
+  if (!net.online || !net.me) return notify(T("signInFirst", "Sign in first."));
+  machine = { plot: bx.plot, box: bx.b };
+  net.send({ t: "machine", plot: bx.plot, box: bx.b, req: ++net.req });
+  if (document.pointerLockElement) document.exitPointerLock();
+  $("machTitle").textContent = nameOf(Object.keys(RULES.items).find((k) => RULES.items[k].places === bx.b[6]));
+  $("machGrid").textContent = "…";
+  $("machPanel").classList.remove("hidden");
+}
+/** The world server's status, in the player's language (it says it in English: land_server.py factory_tick). */
+function machineStatus(st) {
+  st = st || "idle";
+  if (st === "idle") return T("mIdle", "Waiting — choose what it makes.");
+  if (st === "running") return T("mRunning", "Running.");
+  if (st === "no chest beside it") return T("mNoChest", "Needs a chest beside it — it takes from it and makes into it.");
+  if (st === "its chest is full") return T("mFull", "Its chest is full.");
+  if (st.startsWith("needs ")) { const name = st.slice(6), id = Object.keys(RULES.items).find((k) => RULES.items[k].name.toLowerCase() === name); return T("mNeeds", "Needs {i} in the chest beside it.", { i: id ? nameOf(id) : name }); }
+  if (st.startsWith("no power")) return T("mNoPower", "No power — a generator with coal or charcoal beside it, within {m} m.", { m: RULES.machines.power_reach });
+  return st;
+}
+function renderMachine(m) {
+  const box = $("machGrid");
+  if (m.error) notify(m.error, 5000);
+  if (!m.cfg) { box.textContent = m.error || ""; return; }
+  if (machine.box[6] === B.generator) {
+    box.innerHTML = `<p>${esc(T("mGen", "{n} runs of power left. Put coal (20 runs) or charcoal (10) in a chest beside it.", { n: m.cfg.charge || 0 }))}</p>`;
+    return;
+  }
+  const recipeLine = (id) => { const r = RULES.recipes.find((x) => x.id === id); return r ? r.makes.map(([i, n]) => `${n} ${nameOf(i)}`).join(", ") + " ← " + r.uses.map(([i, n]) => `${n} ${nameOf(i)}`).join(" + ") : id; };
+  box.innerHTML = `<p><b>${esc(m.cfg.recipe ? recipeLine(m.cfg.recipe) : T("mNothing", "Makes nothing yet — choose below."))}</b></p>
+    <p class="dim">${esc(machineStatus(m.cfg.status))}${m.cfg.made ? " · " + esc(T("mMade", "made {n}", { n: m.cfg.made })) : ""}</p>
+    <p class="small dim">${esc(T("mHint", "It takes what it needs from a chest beside it and puts what it makes there; a generator within {m} m powers it.", { m: RULES.machines.power_reach }))}</p>
+    ${(m.can || []).map((id) => `<div class="mrow${m.cfg.recipe === id ? " on" : ""}"><span>${esc(recipeLine(id))}</span><button class="ghost" data-mrec="${esc(id)}">${esc(T("mChoose", "Make this"))}</button></div>`).join("")}`;
+  box.querySelectorAll("[data-mrec]").forEach((b) => { b.onclick = () => net.send({ t: "machine", plot: machine.plot, box: machine.box, recipe: b.dataset.mrec, req: ++net.req }); });
 }
 // ---- a chest (#114): items kept on its plot by the world server; open it with Q, click an item to move one (Shift: all)
 let chest = null;                                // { plot, box, items } of the open chest
@@ -1457,13 +1507,16 @@ function chestSend(put, take) { net.send({ t: "chest", plot: chest.plot, box: ch
 function renderChest() {
   const box = $("chestGrid");
   if (!box || !chest) return;
-  const row = (id, n, dir) => `<button class="pb" data-${dir}="${esc(id)}" title="${esc(T("chestHint", "Click: one · Shift+click: all"))}"><b>${n}</b> ${esc(nameOf(id))}</button>`;
+  // a tap moves one; "All" moves them all — a phone has no Shift, and filling a machine's chest took a tap an item (#148)
+  const row = (id, n, dir) => `<span class="crow"><button class="pb" data-${dir}="${esc(id)}" title="${esc(T("chestHint", "Click: one · Shift+click: all"))}"><b>${n}</b> ${esc(nameOf(id))}</button>${n > 1 ? `<button class="pb" data-${dir}all="${esc(id)}">${esc(T("chestAll", "All"))}</button>` : ""}</span>`;
   const items = chest.items, mine = Object.entries(inv.items || {}).filter(([, n]) => n > 0);
   box.innerHTML = `<h3>${esc(T("chestIn", "In the chest"))}</h3><div class="chestRow">${items == null ? "…" : Object.keys(items).length ? Object.entries(items).map(([id, n]) => row(id, n, "take")).join("") : `<span class="dim">${esc(T("chestEmpty", "empty"))}</span>`}</div>
     <h3>${esc(T("chestBag", "In your bag"))}</h3><div class="chestRow">${mine.length ? mine.map(([id, n]) => row(id, n, "put")).join("") : `<span class="dim">${esc(T("chestEmpty", "empty"))}</span>`}</div>
     <p class="small dim">${esc(T("chestHint", "Click: one · Shift+click: all"))}</p>`;
   box.querySelectorAll("[data-take]").forEach((b) => { b.onclick = (e) => { const id = b.dataset.take; chestSend({}, { [id]: e.shiftKey ? chest.items[id] : 1 }); }; });
   box.querySelectorAll("[data-put]").forEach((b) => { b.onclick = (e) => { const id = b.dataset.put; chestSend({ [id]: e.shiftKey ? inv.items[id] : 1 }, {}); }; });
+  box.querySelectorAll("[data-takeall]").forEach((b) => { b.onclick = () => chestSend({}, { [b.dataset.takeall]: chest.items[b.dataset.takeall] }); });
+  box.querySelectorAll("[data-putall]").forEach((b) => { b.onclick = () => chestSend({ [b.dataset.putall]: inv.items[b.dataset.putall] }, {}); });
 }
 // ---- the wardrobe (#111): what you wear, and your skin and hair — V, or from the bag. Garments are sewn in the bag with a
 // needle; putting one on takes it out of the bag (the world server's "wear"), and everyone near you sees it.
@@ -1844,6 +1897,7 @@ function wireInput(canvas) {
   }
   $("palClose").onclick = () => palette(false);
   $("chestClose").onclick = () => { $("chestPanel").classList.add("hidden"); chest = null; };
+  $("machClose").onclick = () => { $("machPanel").classList.add("hidden"); machine = null; };
   $("wardClose").onclick = () => wardrobe(false);
   $("wardOpen").onclick = () => { palette(false); wardrobe(true); };
 }
@@ -2069,6 +2123,7 @@ const PIECE_TEX = {
   50: ["darkwood", 1, 0.9], 53: ["planks", 0.75, 0.9], 54: ["planks", 0.95, 0.7],
   // steel (#146): plate in brushed panels; a thruster and a pilot seat in darker steel until flight draws their models
   64: ["steel", 1, 0.38], 65: ["steel", 0.55, 0.45], 66: ["steel", 0.75, 0.5],
+  67: ["steel", 0.6, 0.6], 68: ["steel", 0.85, 0.45], 69: ["steel", 0.7, 0.5],
 };
 const pieceMats = new Map();
 function pieceMaterial(blk) {

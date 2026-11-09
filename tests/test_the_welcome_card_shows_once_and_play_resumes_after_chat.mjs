@@ -79,7 +79,9 @@ try {
   for (const type of ["mousePressed", "mouseReleased"]) await b.send(b.S, "Input.dispatchMouseEvent", { type, x: p[0], y: p[1], button: "left", buttons: type === "mousePressed" ? 1 : 0, clickCount: 1 });
   await sleep(1500);
   ok(!(await b.ev(cardShown)) && await b.ev("!!document.pointerLockElement"), "computer: Play puts the card away and captures the mouse");
-  await b.key("Enter", "Enter", 13); await sleep(800);
+  await b.key("Enter", "Enter", 13);
+  // typed once the chat line has the focus (the page gives it a moment after Enter; a busy machine takes longer)
+  await b.ev("new Promise((r) => { const t0 = Date.now(); const w = () => (document.activeElement && document.activeElement.id === 'conIn') || Date.now() - t0 > 10000 ? r(true) : setTimeout(w, 100); w(); })");
   await b.send(b.S, "Input.insertText", { text: "hello" });
   await b.key("Enter", "Enter", 13); await sleep(2500);
   ok(!(await b.ev(cardShown)), "computer: after a chat line the card does not come back");

@@ -119,8 +119,9 @@ try {
 
   // 2. place it back
   await tap(S, "tPlace");
-  ok(await until(S, "document.querySelector('#hotbar .hs b') && document.querySelector('#hotbar .hs b').textContent === '0'", 8000),
-     "Place puts the earth down from the hotbar and the count drops to 0");
+  // spent to the last, the earth leaves the hotbar (it kept an "Earth 0" slot until 2026-11-08)
+  ok(await until(S, "![...document.querySelectorAll('#hotbar .hs')].some((h) => h.title === 'Earth')", 8000) && (await serverInv()).dirt === undefined,
+     "Place puts the earth down from the hotbar, which then offers no earth");
   ok((await serverInv()).dirt === undefined, "…the server agrees: no earth left");
 
   // 3. make things in the bag
@@ -161,17 +162,18 @@ try {
      "they gather there too");
   await evl(S, "[...document.querySelectorAll('#hotbar .hs')].find((h) => h.title === 'Earth').click(), true");
   await tap(S, "tPlace");
-  ok(await until(S, "[...document.querySelectorAll('#hotbar .hs')].some((h) => h.title === 'Earth' && h.querySelector('b').textContent === '0')", 8000)
+  ok(await until(S, "![...document.querySelectorAll('#hotbar .hs')].some((h) => h.title === 'Earth')", 8000)
      && (await serverInv()).dirt === undefined, "and build there: unowned land is open to everyone signed in");
 
   // 5. someone else's plot
   await standAt(spot(PB));
   ok(await until(S, "/Owned by/.test(document.getElementById('hudPlot').textContent)"), "on someone else's plot");
   await tap(S, "tBreak");
-  await sleep(1500);
+  // the refusal is read when it comes (a later tap's own message would take its place)
+  const said = await until(S, "/belongs to someone else|not your plot/.test(document.body.textContent)", 10000);
   await tap(S, "tPlace");
   await sleep(800);
-  ok((await serverInv()).dirt === undefined && await bodyHas(S, "/belongs to someone else|not your plot/"), "nothing they tap changes anything there, and the page says why");
+  ok((await serverInv()).dirt === undefined && said, "nothing they tap changes anything there, and the page says why");
   ok(errors.length === 0, "no page errors" + (errors.length ? ": " + errors.join(" | ") : ""));
   void owner;
 } catch (e) {
