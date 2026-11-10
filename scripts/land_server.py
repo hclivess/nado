@@ -2822,7 +2822,11 @@ def make_app(world, hub, site_origin, wallet_url, secure_cookies=True, shot_page
         st = hub.socks[ws] = {"who": addr, "watch": set(), "pos": None, "id": secrets.token_hex(4)}
         # A PLAYER'S LAST PLACE is kept with them (not only in one browser's storage): a signed-in player who comes back —
         # on any device, in any browser — is put where they left off ("why did i respawn somewhere off again", 2026-11-07)
-        await ws.send_json({"t": "hello", "you": addr, "id": st["id"],
+        # RELOADED IN THE AIR (operator 2026-11-10: "on respawn i fell out of the x and cannot reenter it … by respawn i
+        # mean browser reload"): a page that reloads mid-flight forgot it was flying, while the craft stayed in the air
+        # with them as its pilot — out of reach. The greeting names the craft they pilot; the page takes its seat again.
+        flying = next((cid for cid, c in world.crafts.items() if addr and c.get("pilot") == addr), None)
+        await ws.send_json({"t": "hello", "you": addr, "id": st["id"], "flying": flying,
                             **({"pos": world.player(addr).get("pos"), "pos_at": world.player(addr).get("pos_at")} if addr else {})})
         if addr:
             await ws.send_json(dict(world.inv_json(addr), t="inv"))

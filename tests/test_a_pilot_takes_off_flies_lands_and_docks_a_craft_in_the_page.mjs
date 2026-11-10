@@ -3,6 +3,7 @@
  * engines and gravity to the game and build a real usable xfighter", operator 2026-11-09), walked in the real page
  * against the real world server (tests/_land_live_fixture.py) as a player on a phone, with the on-screen buttons:
  *   1. a small craft built on the owner's plot — a steel-plate hull, a pilot seat on it, two thrusters behind;
+ *   (3b: a reload in the air brings the page back to the controls — 2026-11-10)
  *   2. Use on the seat takes the controls: the HUD says flying, with its thrust against its weight;
  *   3. holding Jump climbs — the HUD shows the height and the world server holds the craft higher (it was told);
  *   4. holding Down lands it; Use leaves it parked (no pilot); /dock sets it down as pieces on the plot again;
@@ -169,6 +170,13 @@ try {
   let h1 = h0;
   for (let t = 0; t < 20 && h1 < h0 + 3; t++) { await sleep(500); h1 = (await getJ(`/land/api/crafts?face=${q.face}&u=${su}&v=${sv}`)).crafts[0].pose[3]; }
   ok(h1 > h0 + 3, `…and the world server holds it higher (${h0.toFixed(2)} -> ${h1.toFixed(2)} m)`);
+  // 3b. RELOADED IN THE AIR ("on respawn i fell out of the x and cannot reenter it … by respawn i mean browser reload",
+  // operator 2026-11-10): the page comes back at the controls of the craft it was flying, where the world server holds it
+  await send(B, "Page.reload", {});
+  await until(B, "document.getElementById('loading') && document.getElementById('loading').classList.contains('hidden')", 30000);
+  ok(await until(B, "/Flying/.test(document.getElementById('hudPos').textContent)", 20000), "reloaded in the air, the page is back at the controls: " + await hudText(B));
+  const again = (await getJ(`/land/api/crafts?face=${q.face}&u=${su}&v=${sv}`)).crafts[0];
+  ok(again && again.pilot && again.pose[3] > h0 + 2, "…of the same craft, still in the air, still piloted");
 
   // 4. land, leave, dock
   await evl(B, "document.getElementById('tDown').dispatchEvent(new Event('touchstart', { cancelable: true })), true");

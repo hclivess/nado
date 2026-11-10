@@ -1000,6 +1000,9 @@ function connect() {
       // …only if it is newer than this browser's own (a reload in the same browser keeps where you just were — the server
       // keeps a place at most every 10 s, and a reload went back up to 10 s of walking)
       if (!net.placed) { net.placed = true; if (m.pos && (m.pos_at || 0) > localPlace) takePlace(m.pos); }
+      // reloaded mid-flight: back into the seat of the craft the world server still holds us as the pilot of (the craft
+      // stayed in the air, out of reach — "on respawn i fell out of the x and cannot reenter it", 2026-11-10)
+      if (m.flying && !flying) board({ craft: m.flying });
       invSeen = false;                                       // a (re)connect re-sends the whole bag: not a pickup
       // the server is the record now: drop the plots this browser cached, the server sends each watched one back
       for (const [plot, pe] of plotEdit) { const q = Wd.plotCoords(plot); for (const lk of pe.keys()) { const [x, z, y] = lk.split(":").map(Number); edits.delete(key(q.face, q.u0 + x, q.v0 + z, y)); } }
