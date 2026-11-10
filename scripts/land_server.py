@@ -498,8 +498,12 @@ class World:
             self.crafts = json.load(open(os.path.join(self.dir, "crafts.json")))
         except Exception:
             self.crafts = {}
-        for c in self.crafts.values():                    # a restart lands every pilot: the craft is parked where it was
-            c["pilot"] = None
+        # A RESTART KEEPS EVERY PILOT IN THEIR SEAT, as a reload does (hello "flying" seats the page again): it used to park
+        # each craft where it was, so a craft flying at the restart was left parked in the mid-air — out of anyone's reach,
+        # its owner unable to board it again (#171, 2026-11-10: the fighter stranded 21 m up). Only the engines stop until
+        # the pilot's page says again what they do.
+        for c in self.crafts.values():
+            c["eng"] = None
         self.cdirty = False
         # HUNTING (#156): the animals near players — the world server's own, never saved (they wander off and others come)
         self.animals, self.animal_seq, self.rng = {}, 0, random.Random()

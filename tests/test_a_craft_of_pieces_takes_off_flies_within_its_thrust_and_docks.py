@@ -8,7 +8,8 @@ the game and build a real usable xfighter", operator 2026-11-09). scripts/land_s
   2. no thruster touching, no craft; another's plot, no take-off; a stranger cannot board someone's parked craft;
   3. the pilot's poses are taken within the craft's top speed (vmax x time + slack) and refused beyond it — no teleport;
      the server answers a refused pose with the one it holds;
-  4. leaving parks it; a restart keeps the craft, parked (no pilot);
+  4. leaving parks it; a restart keeps the craft, and its pilot in the seat (a craft parked by a restart was left in
+     mid-air, out of its owner's reach — #171);
   5. docking sets it down as pieces on the plot under the seat, turned to the nearest quarter turn — refused where the
      owner may not build; the craft is then gone; turn_pieces turns a point (x, z) to (z, -x) at +90°;
   6. players near are sent the craft — its pieces the first time, then its pose.
@@ -114,7 +115,8 @@ async def main():
     check("its owner boards it again", err is None and world.crafts[cid]["pilot"] == a, err)
     world.flush()
     w2 = S.World(data, "http://127.0.0.1:1", "")
-    check("a restart keeps the craft, parked", cid in w2.crafts and w2.crafts[cid]["pilot"] is None and w2.crafts[cid]["pieces"] == world.crafts[cid]["pieces"])
+    check("a restart keeps the craft and its pilot in the seat, its engines stopped until they say again",
+          cid in w2.crafts and w2.crafts[cid]["pilot"] == a and w2.crafts[cid]["pieces"] == world.crafts[cid]["pieces"] and w2.crafts[cid]["eng"] is None)
 
     # 5. docking: over B's plot refused; over A's, turned a quarter (yaw ~ 90°), it becomes pieces again
     world.crafts[cid]["pose"] = [0, (PB % L.FACE_N) * L.PLOT + 8.0, (PB // L.FACE_N) * L.PLOT + 8.0, 200.0, 0.0]
