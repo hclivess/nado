@@ -358,7 +358,11 @@ function flyStep(dt, fwd, side) {
                                         // camera stayed on the ground while the craft climbed out of view (first flight)
   const own = crafts.get(c.id); if (own) own.pose = c.pose;
   const now = performance.now();
-  if (now - flySent > 200) { flySent = now; net.send({ t: "fly", craft: c.id, pose: c.pose.map((x, i) => (i ? +x.toFixed(3) : x)) }); }
+  if (now - flySent > 200) {
+    flySent = now;
+    const e = c.engine || { throttle: 0, lift: 0, dir: [0, 0] };       // the engines' work, for everyone's exhaust (#171)
+    net.send({ t: "fly", craft: c.id, pose: c.pose.map((x, i) => (i ? +x.toFixed(3) : x)), eng: [e.throttle, e.lift, e.dir[0], e.dir[1]].map((x) => +x.toFixed(2)) });
+  }
 }
 /** A box geometry whose texture is tiled once per metre on every face (as the mesher tiles a piece) and white vertex
  *  colours (the piece materials multiply by them). w, h, d in metres. */
@@ -378,6 +382,12 @@ function craftMesh(pieces) {
     m.position.set((b[0] + b[3] / 2) / Wd.CM, (b[2] + b[5] / 2) / Wd.CM, -(b[1] + b[4] / 2) / Wd.CM);
     if (Wd.isTurned(b)) m.quaternion.copy(turnQuat(b, (v) => [v[0], v[2], -v[1]]));   // the craft's frame: x east, y up, z south
     g.add(m);
+    if (b[6] === B.thruster) {                    // its exhaust (#171): a cone from the thruster's underside, drawn per frame
+      const pl = new THREE.Mesh(plumeGeo(), new THREE.MeshBasicMaterial({ color: 0xffb060, transparent: true, opacity: 0, depthWrite: false,
+        blending: THREE.AdditiveBlending, side: THREE.DoubleSide }));
+      pl.position.set((b[0] + b[3] / 2) / Wd.CM, b[2] / Wd.CM, -(b[1] + b[4] / 2) / Wd.CM);
+      pl.visible = false; g.add(pl); (g.userData.plumes ||= []).push(pl);
+    }
   }
   g.matrixAutoUpdate = false;
   return g;
@@ -387,6 +397,66 @@ function tenths(x) {
   let t = Math.round((Number(x) || 0) * 10) % 3600;
   if (t > 1800) t -= 3600; if (t <= -1800) t += 3600;
   return t;
+}
+// ---- THE ENGINES' WORK, SEEN (#171; operator: "it should be visible that x is 'fighting gravity' and not just floating
+// effortlessly"). From photographs of real jets (land research exhaust/OBSERVED.md): a hovering jet shows no flame by day —
+// its work shows as a column of disturbed air and blown dust under it — and at night its engines glow orange. So: a plume
+// at each thruster as long and bright as the thrust in use (land-flight.js engine: throttle, lift, push), pointing against
+// the thrust (down for lift, back for push), faint by day and glowing at night; dust and haze on the ground under a low
+// hover; a small tremble while it works.
+let plumeG = null;
+const plumeGeo = () => plumeG || (plumeG = new THREE.ConeGeometry(0.42, 1, 18, 1, true).rotateX(Math.PI).translate(0, -0.5, 0));   // base at 0, tip at -1
+let dustTex = null;
+function dustTexture() {
+  if (dustTex) return dustTex;
+  const cv = document.createElement("canvas"); cv.width = cv.height = 128;
+  const x = cv.getContext("2d"), gr = x.createRadialGradient(64, 64, 6, 64, 64, 64);
+  gr.addColorStop(0, "rgba(196,178,150,0.0)"); gr.addColorStop(0.35, "rgba(196,178,150,0.55)"); gr.addColorStop(0.7, "rgba(170,155,130,0.25)"); gr.addColorStop(1, "rgba(160,150,130,0)");
+  x.fillStyle = gr; x.fillRect(0, 0, 128, 128);
+  return (dustTex = new THREE.CanvasTexture(cv));
+}
+/** The engines' work of craft c this frame: { throttle, lift, push, dir } — the one I fly from my own step, the others'
+ *  as their pilots said it (the world server relays it), or nothing when parked. */
+function engineOf(id, c) {
+  if (flying && flying.id === id && flying.engine) return flying.engine;
+  if (!c.eng || !c.pilot) return null;
+  return { throttle: c.eng[0], lift: c.eng[1], push: Math.max(0, c.eng[0] - c.eng[1]), dir: [c.eng[2], c.eng[3]] };
+}
+function engineFrame(id, c, cam, now) {
+  const e = engineOf(id, c), thr = e ? e.throttle : 0, mesh = c.mesh;
+  for (const pl of mesh.userData.plumes || []) {
+    pl.visible = thr > 0.02;
+    if (!pl.visible) continue;
+    const yaw = c.pose[4], fwd = e.dir[0] * Math.sin(yaw) + e.dir[1] * Math.cos(yaw), right = e.dir[0] * Math.cos(yaw) - e.dir[1] * Math.sin(yaw);
+    const ex = new THREE.Vector3(-e.push * right, -Math.max(e.lift, 0.05), e.push * fwd).normalize();   // against the thrust, in the craft's frame
+    pl.quaternion.setFromUnitVectors(new THREE.Vector3(0, -1, 0), ex);
+    const flick = 0.9 + 0.2 * Math.random();
+    pl.scale.set(0.7 + 0.5 * thr, (0.3 + 3.2 * thr) * flick, 0.7 + 0.5 * thr);
+    // by day a pale column of hot, shimmering air (the photos: no flame), by night the engines' orange glow
+    pl.material.color.setRGB(0.85 + 0.15 * torchNight, 0.82 - 0.14 * torchNight, 0.76 - 0.4 * torchNight);
+    pl.material.opacity = Math.min(0.85, thr * (0.42 + 0.45 * torchNight) * flick);
+  }
+  // a tremble while it works: a few centimetres, quicker than the eye follows
+  if (thr > 0.02) {
+    const fr = Wd.frameOf(c.pose[0], c.pose[1], c.pose[2]), a = 0.035 * thr * (Math.sin(now * 0.031) + 0.6 * Math.sin(now * 0.053));
+    const el = mesh.matrix.elements; el[12] += fr.up[0] * a; el[13] += fr.up[1] * a; el[14] += fr.up[2] * a;
+  }
+  // dust and haze where its downwash meets the ground, under a low hover
+  const g = groundAt(c.pose[0], c.pose[1], c.pose[2]), above = c.pose[3] - g;
+  const k = e ? thr * Math.max(0, 1 - above / 16) : 0;
+  if (!c.dust) {
+    c.dust = new THREE.Mesh(new THREE.CircleGeometry(1, 40), new THREE.MeshBasicMaterial({ map: dustTexture(), transparent: true, depthWrite: false, opacity: 0 }));
+    scene.add(c.dust);
+  }
+  c.dust.visible = k > 0.03;
+  if (c.dust.visible) {
+    const fr = Wd.frameOf(c.pose[0], c.pose[1], c.pose[2]), q = Wd.posOf(c.pose[0], c.pose[1], c.pose[2], g + 0.15);
+    c.dust.position.set(q[0] - cam[0], q[1] - cam[1], q[2] - cam[2]);
+    c.dust.quaternion.setFromUnitVectors(new THREE.Vector3(0, 0, 1), new THREE.Vector3(...fr.up));
+    c.dust.rotateZ(now * 0.0004);
+    const r = 4 + 7 * thr; c.dust.scale.set(r, r, 1);
+    c.dust.material.opacity = Math.min(0.85, 0.9 * k);
+  }
 }
 /** The orientation of a turned piece (#169) in a frame whose axes `toFrame` maps [east, north, up] vectors into. */
 function turnQuat(b, toFrame) {
@@ -410,10 +480,10 @@ function craftsSeen(list) {
     seen.add(o.id);
     let c = crafts.get(o.id);
     if (!c) { if (!o.pieces) continue; c = { pieces: o.pieces, mesh: craftMesh(o.pieces) }; scene.add(c.mesh); crafts.set(o.id, c); }
-    Object.assign(c, { owner: o.owner, pilot: o.pilot, mass: o.mass, thrust: o.thrust });
+    Object.assign(c, { owner: o.owner, pilot: o.pilot, mass: o.mass, thrust: o.thrust, eng: o.eng || null });
     if (!(flying && flying.id === o.id)) c.pose = o.pose;        // the craft I fly goes where I fly it
   }
-  for (const [id, c] of crafts) if (!seen.has(id) && !(flying && flying.id === id)) { scene.remove(c.mesh); crafts.delete(id); }
+  for (const [id, c] of crafts) if (!seen.has(id) && !(flying && flying.id === id)) { scene.remove(c.mesh); if (c.dust) scene.remove(c.dust); crafts.delete(id); }
 }
 // the materials a craft is made of (land-world.js: steel plate, glass, thruster): Use on one of them may mean "fly this"
 const CRAFT_SKIN = new Set([B.steelplate, B.glass, B.thruster]);
@@ -1614,7 +1684,8 @@ function hud() {
     + ((plotBoxes.get(plot) || { list: [] }).list.length ? " · " + T("pieces", "{n} {n|one:piece|other:pieces}", { n: plotBoxes.get(plot).list.length }) : "");
   if (flying) {                                             // at the controls: speed, height over the ground, what lifts it
     const sp = Math.hypot(...flying.vel), up = flying.pose[3] + flying.bottom - groundAt(flying.pose[0], flying.pose[1], flying.pose[2]);
-    $("hudPos").textContent = T("fHud", "Flying · {s} m/s · {a} m up · thrust {t} kN, weight {w} kN", { s: sp.toFixed(1), a: Math.max(0, up).toFixed(1), t: Math.round(flying.thrust), w: Math.round(flightOf(FLIGHT(), flying.mass, flying.thrust).weight) });
+    $("hudPos").textContent = T("fHud", "Flying · {s} m/s · {a} m up · thrust {t} kN, weight {w} kN", { s: sp.toFixed(1), a: Math.max(0, up).toFixed(1), t: Math.round(flying.thrust), w: Math.round(flightOf(FLIGHT(), flying.mass, flying.thrust).weight) })
+      + " · " + T("fEngines", "engines {e} %", { e: Math.round(100 * ((flying.engine && flying.engine.throttle) || 0)) });   // the thrust in use (#171)
   }
   const st = $("hudPlot");
   // the owner is looked up once the plot's title is KNOWN (titles load after the first frames), once per refresh
@@ -3105,7 +3176,7 @@ function frame(now) {
   hemi.position.set(fr.up[0], fr.up[1], fr.up[2]);     // "up" is radial on a planet: three's hemisphere light assumes +Y
   for (const c of chunks.values()) if (c.anchor) for (const me of c.meshes) me.position.set(c.anchor[0] - cam[0], c.anchor[1] - cam[1], c.anchor[2] - cam[2]);
   for (const m of [farMesh, farSea, borderMesh]) if (m) { const a = m.userData.anchor; m.position.set(a[0] - cam[0], a[1] - cam[1], a[2] - cam[2]); }
-  for (const c of crafts.values()) if (c.pose) craftPlace(c.mesh, c.pose, cam);
+  for (const [id, c] of crafts) if (c.pose) { craftPlace(c.mesh, c.pose, cam); engineFrame(id, c, cam, now); }
   animalsFrame(Math.min(0.1, (now - (frame.lastAnimals || now)) / 1000), cam); frame.lastAnimals = now;
   npcsFrame(cam); arrowsFrame(now, cam); dropsFrame(now, cam);
   for (const r of others.values()) {

@@ -98,8 +98,16 @@ async def main():
     check("a jump of 500 m is refused (no teleport)", world.fly(a, cid, [p0[0], p0[1] + 500, p0[2], p0[3], 0.5]) and world.crafts[cid]["pose"][1] == round(p0[1] + 5, 3))
     check("only its pilot says where it is", world.fly(b, cid, ok_pose) is not None)
 
+    # 3b. the engines' work (#171): kept as its pilot says it, for others to see its exhaust; nonsense never stored
+    time.sleep(0.1)
+    world.fly(a, cid, ok_pose, [0.724, 0.72, 0.0, 0.0])
+    check("the pilot's engine work is kept with the craft", world.crafts[cid].get("eng") == [0.72, 0.72, 0.0, 0.0], world.crafts[cid].get("eng"))
+    for bad in ([2, 0, 0, 0], [0.5, 0.5, 0, 9], ["x", 0, 0, 0], [0.5, 0.5, 0], [float("nan"), 0, 0, 0], [True, 0, 0, 0], "full"):
+        world.fly(a, cid, ok_pose, bad)
+    check("engine work out of range or not numbers is never stored", world.crafts[cid].get("eng") == [0.72, 0.72, 0.0, 0.0], world.crafts[cid].get("eng"))
+
     # 4. parked, and kept
-    check("leaving parks it", world.leave(a, cid) is None and world.crafts[cid]["pilot"] is None)
+    check("leaving parks it, and its engines stop", world.leave(a, cid) is None and world.crafts[cid]["pilot"] is None and world.crafts[cid].get("eng") is None)
     _, _, err = await world.board(b, cid=cid)
     check("a stranger cannot board it", err and "owner" in err, err)
     _, _, err = await world.board(a, cid=cid)

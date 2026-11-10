@@ -2072,7 +2072,7 @@ class World:
         self.dirty.add(p); self.cdirty = True
         return c, parts, None
 
-    def fly(self, who, cid, pose):
+    def fly(self, who, cid, pose, eng=None):
         """The pilot's page says where the craft is. Taken when it is in the world and no farther from the last pose than
         the craft's top speed allows (CRAFT_SLACK for a bunched network); otherwise refused, and the page is told the
         pose the server holds. Returns error or None."""
@@ -2088,13 +2088,18 @@ class World:
             return "faster than it can fly"
         c["pose"] = [int(pose[0]), round(float(pose[1]), 3), round(float(pose[2]), 3), round(float(pose[3]), 3), round(float(pose[4]), 4)]
         c["at"] = now; self.cdirty = True
+        # THE ENGINES' WORK (#171): [throttle, lift, du, dv] as the pilot's page computes it (land-flight.js engine) —
+        # only drawn (exhaust, dust, tremble), so it is kept as the pilot says it, within range
+        if (isinstance(eng, list) and len(eng) == 4 and all(isinstance(x, (int, float)) and not isinstance(x, bool) and math.isfinite(x) for x in eng)
+                and 0 <= eng[0] <= 1 and 0 <= eng[1] <= 1 and -1 <= eng[2] <= 1 and -1 <= eng[3] <= 1):
+            c["eng"] = [round(float(x), 2) for x in eng]
         return None
 
     def leave(self, who, cid):
         c = self.crafts.get(cid)
         if not c or c["pilot"] != who:
             return "you are not flying that"
-        c["pilot"] = None; self.cdirty = True
+        c["pilot"] = None; c["eng"] = None; self.cdirty = True        # parked: the engines stop
         return None
 
     async def dock(self, who, cid):
@@ -2525,7 +2530,8 @@ class Hub:
             if world:
                 seen = st.setdefault("crafts_seen", set())
                 for c in world.crafts_near(me, self.NEAR):
-                    o = {"id": c["id"], "owner": c["owner"], "pilot": c["pilot"], "pose": c["pose"], "mass": c["mass"], "thrust": c["thrust"]}
+                    o = {"id": c["id"], "owner": c["owner"], "pilot": c["pilot"], "pose": c["pose"], "mass": c["mass"], "thrust": c["thrust"],
+                         "eng": c.get("eng")}                          # the engines' work, for its exhaust (#171)
                     if c["id"] not in seen:
                         o["pieces"] = c["pieces"]; seen.add(c["id"])
                     crafts.append(o)
@@ -3038,7 +3044,7 @@ def make_app(world, hub, site_origin, wallet_url, secure_cookies=True, shot_page
                             for s2 in hub.socks.values():                # every page draws the new craft afresh
                                 s2.get("crafts_seen", set()).discard(c["id"])
                     elif t == "fly":
-                        err = world.fly(addr, m.get("craft"), m.get("pose"))
+                        err = world.fly(addr, m.get("craft"), m.get("pose"), m.get("eng"))
                         if err and m.get("craft") in world.crafts:
                             await ws.send_json({"t": "craft_fix", "craft": m.get("craft"), "pose": world.crafts[m.get("craft")]["pose"], "error": err})
                     elif t == "leave":

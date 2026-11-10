@@ -8,6 +8,11 @@
 //   * Up climbs with what is left over gravity, Down sinks, neither hovers (the thrusters hold it, the climb damps out);
 //   * forward / back / sideways push along the pilot's facing, at most a horizontal share of the thrust; air drags;
 //   * never faster than vmax; at the ground it stops falling, and on the ground it slides to a stop.
+//   * THE ENGINES' WORK (#171, operator: "it should be visible that x is 'fighting gravity' and not just floating
+//     effortlessly"): each step says how much of its thrust the craft is using — c.engine = { lift, push, throttle, dir }:
+//     lift the share holding it up (hovering: its weight over its thrust; climbing: all of it; sinking: a fifth of its
+//     weight; resting on the ground: none), push the share driving it along, throttle their sum (0..1), dir the push's
+//     direction [du, dv]. The page draws the exhaust, the dust and the tremble from it.
 
 /** The flight numbers a craft flies by, from the recipes' "flight" block. */
 export function flightOf(F, mass, thrust) {
@@ -52,5 +57,16 @@ export function craftStep(c, input, dt, F, groundAt) {
   else c.grounded = false;
   c.pose = [face, u, v, h, yaw];
   c.vel = [vu, vv, vh];
+  // the engines' work this step, as shares of full thrust (acc is thrust / mass; g / acc is the weight's share)
+  const wShare = acc > 0 ? Math.min(1, F.g / acc) : 0;
+  let lift = 0;
+  if (input.up) lift = 1;                                              // climbing — or straining at a load it cannot lift
+  else if (c.grounded) lift = 0;                                       // resting: the engines idle
+  else if (input.down) lift = lifts ? wShare * 0.2 : 0;                // sinking under a fifth of its weight held
+  else if (lifts) lift = wShare;                                       // hovering: holding exactly its weight
+  const fwd = Math.max(-1, Math.min(1, input.fwd || 0)), side = Math.max(-1, Math.min(1, input.side || 0));
+  const m = Math.min(1, Math.hypot(fwd, side)), su = Math.sin(yaw), cu = Math.cos(yaw);
+  const push = (lifts || airborne) && acc > 0 ? m * (Math.min(acc, 14) * 0.9) / acc : 0;
+  c.engine = { lift, push, throttle: Math.min(1, lift + push), dir: m ? [(su * fwd + cu * side) / m, (cu * fwd - su * side) / m] : [0, 0] };
   return c;
 }

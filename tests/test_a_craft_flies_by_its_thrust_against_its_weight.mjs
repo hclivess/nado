@@ -62,5 +62,22 @@ const fall = craft(2, 0); fall.pose[3] = 120; fall.grounded = false;
 run(fall, {}, 4);
 ok(fall.grounded && fall.vel[2] === 0 && Math.abs(fall.pose[3] + fall.bottom - 100) < 1e-9, "it lands at rest on the ground");
 
+// 5. THE ENGINES' WORK (#171: "it should be visible that x is 'fighting gravity'"): the share of its thrust a craft uses
+const e = craft(8.8, 4);                                          // the rebuilt X fighter: 8.8 t, 120 kN
+run(e, {}, 0.5);
+ok(e.engine && e.engine.throttle === 0, "resting on the ground, the engines idle (throttle 0)");
+run(e, { up: true }, 1);
+ok(e.engine.lift === 1 && e.engine.throttle === 1, "climbing, they give all they have (throttle 1)");
+run(e, {}, 2);
+const wShare = 8.8 * F.g / e.thrust;
+ok(!e.grounded && Math.abs(e.engine.throttle - wShare) < 1e-9, `hovering, they hold exactly its weight: ${(e.engine.throttle * 100).toFixed(0)} % (${(8.8 * F.g).toFixed(0)} of ${e.thrust} kN)`);
+run(e, { fwd: 1 }, 0.5);
+ok(e.engine.throttle > wShare && e.engine.push > 0 && Math.abs(Math.hypot(...e.engine.dir) - 1) < 1e-9, `pushing forward adds to it (${(e.engine.throttle * 100).toFixed(0)} %), along the facing`);
+run(e, { down: true }, 0.3);
+ok(Math.abs(e.engine.lift - wShare * 0.2) < 1e-9, "sinking, they hold a fifth of its weight");
+const strain = craft(10, 1);
+run(strain, { up: true }, 0.5);
+ok(strain.grounded && strain.engine.throttle === 1, "a craft too heavy to lift strains at full throttle and stays down");
+
 if (fails) { console.log(`${fails} FAILURES`); process.exit(1); }
 console.log("ALL PASS");

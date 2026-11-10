@@ -5,7 +5,8 @@
  *   1. a small craft built on the owner's plot — a steel-plate hull, a pilot seat on it, two thrusters behind;
  *   (3b: a reload in the air brings the page back to the controls — 2026-11-10; 5: Use on a thruster, not the seat, boards it)
  *   2. Use on the seat takes the controls: the HUD says flying, with its thrust against its weight;
- *   3. holding Jump climbs — the HUD shows the height and the world server holds the craft higher (it was told);
+ *   3. holding Jump climbs — the HUD shows the height and the engines at full, and the world server holds the craft
+ *      higher and its engines' work (it was told; #171);
  *   4. holding Down lands it; Use leaves it parked (no pilot); /dock sets it down as pieces on the plot again;
  *   5. no page errors.
  *
@@ -162,6 +163,12 @@ try {
   // 3. hold Jump
   await evl(B, "document.getElementById('tJump').dispatchEvent(new Event('touchstart', { cancelable: true })), true");
   await sleep(2500);
+  // the engines' work is shown, and told (#171: "the engines have 0 effects" — "it should be visible that x is fighting gravity")
+  await until(B, "/engines 100 %/.test(document.getElementById('hudPos').textContent)", 10000);   // a slow page draws the HUD late
+  const climbing = await evl(B, "document.getElementById('hudPos').textContent");
+  ok(/engines 100 %/.test(climbing), "…climbing, the HUD shows the engines at full: " + climbing.slice(0, 90));
+  const engUp = (await getJ(`/land/api/crafts?face=${q.face}&u=${su}&v=${sv}`)).crafts[0].eng;
+  ok(engUp && engUp[0] === 1 && engUp[1] === 1, "…and the world server holds that, for others to draw its exhaust: " + JSON.stringify(engUp));
   await evl(B, "document.getElementById('tJump').dispatchEvent(new Event('touchend')), true");
   await sleep(1500);
   const up = Number(((await evl(B, "document.getElementById('hudPos').textContent")).match(/([\d.]+) m up/) || [])[1]);
@@ -186,7 +193,7 @@ try {
   await evl(B, "document.getElementById('tUse').click(), true");
   let parked = null;
   for (let t = 0; t < 20 && !(parked && parked.pilot === null); t++) { await sleep(500); parked = (await getJ(`/land/api/crafts?face=${q.face}&u=${su}&v=${sv}`)).crafts[0]; }
-  ok(parked && parked.pilot === null, "Use again leaves it parked");
+  ok(parked && parked.pilot === null && parked.eng === null, "Use again leaves it parked, its engines stopped");
   await send(B, "Input.dispatchKeyEvent", { type: "keyDown", code: "Slash", key: "/", windowsVirtualKeyCode: 191 });
   await send(B, "Input.dispatchKeyEvent", { type: "keyUp", code: "Slash", key: "/", windowsVirtualKeyCode: 191 });
   await until(B, "document.activeElement && document.activeElement.id === 'conIn'", 8000);

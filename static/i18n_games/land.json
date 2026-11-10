@@ -458,7 +458,8 @@
   "land.tiltRoll": "Roll",
   "land.tiltSquare": "Square",
   "land.cTiltUse": "Usage: /tilt <yaw> <pitch> <roll> in degrees, e.g. /tilt 40 0 15 — /tilt 0 0 0 squares the piece.",
-  "land.cTilt": "turn the piece in hand, in degrees"
+  "land.cTilt": "turn the piece in hand, in degrees",
+  "land.fEngines": "engines {e} %"
  },
  "cs": {
   "land.notYours": "Pozemek {p} patří někomu jinému. Kupte si pozemek, nebo požádejte jeho vlastníka o pozvání.",
@@ -919,7 +920,8 @@
   "land.tiltRoll": "Náklon",
   "land.tiltSquare": "Rovně",
   "land.cTiltUse": "Použití: /tilt <otočení> <sklon> <náklon> ve stupních, např. /tilt 40 0 15 — /tilt 0 0 0 díl srovná.",
-  "land.cTilt": "natočit díl v ruce, ve stupních"
+  "land.cTilt": "natočit díl v ruce, ve stupních",
+  "land.fEngines": "motory {e} %"
  },
  "es": {
   "land.notYours": "La parcela {p} pertenece a otra persona. Compra una parcela o pide a su dueño que te invite.",
@@ -1380,7 +1382,8 @@
   "land.tiltRoll": "Alabeo",
   "land.tiltSquare": "Recta",
   "land.cTiltUse": "Uso: /tilt <guiñada> <cabeceo> <alabeo> en grados, p. ej. /tilt 40 0 15 — /tilt 0 0 0 endereza la pieza.",
-  "land.cTilt": "girar la pieza en la mano, en grados"
+  "land.cTilt": "girar la pieza en la mano, en grados",
+  "land.fEngines": "motores {e} %"
  },
  "pt": {
   "land.notYours": "O lote {p} pertence a outra pessoa. Compre um lote ou peça ao dono que convide você.",
@@ -1841,7 +1844,8 @@
   "land.tiltRoll": "Rolagem",
   "land.tiltSquare": "Reta",
   "land.cTiltUse": "Uso: /tilt <guinada> <arfagem> <rolagem> em graus, ex. /tilt 40 0 15 — /tilt 0 0 0 endireita a peça.",
-  "land.cTilt": "girar a peça na mão, em graus"
+  "land.cTilt": "girar a peça na mão, em graus",
+  "land.fEngines": "motores {e} %"
  },
  "fr": {
   "land.notYours": "La parcelle {p} appartient à quelqu'un d'autre. Achetez une parcelle ou demandez à son propriétaire de vous inviter.",
@@ -2302,7 +2306,8 @@
   "land.tiltRoll": "Roulis",
   "land.tiltSquare": "D’équerre",
   "land.cTiltUse": "Usage : /tilt <lacet> <tangage> <roulis> en degrés, p. ex. /tilt 40 0 15 — /tilt 0 0 0 remet la pièce d’équerre.",
-  "land.cTilt": "tourner la pièce en main, en degrés"
+  "land.cTilt": "tourner la pièce en main, en degrés",
+  "land.fEngines": "moteurs {e} %"
  },
  "de": {
   "land.notYours": "Grundstück {p} gehört jemand anderem. Kauf dir ein Grundstück oder bitte den Besitzer um eine Einladung.",
@@ -2763,7 +2768,8 @@
   "land.tiltRoll": "Rollen",
   "land.tiltSquare": "Gerade",
   "land.cTiltUse": "Verwendung: /tilt <Gieren> <Nicken> <Rollen> in Grad, z. B. /tilt 40 0 15 — /tilt 0 0 0 richtet das Teil gerade.",
-  "land.cTilt": "das Teil in der Hand drehen, in Grad"
+  "land.cTilt": "das Teil in der Hand drehen, in Grad",
+  "land.fEngines": "Triebwerke {e} %"
  },
  "it": {
   "land.notYours": "Il lotto {p} appartiene a qualcun altro. Compra un lotto o chiedi al proprietario di invitarti.",
@@ -3224,7 +3230,8 @@
   "land.tiltRoll": "Rollio",
   "land.tiltSquare": "Dritto",
   "land.cTiltUse": "Uso: /tilt <imbardata> <beccheggio> <rollio> in gradi, es. /tilt 40 0 15 — /tilt 0 0 0 raddrizza il pezzo.",
-  "land.cTilt": "ruotare il pezzo in mano, in gradi"
+  "land.cTilt": "ruotare il pezzo in mano, in gradi",
+  "land.fEngines": "motori {e} %"
  },
  "ru": {
   "land.notYours": "Участок {p} принадлежит другому игроку. Купите участок или попросите владельца пригласить вас.",
@@ -3685,7 +3692,8 @@
   "land.tiltRoll": "Крен",
   "land.tiltSquare": "Ровно",
   "land.cTiltUse": "Использование: /tilt <рыскание> <тангаж> <крен> в градусах, например /tilt 40 0 15 — /tilt 0 0 0 выравнивает деталь.",
-  "land.cTilt": "повернуть деталь в руке, в градусах"
+  "land.cTilt": "повернуть деталь в руке, в градусах",
+  "land.fEngines": "двигатели {e} %"
  },
  "zh": {
   "land.notYours": "地块 {p} 属于别人。购买一块地，或请它的所有者邀请你。",
@@ -4146,7 +4154,8 @@
   "land.tiltRoll": "横滚",
   "land.tiltSquare": "摆正",
   "land.cTiltUse": "用法：/tilt <偏航> <俯仰> <横滚>（度），例如 /tilt 40 0 15 —— /tilt 0 0 0 将部件摆正。",
-  "land.cTilt": "旋转手中的部件（度）"
+  "land.cTilt": "旋转手中的部件（度）",
+  "land.fEngines": "发动机 {e} %"
  },
  "ja": {
   "land.notYours": "区画 {p} は他の人のものです。区画を購入するか、所有者に招待してもらいましょう。",
@@ -4607,7 +4616,8 @@
   "land.tiltRoll": "ロール",
   "land.tiltSquare": "まっすぐ",
   "land.cTiltUse": "使い方：/tilt <ヨー> <ピッチ> <ロール>（度）、例 /tilt 40 0 15 — /tilt 0 0 0 で部品をまっすぐに。",
-  "land.cTilt": "手に持った部品を回す（度）"
+  "land.cTilt": "手に持った部品を回す（度）",
+  "land.fEngines": "エンジン {e} %"
  },
  "ko": {
   "land.notYours": "구역 {p}은(는) 다른 사람의 땅입니다. 구역을 사거나 소유자에게 초대를 요청하세요.",
@@ -5068,7 +5078,8 @@
   "land.tiltRoll": "롤",
   "land.tiltSquare": "똑바로",
   "land.cTiltUse": "사용법: /tilt <요> <피치> <롤> (도), 예: /tilt 40 0 15 — /tilt 0 0 0 은 부품을 똑바로 합니다.",
-  "land.cTilt": "손에 든 부품을 회전 (도)"
+  "land.cTilt": "손에 든 부품을 회전 (도)",
+  "land.fEngines": "엔진 {e} %"
  },
  "ar": {
   "land.notYours": "القطعة {p} ملك لشخص آخر. اشترِ قطعة، أو اطلب من مالكها أن يدعوك.",
@@ -5529,7 +5540,8 @@
   "land.tiltRoll": "الدحرجة",
   "land.tiltSquare": "مستقيم",
   "land.cTiltUse": "الاستخدام: /tilt <الانعراج> <الانحدار> <الدحرجة> بالدرجات، مثل /tilt 40 0 15 — و/tilt 0 0 0 يعيد القطعة مستقيمة.",
-  "land.cTilt": "تدوير القطعة في اليد، بالدرجات"
+  "land.cTilt": "تدوير القطعة في اليد، بالدرجات",
+  "land.fEngines": "المحركات {e} %"
  },
  "hi": {
   "land.notYours": "प्लॉट {p} किसी और का है। कोई प्लॉट खरीदें, या उसके मालिक से आपको आमंत्रित करने को कहें।",
@@ -5990,7 +6002,8 @@
   "land.tiltRoll": "रोल",
   "land.tiltSquare": "सीधा",
   "land.cTiltUse": "उपयोग: /tilt <यॉ> <पिच> <रोल> डिग्री में, जैसे /tilt 40 0 15 — /tilt 0 0 0 टुकड़े को सीधा करता है।",
-  "land.cTilt": "हाथ के टुकड़े को घुमाएँ, डिग्री में"
+  "land.cTilt": "हाथ के टुकड़े को घुमाएँ, डिग्री में",
+  "land.fEngines": "इंजन {e} %"
  },
  "tr": {
   "land.notYours": "{p} arsası başkasına ait. Bir arsa satın al ya da sahibinden seni davet etmesini iste.",
@@ -6451,7 +6464,8 @@
   "land.tiltRoll": "Yatış",
   "land.tiltSquare": "Düz",
   "land.cTiltUse": "Kullanım: /tilt <sapma> <yunuslama> <yatış> derece olarak, ör. /tilt 40 0 15 — /tilt 0 0 0 parçayı düzeltir.",
-  "land.cTilt": "eldeki parçayı döndür, derece olarak"
+  "land.cTilt": "eldeki parçayı döndür, derece olarak",
+  "land.fEngines": "motorlar %{e}"
  },
  "id": {
   "land.notYours": "Petak {p} milik orang lain. Beli sebuah petak, atau minta pemiliknya mengundangmu.",
@@ -6912,7 +6926,8 @@
   "land.tiltRoll": "Roll",
   "land.tiltSquare": "Lurus",
   "land.cTiltUse": "Penggunaan: /tilt <yaw> <pitch> <roll> dalam derajat, mis. /tilt 40 0 15 — /tilt 0 0 0 meluruskan potongan.",
-  "land.cTilt": "putar potongan di tangan, dalam derajat"
+  "land.cTilt": "putar potongan di tangan, dalam derajat",
+  "land.fEngines": "mesin {e} %"
  },
  "vi": {
   "land.notYours": "Mảnh đất {p} thuộc về người khác. Hãy mua một mảnh, hoặc nhờ chủ của nó mời bạn.",
@@ -7373,7 +7388,8 @@
   "land.tiltRoll": "Lăn",
   "land.tiltSquare": "Thẳng",
   "land.cTiltUse": "Cách dùng: /tilt <lệch hướng> <chúc ngóc> <lăn> theo độ, vd. /tilt 40 0 15 — /tilt 0 0 0 đặt khối thẳng lại.",
-  "land.cTilt": "xoay khối đang cầm, theo độ"
+  "land.cTilt": "xoay khối đang cầm, theo độ",
+  "land.fEngines": "động cơ {e} %"
  },
  "pl": {
   "land.notYours": "Działka {p} należy do kogoś innego. Kup działkę albo poproś jej właściciela o zaproszenie.",
@@ -7834,6 +7850,7 @@
   "land.tiltRoll": "Przechylenie",
   "land.tiltSquare": "Prosto",
   "land.cTiltUse": "Użycie: /tilt <odchylenie> <pochylenie> <przechylenie> w stopniach, np. /tilt 40 0 15 — /tilt 0 0 0 prostuje element.",
-  "land.cTilt": "obróć element w ręce, w stopniach"
+  "land.cTilt": "obróć element w ręce, w stopniach",
+  "land.fEngines": "silniki {e} %"
  }
 }
