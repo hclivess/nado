@@ -455,6 +455,7 @@ function engineFrame(id, c, cam, now) {
     c.dust.quaternion.setFromUnitVectors(new THREE.Vector3(0, 0, 1), new THREE.Vector3(...fr.up));
     c.dust.rotateZ(now * 0.0004);
     const r = 4 + 7 * thr; c.dust.scale.set(r, r, 1);
+    c.dust.material.color.setScalar(1 - 0.8 * torchNight);   // dust is lit by the sky: unlit, it glowed like a floodlight at night
     c.dust.material.opacity = Math.min(0.85, 0.9 * k);
   }
 }

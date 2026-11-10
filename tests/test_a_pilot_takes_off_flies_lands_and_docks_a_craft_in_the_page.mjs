@@ -4,7 +4,8 @@
  * against the real world server (tests/_land_live_fixture.py) as a player on a phone, with the on-screen buttons:
  *   1. a small craft built on the owner's plot — a steel-plate hull, a pilot seat on it, two thrusters behind;
  *   (3b: a reload in the air brings the page back to the controls — 2026-11-10; 5: Use on a thruster, not the seat, boards it)
- *   2. Use on the seat takes the controls: the HUD says flying, with its thrust against its weight;
+ *   2. Use on the seat takes the controls: the HUD says flying, with its thrust against its weight; a visitor near is sent
+ *      the craft, its pieces and its engines' work (#171);
  *   3. holding Jump climbs — the HUD shows the height and the engines at full, and the world server holds the craft
  *      higher and its engines' work (it was told; #171);
  *   4. holding Down lands it; Use leaves it parked (no pilot); /dock sets it down as pieces on the plot again;
@@ -159,6 +160,29 @@ try {
   const crafts0 = (await getJ(`/land/api/crafts?face=${q.face}&u=${su}&v=${sv}`)).crafts;
   ok(crafts0.length === 1 && crafts0[0].pilot && crafts0[0].pieces.length === 4, "the world server holds one craft of four pieces, piloted");
   const h0 = crafts0[0].pose[3];
+  // 2b. another player's page — a visitor, signed out, in a browser context of its own — is sent the craft, its pieces and
+  // its engines' work, to draw it and its exhaust (#171)
+  {
+    const ctx = (await send(undefined, "Target.createBrowserContext", {})).result.browserContextId;
+    const t = await send(undefined, "Target.createTarget", { url: "about:blank", browserContextId: ctx });
+    const V = (await send(undefined, "Target.attachToTarget", { targetId: t.result.targetId, flatten: true })).result.sessionId;
+    for (const d of ["Runtime", "Page"]) await send(V, d + ".enable", {});
+    const cp = crafts0[0].pose, vu = cp[1] + 5, vv = cp[2] + 6, vh = Wd.column(q.face, Math.floor(vu), Math.floor(vv)).top + 1;
+    await send(V, "Page.navigate", { url: base + "/static/land-world.js" });
+    await until(V, "document.readyState === 'complete'");
+    await evl(V, `localStorage.setItem("nado_land_v1", JSON.stringify({ p: [${q.face}, ${vu}, ${vv}, ${vh}, ${Math.atan2(-5, -6)}, -0.3] })); true`);
+    // what its page is told, read off its own socket
+    await send(V, "Page.addScriptToEvaluateOnNewDocument", { source: "(() => { window.__crafts = []; const W0 = window.WebSocket; window.WebSocket = function (...a) { const w = new W0(...a); w.addEventListener('message', (e) => { try { const m = JSON.parse(e.data); if (m.t === 'players') for (const c of m.crafts || []) window.__crafts.push([c.id, c.pieces ? c.pieces.length : 0, c.eng]); } catch (x) {} }); return w; }; window.WebSocket.prototype = W0.prototype; Object.assign(window.WebSocket, W0); })();" });
+    await send(V, "Page.navigate", { url: base + "/" });
+    await send(V, "Page.bringToFront", {});                       // a hidden tab draws nothing and says nowhere it stands
+    await until(V, "window.__crafts && window.__crafts.some((c) => c[1] === 4) && window.__crafts.some((c) => c[2] && c[2][0] > 0)", 60000);
+    const told = await evl(V, "window.__crafts");
+    ok(told.some((c) => c[0] === crafts0[0].id && c[1] === 4), "a visitor near is sent the craft with its four pieces, to draw it");
+    ok(told.some((c) => c[0] === crafts0[0].id && c[2] && c[2][0] > 0 && c[2][0] <= 1), "…and its engines' work, to draw its exhaust: " + JSON.stringify(told.find((c) => c[2]) || null));
+    await send(undefined, "Target.closeTarget", { targetId: t.result.targetId });
+    await send(undefined, "Target.disposeBrowserContext", { browserContextId: ctx });
+    await send(B, "Page.bringToFront", {});
+  }
 
   // 3. hold Jump
   await evl(B, "document.getElementById('tJump').dispatchEvent(new Event('touchstart', { cancelable: true })), true");
