@@ -414,7 +414,13 @@
   "land.qReady": "Done — hand it in",
   "land.qFrom": "for {who}",
   "land.qDrop": "Drop",
-  "land.i.parcel": "Parcel"
+  "land.i.parcel": "Parcel",
+  "land.t.knife": "Stone knife",
+  "land.t.saw": "Saw",
+  "land.t.chisel": "Chisel",
+  "land.i.wheel": "Wheel",
+  "land.huntMiss": "A miss — the arrow fell short or wide.",
+  "land.noKnife": "Without a knife you took only the meat."
  },
  "cs": {
   "land.notYours": "Pozemek {p} patří někomu jinému. Kupte si pozemek, nebo požádejte jeho vlastníka o pozvání.",
@@ -831,7 +837,13 @@
   "land.qReady": "Hotovo — odevzdejte ho",
   "land.qFrom": "pro: {who}",
   "land.qDrop": "Zahodit",
-  "land.i.parcel": "Balík"
+  "land.i.parcel": "Balík",
+  "land.t.knife": "Kamenný nůž",
+  "land.t.saw": "Pila",
+  "land.t.chisel": "Dláto",
+  "land.i.wheel": "Kolo",
+  "land.huntMiss": "Vedle — šíp dopadl krátko nebo stranou.",
+  "land.noKnife": "Bez nože jste vzali jen maso."
  },
  "es": {
   "land.notYours": "La parcela {p} pertenece a otra persona. Compra una parcela o pide a su dueño que te invite.",
@@ -1248,7 +1260,13 @@
   "land.qReady": "Hecha: entrégala",
   "land.qFrom": "para {who}",
   "land.qDrop": "Abandonar",
-  "land.i.parcel": "Paquete"
+  "land.i.parcel": "Paquete",
+  "land.t.knife": "Cuchillo de piedra",
+  "land.t.saw": "Sierra",
+  "land.t.chisel": "Formón",
+  "land.i.wheel": "Rueda",
+  "land.huntMiss": "Fallo: la flecha se quedó corta o se desvió.",
+  "land.noKnife": "Sin cuchillo solo te llevaste la carne."
  },
  "pt": {
   "land.notYours": "O lote {p} pertence a outra pessoa. Compre um lote ou peça ao dono que convide você.",
@@ -1665,7 +1683,13 @@
   "land.qReady": "Feita — entregue-a",
   "land.qFrom": "para {who}",
   "land.qDrop": "Largar",
-  "land.i.parcel": "Embrulho"
+  "land.i.parcel": "Embrulho",
+  "land.t.knife": "Faca de pedra",
+  "land.t.saw": "Serra",
+  "land.t.chisel": "Formão",
+  "land.i.wheel": "Roda",
+  "land.huntMiss": "Falhou — a flecha ficou curta ou desviou-se.",
+  "land.noKnife": "Sem faca só levou a carne."
  },
  "fr": {
   "land.notYours": "La parcelle {p} appartient à quelqu'un d'autre. Achetez une parcelle ou demandez à son propriétaire de vous inviter.",
@@ -2082,7 +2106,13 @@
   "land.qReady": "Fait — à rendre",
   "land.qFrom": "pour {who}",
   "land.qDrop": "Abandonner",
-  "land.i.parcel": "Colis"
+  "land.i.parcel": "Colis",
+  "land.t.knife": "Couteau de pierre",
+  "land.t.saw": "Scie",
+  "land.t.chisel": "Ciseau",
+  "land.i.wheel": "Roue",
+  "land.huntMiss": "Raté — la flèche est tombée court ou à côté.",
+  "land.noKnife": "Sans couteau, vous n'avez pris que la viande."
  },
  "de": {
   "land.notYours": "Grundstück {p} gehört jemand anderem. Kauf dir ein Grundstück oder bitte den Besitzer um eine Einladung.",
@@ -2499,7 +2529,13 @@
   "land.qReady": "Erledigt — abgeben",
   "land.qFrom": "für {who}",
   "land.qDrop": "Verwerfen",
-  "land.i.parcel": "Paket"
+  "land.i.parcel": "Paket",
+  "land.t.knife": "Steinmesser",
+  "land.t.saw": "Säge",
+  "land.t.chisel": "Meißel",
+  "land.i.wheel": "Rad",
+  "land.huntMiss": "Daneben — der Pfeil fiel zu kurz oder ging vorbei.",
+  "land.noKnife": "Ohne Messer hast du nur das Fleisch genommen."
  },
  "it": {
   "land.notYours": "Il lotto {p} appartiene a qualcun altro. Compra un lotto o chiedi al proprietario di invitarti.",
@@ -2916,7 +2952,13 @@
   "land.qReady": "Fatta: consegnala",
   "land.qFrom": "per {who}",
   "land.qDrop": "Abbandona",
-  "land.i.parcel": "Pacco"
+  "land.i.parcel": "Pacco",
+  "land.t.knife": "Coltello di pietra",
+  "land.t.saw": "Sega",
+  "land.t.chisel": "Scalpello",
+  "land.i.wheel": "Ruota",
+  "land.huntMiss": "Mancato: la freccia è caduta corta o di lato.",
+  "land.noKnife": "Senza coltello hai preso solo la carne."
  },
  "ru": {
   "land.notYours": "Участок {p} принадлежит другому игроку. Купите участок или попросите владельца пригласить вас.",
@@ -3333,7 +3375,13 @@
   "land.qReady": "Готово — сдайте",
   "land.qFrom": "для: {who}",
   "land.qDrop": "Отказаться",
-  "land.i.parcel": "Посылка"
+  "land.i.parcel": "Посылка",
+  "land.t.knife": "Каменный нож",
+  "land.t.saw": "Пила",
+  "land.t.chisel": "Долото",
+  "land.i.wheel": "Колесо",
+  "land.huntMiss": "Промах — стрела не долетела или ушла в сторону.",
+  "land.noKnife": "Без ножа вы взяли только мясо."
  },
  "zh": {
   "land.notYours": "地块 {p} 属于别人。购买一块地，或请它的所有者邀请你。",
@@ -3750,7 +3798,13 @@
   "land.qReady": "已完成——去交付",
   "land.qFrom": "交给{who}",
   "land.qDrop": "放弃",
-  "land.i.parcel": "包裹"
+  "land.i.parcel": "包裹",
+  "land.t.knife": "石刀",
+  "land.t.saw": "锯",
+  "land.t.chisel": "凿子",
+  "land.i.wheel": "轮子",
+  "land.huntMiss": "没射中——箭落短了或偏了。",
+  "land.noKnife": "没有刀，你只拿到了肉。"
  },
  "ja": {
   "land.notYours": "区画 {p} は他の人のものです。区画を購入するか、所有者に招待してもらいましょう。",
@@ -4167,7 +4221,13 @@
   "land.qReady": "完了 — 渡しに行こう",
   "land.qFrom": "{who}へ",
   "land.qDrop": "破棄",
-  "land.i.parcel": "小包"
+  "land.i.parcel": "小包",
+  "land.t.knife": "石のナイフ",
+  "land.t.saw": "のこぎり",
+  "land.t.chisel": "のみ",
+  "land.i.wheel": "車輪",
+  "land.huntMiss": "外れ — 矢は届かないかそれた。",
+  "land.noKnife": "ナイフがないので肉しか取れませんでした。"
  },
  "ko": {
   "land.notYours": "구역 {p}은(는) 다른 사람의 땅입니다. 구역을 사거나 소유자에게 초대를 요청하세요.",
@@ -4584,7 +4644,13 @@
   "land.qReady": "완료 — 전달하세요",
   "land.qFrom": "받는 사람: {who}",
   "land.qDrop": "포기",
-  "land.i.parcel": "소포"
+  "land.i.parcel": "소포",
+  "land.t.knife": "돌칼",
+  "land.t.saw": "톱",
+  "land.t.chisel": "끌",
+  "land.i.wheel": "바퀴",
+  "land.huntMiss": "빗나감 — 화살이 짧거나 옆으로 떨어졌습니다.",
+  "land.noKnife": "칼이 없어 고기만 얻었습니다."
  },
  "ar": {
   "land.notYours": "القطعة {p} ملك لشخص آخر. اشترِ قطعة، أو اطلب من مالكها أن يدعوك.",
@@ -5001,7 +5067,13 @@
   "land.qReady": "اكتملت — سلّمها",
   "land.qFrom": "إلى {who}",
   "land.qDrop": "اترك",
-  "land.i.parcel": "طرد"
+  "land.i.parcel": "طرد",
+  "land.t.knife": "سكين حجرية",
+  "land.t.saw": "منشار",
+  "land.t.chisel": "إزميل",
+  "land.i.wheel": "عجلة",
+  "land.huntMiss": "أخطأت — سقط السهم قصيرًا أو جانبًا.",
+  "land.noKnife": "بلا سكين أخذت اللحم فقط."
  },
  "hi": {
   "land.notYours": "प्लॉट {p} किसी और का है। कोई प्लॉट खरीदें, या उसके मालिक से आपको आमंत्रित करने को कहें।",
@@ -5418,7 +5490,13 @@
   "land.qReady": "पूरी — सौंपें",
   "land.qFrom": "{who} के लिए",
   "land.qDrop": "छोड़ें",
-  "land.i.parcel": "पार्सल"
+  "land.i.parcel": "पार्सल",
+  "land.t.knife": "पत्थर का चाकू",
+  "land.t.saw": "आरी",
+  "land.t.chisel": "छेनी",
+  "land.i.wheel": "पहिया",
+  "land.huntMiss": "चूक — तीर कम पड़ा या भटक गया।",
+  "land.noKnife": "चाकू के बिना आपने सिर्फ़ मांस लिया।"
  },
  "tr": {
   "land.notYours": "{p} arsası başkasına ait. Bir arsa satın al ya da sahibinden seni davet etmesini iste.",
@@ -5835,7 +5913,13 @@
   "land.qReady": "Bitti — teslim et",
   "land.qFrom": "{who} için",
   "land.qDrop": "Bırak",
-  "land.i.parcel": "Paket"
+  "land.i.parcel": "Paket",
+  "land.t.knife": "Taş bıçak",
+  "land.t.saw": "Testere",
+  "land.t.chisel": "Keski",
+  "land.i.wheel": "Tekerlek",
+  "land.huntMiss": "Iska — ok kısa düştü ya da saptı.",
+  "land.noKnife": "Bıçak olmadan yalnızca eti aldınız."
  },
  "id": {
   "land.notYours": "Petak {p} milik orang lain. Beli sebuah petak, atau minta pemiliknya mengundangmu.",
@@ -6252,7 +6336,13 @@
   "land.qReady": "Selesai — serahkan",
   "land.qFrom": "untuk {who}",
   "land.qDrop": "Buang",
-  "land.i.parcel": "Paket"
+  "land.i.parcel": "Paket",
+  "land.t.knife": "Pisau batu",
+  "land.t.saw": "Gergaji",
+  "land.t.chisel": "Pahat",
+  "land.i.wheel": "Roda",
+  "land.huntMiss": "Meleset — anak panah jatuh terlalu dekat atau melenceng.",
+  "land.noKnife": "Tanpa pisau Anda hanya mengambil dagingnya."
  },
  "vi": {
   "land.notYours": "Mảnh đất {p} thuộc về người khác. Hãy mua một mảnh, hoặc nhờ chủ của nó mời bạn.",
@@ -6669,7 +6759,13 @@
   "land.qReady": "Xong — hãy nộp",
   "land.qFrom": "cho {who}",
   "land.qDrop": "Bỏ",
-  "land.i.parcel": "Bưu kiện"
+  "land.i.parcel": "Bưu kiện",
+  "land.t.knife": "Dao đá",
+  "land.t.saw": "Cưa",
+  "land.t.chisel": "Đục",
+  "land.i.wheel": "Bánh xe",
+  "land.huntMiss": "Trượt — mũi tên rơi ngắn hoặc lệch.",
+  "land.noKnife": "Không có dao, bạn chỉ lấy được thịt."
  },
  "pl": {
   "land.notYours": "Działka {p} należy do kogoś innego. Kup działkę albo poproś jej właściciela o zaproszenie.",
@@ -7086,6 +7182,12 @@
   "land.qReady": "Zrobione — oddaj je",
   "land.qFrom": "dla: {who}",
   "land.qDrop": "Porzuć",
-  "land.i.parcel": "Paczka"
+  "land.i.parcel": "Paczka",
+  "land.t.knife": "Kamienny nóż",
+  "land.t.saw": "Piła",
+  "land.t.chisel": "Dłuto",
+  "land.i.wheel": "Koło",
+  "land.huntMiss": "Pudło — strzała padła za blisko albo obok.",
+  "land.noKnife": "Bez noża wziąłeś tylko mięso."
  }
 }

@@ -5,8 +5,11 @@
  * animal where the walk can see it:
  *   1. a deer two and a half metres ahead is drawn; Break on it with no weapon says hunting needs a spear or a bow (the flax and flowers
  *      between take no strike: game is struck through them);
- *   2. with a spear: Break strikes it ("a hit — it runs"), and again until it falls — its meat, hide and bone are in the bag;
- *   3. a boar fifteen metres off: a spear does not reach it; with a bow and arrows Break strikes it and spends an arrow;
+ *   2. with a spear (and a knife): Break strikes it ("a hit — it turns on you"), and again until it falls — its meat, hide
+ *      and bone are in the bag;
+ *   3. a boar fifteen metres off: a spear does not reach it; with a bow and arrows Break looses an arrow along the look
+ *      (BALLISTICS #157: it flies and falls — at fifteen metres the drop is small) and it strikes the boar, spending an
+ *      arrow;
  *   4. no page errors.
  *
  * Run:  node tests/test_a_deer_is_hunted_with_a_spear_and_a_bow_in_the_page.mjs   (needs chrome, python3)
@@ -140,12 +143,18 @@ try {
   const alert = () => evl(B, "(document.getElementById('alertBar') || {}).textContent || ''");
   const bag = () => evl(B, "document.getElementById('tPal').click(), new Promise((r) => setTimeout(() => { const t = document.getElementById('palGrid').textContent; document.getElementById('palClose').click(); r(t); }, 700))");
   const count = (t, name) => Number((t.match(new RegExp("(\\d+) × " + name)) || [0, 0])[1]);
+  // every notice the page shows, as it shows it: a notice fades after 4.5 s, and on a headless page drawing under a frame
+  // a second the polls between can miss one entirely (the knife-and-arrows walk, 2026-11-10)
+  const watchNotices = () => evl(B, `(() => { if (window.__notices) return true; window.__notices = [];
+    new MutationObserver(() => { const e = document.getElementById('alertBar'); if (e && e.textContent) window.__notices.push(e.textContent); })
+      .observe(document.body, { childList: true, subtree: true, characterData: true }); return true; })()`);
   const strike = async (want) => {
-    // (cleared, never removed: the page keeps writing to the bar it made — a removed one is a detached element)
-    await evl(B, "(() => { const e = document.getElementById('alertBar'); if (e) e.textContent = ''; return true; })()");
+    await watchNotices();
+    const n0 = await evl(B, "window.__notices.length");
     await evl(B, "document.getElementById('tBreak').click(), true");
-    await until(B, `${JSON.stringify(want)}.some((w) => ((document.getElementById('alertBar') || {}).textContent || '').includes(w))`, 30000);                                                            // (a loaded headless page answers in seconds)
-    const t = await alert(); await sleep(1100);                     // (a strike costs work: the next waits its turn)
+    await until(B, `window.__notices.slice(${n0}).some((t) => ${JSON.stringify(want)}.some((w) => t.includes(w)))`, 30000);
+    const t = await evl(B, `window.__notices.slice(${n0}).find((t) => ${JSON.stringify(want)}.some((w) => t.includes(w))) || ""`);
+    await sleep(1100);                                              // (a strike costs work: the next waits its turn)
     return t;
   };
   const deer = await getJ(`/fixture/animal?kind=deer&u=${F.u + 0.5}&v=${F.v + 3}`);
@@ -159,7 +168,7 @@ try {
   ok(/Hunting needs a spear or a bow/.test(said), "Break on a deer with no weapon says hunting needs a spear or a bow: " + said);
 
   // 2. a spear
-  await getJ("/fixture/seed?who=owner&items=" + encodeURIComponent(JSON.stringify({})) + "&tools=" + encodeURIComponent(JSON.stringify(["spear"])));
+  await getJ("/fixture/seed?who=owner&items=" + encodeURIComponent(JSON.stringify({})) + "&tools=" + encodeURIComponent(JSON.stringify(["spear", "knife"])));   // (hide and bone need a knife, #157)
   await sleep(800);
   said = await strike(["A hit", "You hunted", "Too far"]);
   ok(/A hit — the deer turns on you!/.test(said), "with a spear, Break strikes the deer — and it turns on the hunter (#162): " + said);
@@ -177,8 +186,8 @@ try {
   ok(/Too far/.test(said), "a spear does not reach a boar 15 m off: " + said);
   await getJ("/fixture/seed?who=owner&items=" + encodeURIComponent(JSON.stringify({ arrow: 3 })) + "&tools=" + encodeURIComponent(JSON.stringify(["spear", "bow"])));
   await sleep(800);
-  said = await strike(["A hit", "You hunted", "Too far", "No arrows"]);
-  ok(/A hit — the boar turns on you!/.test(said), "with a bow, Break strikes the boar from 15 m: " + said);
+  said = await strike(["A hit", "You hunted", "Too far", "No arrows", "A miss"]);
+  ok(/A hit — the boar turns on you!/.test(said), "with a bow, Break looses an arrow that flies to the boar 15 m off and strikes it: " + said);
   let arrows = -1;
   for (let i = 0; i < 10 && arrows !== 2; i++) { arrows = count(await bag(), "Arrow"); if (arrows !== 2) await sleep(1500); }
   ok(arrows === 2, "…and spends an arrow (" + arrows + " left of 3)");

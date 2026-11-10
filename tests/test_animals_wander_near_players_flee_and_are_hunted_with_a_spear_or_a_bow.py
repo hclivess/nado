@@ -5,9 +5,9 @@
   * they come to where players are: up to per_area within area metres of a player present, 18-40 m off, on dry land,
     of the kinds the ground's biome holds; and they are gone when no player is near;
   * they wander, and run from a player who comes within flee metres;
-  * hunting: nothing without a weapon; a spear strikes only within its reach; a bow strikes far but spends an arrow and
-    does nothing without one; a strike costs work; at 0 hp the animal is gone and its meat, hide and bone are in the
-    hunter's bag — over HTTP (an agent) as over the socket;
+  * hunting: nothing without a weapon; a spear strikes only within its reach; a bow shoots instead (its arrows fly:
+    tests/test_an_arrow_flies_falls_and_can_miss_and_a_knife_and_a_saw_do_their_work.py); a strike costs work; at 0 hp
+    the animal is gone and its meat, hide and bone (with a knife) are in the hunter's bag — over HTTP as over the socket;
   * what game gives is used: meat is cooked at the campfire and eaten (a meal); hide and lime tan into leather at a
     tanning rack; a spear, a bow and arrows are made from what bare hands gather.
 
@@ -118,6 +118,7 @@ async def main():
         r = await (await api("/land/api/craft", {"recipe": rid})).json()
         check(f"{'arrows are' if rid == 'arrow' else 'a ' + rid + ' is'} made from what bare hands gather", r["ok"], r)
     pl["tools"].remove("bow"); pl["items"].pop("arrow", None)
+    pl["tools"].append("knife")                                     # (hide and bone need one: #157)
     world.workb.clear()
     a["u"] = pos[1] + 10
     r = await (await api("/land/api/hunt", {"id": a["id"]})).json()
@@ -138,19 +139,11 @@ async def main():
     r = await (await api("/land/api/hunt", {"id": b["id"]})).json()
     check("a strike costs work: no strikes faster than a hand", not r["ok"] and "fast" in r["error"], r)
 
-    # the bow: far, and only with an arrow
+    # the bow shoots instead of striking (BALLISTICS, #157: tests/test_an_arrow_flies_falls_and_can_miss…)
     pl["tools"].remove("spear"); pl["tools"].append("bow")
     world.workb.clear()
-    b["u"], b["hp"] = pos[1] + 20, 99
     r = await (await api("/land/api/hunt", {"id": b["id"]})).json()
-    check("a bow without arrows shoots nothing", not r["ok"] and "arrows" in r["error"], r)
-    pl["items"]["arrow"] = 2
-    r = await (await api("/land/api/hunt", {"id": b["id"]})).json()
-    check("a bow strikes an animal 20 m off and spends an arrow", r["ok"] and r["hit"] == b["kind"] and items().get("arrow") == 1 and b["hp"] == 99 - HN["weapons"]["bow"]["damage"], r)
-    world.workb.clear()
-    b["u"] = pos[1] + HN["weapons"]["bow"]["reach"] + 5
-    r = await (await api("/land/api/hunt", {"id": b["id"]})).json()
-    check("…but not beyond its reach", not r["ok"] and items().get("arrow") == 1, r)
+    check("a bow does not strike like a spear: it shoots", not r["ok"] and "shoots" in r["error"], r)
     r = await (await api("/land/api/hunt", {"id": 999999})).json()
     check("an animal that is gone cannot be hunted", not r["ok"], r)
 

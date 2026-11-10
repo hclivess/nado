@@ -419,6 +419,9 @@
   "parcel": {
    "name": "Parcel",
    "quest": true
+  },
+  "wheel": {
+   "name": "Wheel"
   }
  },
  "tools": {
@@ -515,6 +518,21 @@
   "bow": {
    "name": "Bow",
    "class": "bow",
+   "speed": 1
+  },
+  "knife": {
+   "name": "Stone knife",
+   "class": "knife",
+   "speed": 1
+  },
+  "saw": {
+   "name": "Saw",
+   "class": "saw",
+   "speed": 1
+  },
+  "chisel": {
+   "name": "Chisel",
+   "class": "chisel",
    "speed": 1
   }
  },
@@ -3364,6 +3382,136 @@
    "with": [
     "mint"
    ]
+  },
+  {
+   "id": "knife",
+   "makes": [
+    [
+     "knife",
+     1
+    ]
+   ],
+   "uses": [
+    [
+     "stone",
+     2
+    ],
+    [
+     "sticks",
+     1
+    ],
+    [
+     "cordage",
+     1
+    ]
+   ]
+  },
+  {
+   "id": "saw",
+   "makes": [
+    [
+     "saw",
+     1
+    ]
+   ],
+   "uses": [
+    [
+     "iron",
+     2
+    ],
+    [
+     "planks",
+     1
+    ]
+   ],
+   "with": [
+    "anvil",
+    "hammer"
+   ]
+  },
+  {
+   "id": "chisel",
+   "makes": [
+    [
+     "chisel",
+     1
+    ]
+   ],
+   "uses": [
+    [
+     "iron",
+     1
+    ],
+    [
+     "sticks",
+     1
+    ]
+   ],
+   "with": [
+    "anvil",
+    "hammer"
+   ]
+  },
+  {
+   "id": "planks_saw",
+   "makes": [
+    [
+     "planks",
+     6
+    ]
+   ],
+   "uses": [
+    [
+     "wood",
+     1
+    ]
+   ],
+   "with": [
+    "workbench",
+    "saw"
+   ]
+  },
+  {
+   "id": "beam_saw",
+   "makes": [
+    [
+     "beam",
+     2
+    ]
+   ],
+   "uses": [
+    [
+     "wood",
+     1
+    ]
+   ],
+   "with": [
+    "workbench",
+    "saw"
+   ]
+  },
+  {
+   "id": "wheel",
+   "makes": [
+    [
+     "wheel",
+     1
+    ]
+   ],
+   "uses": [
+    [
+     "planks",
+     4
+    ],
+    [
+     "iron",
+     1
+    ]
+   ],
+   "with": [
+    "workbench",
+    "chisel"
+   ]
   }
  ],
  "wilderness_regrow_s": 900,
@@ -3465,7 +3613,7 @@
   }
  },
  "hunting": {
-  "about": "HUNTING (#156, doc/land-civilisation.md): animals wander the wilderness near players — the world server keeps them (scripts/land_server.py herd): up to per_area within area metres of each player, spawned 18-40 m away on dry land by the biome's kinds, wandering, and fleeing at full speed from a player within flee metres; gone when no player is within keep metres. A weapon strikes one within its reach (a spear close, a bow far, spending an arrow); a strike costs strike_s of work; at 0 hp it drops its items into the hunter's bag. Animals only — weapons never touch a player. AGGRESSION (#162, operator: \"add aggressive deer and death/respawn mechanism\"): a share of each kind (angry) charge a player within charge metres and strike within strike_reach every strike_s for its damage; any animal struck by a hunter fights back the same way if its kind has damage.",
+  "about": "HUNTING (#156, doc/land-civilisation.md): animals wander the wilderness near players — the world server keeps them (scripts/land_server.py herd): up to per_area within area metres of each player, spawned 18-40 m away on dry land by the biome's kinds, wandering, and fleeing at full speed from a player within flee metres; gone when no player is within keep metres. A weapon strikes one within its reach (a spear close, a bow far, spending an arrow); a strike costs strike_s of work; at 0 hp it drops its items into the hunter's bag. Animals only — weapons never touch a player. AGGRESSION (#162, operator: \"add aggressive deer and death/respawn mechanism\"): a share of each kind (angry) charge a player within charge metres and strike within strike_reach every strike_s for its damage; any animal struck by a hunter fights back the same way if its kind has damage. BALLISTICS AND THE KNIFE (#157, operator: \"ballistics? bow and arrow? knife? carpentry tools?\"): a bow shoots an arrow along the player's look at `draw` m/s; it falls under g, takes its time to arrive and hits an animal only where the animal is when the arrow gets there — a running one must be led, a far one aimed above; an arrow that misses lands, and some (`recover`) can be picked up where they fell for drop_s seconds. A kill gives its meat to anyone; its `butcher` items (hide, bone) only to a hunter with a knife.",
   "per_area": 5,
   "area": 48,
   "keep": 96,
@@ -3570,7 +3718,19 @@
   },
   "charge": 12,
   "strike_reach": 1.8,
-  "strike_every_s": 1.5
+  "strike_every_s": 1.5,
+  "butcher": [
+   "hide",
+   "bone"
+  ],
+  "ballistics": {
+   "draw": 45,
+   "g": 9.8,
+   "pad": 0.15,
+   "recover": 0.6,
+   "drop_s": 600,
+   "pickup": 2.5
+  }
  },
  "market": {
   "about": "MARKETS (#161, doc/land-civilisation.md; operator 2026-11-09: \"local markets first, global only with the invention of the internet\", \"trading stands\"). An offer is made standing at a trading stand (within at metres of one) and lives there; it is seen and taken only by a player standing at a stand within reach metres of it — the stands of one market. A gift is handed over in person (within hand metres). On every offer taken the maker receives what it asked for less fee of each item (rounded down) — a sink that grows with trade itself. PRICES (#163: \"we need currencies of all types so we need a flexible value system based on supply and demand\"): every offer taken is a trade on the record; the going rate of X in Y at a market is the volume-weighted ratio of the market's trades of X for Y within window_s, each weighing half as much every half_life_s; X and Y that never traded directly are priced through the items that link them, the best-traded path first. No item has a fixed price — coins included: a coin is worth what the market gives for it.",

@@ -1074,6 +1074,7 @@ function connect() {
       craftsSeen(m.crafts);
       animalsSeen(m.animals);
       npcsSeen(m.npcs);
+      dropsSeen(m.drops);
     } else if (m.t === "talk") {
       if (talkingTo && (!m.npc || m.npc === talkingTo)) renderNpc(m);
     } else if (m.t === "quest") {
@@ -1086,16 +1087,21 @@ function connect() {
       showHp(m.hp); const f = $("hurtFlash"); f.classList.add("on"); setTimeout(() => f.classList.remove("on"), 120);
     } else if (m.t === "died") {
       died(m.by, m.bed);
+    } else if (m.t === "shoot" || m.t === "pickup") {
+      if (m.t === "shoot" && m.flight) {
+        // the server's arrow ended after `flight` seconds (in a body, or on the ground): the page's own arrow stops there
+        const a = arrowsInFlight[arrowsInFlight.length - 1];
+        if (a) a.until = Math.min(a.until, m.flight);
+      }
+      if (m.error && m.error !== "it is gone" && m.error !== "too far away" && m.error !== "too fast") notify(m.error === "no arrows" ? T("huntArrows", "No arrows — make some from sticks, stone and fiber.") : String(m.error));
+      else if (m.t === "shoot" && !m.error) huntSaid(m);
     } else if (m.t === "hunt") {
       // the strike's answer: a miss the world server explains, a hit (it runs), or game for the bag
       if (m.error === "too far away") notify(T("huntFar", "Too far — get closer, or use a bow."));
       else if (m.error === "no arrows") notify(T("huntArrows", "No arrows — make some from sticks, stone and fiber."));
       else if (m.error === "hunting needs a spear or a bow") notify(T("huntNeeds", "Hunting needs a spear or a bow."));
       else if (m.error && m.error !== "too fast" && m.error !== "it is gone") notify(String(m.error));
-      else if (m.killed) notify(T("huntKilled", "You hunted a {a}.", { a: animalName(m.killed) }));
-      // a deer or a boar struck turns on the hunter (#162); a rabbit runs
-      else if (m.hit) notify((RULES.hunting.species[m.hit] || {}).damage ? T("huntHitFight", "A hit — the {a} turns on you!", { a: animalName(m.hit) })
-                                                                          : T("huntHit", "A hit — the {a} runs!", { a: animalName(m.hit) }));
+      else huntSaid(m);
     } else if (m.t === "machine") {
       if (machine && m.plot === machine.plot) renderMachine(m);
     } else if (m.t === "craft_ok") {
@@ -1406,18 +1412,85 @@ function renderNpc(m) {
   g.querySelectorAll("[data-qaccept]").forEach((b) => { b.onclick = () => net.send({ t: "quest", op: "accept", npc: talkingTo, id: b.dataset.qaccept, req: ++net.req }); });
   g.querySelectorAll("[data-turnin]").forEach((b) => { b.onclick = () => net.send({ t: "quest", op: "turnin", npc: talkingTo, id: b.dataset.turnin, req: ++net.req }); });
 }
+/** What a strike or an arrow did, in the player's language. */
+function huntSaid(m) {
+  const H = RULES.hunting;
+  if (m.killed) {
+    const butchered = (H.species[m.killed].drops || []).some(([i]) => (H.butcher || []).includes(i));
+    notify(T("huntKilled", "You hunted a {a}.", { a: animalName(m.killed) }) + (!m.knife && butchered ? " " + T("noKnife", "Without a knife you took only the meat.") : ""));
+  } else if (m.hit) {
+    notify((H.species[m.hit] || {}).damage ? T("huntHitFight", "A hit — the {a} turns on you!", { a: animalName(m.hit) }) : T("huntHit", "A hit — the {a} runs!", { a: animalName(m.hit) }));
+  } else if (m.end) notify(T("huntMiss", "A miss — the arrow fell short or wide."));
+}
 const animalName = (k) => T("a." + k, { deer: "deer", boar: "boar", rabbit: "rabbit" }[k] || k);
-/** Break on an animal: a strike, if there is a weapon that reaches it (the world server judges it again). */
+/** Break on an animal: a spear strike when it is within the spear's reach; else, with a bow, an arrow loosed along the
+ *  look (BALLISTICS #157: it flies, falls and can miss — the world server flies it again and judges the hit). */
 function huntAt(an) {
   const H = RULES && RULES.hunting;
   if (!H) return false;
   const spear = hasClass("spear"), bow = hasClass("bow");
   if (!spear && !bow) { notify(T("huntNeeds", "Hunting needs a spear or a bow.")); return true; }
-  const canSpear = spear && an.d <= H.weapons.spear.reach, canBow = bow && an.d <= H.weapons.bow.reach;
-  if (!canSpear && !canBow) { notify(T("huntFar", "Too far — get closer, or use a bow.")); return true; }
-  if (!canSpear && !(inv.items.arrow > 0)) { notify(T("huntArrows", "No arrows — make some from sticks, stone and fiber.")); return true; }
-  net.send({ t: "hunt", id: an.id, req: ++net.req });
+  if (spear && an.d <= H.weapons.spear.reach) { net.send({ t: "hunt", id: an.id, req: ++net.req }); return true; }
+  if (!bow) { notify(T("huntFar", "Too far — get closer, or use a bow.")); return true; }
+  return loose();
+}
+// ---- BALLISTICS (#157, "ballistics? bow and arrow? knife? carpentry tools?", operator 2026-11-09): an arrow leaves the
+// eye along the look at the bow's draw speed and falls under gravity — the page flies one to show it, the world server
+// flies its own and says what it hit (a running animal must be led, a far one aimed above). Arrows that missed lie where
+// they fell for a while; walking over one picks it up.
+const arrowsInFlight = [];                       // { mesh, o, vel, t0, until }
+let arrowGeo = null;
+function arrowMesh() {
+  const g = new THREE.Group();
+  const shaft = new THREE.Mesh(new THREE.CylinderGeometry(0.008, 0.008, 0.7, 5), new THREE.MeshLambertMaterial({ color: 0x9a7a52 }));
+  shaft.rotation.x = Math.PI / 2; g.add(shaft);
+  const tip = new THREE.Mesh(new THREE.ConeGeometry(0.018, 0.06, 6), new THREE.MeshLambertMaterial({ color: 0x777777 }));
+  tip.rotation.x = Math.PI / 2; tip.position.z = 0.38; g.add(tip);
+  const fl = new THREE.Mesh(new THREE.BoxGeometry(0.05, 0.002, 0.1), new THREE.MeshLambertMaterial({ color: 0xd8d0c0 }));
+  fl.position.z = -0.32; g.add(fl);
+  return g;
+}
+function loose() {
+  if (!(inv.items.arrow > 0)) { notify(T("huntArrows", "No arrows — make some from sticks, stone and fiber.")); return true; }
+  const B = RULES.hunting.ballistics, cp = Math.cos(P.pitch);
+  const vel = [B.draw * cp * Math.sin(P.yaw), B.draw * cp * Math.cos(P.yaw), B.draw * Math.sin(P.pitch)];
+  const m = arrowMesh(); scene.add(m);
+  arrowsInFlight.push({ mesh: m, o: [P.u, P.v, P.h + 1.5], vel, t0: performance.now(), until: 4, face: P.face });
+  net.send({ t: "shoot", yaw: P.yaw, pitch: P.pitch, req: ++net.req });
   return true;
+}
+function arrowsFrame(now, cam) {
+  const g = RULES && RULES.hunting ? RULES.hunting.ballistics.g : 9.8;
+  for (let i = arrowsInFlight.length - 1; i >= 0; i--) {
+    const a = arrowsInFlight[i], t = (now - a.t0) / 1000;
+    if (t >= a.until) { scene.remove(a.mesh); arrowsInFlight.splice(i, 1); continue; }
+    const p = [a.o[0] + a.vel[0] * t, a.o[1] + a.vel[1] * t, a.o[2] + a.vel[2] * t - g * t * t / 2];
+    const q = Wd.posOf(a.face, p[0], p[1], p[2]), dt = 0.02;
+    const p2 = [p[0] + a.vel[0] * dt, p[1] + a.vel[1] * dt, p[2] + (a.vel[2] - g * t) * dt], q2 = Wd.posOf(a.face, p2[0], p2[1], p2[2]);
+    a.mesh.position.set(q[0] - cam[0], q[1] - cam[1], q[2] - cam[2]);
+    a.mesh.lookAt(q2[0] - cam[0], q2[1] - cam[1], q2[2] - cam[2]);
+  }
+}
+const groundArrows = new Map();                  // drop id -> { mesh, u, v, h, asked }
+function dropsSeen(list) {
+  const seen = new Set();
+  for (const [id, item, u, v, h] of list || []) {
+    seen.add(id);
+    if (!groundArrows.has(id)) { const m = arrowMesh(); scene.add(m); groundArrows.set(id, { mesh: m, u, v, h, item }); }
+  }
+  for (const [id, r] of groundArrows) if (!seen.has(id)) { scene.remove(r.mesh); groundArrows.delete(id); }
+}
+function dropsFrame(now, cam) {
+  const reach = RULES && RULES.hunting ? RULES.hunting.ballistics.pickup : 2.5;
+  for (const [id, r] of groundArrows) {
+    const q = Wd.posOf(P.face, r.u, r.v, r.h + 0.05), q2 = Wd.posOf(P.face, r.u + 0.3, r.v + 0.2, r.h + 0.12);   // stuck in at a slant
+    r.mesh.position.set(q[0] - cam[0], q[1] - cam[1], q[2] - cam[2]);
+    r.mesh.lookAt(q2[0] - cam[0], q2[1] - cam[1], q2[2] - cam[2]);
+    // walking over one picks it up (asked once a second at most)
+    if (net.me && Math.hypot(r.u - P.u, r.v - P.v) < Math.min(1.5, reach) && (!r.asked || now - r.asked > 1000)) {
+      r.asked = now; net.send({ t: "pickup", id, req: ++net.req });
+    }
+  }
 }
 /** One of FACES kawaii faces on skin colour `skin`, 64 px: 0 sparkly eyes and a smile, 1 happy closed eyes (^ ^),
  *  2 a wink, 3 a cat mouth (:3), 4 sleepy, 5 surprised. Big dark eyes with white glints, pink blush, a small mouth. */
@@ -2019,6 +2092,9 @@ function act(place, mouse) {
   if (!net.me) return notify(T("signInBuild2", "Sign in to gather and build."));
   if (!place) { const an = animalAimed(RULES && RULES.hunting ? RULES.hunting.weapons.bow.reach : 30); if (an && huntAt(an)) return; }   // game first (#156)
   const a = aim();
+  // nothing within reach to break, a bow in the bag: Break looses an arrow along the look — aimed above a far animal, or
+  // ahead of a running one (#157)
+  if (!a && !place && hasClass("bow")) return loose();
   if (!a) return;
   if (place) {
     const id = hot[slot];
@@ -2808,7 +2884,7 @@ function frame(now) {
   for (const m of [farMesh, farSea, borderMesh]) if (m) { const a = m.userData.anchor; m.position.set(a[0] - cam[0], a[1] - cam[1], a[2] - cam[2]); }
   for (const c of crafts.values()) if (c.pose) craftPlace(c.mesh, c.pose, cam);
   animalsFrame(Math.min(0.1, (now - (frame.lastAnimals || now)) / 1000), cam); frame.lastAnimals = now;
-  npcsFrame(cam);
+  npcsFrame(cam); arrowsFrame(now, cam); dropsFrame(now, cam);
   for (const r of others.values()) {
     if (!r.p) continue;
     const [f, u, v, h, yaw] = r.p, q = Wd.posOf(f, u, v, h), ofr = Wd.frameOf(f, u, v);

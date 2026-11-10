@@ -125,7 +125,7 @@ const shot = async (sid, name) => {
 };
 try {
   const PAid = (await getJ("/fixture/plot")).plot;
-  await getJ("/fixture/seed?who=owner&items=" + encodeURIComponent(JSON.stringify({ smelter: 1, generator: 1, chest: 2, ironore: 4, charcoal: 4, coal: 1 })) + "&tools=" + encodeURIComponent(JSON.stringify(["pick"])));
+  await getJ("/fixture/seed?who=owner&items=" + encodeURIComponent(JSON.stringify({ smelter: 1, generator: 1, chest: 2, ironore: 4, charcoal: 4, coal: 1 })) + "&tools=" + encodeURIComponent(JSON.stringify(["pick", "axe"])));   // the axe fells a tree by the site (below)
   const { token } = await getJ("/fixture/owner_token");
   // 1. on a flat site: smelter and its chest, then 3 m north the generator and its chest
   let site = null;
@@ -138,6 +138,23 @@ try {
       site = { du, dv, top: Math.max(...tops) };
   }
   ok(!!site, "an open site for the factory");
+  // the owner clears the bushes around it: the meadow is thick with them, and leaves just off the site, where the
+  // player stands to look in, took the aim off the smelter (2026-11-10, "Aiming at Leaves") though the site was open
+  const brush = [];
+  for (let cu = Math.max(0, site.du - 3); cu < Math.min(16, site.du + 6); cu++) for (let cv = Math.max(0, site.dv - 3); cv < Math.min(16, site.dv + 9); cv++) {
+    const t = Wd.column(q.face, q.u0 + cu, q.v0 + cv).top;
+    for (let k = 1; k <= 4; k++) if (Wd.BLOCKS[Wd.terrainBlock(q.face, q.u0 + cu, q.v0 + cv, t + k)].solid) brush.push([q.face, q.u0 + cu, q.v0 + cv, t + k, 0]);
+  }
+  let cleared = brush.length ? null : { refused: [] };
+  for (let t = 0; t < 40 && brush.length; t++) {
+    cleared = await (await fetch(base + "/land/api/set", { method: "POST", headers: { "Content-Type": "application/json", Authorization: "Bearer " + token },
+      body: JSON.stringify({ cells: brush }) })).json();
+    // a cell the server already holds empty ("nothing here that can be gathered") is as clear as one just cleared
+    cleared.refused = cleared.refused.filter(([, why]) => !/nothing here/.test(why));
+    if (!cleared.refused.length) break;
+    await sleep(400);
+  }
+  ok(cleared && !cleared.refused.length, `the bushes around it are cleared (${brush.length} blocks): ` + JSON.stringify(cleared && cleared.refused).slice(0, 200));
   const X = site.du * 100, Z = site.dv * 100, Y = (site.top + 1) * 100;
   const smelter = [X, Z, Y, 100, 100, 120, 67], chestA = [X + 100, Z + 25, Y, 90, 50, 55, 54];
   const gen = [X, Z + 300, Y, 100, 100, 120, 69], chestB = [X + 100, Z + 325, Y, 90, 50, 55, 54];

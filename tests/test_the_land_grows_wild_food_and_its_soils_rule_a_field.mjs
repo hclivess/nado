@@ -19,7 +19,10 @@
  *   8. CURRENCIES (#163): a mint is reached from bare hands; it strikes coins only from mined metal; no item carries a
  *      fixed price anywhere in the rules; the board speaks 17 languages;
  *   9. QUESTS (#165): the NPCs stand on the town's street; every bring quest asks for an item the land yields or bare
- *      hands make, every hunt quest for game that lives here; a delivery is worth less than work; 17 languages.
+ *      hands make, every hunt quest for game that lives here; a delivery is worth less than work; 17 languages;
+ *  10. BALLISTICS, THE KNIFE, CARPENTRY (#157): a knife, a saw, a chisel and a wheel are reached from bare hands; a saw
+ *      yields more from a log than the workbench alone; the knife's items are real drops; the arrow is physical (a
+ *      draw speed, gravity); 17 languages.
  *
  * Run: node tests/test_the_land_grows_wild_food_and_its_soils_rule_a_field.mjs
  */
@@ -180,6 +183,15 @@ ok(Qr.xp.deliver < Qr.xp.bring && Qr.xp.deliver < Qr.xp.hunt && Qr.reward_share 
 const keys9 = ["land.npc.elder", "land.npc.trader", "land.npc.smith", "land.qBring", "land.qHunt", "land.qDeliver", "land.qTurnIn", "land.qAccept", "land.qDone", "land.qPaid", "land.level", "land.qLog", "land.qDrop", "land.i.parcel"];
 ok(langs.every((l) => keys9.every((k) => L10N[l][k])) && langs.every((l) => L10N[l]["land.qBring"].includes("{n}") && L10N[l]["land.qBring"].includes("{i}") && L10N[l]["land.qDone"].includes("{x}")),
    "the quests speak all 17 languages, placeholders kept");
+
+// 10. ballistics, the knife, carpentry
+const yieldOf = (id) => (R.recipes.find((r) => r.id === id) || { makes: [[null, 0]] }).makes[0][1];
+ok(tools.has("knife") && tools.has("saw") && tools.has("chisel") && have.has("wheel"), "a knife, a saw, a chisel and a wheel are reached from bare hands");
+ok(yieldOf("planks_saw") > yieldOf("planks") && yieldOf("beam_saw") > yieldOf("beam"), "a saw cuts more from a log than the workbench alone");
+ok(Hn.butcher.every((i) => Object.values(Hn.species).some((sp) => sp.drops.some(([d]) => d === i))) && !Hn.butcher.includes("meat"), "a knife is needed for hide and bone, never for the meat");
+ok(Hn.ballistics.draw > 20 && Hn.ballistics.g > 9 && Hn.ballistics.g < 10.5 && Hn.ballistics.recover > 0 && Hn.ballistics.recover < 1, "an arrow is physical: a draw speed and the planet's gravity; some are found again");
+const keys10 = ["land.t.knife", "land.t.saw", "land.t.chisel", "land.i.wheel", "land.huntMiss", "land.noKnife"];
+ok(langs.every((l) => keys10.every((k) => L10N[l][k])), "the knife, the saw, the chisel, the wheel and the arrow's misses speak all 17 languages");
 
 if (fails) { console.log(`${fails} FAILURES`); process.exit(1); }
 console.log("ALL PASS");

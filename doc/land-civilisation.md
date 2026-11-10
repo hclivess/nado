@@ -139,7 +139,12 @@ The genre's mechanics, in this world's own names and look (no other game's chara
   deliver), a quest log, experience and levels; rewards from the TOWN TREASURY (the market's share and what quests
   bring in) — nothing from nothing, and a delivery pays experience only. Next: the trader trading at going rates, the
   smith teaching, more quest givers, parties.
-* Next: ballistics, a knife, carpentry (#157);
-  research (#164) waits for the operator.
+* **ballistics, a knife, carpentry, part 1 — built** (#157): an arrow leaves the bow at 45 m/s and falls under gravity;
+  the world server flies it in 0.02 s steps against where the animal runs, so a far or running target can be missed;
+  the page draws it in flight, and a spent arrow lies where it fell for 10 minutes (60% come back) to be walked over and
+  picked up. A stone knife: a kill gives hide and bone only to a hunter carrying one. A saw cuts 6 planks from a log
+  (without one: 4) and beams; a chisel makes a wheel of planks and iron. Next: a thrown spear, the plane and the mallet,
+  furniture, doors and windows.
+* Next: research (#164) waits for the operator.
 
 Order: slice 1 first (one piece at a time, each live before the next), then 2, then the rest as listed.

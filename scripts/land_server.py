@@ -372,6 +372,7 @@ class World:
         self.cdirty = False
         # HUNTING (#156): the animals near players — the world server's own, never saved (they wander off and others come)
         self.animals, self.animal_seq, self.rng = {}, 0, random.Random()
+        self.drops, self.drop_seq = {}, 0                 # things lying on the ground to pick up: arrows that missed (#157)
         self.http = self.oracle = None
         self.shots = os.path.join(self.dir, "shots")      # <plot>.jpg + <plot>.json {"ver", "at"} (THE LISTING)
         os.makedirs(self.shots, exist_ok=True)
@@ -831,8 +832,9 @@ class World:
         return None
 
     def hunt(self, who, aid, pos):
-        """A strike at animal `aid` from `pos` (where the hunter stands): a spear within its reach, else a bow within its
-        reach spending an arrow; a strike costs strike_s of work. Returns ({"hit", "killed", "drops"}, error)."""
+        """A spear strike at animal `aid` from `pos` (where the hunter stands), within the spear's reach; a strike costs
+        strike_s of work. A bow does not strike: it shoots (loose_arrow(), BALLISTICS #157 — not shoot(), which photographs a plot). Returns ({"hit", "killed",
+        "drops"}, error)."""
         Hn = RULES["hunting"]
         a = self.animals.get(aid) if isinstance(aid, int) and not isinstance(aid, bool) else None
         if not a:
@@ -840,42 +842,109 @@ class World:
         if not pos or pos[0] != a["face"]:
             return None, "too far away"
         pl = self.player(who)
+        if not self._has_class(pl, "spear"):
+            return None, ("a bow shoots — aim and loose" if self._has_class(pl, "bow") else "hunting needs a spear or a bow")
         d = math.hypot(a["u"] - pos[1], a["v"] - pos[2], a["h"] + 0.5 - (pos[3] + 1.5))
-        weapon = None
-        for w in ("spear", "bow"):
-            spec = Hn["weapons"][w]
-            if self._has_class(pl, w) and d <= spec["reach"] and (not spec.get("ammo") or pl["items"].get(spec["ammo"], 0) > 0):
-                weapon = w
-                break
-        if not weapon:
-            if not (self._has_class(pl, "spear") or self._has_class(pl, "bow")):
-                return None, "hunting needs a spear or a bow"
-            if self._has_class(pl, "bow") and pl["items"].get("arrow", 0) < 1 and d <= Hn["weapons"]["bow"]["reach"]:
-                return None, "no arrows"
+        if d > Hn["weapons"]["spear"]["reach"]:
             return None, "too far away"
         if not self.work(who, Hn["strike_s"]):
             return None, "too fast"
-        spec = Hn["weapons"][weapon]
-        if spec.get("ammo"):
-            pl["items"][spec["ammo"]] -= 1
-            if not pl["items"][spec["ammo"]]:
-                del pl["items"][spec["ammo"]]
-        a["hp"] -= spec["damage"]
+        return self._strike(who, pl, a, Hn["weapons"]["spear"]["damage"]), None
+
+    def _strike(self, who, pl, a, damage):
+        """`a` takes `damage` from `who`: it turns on them or runs; at 0 hp it is gone, a hunt quest counts it, and its
+        drops go to the hunter — its butcher items (hide, bone) only to one with a knife (#157)."""
+        Hn = RULES["hunting"]
+        a["hp"] -= damage
         if Hn["species"][a["kind"]].get("damage", 0):         # struck, a kind that can fight back turns on the hunter (#162)
             a["mad"] = time.time() + 20
         else:
             a["flee"] = time.time() + 8                       # struck, it runs
         self.pdirty.add(who)
         if a["hp"] > 0:
-            return {"hit": a["kind"], "killed": None, "drops": []}, None
-        del self.animals[aid]
+            return {"hit": a["kind"], "killed": None, "drops": []}
+        self.animals.pop(a["id"], None)
         for q in pl.get("quests", []):                        # a hunt quest counts the kill (#165)
             if q["kind"] == "hunt" and q["what"] == a["kind"] and q.get("got", 0) < q["n"]:
                 q["got"] = q.get("got", 0) + 1
-        drops = Hn["species"][a["kind"]]["drops"]
+        knife = self._has_class(pl, "knife")
+        drops = [[i, n] for i, n in Hn["species"][a["kind"]]["drops"] if knife or i not in Hn.get("butcher", [])]
         for item, n in drops:
             pl["items"][item] = pl["items"].get(item, 0) + n
-        return {"hit": a["kind"], "killed": a["kind"], "drops": drops}, None
+        return {"hit": a["kind"], "killed": a["kind"], "drops": drops, "knife": knife}
+
+    async def loose_arrow(self, who, pos, yaw, pitch):
+        """BALLISTICS (#157): an arrow loosed from the hunter's eye along (yaw, pitch) at `draw` m/s, falling under g. It
+        hits the first animal whose body the arrow passes through where that animal IS when the arrow gets there (its
+        own run carries it on: a running animal must be led), or lands on the ground — some arrows then lie there to be
+        picked up. Returns ({"hit", "killed", "drops", "flight" (seconds), "end"}, error)."""
+        Hn, B = RULES["hunting"], RULES["hunting"]["ballistics"]
+        pl = self.player(who)
+        if not self._has_class(pl, "bow"):
+            return None, "shooting needs a bow"
+        if pl["items"].get("arrow", 0) < 1:
+            return None, "no arrows"
+        if not pos or not all(isinstance(x, (int, float)) and not isinstance(x, bool) and math.isfinite(x) for x in (yaw, pitch)):
+            return None, "aim first"
+        if not self.work(who, Hn["strike_s"]):
+            return None, "too fast"
+        pl["items"]["arrow"] -= 1
+        if not pl["items"]["arrow"]:
+            del pl["items"]["arrow"]
+        self.pdirty.add(who)
+        face, now = int(pos[0]), time.time()
+        o = [pos[1], pos[2], pos[3] + 1.5]
+        cp = math.cos(pitch)
+        vel = [B["draw"] * cp * math.sin(yaw), B["draw"] * cp * math.cos(yaw), B["draw"] * math.sin(pitch)]
+        # the ground under the arc, sampled every 0.1 s of flight (4 s at most)
+        steps = [(t / 10.0) for t in range(1, 41)]
+        arc = [[o[0] + vel[0] * t, o[1] + vel[1] * t, o[2] + vel[2] * t - B["g"] * t * t / 2] for t in steps]
+        cols = await self.cols([[face, min(W - 1, max(0, p[0])), min(W - 1, max(0, p[1]))] for p in arc])
+        ground = [c[0] for c in cols]
+        def moving(a):                                        # where an animal's own run takes it, per second
+            sp = Hn["species"][a["kind"]]["speed"]
+            fast = a.get("flee", 0) > now or a.get("mad", 0) > now or a.get("angry")
+            v = sp if fast else (sp * 0.3 if a.get("walk") else 0)
+            return v * math.sin(a["yaw"]), v * math.cos(a["yaw"])
+        near = [(a, moving(a)) for a in self.animals.values() if a["face"] == face and math.hypot(a["u"] - o[0], a["v"] - o[1]) < 120]
+        t, dt, prev = 0.0, 0.02, list(o)
+        while t < 4.0:
+            t += dt
+            p = [o[0] + vel[0] * t, o[1] + vel[1] * t, o[2] + vel[2] * t - B["g"] * t * t / 2]
+            for a, (mu, mv) in near:
+                size = Hn["species"][a["kind"]].get("size", [1, 0.5, 1])
+                c = [a["u"] + mu * t, a["v"] + mv * t, a["h"] + size[2] * 0.6]
+                if math.dist(p, c) <= max(size[0], size[2]) * 0.5 + B["pad"]:
+                    res = self._strike(who, pl, a, Hn["weapons"]["bow"]["damage"])
+                    return dict(res, flight=round(t, 2), end=[face, round(p[0], 2), round(p[1], 2), round(p[2], 2)]), None
+            g = ground[min(len(ground) - 1, int(t * 10))]
+            if p[2] <= g:                                     # it lands: some arrows can be picked up where they fell
+                end = [face, p[0], p[1], g]
+                if self.rng.random() < B["recover"]:
+                    self.drop_seq += 1
+                    self.drops[self.drop_seq] = {"id": self.drop_seq, "face": face, "u": p[0], "v": p[1], "h": g, "item": "arrow", "n": 1, "until": now + B["drop_s"]}
+                return {"hit": None, "killed": None, "drops": [], "flight": round(t, 2), "end": [face, round(p[0], 2), round(p[1], 2), round(g, 2)]}, None
+            prev = p
+        return {"hit": None, "killed": None, "drops": [], "flight": round(t, 2), "end": [face] + [round(x, 2) for x in prev]}, None
+
+    def drops_near(self, pos, r):
+        now = time.time()
+        self.drops = {k: d for k, d in self.drops.items() if d["until"] > now}
+        return [[d["id"], d["item"], round(d["u"], 2), round(d["v"], 2), round(d["h"], 2)] for d in self.drops.values()
+                if pos and d["face"] == int(pos[0]) and abs(d["u"] - pos[1]) < r and abs(d["v"] - pos[2]) < r]
+
+    def pickup(self, who, did, pos):
+        """Pick up a thing lying on the ground (an arrow that missed) from within its pickup reach."""
+        d = self.drops.get(did) if isinstance(did, int) and not isinstance(did, bool) else None
+        if not d or d["until"] <= time.time():
+            return "it is gone"
+        if not pos or int(pos[0]) != d["face"] or math.hypot(d["u"] - pos[1], d["v"] - pos[2]) > RULES["hunting"]["ballistics"]["pickup"]:
+            return "too far away"
+        del self.drops[did]
+        pl = self.player(who)
+        pl["items"][d["item"]] = pl["items"].get(d["item"], 0) + d["n"]
+        self.pdirty.add(who)
+        return None
 
     async def terrain_card(self, p):
         """The untouched plot's facts (land_terrain.mjs card): a pure function of the seed, so kept forever."""
@@ -2294,8 +2363,9 @@ class Hub:
                     crafts.append(o)
             animals = world.animals_near(me, self.NEAR) if world else []
             npcs = world.npcs_for(st["who"], me, self.NEAR) if world else []
+            drops = world.drops_near(me, 64) if world else []
             try:
-                await ws.send_json({"t": "players", "list": near, "crafts": crafts, "animals": animals, "npcs": npcs})
+                await ws.send_json({"t": "players", "list": near, "crafts": crafts, "animals": animals, "npcs": npcs, "drops": drops})
             except Exception:
                 pass
 
@@ -2578,6 +2648,20 @@ def make_app(world, hub, site_origin, wallet_url, secure_cookies=True, shot_page
             await hub.inv(world, addr)
         return web.json_response({"ok": not err, "error": err, "inventory": world.inv_json(addr)})
 
+    async def shoot(request):
+        addr, d = need_addr(request), await request.json()
+        res, err = await world.loose_arrow(addr, hub.where(world, addr), d.get("yaw"), d.get("pitch"))
+        if res is not None:
+            await hub.inv(world, addr)
+        return web.json_response(dict(res or {}, ok=not err, error=err, inventory=world.inv_json(addr)))
+
+    async def pickup(request):
+        addr, d = need_addr(request), await request.json()
+        err = world.pickup(addr, d.get("id"), hub.where(world, addr))
+        if not err:
+            await hub.inv(world, addr)
+        return web.json_response({"ok": not err, "error": err, "inventory": world.inv_json(addr)})
+
     async def talk(request):
         addr = need_addr(request)
         res, err = world.talk(addr, request.query.get("npc"), hub.where(world, addr))
@@ -2793,6 +2877,17 @@ def make_app(world, hub, site_origin, wallet_url, secure_cookies=True, shot_page
                     await ws.send_json(dict(res or {}, t="hunt", req=m.get("req"), error=err))
                     if res:                                         # game in the bag, or an arrow spent: the bag changed
                         await hub.inv(world, addr)
+                elif t in ("shoot", "pickup"):                      # BALLISTICS (#157): an arrow loosed; one picked up
+                    if not addr:
+                        await ws.send_json({"t": t, "req": m.get("req"), "error": "sign in first"})
+                        continue
+                    if t == "shoot":
+                        res, err = await world.loose_arrow(addr, st.get("pos"), m.get("yaw"), m.get("pitch"))
+                    else:
+                        res, err = {}, world.pickup(addr, m.get("id"), st.get("pos"))
+                    await ws.send_json(dict(res or {}, t=t, req=m.get("req"), error=err))
+                    if res is not None and not (t == "pickup" and err):
+                        await hub.inv(world, addr)
                 elif t in ("talk", "quest"):                        # NPCS AND QUESTS (#165)
                     if not addr:
                         await ws.send_json({"t": t, "req": m.get("req"), "error": "sign in first"})
@@ -2860,6 +2955,8 @@ def make_app(world, hub, site_origin, wallet_url, secure_cookies=True, shot_page
         web.post("/land/api/hunt", hunt),
         web.post("/land/api/bed", bed),
         web.get("/land/api/talk", talk),
+        web.post("/land/api/shoot", shoot),
+        web.post("/land/api/pickup", pickup),
         web.post("/land/api/quest", quest),
         web.get("/land/api/animals", animals),
         web.get("/land/api/prices", prices),
