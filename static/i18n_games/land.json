@@ -459,7 +459,11 @@
   "land.tiltSquare": "Square",
   "land.cTiltUse": "Usage: /tilt <yaw> <pitch> <roll> in degrees, e.g. /tilt 40 0 15 — /tilt 0 0 0 squares the piece.",
   "land.cTilt": "turn the piece in hand, in degrees",
-  "land.fEngines": "engines {e} %"
+  "land.fEngines": "engines {e} %",
+  "land.cGive": "give your craft to a player — they take its controls",
+  "land.cGiveWho": "Give it to whom? /handover <address> — or the start of the address of a player near.",
+  "land.fGave": "Given to {w}. It is theirs, and they are at its controls.",
+  "land.fGiven": "{w} gave you a craft — you are at its controls."
  },
  "cs": {
   "land.notYours": "Pozemek {p} patří někomu jinému. Kupte si pozemek, nebo požádejte jeho vlastníka o pozvání.",
@@ -921,7 +925,11 @@
   "land.tiltSquare": "Rovně",
   "land.cTiltUse": "Použití: /tilt <otočení> <sklon> <náklon> ve stupních, např. /tilt 40 0 15 — /tilt 0 0 0 díl srovná.",
   "land.cTilt": "natočit díl v ruce, ve stupních",
-  "land.fEngines": "motory {e} %"
+  "land.fEngines": "motory {e} %",
+  "land.cGive": "dát své plavidlo hráči — převezme jeho řízení",
+  "land.cGiveWho": "Komu ho dát? /handover <adresa> — nebo začátek adresy hráče poblíž.",
+  "land.fGave": "Předáno hráči {w}. Je jeho a řídí ho.",
+  "land.fGiven": "Od {w} máš plavidlo — máš ho v řízení."
  },
  "es": {
   "land.notYours": "La parcela {p} pertenece a otra persona. Compra una parcela o pide a su dueño que te invite.",
@@ -1383,7 +1391,11 @@
   "land.tiltSquare": "Recta",
   "land.cTiltUse": "Uso: /tilt <guiñada> <cabeceo> <alabeo> en grados, p. ej. /tilt 40 0 15 — /tilt 0 0 0 endereza la pieza.",
   "land.cTilt": "girar la pieza en la mano, en grados",
-  "land.fEngines": "motores {e} %"
+  "land.fEngines": "motores {e} %",
+  "land.cGive": "dar tu nave a un jugador: toma sus mandos",
+  "land.cGiveWho": "¿A quién dársela? /handover <dirección>, o el comienzo de la dirección de un jugador cercano.",
+  "land.fGave": "Entregada a {w}. Es suya y está a los mandos.",
+  "land.fGiven": "{w} te dio una nave: estás a los mandos."
  },
  "pt": {
   "land.notYours": "O lote {p} pertence a outra pessoa. Compre um lote ou peça ao dono que convide você.",
@@ -1845,7 +1857,11 @@
   "land.tiltSquare": "Reta",
   "land.cTiltUse": "Uso: /tilt <guinada> <arfagem> <rolagem> em graus, ex. /tilt 40 0 15 — /tilt 0 0 0 endireita a peça.",
   "land.cTilt": "girar a peça na mão, em graus",
-  "land.fEngines": "motores {e} %"
+  "land.fEngines": "motores {e} %",
+  "land.cGive": "dar sua nave a um jogador — ele assume os comandos",
+  "land.cGiveWho": "Dar para quem? /handover <endereço> — ou o início do endereço de um jogador próximo.",
+  "land.fGave": "Entregue a {w}. É dele, e ele está nos comandos.",
+  "land.fGiven": "{w} te deu uma nave — você está nos comandos."
  },
  "fr": {
   "land.notYours": "La parcelle {p} appartient à quelqu'un d'autre. Achetez une parcelle ou demandez à son propriétaire de vous inviter.",
@@ -2307,7 +2323,11 @@
   "land.tiltSquare": "D’équerre",
   "land.cTiltUse": "Usage : /tilt <lacet> <tangage> <roulis> en degrés, p. ex. /tilt 40 0 15 — /tilt 0 0 0 remet la pièce d’équerre.",
   "land.cTilt": "tourner la pièce en main, en degrés",
-  "land.fEngines": "moteurs {e} %"
+  "land.fEngines": "moteurs {e} %",
+  "land.cGive": "donner ton engin à un joueur — il en prend les commandes",
+  "land.cGiveWho": "À qui le donner ? /handover <adresse> — ou le début de l'adresse d'un joueur proche.",
+  "land.fGave": "Donné à {w}. Il est à lui, et il en tient les commandes.",
+  "land.fGiven": "{w} t'a donné un engin — tu en tiens les commandes."
  },
  "de": {
   "land.notYours": "Grundstück {p} gehört jemand anderem. Kauf dir ein Grundstück oder bitte den Besitzer um eine Einladung.",
@@ -2769,7 +2789,11 @@
   "land.tiltSquare": "Gerade",
   "land.cTiltUse": "Verwendung: /tilt <Gieren> <Nicken> <Rollen> in Grad, z. B. /tilt 40 0 15 — /tilt 0 0 0 richtet das Teil gerade.",
   "land.cTilt": "das Teil in der Hand drehen, in Grad",
-  "land.fEngines": "Triebwerke {e} %"
+  "land.fEngines": "Triebwerke {e} %",
+  "land.cGive": "dein Fluggerät einem Spieler geben — er übernimmt die Steuerung",
+  "land.cGiveWho": "Wem geben? /handover <Adresse> — oder der Anfang der Adresse eines Spielers in der Nähe.",
+  "land.fGave": "An {w} gegeben. Es gehört nun ihm, und er sitzt am Steuer.",
+  "land.fGiven": "{w} hat dir ein Fluggerät gegeben — du sitzt am Steuer."
  },
  "it": {
   "land.notYours": "Il lotto {p} appartiene a qualcun altro. Compra un lotto o chiedi al proprietario di invitarti.",
@@ -3231,7 +3255,11 @@
   "land.tiltSquare": "Dritto",
   "land.cTiltUse": "Uso: /tilt <imbardata> <beccheggio> <rollio> in gradi, es. /tilt 40 0 15 — /tilt 0 0 0 raddrizza il pezzo.",
   "land.cTilt": "ruotare il pezzo in mano, in gradi",
-  "land.fEngines": "motori {e} %"
+  "land.fEngines": "motori {e} %",
+  "land.cGive": "dare il tuo velivolo a un giocatore — ne prende i comandi",
+  "land.cGiveWho": "A chi darlo? /handover <indirizzo> — o l'inizio dell'indirizzo di un giocatore vicino.",
+  "land.fGave": "Dato a {w}. Ora è suo, e ne ha i comandi.",
+  "land.fGiven": "{w} ti ha dato un velivolo — ne hai i comandi."
  },
  "ru": {
   "land.notYours": "Участок {p} принадлежит другому игроку. Купите участок или попросите владельца пригласить вас.",
@@ -3693,7 +3721,11 @@
   "land.tiltSquare": "Ровно",
   "land.cTiltUse": "Использование: /tilt <рыскание> <тангаж> <крен> в градусах, например /tilt 40 0 15 — /tilt 0 0 0 выравнивает деталь.",
   "land.cTilt": "повернуть деталь в руке, в градусах",
-  "land.fEngines": "двигатели {e} %"
+  "land.fEngines": "двигатели {e} %",
+  "land.cGive": "отдать свой аппарат игроку — он берёт управление",
+  "land.cGiveWho": "Кому отдать? /handover <адрес> — или начало адреса игрока поблизости.",
+  "land.fGave": "Передано {w}. Теперь аппарат его, и он за управлением.",
+  "land.fGiven": "Вам передан аппарат от {w} — вы за управлением."
  },
  "zh": {
   "land.notYours": "地块 {p} 属于别人。购买一块地，或请它的所有者邀请你。",
@@ -4155,7 +4187,11 @@
   "land.tiltSquare": "摆正",
   "land.cTiltUse": "用法：/tilt <偏航> <俯仰> <横滚>（度），例如 /tilt 40 0 15 —— /tilt 0 0 0 将部件摆正。",
   "land.cTilt": "旋转手中的部件（度）",
-  "land.fEngines": "发动机 {e} %"
+  "land.fEngines": "发动机 {e} %",
+  "land.cGive": "把你的飞行器交给一名玩家——由他接手驾驶",
+  "land.cGiveWho": "交给谁？/handover <地址>——或附近玩家地址的开头。",
+  "land.fGave": "已交给 {w}。它归对方所有，并由对方驾驶。",
+  "land.fGiven": "{w} 送给你一架飞行器——你正在驾驶它。"
  },
  "ja": {
   "land.notYours": "区画 {p} は他の人のものです。区画を購入するか、所有者に招待してもらいましょう。",
@@ -4617,7 +4653,11 @@
   "land.tiltSquare": "まっすぐ",
   "land.cTiltUse": "使い方：/tilt <ヨー> <ピッチ> <ロール>（度）、例 /tilt 40 0 15 — /tilt 0 0 0 で部品をまっすぐに。",
   "land.cTilt": "手に持った部品を回す（度）",
-  "land.fEngines": "エンジン {e} %"
+  "land.fEngines": "エンジン {e} %",
+  "land.cGive": "機体をプレイヤーに渡す — その人が操縦を引き継ぐ",
+  "land.cGiveWho": "誰に渡す？ /handover <アドレス> — または近くのプレイヤーのアドレスの先頭。",
+  "land.fGave": "{w} に渡しました。機体はその人のもので、操縦しています。",
+  "land.fGiven": "{w} から機体を受け取りました — あなたが操縦しています。"
  },
  "ko": {
   "land.notYours": "구역 {p}은(는) 다른 사람의 땅입니다. 구역을 사거나 소유자에게 초대를 요청하세요.",
@@ -5079,7 +5119,11 @@
   "land.tiltSquare": "똑바로",
   "land.cTiltUse": "사용법: /tilt <요> <피치> <롤> (도), 예: /tilt 40 0 15 — /tilt 0 0 0 은 부품을 똑바로 합니다.",
   "land.cTilt": "손에 든 부품을 회전 (도)",
-  "land.fEngines": "엔진 {e} %"
+  "land.fEngines": "엔진 {e} %",
+  "land.cGive": "내 기체를 플레이어에게 넘김 — 그가 조종을 맡음",
+  "land.cGiveWho": "누구에게 줄까요? /handover <주소> — 또는 근처 플레이어 주소의 앞부분.",
+  "land.fGave": "{w}에게 넘겼습니다. 이제 그의 것이며 그가 조종합니다.",
+  "land.fGiven": "{w}님이 기체를 주었습니다 — 당신이 조종합니다."
  },
  "ar": {
   "land.notYours": "القطعة {p} ملك لشخص آخر. اشترِ قطعة، أو اطلب من مالكها أن يدعوك.",
@@ -5541,7 +5585,11 @@
   "land.tiltSquare": "مستقيم",
   "land.cTiltUse": "الاستخدام: /tilt <الانعراج> <الانحدار> <الدحرجة> بالدرجات، مثل /tilt 40 0 15 — و/tilt 0 0 0 يعيد القطعة مستقيمة.",
   "land.cTilt": "تدوير القطعة في اليد، بالدرجات",
-  "land.fEngines": "المحركات {e} %"
+  "land.fEngines": "المحركات {e} %",
+  "land.cGive": "أعطِ مركبتك للاعب — فيتولّى قيادتها",
+  "land.cGiveWho": "لمن تعطيها؟ /handover <العنوان> — أو بداية عنوان لاعب قريب.",
+  "land.fGave": "أُعطيت إلى {w}. أصبحت له، وهو على مقودها.",
+  "land.fGiven": "أعطاك {w} مركبة — أنت على مقودها."
  },
  "hi": {
   "land.notYours": "प्लॉट {p} किसी और का है। कोई प्लॉट खरीदें, या उसके मालिक से आपको आमंत्रित करने को कहें।",
@@ -6003,7 +6051,11 @@
   "land.tiltSquare": "सीधा",
   "land.cTiltUse": "उपयोग: /tilt <यॉ> <पिच> <रोल> डिग्री में, जैसे /tilt 40 0 15 — /tilt 0 0 0 टुकड़े को सीधा करता है।",
   "land.cTilt": "हाथ के टुकड़े को घुमाएँ, डिग्री में",
-  "land.fEngines": "इंजन {e} %"
+  "land.fEngines": "इंजन {e} %",
+  "land.cGive": "अपना यान किसी खिलाड़ी को दें — वह उसका नियंत्रण लेता है",
+  "land.cGiveWho": "किसे दें? /handover <पता> — या पास के किसी खिलाड़ी के पते की शुरुआत।",
+  "land.fGave": "{w} को दिया गया। अब यह उनका है, और नियंत्रण उन्हीं के पास है।",
+  "land.fGiven": "{w} ने आपको एक यान दिया — नियंत्रण आपके पास है।"
  },
  "tr": {
   "land.notYours": "{p} arsası başkasına ait. Bir arsa satın al ya da sahibinden seni davet etmesini iste.",
@@ -6465,7 +6517,11 @@
   "land.tiltSquare": "Düz",
   "land.cTiltUse": "Kullanım: /tilt <sapma> <yunuslama> <yatış> derece olarak, ör. /tilt 40 0 15 — /tilt 0 0 0 parçayı düzeltir.",
   "land.cTilt": "eldeki parçayı döndür, derece olarak",
-  "land.fEngines": "motorlar %{e}"
+  "land.fEngines": "motorlar %{e}",
+  "land.cGive": "aracını bir oyuncuya ver — kumandayı o alır",
+  "land.cGiveWho": "Kime verilsin? /handover <adres> — ya da yakındaki bir oyuncunun adresinin başı.",
+  "land.fGave": "{w} adlı oyuncuya verildi. Artık onun ve kumandada o var.",
+  "land.fGiven": "{w} sana bir araç verdi — kumandada sen varsın."
  },
  "id": {
   "land.notYours": "Petak {p} milik orang lain. Beli sebuah petak, atau minta pemiliknya mengundangmu.",
@@ -6927,7 +6983,11 @@
   "land.tiltSquare": "Lurus",
   "land.cTiltUse": "Penggunaan: /tilt <yaw> <pitch> <roll> dalam derajat, mis. /tilt 40 0 15 — /tilt 0 0 0 meluruskan potongan.",
   "land.cTilt": "putar potongan di tangan, dalam derajat",
-  "land.fEngines": "mesin {e} %"
+  "land.fEngines": "mesin {e} %",
+  "land.cGive": "berikan wahanamu ke pemain — ia mengambil kendalinya",
+  "land.cGiveWho": "Berikan ke siapa? /handover <alamat> — atau awal alamat pemain di dekatmu.",
+  "land.fGave": "Diberikan kepada {w}. Kini miliknya, dan ia memegang kendalinya.",
+  "land.fGiven": "{w} memberimu sebuah wahana — kamu memegang kendalinya."
  },
  "vi": {
   "land.notYours": "Mảnh đất {p} thuộc về người khác. Hãy mua một mảnh, hoặc nhờ chủ của nó mời bạn.",
@@ -7389,7 +7449,11 @@
   "land.tiltSquare": "Thẳng",
   "land.cTiltUse": "Cách dùng: /tilt <lệch hướng> <chúc ngóc> <lăn> theo độ, vd. /tilt 40 0 15 — /tilt 0 0 0 đặt khối thẳng lại.",
   "land.cTilt": "xoay khối đang cầm, theo độ",
-  "land.fEngines": "động cơ {e} %"
+  "land.fEngines": "động cơ {e} %",
+  "land.cGive": "trao phi thuyền cho một người chơi — họ nắm quyền điều khiển",
+  "land.cGiveWho": "Trao cho ai? /handover <địa chỉ> — hoặc phần đầu địa chỉ của một người chơi ở gần.",
+  "land.fGave": "Đã trao cho {w}. Giờ nó là của họ, và họ đang điều khiển.",
+  "land.fGiven": "{w} đã trao cho bạn một phi thuyền — bạn đang điều khiển."
  },
  "pl": {
   "land.notYours": "Działka {p} należy do kogoś innego. Kup działkę albo poproś jej właściciela o zaproszenie.",
@@ -7851,6 +7915,10 @@
   "land.tiltSquare": "Prosto",
   "land.cTiltUse": "Użycie: /tilt <odchylenie> <pochylenie> <przechylenie> w stopniach, np. /tilt 40 0 15 — /tilt 0 0 0 prostuje element.",
   "land.cTilt": "obróć element w ręce, w stopniach",
-  "land.fEngines": "silniki {e} %"
+  "land.fEngines": "silniki {e} %",
+  "land.cGive": "oddaj swój pojazd graczowi — przejmuje jego stery",
+  "land.cGiveWho": "Komu go dać? /handover <adres> — albo początek adresu gracza w pobliżu.",
+  "land.fGave": "Oddano graczowi {w}. Jest teraz jego, a on siedzi za sterami.",
+  "land.fGiven": "Od {w} masz pojazd — siedzisz za sterami."
  }
 }

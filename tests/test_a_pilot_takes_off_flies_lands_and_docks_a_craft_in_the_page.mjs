@@ -4,7 +4,8 @@
  * against the real world server (tests/_land_live_fixture.py) as a player on a phone, with the on-screen buttons:
  *   1. a small craft built on the owner's plot — a steel-plate hull, a pilot seat on it, two thrusters behind;
  *   (3b: a reload in the air brings the page back to the controls — 2026-11-10; 5: Use on a thruster, not the seat, boards it;
- *   6: held forward at a wall, its hull stops at the wall — #171)
+ *   6: held forward at a wall, its hull stops at the wall; 7: /handover hands it to a player near, whose page takes its
+ *   controls — #171)
  *   2. Use on the seat takes the controls: the HUD says flying, with its thrust against its weight; a visitor near is sent
  *      the craft, its pieces and its engines' work (#171);
  *   3. holding Jump climbs — the HUD shows the height and the engines at full, and the world server holds the craft
@@ -264,6 +265,46 @@ try {
   const hullFront = seatV1 + (hullN[1] + hullN[4] - (boxes.find((b) => b[6] === 66)[1] + boxes.find((b) => b[6] === 66)[4] / 2)) / 100, wallFace = q.v0 + wallZ / 100;
   ok(seatV1 > seatV0 + 0.8, `held forward, the craft goes toward the wall (${(seatV1 - seatV0).toFixed(2)} m)`);
   ok(hullFront <= wallFace + 0.2, `…and its hull stops at the wall, not through it (hull front ${hullFront.toFixed(2)}, wall at ${wallFace.toFixed(2)})`);
+  // 7. HANDING IT OVER (#171: the operator could not board the X fighter the agent built for them): the owner types /handover
+  // and the start of the address of a player standing near; that player owns it now, and their page takes its controls
+  {
+    const agentAddr = (await getJ("/fixture/plot")).agent, { token: atok } = await getJ("/fixture/agent_token");
+    const ctx = (await send(undefined, "Target.createBrowserContext", {})).result.browserContextId;
+    const t = await send(undefined, "Target.createTarget", { url: "about:blank", browserContextId: ctx });
+    const A = (await send(undefined, "Target.attachToTarget", { targetId: t.result.targetId, flatten: true })).result.sessionId;
+    for (const d of ["Runtime", "Page", "Network"]) await send(A, d + ".enable", {});
+    await send(A, "Network.setCookie", { name: "land_session", value: atok, url: base + "/", httpOnly: true });
+    const cp = (await getJ(`/land/api/crafts?face=${q.face}&u=${su}&v=${sv}`)).crafts[0].pose;
+    const au = cp[1] - 4, av = cp[2] - 3, ah = Wd.column(q.face, Math.floor(au), Math.floor(av)).top + 1;
+    await send(A, "Page.navigate", { url: base + "/static/land-world.js" });
+    await until(A, "document.readyState === 'complete'");
+    await evl(A, `localStorage.setItem("nado_land_v1", JSON.stringify({ p: [${q.face}, ${au}, ${av}, ${ah}, 0, 0] })); localStorage.setItem("nado_land_welcome_seen", "1"); true`);
+    await send(A, "Page.navigate", { url: base + "/" });
+    await send(A, "Page.bringToFront", {});
+    await until(A, "document.getElementById('loading') && document.getElementById('loading').classList.contains('hidden')", 60000);
+    await sleep(4000);
+    await send(B, "Page.bringToFront", {});
+    let said = "";
+    for (let k = 0; k < 12 && !/Given to/.test(said); k++) {      // the player near shows up in the owner's page
+      await send(B, "Input.dispatchKeyEvent", { type: "keyDown", code: "Slash", key: "/", windowsVirtualKeyCode: 191 });
+      await send(B, "Input.dispatchKeyEvent", { type: "keyUp", code: "Slash", key: "/", windowsVirtualKeyCode: 191 });
+      await until(B, "document.activeElement && document.activeElement.id === 'conIn'", 8000);
+      await send(B, "Input.insertText", { text: "handover " + agentAddr.slice(0, 8) });
+      await send(B, "Input.dispatchKeyEvent", { type: "keyDown", code: "Enter", key: "Enter", windowsVirtualKeyCode: 13 });
+      await send(B, "Input.dispatchKeyEvent", { type: "keyUp", code: "Enter", key: "Enter", windowsVirtualKeyCode: 13 });
+      await sleep(2500);
+      said = await evl(B, "document.getElementById('conLog').textContent.slice(-200)");
+    }
+    ok(/Given to/.test(said), "/handover and the start of a near player's address hands the craft over: " + said.slice(-90));
+    const given = (await getJ(`/land/api/crafts?face=${q.face}&u=${su}&v=${sv}`)).crafts[0];
+    ok(given.owner === agentAddr && given.pilot === agentAddr, "…the world server holds them as its owner and its pilot");
+    ok(!/Flying/.test(await evl(B, "document.getElementById('hudPos').textContent")), "…the giver has stepped out of it");
+    await send(A, "Page.bringToFront", {});
+    ok(await until(A, "/Flying/.test(document.getElementById('hudPos').textContent)", 30000), "…and the receiver's page is at its controls: " + await evl(A, "document.getElementById('hudPos').textContent"));
+    await send(undefined, "Target.closeTarget", { targetId: t.result.targetId });
+    await send(undefined, "Target.disposeBrowserContext", { browserContextId: ctx });
+    await send(B, "Page.bringToFront", {});
+  }
   ok(errors.length === 0, "no page errors" + (errors.length ? ": " + errors.join(" | ") : ""));
   // the pilot sees their craft: flying, the camera hangs behind and above it (from the seat it was never in view)
   const page = (await import("node:fs")).readFileSync(join(ROOT, "static", "land.js"), "utf8");

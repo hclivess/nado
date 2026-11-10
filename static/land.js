@@ -1287,6 +1287,12 @@ function connect() {
       if (m.error) { notify(m.error, 5000); conLine(m.error, "err"); }
       else if (m.op === "board" && m.craft) startFlying(m.craft);
       else if (m.op === "dock") { notify(T("fDocked", "Set down as pieces.")); }
+      else if (m.op === "handover") { const w = String(m.to || ""); conLine(T("fGave", "Given to {w}. It is theirs, and they are at its controls.", { w: w.slice(0, 6) + "…" + w.slice(-5) })); }
+    } else if (m.t === "given") {
+      // a craft handed to me (#171): mine now, and I am at its controls — wherever it is
+      const w = String(m.by || "");
+      notify(T("fGiven", "{w} gave you a craft — you are at its controls.", { w: w.slice(0, 6) + "…" + w.slice(-5) }), 6000);
+      if (!flying) board({ craft: m.craft });
     } else if (m.t === "craft_fix") {
       // the server held the craft somewhere else (a claim faster than it flies): back to where it holds it
       if (flying && flying.id === m.craft) { flying.pose = m.pose.slice(); flying.vel = [0, 0, 0]; }
@@ -2505,7 +2511,7 @@ async function bench() {
 }
 const CMDS = {
   help: () => [["/help", T("cHelp", "this list")], ["/pos", T("cPos", "where you are")], ["/tp spawn | /tp bed", T("cTpTo", "go to the landing, or to your bed")],
-    ["/aim", T("cAim", "what you aim at, and where a block would go")], ["/prof", T("cProf", "the profiler: where each frame's time goes")], ["/dock", T("cDock", "set your landed craft down as pieces")], ["/fly", T("cFly", "fly or walk")], ["/settings", T("cSettings", "your settings")], ["/bench", T("cBench", "measure this device and pick its graphics")], ["/tilt <yaw> <pitch> <roll>", T("cTilt", "turn the piece in hand, in degrees")], ["/set <name> <value>", T("cSet", "change one (e.g. /set fov 90)")],
+    ["/aim", T("cAim", "what you aim at, and where a block would go")], ["/prof", T("cProf", "the profiler: where each frame's time goes")], ["/dock", T("cDock", "set your landed craft down as pieces")], ["/handover <player>", T("cGive", "give your craft to a player — they take its controls")], ["/fly", T("cFly", "fly or walk")], ["/settings", T("cSettings", "your settings")], ["/bench", T("cBench", "measure this device and pick its graphics")], ["/tilt <yaw> <pitch> <roll>", T("cTilt", "turn the piece in hand, in degrees")], ["/set <name> <value>", T("cSet", "change one (e.g. /set fov 90)")],
     ["/clear", T("cClear", "clear this log")], ["…", T("cChat", "anything else is chat to the players around you")]].forEach(([c, d]) => conLine(c + " — " + d)),
   pos: () => conLine(`${T("cFace", "face")} ${P.face} · u ${Math.floor(P.u)} · v ${Math.floor(P.v)} · h ${P.h.toFixed(1)} · ${T("cPlot", "plot")} ${Wd.plotOf(P.face, Math.floor(P.u), Math.floor(P.v))}`),
   // /tp (#167): to the landing or to your own bed — nowhere else; going far is walking, flying, or a craft. Signed in, the
@@ -2544,6 +2550,17 @@ const CMDS = {
     if (!id) return conLine(T("cDockNone", "No craft of yours near — land it and stand by it."), "err");
     if (flying) leaveCraft();
     net.send({ t: "dock", craft: id, req: ++net.req });
+  },
+  // /handover <player>: HAND A CRAFT OVER (#171) — the one you fly, or your parked craft near; to a player by their address, or
+  // by the start of the address of one standing near. They own it and take its controls at once (land_server.py give).
+  handover: (a) => {
+    const id = flying ? flying.id : nearMyCraft() || lastCraft, w = String(a[0] || "").toLowerCase();
+    if (!id) return conLine(T("cDockNone", "No craft of yours near — land it and stand by it."), "err");
+    const near = [...new Set([...others.values()].map((r) => r.who).filter((x) => x && x.startsWith(w)))];
+    const to = /^[0-9a-f]{50}$/.test(w) ? w : w.length >= 4 && near.length === 1 ? near[0] : null;
+    if (!to) return conLine(T("cGiveWho", "Give it to whom? /handover <address> — or the start of the address of a player near."), "err");
+    if (flying) leaveCraft();
+    net.send({ t: "handover", craft: id, to, req: ++net.req });    // not "give": that message is a gift of items
   },
   fly: () => { P.fly = !P.fly; P.vh = 0; conLine(P.fly ? T("flyOn", "Flying — Space up, C down, Shift fast") : T("flyOff", "Walking")); },
   settings: () => { settings(true); Object.keys(SET_DEF).forEach((k) => conLine(`${k} = ${SET[k]}  (${SET_RANGE[k][0]}–${SET_RANGE[k][1]})`)); },

@@ -12,7 +12,9 @@ the game and build a real usable xfighter", operator 2026-11-09). scripts/land_s
      mid-air, out of its owner's reach — #171);
   5. docking sets it down as pieces on the plot under the seat, turned to the nearest quarter turn — refused where the
      owner may not build; the craft is then gone; turn_pieces turns a point (x, z) to (z, -x) at +90°;
-  6. players near are sent the craft — its pieces the first time, then its pose.
+  6. players near are sent the craft — its pieces the first time, then its pose;
+  7. its owner gives it to another player (#171): they own it and are its pilot; only its owner gives it, only to a player
+     the world knows.
 
 Run: python3 tests/test_a_craft_of_pieces_takes_off_flies_within_its_thrust_and_docks.py
 """
@@ -141,6 +143,19 @@ async def main():
     await hub.positions(world); await hub.positions(world)
     first, second = sk.sent[0]["crafts"], sk.sent[1]["crafts"]
     check("a player near is sent the craft with its pieces, then only its pose", err is None and first and "pieces" in first[0] and second and "pieces" not in second[0] and second[0]["pose"] == c2["pose"], (err, first[:1], second[:1]))
+
+    # 7. HANDING IT OVER (#171): its owner gives it to another player, who owns it and is at its controls at once
+    cid2 = c2["id"]
+    world.player(b)                                              # b is a player the world knows
+    check("only its owner gives it away", world.give_craft(b, cid2, b) is not None and world.crafts[cid2]["owner"] == a)
+    check("…to a player's address, never anything else", world.give_craft(a, cid2, "not an address") is not None and world.give_craft(a, cid2, "ab" * 25 + "x") is not None)
+    check("…to a player the world knows", world.give_craft(a, cid2, "0" * 50) == "no such player")
+    check("…not to themselves", world.give_craft(a, cid2, a) is not None)
+    check("given by the owner flying it, the receiver owns it and is its pilot — at its controls wherever it is",
+          world.give_craft(a, cid2, b) is None and world.crafts[cid2]["owner"] == b and world.crafts[cid2]["pilot"] == b)
+    _, _, err = await world.board(a, cid=cid2)
+    check("…and the one who gave it cannot board it any more", err is not None)
+    check("…nor give it away while another flies it", world.give_craft(a, cid2, a) is not None)
     await world.http.close(); await ex.close()
 
 

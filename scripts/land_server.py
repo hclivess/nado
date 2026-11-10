@@ -36,7 +36,7 @@ import atexit, shutil; atexit.register(shutil.rmtree, os.environ["HOME"], ignore
 # and every test that imports this left one in /tmp: 640 of them by 2026-11-08)
 REPO = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 sys.path.insert(0, REPO)
-import argparse, asyncio, hashlib, json, math, random, secrets, shutil, time, urllib.parse
+import argparse, asyncio, hashlib, json, math, random, re, secrets, shutil, time, urllib.parse
 
 from aiohttp import web, ClientSession, ClientTimeout, WSMsgType
 
@@ -2106,6 +2106,28 @@ class World:
         c["pilot"] = None; c["eng"] = None; self.cdirty = True        # parked: the engines stop
         return None
 
+    def give_craft(self, who, cid, to):
+        """HANDING A CRAFT OVER (#171): its owner gives it to another player — the craft they fly (they step out first) or
+        one parked. The receiver becomes its owner AND its pilot: their page takes its controls at once (or on their next
+        visit, by the greeting), so a craft given in mid-air is never left where no one can reach it — the operator could
+        not board the X fighter the agent built for them, and their own craft was stranded 30 m up (2026-11-10).
+        Returns error or None."""
+        c = self.crafts.get(cid)
+        if not c:
+            return "no such craft"
+        if c["owner"] != who:
+            return "only its owner gives it away"
+        if c["pilot"] and c["pilot"] != who:
+            return "someone is flying it"
+        if not (isinstance(to, str) and re.fullmatch(r"[0-9a-f]{50}", to)):
+            return "give it to a player's address"
+        if to == who:
+            return "it is yours already"
+        if to not in self.players and not os.path.exists(os.path.join(self.dir, "players", to + ".json")):
+            return "no such player"
+        c["owner"] = c["pilot"] = to; c["eng"] = None; c["at"] = time.time(); self.cdirty = True
+        return None
+
     async def dock(self, who, cid):
         """Set a parked craft down as pieces on the plot under its seat — its owner, where they may build, its yaw taken to
         the nearest quarter turn (pieces stand square on a plot); every piece inside that plot and clear of the pieces
@@ -3035,7 +3057,7 @@ def make_app(world, hub, site_origin, wallet_url, secure_cookies=True, shot_page
                         continue
                     cfg, can, err = await world.set_machine(addr, m.get("plot"), m.get("box"), m.get("recipe"))
                     await ws.send_json({"t": "machine", "req": m.get("req"), "plot": m.get("plot"), "box": m.get("box"), "cfg": cfg, "can": can, "error": err})
-                elif t in ("board", "fly", "leave", "dock"):
+                elif t in ("board", "fly", "leave", "dock", "handover"):   # not "give": that is a gift of items
                     # FLIGHT (#147): take the seat, say where the craft is, leave it parked, set it down as pieces
                     if not addr:
                         await ws.send_json({"t": "craft_ok", "req": m.get("req"), "error": "sign in first"})
@@ -3053,6 +3075,17 @@ def make_app(world, hub, site_origin, wallet_url, secure_cookies=True, shot_page
                             await ws.send_json({"t": "craft_fix", "craft": m.get("craft"), "pose": world.crafts[m.get("craft")]["pose"], "error": err})
                     elif t == "leave":
                         await ws.send_json({"t": "craft_ok", "op": t, "req": m.get("req"), "error": world.leave(addr, m.get("craft"))})
+                    elif t == "handover":
+                        err = world.give_craft(addr, m.get("craft"), m.get("to"))
+                        await ws.send_json({"t": "craft_ok", "op": t, "req": m.get("req"), "error": err, "to": m.get("to")})
+                        if not err:                                     # the receiver's pages take its controls
+                            c = world.crafts[m.get("craft")]
+                            for w2, s2 in list(hub.socks.items()):
+                                if s2.get("who") == m.get("to"):
+                                    try:
+                                        await w2.send_json({"t": "given", "craft": c["id"], "by": addr})
+                                    except Exception:
+                                        pass
                     else:
                         p, added, err = await world.dock(addr, m.get("craft"))
                         await ws.send_json({"t": "craft_ok", "op": t, "req": m.get("req"), "error": err, "plot": p})

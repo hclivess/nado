@@ -5,6 +5,7 @@ under /land/) and a fake exec node (/exec/*) that says OWNER holds plot PA and h
   python3 tests/_land_live_fixture.py <protocol.js path>     -> prints "PORT <n>" then serves until killed
   GET /fixture/owner_token   -> {token}: OWNER signed in through the agent login, with OWNER's own key (the browser
                                 session cookie the test sets is exactly what /land/api/login_callback would have set)
+  GET /fixture/agent_token   -> {token}: AGENT signed in the same way — a second player's page (a craft handed to them)
   GET /fixture/agent_build   -> AGENT signs in with ITS OWN key and builds a 3 x 3 wall through POST /land/api/set
   GET /fixture/plot          -> {plot, owner, agent, other_plot, other}
   GET /fixture/seed?who=owner|agent&items={json}[&tools=[json]]  -> stocks that player's inventory (what gathering and
@@ -79,6 +80,9 @@ async def main():
     async def owner_token(req):
         return web.json_response({"token": await login_as(OWNER)})
 
+    async def agent_token(req):
+        return web.json_response({"token": await login_as(AGENT)})
+
     async def agent_build(req):
         tok = await login_as(AGENT)
         f, row, col = 0, (PA // L.FACE_N) % L.FACE_N, PA % L.FACE_N
@@ -149,7 +153,7 @@ async def main():
         return web.json_response({})
 
     app.add_routes([web.get("/", page), web.get("/protocol.js", proto), web.get("/exec/assets", assets),
-                    web.get("/exec/asset", asset), web.get("/exec/view", view), web.get("/fixture/owner_token", owner_token),
+                    web.get("/exec/asset", asset), web.get("/exec/view", view), web.get("/fixture/owner_token", owner_token), web.get("/fixture/agent_token", agent_token),
                     web.get("/fixture/agent_build", agent_build), web.get("/fixture/plot", plot), web.get("/fixture/seed", seed),
                     web.get("/fixture/ripen", ripen), web.get("/fixture/animal", animal),
                     web.get("/fixture/hurt", hurt), web.get("/fixture/accept", accept),
