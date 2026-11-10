@@ -663,7 +663,7 @@ function request(k) {
   const pb = plotBoxes.get(Wd.plotId(face, cv, cu));        // a chunk column IS a plot (CHUNK == PLOT)
   const dist = Math.max(Math.abs(cu - Math.floor(P.u / CHUNK)), Math.abs(cv - Math.floor(P.v / CHUNK)));
   c.lod = PHONE ? (dist <= 1 ? 1 : 2) : dist <= 2 ? 0 : dist <= 3 ? 1 : 2;   // 0: grass too (not on a phone); 2: far trees, small pieces skipped
-  queue.push({ id: ++reqId, k, face, cu, cv, ch, edits: editsFor(face, cu, cv), boxes: pb ? pb.list : null, lod: c.lod, grass: !touch && !!SET.grass });   // no blades on a phone, or with /set grass 0
+  queue.push({ id: ++reqId, k, face, cu, cv, ch, edits: editsFor(face, cu, cv), boxes: pb ? pb.list : null, lod: c.lod, grass: !!SET.grass });   // no blades with grass off (a phone's default, #166)
   pump();
 }
 function pump() {
@@ -2140,15 +2140,36 @@ function act(place, mouse) {
 // closes it. A line without a slash is chat to the players around you (the world server relays it to whoever watches
 // the plots you watch). SETTINGS are this viewer's own, remembered in this browser — a convenience, nothing shared.
 const LS_SET = "nado_land_settings";
-const SET_DEF = { fov: 72, sens: 1, invert: 0, grass: 1, shadows: 1, effects: 1, borders: 1, stats: 0 };
-const SET_RANGE = { fov: [50, 110], sens: [0.2, 4], invert: [0, 1], grass: [0, 1], shadows: [0, 1], effects: [0, 1], borders: [0, 1], stats: [0, 1] };
+const SET_DEF = { fov: 72, sens: 1, invert: 0, grass: 1, shadows: 2, effects: 1, borders: 1, stats: 0, res: 100, view: 6, fps: 0 };
+const SET_RANGE = { fov: [50, 110], sens: [0.2, 4], invert: [0, 1], grass: [0, 1], shadows: [0, 3], effects: [0, 1], borders: [0, 1], stats: [0, 1],
+  res: [50, 100], view: [2, 10], fps: [0, 60] };
+// GRAPHICS (#166, operator 2026-11-10: "make graphical settings more configurable (resolution, shadows, etc)"): res is the
+// render resolution in % of the screen's pixels, shadows off / low / medium / high (the sun's shadow map size and reach),
+// view the chunks drawn around you, fps a frame-rate cap (0: none). A phone starts on what it can carry — no shadows,
+// grass or effects, 4 chunks — and any of them can be turned on in the panel (they used to be refused on a touch screen).
+const SET_PHONE = { shadows: 0, grass: 0, effects: 0, view: 4 };
+const GFX_PRESETS = {
+  low: { res: 60, shadows: 0, view: 3, grass: 0, effects: 0 },
+  medium: { res: 80, shadows: 1, view: 4, grass: 1, effects: 0 },
+  high: { res: 100, shadows: 2, view: 6, grass: 1, effects: 1 },
+  ultra: { res: 100, shadows: 3, view: 8, grass: 1, effects: 1 },
+};
+const SHADOW_Q = [null, { map: 1024, box: 32 }, { map: 2048, box: 48 }, { map: 4096, box: 64 }];   // by SET.shadows
+const SET_VER = 2;                      // stored with the settings: 1 had shadows 0/1 (1 = today's medium), no phone choice
 const SET = (() => {
   let s = {};
   try { s = JSON.parse(localStorage.getItem(LS_SET) || "{}") || {}; } catch (e) {}
-  const o = { ...SET_DEF, ...(PHONE ? { shadows: 0 } : {}) };   // a phone casts no shadows unless asked (/set shadows 1)
+  if (s.sv !== SET_VER) {               // settings saved before the panel: 1 was the only shadows there were, and a phone's
+    if (s.shadows === 1) s.shadows = 2; // stored grass/effects were never used (refused on touch) — not a choice to honour
+    if (PHONE) { delete s.grass; delete s.effects; delete s.shadows; }
+  }
+  const o = { ...SET_DEF, ...(PHONE ? SET_PHONE : {}) };
   for (const k in SET_DEF) if (typeof s[k] === "number" && s[k] >= SET_RANGE[k][0] && s[k] <= SET_RANGE[k][1]) o[k] = s[k];
   return o;
 })();
+function saveSet() { try { localStorage.setItem(LS_SET, JSON.stringify({ ...SET, sv: SET_VER })); } catch (e) {} }
+const gfxPreset = () => Object.keys(GFX_PRESETS).find((n) => Object.entries(GFX_PRESETS[n]).every(([k, v]) => SET[k] === v)) || "custom";
+const basePR = () => Math.min(PHONE ? 1.25 : 2, devicePixelRatio || 1);
 let conOpen = false, conHist = [], conHi = 0;
 function conLine(text, cls) {
   const log = $("conLog");
@@ -2175,6 +2196,58 @@ function conShow(open, prefill) {
 function applySetting(k) {
   if (k === "fov" && camera) { camera.fov = SET.fov; camera.updateProjectionMatrix(); }
   if (k === "grass") for (const key of chunks.keys()) request(key);           // re-mesh with or without the blades
+  if (!renderer) return;                                                       // before start(): start() applies them all
+  if (k === "res") renderer.setPixelRatio(basePR() * SET.res / 100);
+  if (k === "shadows") shadowQuality();
+  if (k === "view") { viewDist = SET.view; if (scene && scene.fog) scene.fog.near = viewDist * CHUNK * 0.9; updateChunks(); buildFar(); }
+  if (k === "effects") pipeline = buildPipeline();                             // the post-processing is built again, or dropped
+}
+/** The sun's shadow map for SET.shadows: its size and the box it covers; the old map is let go so the next frame draws a
+ *  new one at the new size. Off casts nothing (frame: sun.castShadow). */
+function shadowQuality() {
+  const q = SHADOW_Q[SET.shadows];
+  if (!q || !sun) return;
+  sun.shadow.mapSize.set(q.map, q.map);
+  Object.assign(sun.shadow.camera, { left: -q.box, right: q.box, top: q.box, bottom: -q.box });
+  sun.shadow.camera.updateProjectionMatrix();
+  if (sun.shadow.map) { sun.shadow.map.dispose(); sun.shadow.map = null; }
+}
+// ---- the graphics panel (#166): presets and each setting, applied at once and kept in this browser ------------------------
+const settingsOpen = () => !$("setPanel").classList.contains("hidden");
+function settings(open) {
+  $("setPanel").classList.toggle("hidden", !open);
+  if (!open) return;
+  if (document.pointerLockElement) document.exitPointerLock();
+  renderSettings();
+}
+function setSetting(k, v) {
+  if (!(k in SET_DEF) || !(Number.isFinite(v) && v >= SET_RANGE[k][0] && v <= SET_RANGE[k][1]) || SET[k] === v) return;
+  SET[k] = v; saveSet(); applySetting(k);
+}
+function renderSettings() {
+  const box = $("setGrid");
+  if (!box) return;
+  const now = gfxPreset(), esc = (x) => String(x).replace(/[&<>"]/g, (c) => "&#" + c.charCodeAt(0) + ";");
+  const NAMES = { low: T("gLow", "Low"), medium: T("gMedium", "Medium"), high: T("gHigh", "High"), ultra: T("gUltra", "Ultra"), custom: T("gCustom", "Custom") };
+  const sel = (k, label, opts) => `<label class="srow"><span>${esc(label)}</span><select data-set="${k}">`
+    + opts.map(([v, t]) => `<option value="${v}"${SET[k] === v ? " selected" : ""}>${esc(t)}</option>`).join("") + `</select></label>`;
+  const onOff = [[0, T("gOff", "Off")], [1, T("gOn", "On")]];
+  box.innerHTML = `<div class="presets">` + Object.keys(GFX_PRESETS).concat("custom").map((n) =>
+    n === "custom" ? (now === "custom" ? `<button class="ghost on" disabled>${esc(NAMES.custom)}</button>` : "")
+      : `<button class="ghost${now === n ? " on" : ""}" data-preset="${n}">${esc(NAMES[n])}</button>`).join("") + `</div>`
+    + sel("res", T("gRes", "Render resolution"), [50, 60, 70, 80, 90, 100].map((v) => [v, v + " %"]))
+    + sel("shadows", T("gShadows", "Shadows"), [[0, T("gOff", "Off")], [1, NAMES.low], [2, NAMES.medium], [3, NAMES.high]])
+    + sel("view", T("gView", "View distance"), [2, 3, 4, 5, 6, 7, 8, 9, 10].map((v) => [v, T("gViewN", "{n} {n|one:chunk|other:chunks} · {m} m", { n: v, m: v * CHUNK })]))
+    + sel("fps", T("gFps", "Frame-rate cap"), [[0, T("gFpsNone", "None")], [30, "30"], [60, "60"]])
+    + sel("grass", T("gGrass", "Grass"), onOff)
+    + sel("effects", T("gEffects", "Effects (bloom, ambient light)"), onOff)
+    + sel("fov", T("gFov", "Field of view"), [60, 66, 72, 80, 90, 100, 110].concat([SET.fov]).filter((v, i, a) => a.indexOf(v) === i).sort((a, b) => a - b).map((v) => [v, v + "°"]))
+    + `<p class="dim">${esc(T("gNote", "Kept in this browser. Each change applies at once."))}</p>`;
+  for (const b of box.querySelectorAll("[data-preset]")) b.onclick = () => {
+    for (const [k, v] of Object.entries(GFX_PRESETS[b.dataset.preset])) setSetting(k, v);
+    renderSettings();
+  };
+  for (const e of box.querySelectorAll("select[data-set]")) e.onchange = () => { setSetting(e.dataset.set, Number(e.value)); renderSettings(); };
 }
 const CMDS = {
   help: () => [["/help", T("cHelp", "this list")], ["/pos", T("cPos", "where you are")], ["/tp spawn | /tp <u> <v>", T("cTp", "go to the landing, or to a column of this face")],
@@ -2217,15 +2290,16 @@ const CMDS = {
     net.send({ t: "dock", craft: id, req: ++net.req });
   },
   fly: () => { P.fly = !P.fly; P.vh = 0; conLine(P.fly ? T("flyOn", "Flying — Space up, C down, Shift fast") : T("flyOff", "Walking")); },
-  settings: () => Object.keys(SET_DEF).forEach((k) => conLine(`${k} = ${SET[k]}  (${SET_RANGE[k][0]}–${SET_RANGE[k][1]}${k === "sens" ? "" : ""})`)),
+  settings: () => { settings(true); Object.keys(SET_DEF).forEach((k) => conLine(`${k} = ${SET[k]}  (${SET_RANGE[k][0]}–${SET_RANGE[k][1]})`)); },
   set: (a) => {
     const k = a[0], v = Number(a[1]);
     if (!(k in SET_DEF)) return conLine(T("cSetBad", "Unknown setting — /settings lists them."), "err");
     if (!(Number.isFinite(v) && v >= SET_RANGE[k][0] && v <= SET_RANGE[k][1])) return conLine(T("cSetRange", "{k} takes a number from {a} to {b}.", { k, a: SET_RANGE[k][0], b: SET_RANGE[k][1] }), "err");
     SET[k] = v;
-    try { localStorage.setItem(LS_SET, JSON.stringify(SET)); } catch (e) {}
+    saveSet();
     applySetting(k);
-    conLine(k === "effects" ? T("cSetReload", "{k} = {v} — reload the page to apply it.", { k, v }) : `${k} = ${v}`);
+    if (settingsOpen()) renderSettings();
+    conLine(`${k} = ${v}`);
   },
   clear: () => { $("conLog").textContent = ""; },
   prof: () => { profToggle(); conLine(PROF.on ? T("cProfOn", "Profiler on — ` (the key left of 1) or /prof closes it.") : T("cProfOff", "Profiler off.")); },
@@ -2307,7 +2381,7 @@ function wireInput(canvas) {
     if (e.code === "BracketLeft" || e.code === "BracketRight") { const i = SNAPS.indexOf(piece.snap); piece.snap = SNAPS[Math.max(0, Math.min(SNAPS.length - 1, (i < 0 ? 2 : i) + (e.code === "BracketRight" ? 1 : -1)))]; pieceInfo(); }
     if (e.code === "KeyF") { P.fly = !P.fly; P.vh = 0; notify(P.fly ? T("flyOn", "Flying — Space up, C down, Shift fast") : T("flyOff", "Walking"), 1600); }
     if (e.code === "KeyE") palette($("palette").classList.contains("hidden"));
-    if (e.code === "Escape") palette(false);
+    if (e.code === "Escape") { palette(false); settings(false); }
     if (e.code === "Space" && locked) e.preventDefault();
   });
   document.addEventListener("keyup", (e) => keys.delete(e.code));
@@ -2348,6 +2422,8 @@ function wireInput(canvas) {
   $("deathGo").onclick = () => wakeUp();                // the death card (#162)
   $("npcClose").onclick = () => { $("npcPanel").classList.add("hidden"); talkingTo = null; };
   $("wardClose").onclick = () => wardrobe(false);
+  $("setOpen").onclick = () => { palette(false); settings(true); };
+  $("setClose").onclick = () => settings(false);
   $("wardOpen").onclick = () => { palette(false); wardrobe(true); };
 }
 
@@ -2646,7 +2722,8 @@ function grade(img) {
   return TSL.vec4(c.mul(vig), img.a);
 }
 function buildPipeline() {
-  if (touch || !SET.effects || new URLSearchParams(location.search).has("plain")) return null;
+  if (pipeline && pipeline.dispose) pipeline.dispose();   // built again when the effects setting changes (#166)
+  if (!SET.effects || new URLSearchParams(location.search).has("plain")) return null;   // off: a phone's default
   try {
     const pl = new THREE.RenderPipeline(renderer);
     const pre = TSL.pass(scene, camera);
@@ -2872,6 +2949,9 @@ function frame(now) {
   // live page in a software-rendered browser at 2 fps, where nine seconds of walking moved a metre). The body now moves
   // the whole elapsed time in steps of at most STEP_DT, so its collisions stay exact; a stall past FRAME_MAX (a hidden
   // tab, a long pause) is not caught up.
+  // A FRAME-RATE CAP (#166, SET.fps): a frame that comes sooner than the cap allows is skipped whole (a little early is
+  // let through, or a 60 Hz screen capped at 60 would drop every other frame on its own jitter)
+  if (SET.fps && now - lastT < 1000 / SET.fps - 2) return;
   const work0 = performance.now();
   const dt = Math.min(FRAME_MAX, (now - lastT) / 1000 || 0); lastT = now;
   pt("step", () => { for (let left = dt; left > 1e-6; left -= STEP_DT) step(Math.min(STEP_DT, left)); });
@@ -3068,11 +3148,12 @@ function shotTick(now) {
 // ---- start -----------------------------------------------------------------------------------------------------
 async function start() {
   load();
+  viewDist = SET.view;                                      // the view distance setting (#166); a photo shot takes its own
   if (SHOT !== null) shotSetup();
   RULES = await (await fetch("/static/land-recipes.json", { cache: "no-cache" })).json();
   const canvas = $("world");
   renderer = new THREE.WebGPURenderer({ canvas, antialias: true });
-  renderer.setPixelRatio(Math.min(PHONE ? 1.25 : 2, devicePixelRatio || 1));
+  renderer.setPixelRatio(basePR() * SET.res / 100);          // render resolution (#166): a share of the screen's pixels
   renderer.setSize(innerWidth, innerHeight);
   renderer.toneMapping = THREE.ACESFilmicToneMapping;
   renderer.toneMappingExposure = 0.95;
@@ -3080,14 +3161,14 @@ async function start() {
   renderer.shadowMap.type = THREE.PCFShadowMap;            // r187's WebGPU renderer has no PCFSoftShadowMap
   await renderer.init();
   $("hudGpu").textContent = renderer.backend && renderer.backend.isWebGPUBackend ? "WebGPU" : "WebGL2";
-  $("hudGpu").onclick = () => { SET.stats = SET.stats ? 0 : 1; try { localStorage.setItem(LS_SET, JSON.stringify(SET)); } catch (e) {} };
+  $("hudGpu").onclick = () => { SET.stats = SET.stats ? 0 : 1; saveSet(); };
   scene = new THREE.Scene();
   scene.fog = new THREE.Fog(0xb7d6ef, viewDist * CHUNK * 0.9, 2900);
   camera = new THREE.PerspectiveCamera(SET.fov, innerWidth / innerHeight, 0.08, 4000);
   camera.position.set(0, 0, 0);
   sun = new THREE.DirectionalLight(0xfff4e0, 3);
-  sun.shadow.mapSize.set(2048, 2048);
-  Object.assign(sun.shadow.camera, { left: -48, right: 48, top: 48, bottom: -48, near: 10, far: 320 });
+  Object.assign(sun.shadow.camera, { near: 10, far: 320 });
+  shadowQuality();                                          // map size and reach by SET.shadows (#166); off: medium's, unused
   sun.shadow.bias = -0.0004; sun.shadow.normalBias = 0.04;
   scene.add(sun, sun.target);                               // the target stays at the origin: the player
   moon = new THREE.DirectionalLight(0x8fa8d8, 0.3); scene.add(moon, moon.target);

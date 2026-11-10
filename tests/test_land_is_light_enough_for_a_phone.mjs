@@ -24,10 +24,12 @@ const ok = (c, m) => { console.log((c ? "PASS  " : "FAIL  ") + m); if (!c) fails
 
 // 1. the phone profile
 ok(/^const PHONE = "ontouchstart" in window \|\| navigator\.maxTouchPoints > 0;/m.test(page), "a phone is known from the start (touch), before the renderer is made");
-ok(page.includes("renderer.setPixelRatio(Math.min(PHONE ? 1.25 : 2, devicePixelRatio || 1));"), "…it renders 1.25 pixels per CSS pixel (not 2)");
-ok(page.includes("viewDist = PHONE ? 4 : 6;"), "…sees 4 chunks of full view (the far land still to the horizon)");
+ok(page.includes("const basePR = () => Math.min(PHONE ? 1.25 : 2, devicePixelRatio || 1);") && page.includes("renderer.setPixelRatio(basePR() * SET.res / 100);"),
+  "…it renders 1.25 pixels per CSS pixel (not 2), times its render resolution setting (#166)");
+ok(page.includes("const SET_PHONE = { shadows: 0, grass: 0, effects: 0, view: 4 };") && page.includes("viewDist = SET.view;"),
+  "…sees 4 chunks of full view (the far land still to the horizon) unless the settings say more");
 ok(page.includes("const TORCH_LIGHTS = PHONE ? 2 : 6"), "…lights two point lights");
-ok(page.includes("const o = { ...SET_DEF, ...(PHONE ? { shadows: 0 } : {}) };"), "…casts no shadows unless asked (/set shadows 1)");
+ok(page.includes("const o = { ...SET_DEF, ...(PHONE ? SET_PHONE : {}) };"), "…casts no shadows, and draws no grass or effects, unless asked (the graphics panel)");
 ok(page.includes("c.lod = PHONE ? (dist <= 1 ? 1 : 2)") && page.includes("lodNow = PHONE ? (dd <= 1 ? 1 : 2)"), "…and draws full tree models in the nearest ring only");
 
 // 2. the meadow's small things
@@ -52,7 +54,7 @@ for (let dx = -4; dx <= 4; dx++) for (let dy = -4; dy <= 4; dy++) {
 ok(total <= 160000, `a phone's view around the landing is ${Math.round(total / 1000)}k triangles (budget 160k; it was ~1.2 million in the town)`);
 
 // 4. the stats readout
-ok(page.includes("stats: 0 }") && /\$\{fps\} fps · \$\{Math\.round\(r\.triangles \/ 1000\)\}k tris · \$\{r\.drawCalls \?\? r\.calls\} calls/.test(page)
+ok(page.includes("stats: 0, ") && /\$\{fps\} fps · \$\{Math\.round\(r\.triangles \/ 1000\)\}k tris · \$\{r\.drawCalls \?\? r\.calls\} calls/.test(page)
    && page.includes('$("hudGpu").onclick = () => { SET.stats = SET.stats ? 0 : 1;'), "a stats readout shows frames a second, triangles and draw calls (/set stats 1, or a tap)");
 console.log(fails ? `${fails} FAILED` : "ALL PASS");
 process.exit(fails ? 1 : 0);

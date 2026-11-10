@@ -106,6 +106,12 @@
   #machPanel .card,#chestPanel .card,#npcPanel .card{max-width:min(560px,calc(100vw - 32px));max-height:80vh;overflow:auto;background:var(--elev);border:1px solid var(--border);border-radius:14px;padding:16px;font-size:13px}
   #chestPanel h2,#machPanel h2,#npcPanel h2{margin:0 0 10px;font-size:16px;display:flex;align-items:center}#chestPanel h2 button,#machPanel h2 button,#npcPanel h2 button{margin-left:auto}
   .mrow{display:flex;gap:8px;align-items:center;justify-content:space-between;padding:6px 0;border-top:1px solid var(--border)}.mrow.on b{color:var(--accent2)}
+  #setPanel{position:fixed;inset:0;z-index:8;display:grid;place-items:center;background:rgba(0,0,0,.45)}
+  #setPanel .card{width:min(460px,calc(100vw - 32px));max-height:80vh;overflow:auto;background:var(--elev);border:1px solid var(--border);border-radius:14px;padding:16px;font-size:13px}
+  #setPanel h2{margin:0 0 10px;font-size:16px;display:flex;align-items:center}#setPanel h2 button{margin-left:auto}
+  .srow{display:flex;gap:10px;align-items:center;justify-content:space-between;padding:7px 0;border-top:1px solid var(--border)}
+  .srow select{font:inherit;color:var(--txt);background:#0b0f14;border:1px solid var(--border);border-radius:8px;padding:6px 8px;max-width:58%}
+  .presets{display:flex;gap:6px;flex-wrap:wrap;margin:0 0 8px}.presets button.on{border-color:var(--accent2);color:var(--accent2)}
   #wardPanel{position:fixed;inset:0;z-index:8;display:grid;place-items:center;background:rgba(0,0,0,.45)}
   #wardPanel .card{max-width:min(560px,calc(100vw - 32px));max-height:80vh;overflow:auto;background:var(--elev);border:1px solid var(--border);border-radius:14px;padding:16px;font-size:13px}
   #wardPanel h2{margin:0 0 10px;font-size:16px;display:flex;align-items:center;gap:6px}#wardPanel h2 button:first-of-type{margin-left:auto}
@@ -161,7 +167,7 @@
   <button id="helpPlay" class="go" data-i18n="land.play">Play</button>
 </div></div>
 <div id="palette" class="hidden"><div class="card">
-  <h2><span data-i18n="land.bagTitle">Bag</span><button id="wardOpen" class="ghost" data-i18n="land.wardTitle">Wardrobe</button><button id="palClose" class="ghost" data-i18n="land.close">Close</button></h2>
+  <h2><span data-i18n="land.bagTitle">Bag</span><button id="wardOpen" class="ghost" data-i18n="land.wardTitle">Wardrobe</button><button id="setOpen" class="ghost" data-i18n="land.setBtn">Settings</button><button id="palClose" class="ghost" data-i18n="land.close">Close</button></h2>
   <div id="palGrid"></div>
 </div></div>
 <div id="chestPanel" class="hidden"><div class="card">
@@ -176,6 +182,10 @@
 <div id="npcPanel" class="hidden"><div class="card">
   <h2><span id="npcTitle"></span><button id="npcClose" class="ghost" data-i18n="land.close">Close</button></h2>
   <div id="npcGrid"></div>
+</div></div>
+<div id="setPanel" class="hidden"><div class="card">
+  <h2><span data-i18n="land.setTitle">Graphics</span><button id="setClose" class="ghost" data-i18n="land.close">Close</button></h2>
+  <div id="setGrid"></div>
 </div></div>
 <div id="wardPanel" class="hidden"><div class="card">
   <h2><span data-i18n="land.wardTitle">Wardrobe</span><button id="wardClose" class="ghost" data-i18n="land.close">Close</button></h2>
