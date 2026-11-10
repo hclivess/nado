@@ -446,7 +446,10 @@
   "land.benchNone": "Not measured on this device yet",
   "land.benchBusy": "Measuring…",
   "land.benchBtn": "Benchmark",
-  "land.cBench": "measure this device and pick its graphics"
+  "land.cBench": "measure this device and pick its graphics",
+  "land.gAuto": "Adjust automatically (presets only)",
+  "land.govDown": "Graphics lowered to {p} to keep it smooth",
+  "land.govUp": "Graphics raised to {p}"
  },
  "cs": {
   "land.notYours": "Pozemek {p} patří někomu jinému. Kupte si pozemek, nebo požádejte jeho vlastníka o pozvání.",
@@ -895,7 +898,10 @@
   "land.benchNone": "Na tomto zařízení zatím neměřeno",
   "land.benchBusy": "Měřím…",
   "land.benchBtn": "Test výkonu",
-  "land.cBench": "změřit toto zařízení a zvolit grafiku"
+  "land.cBench": "změřit toto zařízení a zvolit grafiku",
+  "land.gAuto": "Upravovat automaticky (jen předvolby)",
+  "land.govDown": "Grafika snížena na {p}, aby hra běžela plynule",
+  "land.govUp": "Grafika zvýšena na {p}"
  },
  "es": {
   "land.notYours": "La parcela {p} pertenece a otra persona. Compra una parcela o pide a su dueño que te invite.",
@@ -1344,7 +1350,10 @@
   "land.benchNone": "Aún sin medir en este dispositivo",
   "land.benchBusy": "Midiendo…",
   "land.benchBtn": "Prueba de rendimiento",
-  "land.cBench": "medir este dispositivo y elegir sus gráficos"
+  "land.cBench": "medir este dispositivo y elegir sus gráficos",
+  "land.gAuto": "Ajustar automáticamente (solo preajustes)",
+  "land.govDown": "Gráficos bajados a {p} para que vaya fluido",
+  "land.govUp": "Gráficos subidos a {p}"
  },
  "pt": {
   "land.notYours": "O lote {p} pertence a outra pessoa. Compre um lote ou peça ao dono que convide você.",
@@ -1793,7 +1802,10 @@
   "land.benchNone": "Ainda não medido neste aparelho",
   "land.benchBusy": "Medindo…",
   "land.benchBtn": "Teste de desempenho",
-  "land.cBench": "medir este aparelho e escolher os gráficos"
+  "land.cBench": "medir este aparelho e escolher os gráficos",
+  "land.gAuto": "Ajustar automaticamente (só predefinições)",
+  "land.govDown": "Gráficos reduzidos para {p} para manter a fluidez",
+  "land.govUp": "Gráficos aumentados para {p}"
  },
  "fr": {
   "land.notYours": "La parcelle {p} appartient à quelqu'un d'autre. Achetez une parcelle ou demandez à son propriétaire de vous inviter.",
@@ -2242,7 +2254,10 @@
   "land.benchNone": "Pas encore mesuré sur cet appareil",
   "land.benchBusy": "Mesure…",
   "land.benchBtn": "Test de performance",
-  "land.cBench": "mesurer cet appareil et choisir ses graphismes"
+  "land.cBench": "mesurer cet appareil et choisir ses graphismes",
+  "land.gAuto": "Ajuster automatiquement (préréglages seulement)",
+  "land.govDown": "Graphismes baissés à {p} pour rester fluide",
+  "land.govUp": "Graphismes montés à {p}"
  },
  "de": {
   "land.notYours": "Grundstück {p} gehört jemand anderem. Kauf dir ein Grundstück oder bitte den Besitzer um eine Einladung.",
@@ -2691,7 +2706,10 @@
   "land.benchNone": "Auf diesem Gerät noch nicht gemessen",
   "land.benchBusy": "Messe…",
   "land.benchBtn": "Leistungstest",
-  "land.cBench": "dieses Gerät messen und seine Grafik wählen"
+  "land.cBench": "dieses Gerät messen und seine Grafik wählen",
+  "land.gAuto": "Automatisch anpassen (nur Voreinstellungen)",
+  "land.govDown": "Grafik auf {p} gesenkt, damit es flüssig bleibt",
+  "land.govUp": "Grafik auf {p} erhöht"
  },
  "it": {
   "land.notYours": "Il lotto {p} appartiene a qualcun altro. Compra un lotto o chiedi al proprietario di invitarti.",
@@ -3140,7 +3158,10 @@
   "land.benchNone": "Non ancora misurato su questo dispositivo",
   "land.benchBusy": "Misuro…",
   "land.benchBtn": "Test prestazioni",
-  "land.cBench": "misurare questo dispositivo e sceglierne la grafica"
+  "land.cBench": "misurare questo dispositivo e sceglierne la grafica",
+  "land.gAuto": "Regola automaticamente (solo preimpostazioni)",
+  "land.govDown": "Grafica abbassata a {p} per restare fluida",
+  "land.govUp": "Grafica alzata a {p}"
  },
  "ru": {
   "land.notYours": "Участок {p} принадлежит другому игроку. Купите участок или попросите владельца пригласить вас.",
@@ -3589,7 +3610,10 @@
   "land.benchNone": "На этом устройстве ещё не измерялось",
   "land.benchBusy": "Измеряю…",
   "land.benchBtn": "Тест производительности",
-  "land.cBench": "измерить устройство и выбрать графику"
+  "land.cBench": "измерить устройство и выбрать графику",
+  "land.gAuto": "Настраивать автоматически (только пресеты)",
+  "land.govDown": "Графика снижена до «{p}», чтобы игра шла плавно",
+  "land.govUp": "Графика повышена до «{p}»"
  },
  "zh": {
   "land.notYours": "地块 {p} 属于别人。购买一块地，或请它的所有者邀请你。",
@@ -4038,7 +4062,10 @@
   "land.benchNone": "尚未在此设备上测量",
   "land.benchBusy": "测量中…",
   "land.benchBtn": "性能测试",
-  "land.cBench": "测量此设备并选择画面"
+  "land.cBench": "测量此设备并选择画面",
+  "land.gAuto": "自动调整（仅预设）",
+  "land.govDown": "画面已降至{p}以保持流畅",
+  "land.govUp": "画面已升至{p}"
  },
  "ja": {
   "land.notYours": "区画 {p} は他の人のものです。区画を購入するか、所有者に招待してもらいましょう。",
@@ -4487,7 +4514,10 @@
   "land.benchNone": "このデバイスではまだ測定していません",
   "land.benchBusy": "測定中…",
   "land.benchBtn": "ベンチマーク",
-  "land.cBench": "このデバイスを測定して画質を選ぶ"
+  "land.cBench": "このデバイスを測定して画質を選ぶ",
+  "land.gAuto": "自動調整（プリセットのみ）",
+  "land.govDown": "滑らかさを保つため画質を{p}に下げました",
+  "land.govUp": "画質を{p}に上げました"
  },
  "ko": {
   "land.notYours": "구역 {p}은(는) 다른 사람의 땅입니다. 구역을 사거나 소유자에게 초대를 요청하세요.",
@@ -4936,7 +4966,10 @@
   "land.benchNone": "이 기기에서는 아직 측정하지 않았습니다",
   "land.benchBusy": "측정 중…",
   "land.benchBtn": "벤치마크",
-  "land.cBench": "이 기기를 측정해 그래픽 선택"
+  "land.cBench": "이 기기를 측정해 그래픽 선택",
+  "land.gAuto": "자동 조정(프리셋만)",
+  "land.govDown": "부드럽게 유지하려고 그래픽을 {p}(으)로 낮췄습니다",
+  "land.govUp": "그래픽을 {p}(으)로 높였습니다"
  },
  "ar": {
   "land.notYours": "القطعة {p} ملك لشخص آخر. اشترِ قطعة، أو اطلب من مالكها أن يدعوك.",
@@ -5385,7 +5418,10 @@
   "land.benchNone": "لم يُقَس هذا الجهاز بعد",
   "land.benchBusy": "جارٍ القياس…",
   "land.benchBtn": "اختبار الأداء",
-  "land.cBench": "قياس هذا الجهاز واختيار رسومياته"
+  "land.cBench": "قياس هذا الجهاز واختيار رسومياته",
+  "land.gAuto": "الضبط تلقائيًا (الإعدادات المسبقة فقط)",
+  "land.govDown": "خُفّضت الرسوميات إلى {p} لتبقى سلسة",
+  "land.govUp": "رُفعت الرسوميات إلى {p}"
  },
  "hi": {
   "land.notYours": "प्लॉट {p} किसी और का है। कोई प्लॉट खरीदें, या उसके मालिक से आपको आमंत्रित करने को कहें।",
@@ -5834,7 +5870,10 @@
   "land.benchNone": "इस डिवाइस पर अभी नहीं मापा गया",
   "land.benchBusy": "माप रहे हैं…",
   "land.benchBtn": "बेंचमार्क",
-  "land.cBench": "इस डिवाइस को मापें और ग्राफ़िक्स चुनें"
+  "land.cBench": "इस डिवाइस को मापें और ग्राफ़िक्स चुनें",
+  "land.gAuto": "अपने आप समायोजित करें (केवल प्रीसेट)",
+  "land.govDown": "सहज बनाए रखने के लिए ग्राफ़िक्स {p} पर घटाए गए",
+  "land.govUp": "ग्राफ़िक्स {p} पर बढ़ाए गए"
  },
  "tr": {
   "land.notYours": "{p} arsası başkasına ait. Bir arsa satın al ya da sahibinden seni davet etmesini iste.",
@@ -6283,7 +6322,10 @@
   "land.benchNone": "Bu cihazda henüz ölçülmedi",
   "land.benchBusy": "Ölçülüyor…",
   "land.benchBtn": "Performans testi",
-  "land.cBench": "bu cihazı ölç ve grafiğini seç"
+  "land.cBench": "bu cihazı ölç ve grafiğini seç",
+  "land.gAuto": "Otomatik ayarla (yalnızca hazır ayarlar)",
+  "land.govDown": "Akıcı kalsın diye grafik {p} seviyesine düşürüldü",
+  "land.govUp": "Grafik {p} seviyesine yükseltildi"
  },
  "id": {
   "land.notYours": "Petak {p} milik orang lain. Beli sebuah petak, atau minta pemiliknya mengundangmu.",
@@ -6732,7 +6774,10 @@
   "land.benchNone": "Belum diukur di perangkat ini",
   "land.benchBusy": "Mengukur…",
   "land.benchBtn": "Uji kinerja",
-  "land.cBench": "ukur perangkat ini dan pilih grafisnya"
+  "land.cBench": "ukur perangkat ini dan pilih grafisnya",
+  "land.gAuto": "Sesuaikan otomatis (hanya preset)",
+  "land.govDown": "Grafis diturunkan ke {p} agar tetap lancar",
+  "land.govUp": "Grafis dinaikkan ke {p}"
  },
  "vi": {
   "land.notYours": "Mảnh đất {p} thuộc về người khác. Hãy mua một mảnh, hoặc nhờ chủ của nó mời bạn.",
@@ -7181,7 +7226,10 @@
   "land.benchNone": "Chưa đo trên thiết bị này",
   "land.benchBusy": "Đang đo…",
   "land.benchBtn": "Đo hiệu năng",
-  "land.cBench": "đo thiết bị này và chọn đồ họa"
+  "land.cBench": "đo thiết bị này và chọn đồ họa",
+  "land.gAuto": "Tự điều chỉnh (chỉ mức cài sẵn)",
+  "land.govDown": "Đã hạ đồ họa xuống {p} để giữ mượt",
+  "land.govUp": "Đã nâng đồ họa lên {p}"
  },
  "pl": {
   "land.notYours": "Działka {p} należy do kogoś innego. Kup działkę albo poproś jej właściciela o zaproszenie.",
@@ -7630,6 +7678,9 @@
   "land.benchNone": "Na tym urządzeniu jeszcze nie mierzono",
   "land.benchBusy": "Mierzę…",
   "land.benchBtn": "Test wydajności",
-  "land.cBench": "zmierz to urządzenie i wybierz grafikę"
+  "land.cBench": "zmierz to urządzenie i wybierz grafikę",
+  "land.gAuto": "Dostosowuj automatycznie (tylko ustawienia wstępne)",
+  "land.govDown": "Grafika obniżona do „{p}”, by działało płynnie",
+  "land.govUp": "Grafika podniesiona do „{p}”"
  }
 }

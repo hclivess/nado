@@ -33,7 +33,7 @@ import { snapBox, piecesFor, restOnGround } from "./land-snap.js";
 import { levelOps, earthNeeded, trunkIn, siteLayer, topFirst } from "./land-level.js";
 import { groundWeights } from "./land-mesher.js";
 import { craftStep, flightOf } from "./land-flight.js";
-import { GFX_PRESETS, BENCH_ORDER, benchTarget, frameStats, holds, pickPreset } from "./land-gfx.js";
+import { GFX_PRESETS, BENCH_ORDER, benchTarget, frameStats, holds, pickPreset, LADDER, governor, govStep } from "./land-gfx.js";
 import { NadoDapp, wireWallet, renderWallet, alertBar, notify, uiConfirm, uiPrompt, isAddress, esc, base, disp, rawToNado, nadoToRaw, randId, $ } from "./nadodapp.js";
 
 const CID = "e7dfe9aa3cbb4b0c9293caeaf992a041";      // the land title contract (deployed 2026-11-07, scripts/land_first_wave.py); redeploy.py wire() repoints it
@@ -2141,9 +2141,9 @@ function act(place, mouse) {
 // closes it. A line without a slash is chat to the players around you (the world server relays it to whoever watches
 // the plots you watch). SETTINGS are this viewer's own, remembered in this browser — a convenience, nothing shared.
 const LS_SET = "nado_land_settings";
-const SET_DEF = { fov: 72, sens: 1, invert: 0, grass: 1, shadows: 2, effects: 1, borders: 1, stats: 0, res: 100, view: 6, fps: 0 };
+const SET_DEF = { fov: 72, sens: 1, invert: 0, grass: 1, shadows: 2, effects: 1, borders: 1, stats: 0, res: 100, view: 6, fps: 0, auto: 1 };
 const SET_RANGE = { fov: [50, 110], sens: [0.2, 4], invert: [0, 1], grass: [0, 1], shadows: [0, 3], effects: [0, 1], borders: [0, 1], stats: [0, 1],
-  res: [50, 100], view: [2, 10], fps: [0, 60] };
+  res: [50, 100], view: [2, 10], fps: [0, 60], auto: [0, 1] };
 // GRAPHICS (#166, operator 2026-11-10: "make graphical settings more configurable (resolution, shadows, etc)"): res is the
 // render resolution in % of the screen's pixels, shadows off / low / medium / high (the sun's shadow map size and reach),
 // view the chunks drawn around you, fps a frame-rate cap (0: none). A phone starts on what it can carry — no shadows,
@@ -2240,6 +2240,7 @@ function renderSettings() {
     + sel("fps", T("gFps", "Frame-rate cap"), [[0, T("gFpsNone", "None")], [30, "30"], [60, "60"]])
     + sel("grass", T("gGrass", "Grass"), onOff)
     + sel("effects", T("gEffects", "Effects (bloom, ambient light)"), onOff)
+    + sel("auto", T("gAuto", "Adjust automatically (presets only)"), onOff)
     + sel("fov", T("gFov", "Field of view"), [60, 66, 72, 80, 90, 100, 110].concat([SET.fov]).filter((v, i, a) => a.indexOf(v) === i).sort((a, b) => a - b).map((v) => [v, v + "°"]))
     + `<p class="dim">${esc(T("gNote", "Kept in this browser. Each change applies at once."))}</p>`;
   for (const b of box.querySelectorAll("[data-preset]")) b.onclick = () => {
@@ -2266,6 +2267,27 @@ const framesFor = (ms) => new Promise((done) => {
   const f = (now) => { if (over) return; if (last) out.push(now - last); last = now; if (now - t0 < ms) requestAnimationFrame(f); else end(); };
   requestAnimationFrame(f); setTimeout(end, ms * 3);
 });
+// ---- THE GOVERNOR (#166, land-gfx.js govStep): while playing on a preset, frames slow for 3 s move it one preset down,
+// fast for 12 s one up, and a step that did not help is taken back. A player's own mix (Custom) is theirs: it is left
+// alone. On by default (SET.auto); not in a headless browser (page tests, plot photos) unless the page is opened with
+// ?gov (its own test).
+let GOV_ON = null, gov = null;           // GOV_ON is decided at the first frame: SHOT is declared further down this file
+function govTick(now, gap) {
+  if (GOV_ON === null) GOV_ON = SHOT === null && (!/HeadlessChrome/.test(navigator.userAgent) || new URLSearchParams(location.search).has("gov"));
+  if (!GOV_ON || !SET.auto || benching || document.hidden) { gov = null; return; }
+  const at = LADDER.indexOf(gfxPreset());
+  if (at < 0) { gov = null; return; }
+  // a frame-rate cap is the pace asked for: capped at 30, 33 ms frames are on time, not slow
+  const target = SET.fps ? Math.min(SET.fps, benchTarget(PHONE)) : benchTarget(PHONE);
+  if (!gov || gov.target !== target) gov = Object.assign(governor(target), { target });
+  const to = govStep(gov, gap, now, at);
+  if (to === at) return;
+  for (const [k, v] of Object.entries(GFX_PRESETS[LADDER[to]])) setSetting(k, v);
+  saveSet();
+  notify(to < at ? T("govDown", "Graphics lowered to {p} to keep it smooth", { p: presetName(LADDER[to]) })
+    : T("govUp", "Graphics raised to {p}", { p: presetName(LADDER[to]) }), 3000);
+  if (settingsOpen()) renderSettings();
+}
 async function bench() {
   if (benching || !renderer) return;
   benching = true;
@@ -2994,7 +3016,9 @@ function frame(now) {
   // let through, or a 60 Hz screen capped at 60 would drop every other frame on its own jitter)
   if (SET.fps && now - lastT < 1000 / SET.fps - 2) return;
   const work0 = performance.now();
+  const gap = lastT ? now - lastT : 0;
   const dt = Math.min(FRAME_MAX, (now - lastT) / 1000 || 0); lastT = now;
+  govTick(now, gap);                                       // the graphics governor (#166), decided before this frame
   pt("step", () => { for (let left = dt; left > 1e-6; left -= STEP_DT) step(Math.min(STEP_DT, left)); });
   pt("break", () => { breakTick(dt); levelTick(now); });
   const cam = eyePos(), { fr, fw } = look();

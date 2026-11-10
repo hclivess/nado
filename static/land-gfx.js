@@ -39,3 +39,42 @@ export function pickPreset(measured, target) {
   for (const name of BENCH_ORDER) if (measured[name] && holds(frameStats(measured[name]), target)) return name;
   return "low";
 }
+
+// ---- THE GOVERNOR (#166: "then an automatic governor while playing", after True Wind's GfxAuto): between frames it
+// watches the frame intervals and moves one preset down when frames have been slow for downS seconds, one up when they
+// have been fast for upS — slow and fast far enough apart (slowK, fastK) that it does not hunt between two. After a step
+// it holds holdS seconds and judges it: a step down that did not make frames at least (1 - helpK) faster is taken back
+// (the device is not slow for graphics — a busy main thread, a page in the background) and no step down is tried again
+// for noDownS; a step up that came out slow is taken back and no step up is tried for noUpS.
+export const GOV = { win: 30, slowK: 1.55, fastK: 0.93, downS: 3, upS: 12, holdS: 4, helpK: 0.9, noDownS: 60, noUpS: 120 };
+/** The ladder the governor walks, lightest first. */
+export const LADDER = BENCH_ORDER.slice().reverse();
+const median = (a) => { const s = a.slice().sort((x, y) => x - y); return s[s.length >> 1]; };
+export function governor(target) {
+  return { budget: 1000 / target, ms: [], slowSince: null, fastSince: null, holdUntil: 0, tried: null, noDownUntil: 0, noUpUntil: 0 };
+}
+/** One frame: `dt` its interval (ms), `now` the time (ms), `at` the preset's index in LADDER. Returns the index to be at
+ *  (the same one when nothing changes). */
+export function govStep(g, dt, now, at) {
+  // a stall says nothing of the graphics (a pause, a tab coming back): 5 s, not 1 — a 1 fps device is the one to help
+  if (!(dt > 0) || dt > 5000) return at;
+  g.ms.push(dt); if (g.ms.length > GOV.win) g.ms.shift();
+  if (now < g.holdUntil || g.ms.length < 10) return at;
+  const med = median(g.ms), step = (to, dir) => {
+    g.tried = { dir, from: at, before: med }; g.holdUntil = now + GOV.holdS * 1000; g.ms = []; g.slowSince = g.fastSince = null;
+    return to;
+  };
+  if (g.tried) {                                            // the hold is over: did the last step do what it was for?
+    const t = g.tried; g.tried = null;
+    if (t.dir < 0 && med > t.before * GOV.helpK) { g.noDownUntil = now + GOV.noDownS * 1000; g.ms = []; return t.from; }
+    if (t.dir > 0 && med > g.budget * GOV.slowK) { g.noUpUntil = now + GOV.noUpS * 1000; g.ms = []; return t.from; }
+  }
+  if (med > g.budget * GOV.slowK) {
+    g.fastSince = null; if (g.slowSince === null) g.slowSince = now;
+    if (now - g.slowSince >= GOV.downS * 1000 && at > 0 && now >= g.noDownUntil) return step(at - 1, -1);
+  } else if (med < g.budget * GOV.fastK) {
+    g.slowSince = null; if (g.fastSince === null) g.fastSince = now;
+    if (now - g.fastSince >= GOV.upS * 1000 && at < LADDER.length - 1 && now >= g.noUpUntil) return step(at + 1, 1);
+  } else g.slowSince = g.fastSince = null;
+  return at;
+}

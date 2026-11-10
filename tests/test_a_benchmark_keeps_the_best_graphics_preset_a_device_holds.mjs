@@ -30,7 +30,8 @@ const keys = ["res", "shadows", "view", "grass", "effects"];
 ok(G.BENCH_ORDER.every((n) => keys.every((k) => G.GFX_PRESETS[n][k] >= range[k][0] && G.GFX_PRESETS[n][k] <= range[k][1])), "every preset value is one the settings accept");
 ok(G.BENCH_ORDER.slice(1).every((n, i) => { const a = G.GFX_PRESETS[G.BENCH_ORDER[i]], b = G.GFX_PRESETS[n]; return keys.every((k) => b[k] <= a[k]) && keys.some((k) => b[k] < a[k]); }),
   "…each a step lighter than the one before");
-ok(page.includes('import { GFX_PRESETS, BENCH_ORDER, benchTarget, frameStats, holds, pickPreset } from "./land-gfx.js";'), "the page uses these presets and this decision");
+const imp = (page.match(/import \{([^}]*)\} from "\.\/land-gfx\.js";/) || [])[1] || "";
+ok(["GFX_PRESETS", "BENCH_ORDER", "benchTarget", "frameStats", "holds", "pickPreset"].every((n) => new RegExp("\\b" + n + "\\b").test(imp)), "the page uses these presets and this decision");
 
 // 2-3. picking
 const T60 = G.benchTarget(false), T30 = G.benchTarget(true);

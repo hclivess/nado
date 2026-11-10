@@ -10,7 +10,9 @@
  *   4. after a reload the choice is kept, and drawn so; /settings opens the panel too;
  *   5. the effects are built again live (Ultra);
  *   6. the benchmark (#166): never run by itself in a headless browser (page tests, plot photos); Benchmark in the panel
- *      measures from Ultra down, keeps a preset, says it ("Measured here: Low — 3 fps") and remembers it; no page errors.
+ *      measures from Ultra down, keeps a preset, says it ("Measured here: Low — 3 fps") and remembers it;
+ *   7. the governor (?gov: it is off in a headless browser otherwise): on High, a page this slow is stepped down by itself
+ *      and says so; with "Adjust automatically" off it stays where it was put; no page errors.
  *
  * Run:  node tests/test_the_graphics_settings_are_chosen_in_a_panel_change_what_is_drawn_and_are_kept.mjs   (needs chrome, python3)
  */
@@ -216,6 +218,24 @@ try {
     "…which the settings now are");
   ok(new RegExp("Measured here: \\w+ — " + bres.fps + " fps").test(await evl(B, "document.getElementById('setGrid').textContent")), "…and the panel says what it measured");
   ok(await evl(B, "!!document.querySelector('[data-preset=\"" + bres.preset + "\"].on')"), "…with that preset shown chosen");
+
+  // 7. the governor
+  await send(B, "Page.navigate", { url: base + "/?gov=1" });
+  await until(B, "document.getElementById('loading') && document.getElementById('loading').classList.contains('hidden')", 30000);
+  await sleep(2500);
+  await evl(B, "document.getElementById('help') && document.getElementById('help').classList.add('hidden'), true");
+  await tap("#tPal"); await sleep(800); await tap("#setOpen"); await sleep(800);
+  ok(await val("auto") === "1", "Adjust automatically is on by default");
+  await evl(B, `(() => { window.__notes = []; new MutationObserver(() => { const e = document.getElementById('alertBar'); if (e && e.textContent) window.__notes.push(e.textContent); })
+    .observe(document.body, { childList: true, subtree: true, characterData: true }); return true; })()`);
+  await tap('[data-preset="high"]');
+  ok(await until(B, `!document.querySelector('[data-preset="high"].on')`, 90000), "on High, this slow page is stepped down by itself");
+  const down = await evl(B, "window.__notes.join(' | ')");
+  ok(/Graphics lowered to (Medium|Low) to keep it smooth/.test(down), "…and says so: " + down.slice(0, 160));
+  await pick("auto", 0); await sleep(500);
+  await tap('[data-preset="high"]');
+  await sleep(25000);
+  ok(await evl(B, `!!document.querySelector('[data-preset="high"].on')`), "with Adjust automatically off, High stays where it was put (25 s)");
   ok(errors.length === 0, "no page errors" + (errors.length ? ": " + errors.join(" | ") : ""));
 } catch (e) {
   ok(false, "harness: " + (e && e.message || e) + "\n" + fxOut.slice(-1500));
