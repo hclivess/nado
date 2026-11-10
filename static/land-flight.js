@@ -134,6 +134,10 @@ export function craftStep(c, input, dt, F, groundAt, hits) {
       if (!keep[0] && !keep[1] && !keep[2]) break;
     }
     if (!keep[0]) vu = 0; if (!keep[1]) vv = 0; if (!keep[2]) vh = 0;
+    // HELD UP BY ITS BODY, IT HAS LANDED: on uneven ground a long craft's belly or wing meets the ground before the
+    // ground under its seat — it rested there on its engines, "1.4 m up", Down doing nothing, never landed (the X fighter,
+    // live, 2026-11-10). A fall its body stops is a landing: grounded, engines idle.
+    if (!keep[2] && dh < 0) c.grounded = true;
     u = pu; v = pv; h = ph; turned = yw;
   }
   c.pose = [face, u, v, h, turned];

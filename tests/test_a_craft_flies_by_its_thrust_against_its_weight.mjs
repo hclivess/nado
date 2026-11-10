@@ -145,5 +145,14 @@ const g = { pose: [0, 500, 510, 100, 0], vel: [0, 0, 0], mass: 2, thrust: 2 * F.
 for (let t = 0; t < 6; t += 0.05) craftStep(g, { fwd: 1 }, 0.05, F, flat, (p) => bodyInside(body, p, foot));
 ok(g.pose[2] + 4.1 < 520.35, `driven along the ground at a wall standing on it, it stops at the wall (nose at ${(g.pose[2] + 4.1).toFixed(2)})`);
 
+// a long craft over uneven ground: its nose comes down on a bank 1 m higher than the ground under its seat — held up by
+// its body, it has landed (the X fighter hovered "1.4 m up" on its belly, Down doing nothing)
+const bank = (f, u, v, h) => h < 100 || (v > 512 && h < 101);
+const lb = { pose: [0, 500, 509, 108, 0], vel: [0, 0, 0], mass: 2, thrust: 2 * F.thrust_kn, bottom: 0, grounded: false };
+for (let t = 0; t < 6; t += 0.05) craftStep(lb, { down: true }, 0.05, F, flat, (p) => bodyInside(body, p, bank));
+ok(lb.grounded && lb.pose[3] > 100.5 && lb.engine.throttle === 0, `brought down with its nose over a bank, it lands on it — grounded, engines idle (seat ${(lb.pose[3] - 100).toFixed(2)} m over the ground under it)`);
+for (let t = 0; t < 1; t += 0.05) craftStep(lb, { up: true }, 0.05, F, flat, (p) => bodyInside(body, p, bank));
+ok(!lb.grounded && lb.pose[3] > 102, "…and takes off from it again");
+
 if (fails) { console.log(`${fails} FAILURES`); process.exit(1); }
 console.log("ALL PASS");
