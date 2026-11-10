@@ -415,6 +415,27 @@ function craftsSeen(list) {
   }
   for (const [id, c] of crafts) if (!seen.has(id) && !(flying && flying.id === id)) { scene.remove(c.mesh); crafts.delete(id); }
 }
+// the materials a craft is made of (land-world.js: steel plate, glass, thruster): Use on one of them may mean "fly this"
+const CRAFT_SKIN = new Set([B.steelplate, B.glass, B.thruster]);
+/** The pilot seat among the pieces touching piece b on its plot (and those touching them…, as the world server joins a
+ *  craft: land_server.py connected, CRAFT_PAD 1 cm), or null. */
+function craftSeat(plot, b) {
+  const rec = plotBoxes.get(plot);
+  if (!rec) return null;
+  const grow = (p) => [p[0] - 1, p[1] - 1, p[2] - 1, p[3] + 2, p[4] + 2, p[5] + 2, ...p.slice(6)];
+  const seen = new Set([b]), todo = [b];
+  while (todo.length && seen.size <= 400) {
+    const cur = todo.pop();
+    if (cur[6] === B.pilotseat) return cur;
+    const g = grow(cur), ab = Wd.boxAabb(g), near = new Set();      // its neighbours from the 1 m buckets it reaches
+    for (let i = Math.floor(ab[0] / Wd.CM); i <= Math.floor((ab[0] + ab[3] - 1) / Wd.CM); i++)
+      for (let j = Math.floor(ab[1] / Wd.CM); j <= Math.floor((ab[1] + ab[4] - 1) / Wd.CM); j++)
+        for (let k = Math.floor(ab[2] / Wd.CM); k <= Math.floor((ab[2] + ab[5] - 1) / Wd.CM); k++)
+          for (const o of rec.idx.get(bkey(i, j, k)) || []) near.add(o);
+    for (const o of near) if (!seen.has(o) && Wd.boxesOverlap(g, o)) { seen.add(o); todo.push(o); }
+  }
+  return null;
+}
 /** Use on a pilot seat, or near your own parked craft: take the controls. */
 function board(target) {
   if (!net.online || !net.me) return notify(T("signInFirst", "Sign in first."));
@@ -1921,6 +1942,9 @@ function useDoor() {
   if (flying) return leaveCraft();                                             // Use at the controls: step out
   const a = aim();
   if (a && a.box && a.box.b[6] === B.pilotseat) return board({ plot: a.box.plot, box: a.box.b });   // take the seat
+  // …or Use on any part of a craft — its hull, its canopy, a thruster: the seat it is built round (a seat inside a closed
+  // cockpit could not be aimed at past the glass — the X fighter of #169, 2026-11-10)
+  if (a && a.box && CRAFT_SKIN.has(a.box.b[6])) { const st = craftSeat(a.box.plot, a.box.b); if (st) return board({ plot: a.box.plot, box: st }); }
   { const n = npcAimed(); if (n) return openNpc(n); }                          // Use on a person: talk to them (#165)
   if (a && !a.box && a.hit && net.me && tillAt(a.hit)) return;                 // Use on the ground with a hoe: till it
   if (!(a && a.box && [B.door, B.chest, B.smelter, B.assembler, B.generator, B.well, B.bed].includes(a.box.b[6]))) { const mine = nearMyCraft(); if (mine) return board({ craft: mine }); }

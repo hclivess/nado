@@ -3,7 +3,7 @@
  * engines and gravity to the game and build a real usable xfighter", operator 2026-11-09), walked in the real page
  * against the real world server (tests/_land_live_fixture.py) as a player on a phone, with the on-screen buttons:
  *   1. a small craft built on the owner's plot — a steel-plate hull, a pilot seat on it, two thrusters behind;
- *   (3b: a reload in the air brings the page back to the controls — 2026-11-10)
+ *   (3b: a reload in the air brings the page back to the controls — 2026-11-10; 5: Use on a thruster, not the seat, boards it)
  *   2. Use on the seat takes the controls: the HUD says flying, with its thrust against its weight;
  *   3. holding Jump climbs — the HUD shows the height and the world server holds the craft higher (it was told);
  *   4. holding Down lands it; Use leaves it parked (no pilot); /dock sets it down as pieces on the plot again;
@@ -198,6 +198,23 @@ try {
   ok(boxes.filter((b) => [64, 65, 66].includes(b[6])).length === 4, "/dock sets it down as its four pieces on the plot again: " + JSON.stringify(boxes.filter((b) => [64, 65, 66].includes(b[6]))));
   if (!boxes.some((b) => b[6] === 66)) console.log("what the page said:", await evl(B, "document.getElementById('conLog').textContent.slice(-300) + ' || ' + document.body.innerText.slice(0, 600)"), JSON.stringify((await getJ(`/land/api/crafts?face=${q.face}&u=${su}&v=${sv}`)).crafts.map((c) => [c.pose, c.pilot])));
   ok((await getJ(`/land/api/crafts?face=${q.face}&u=${su}&v=${sv}`)).crafts.length === 0, "…and the craft is gone");
+  // 5. USE ON ANY PART OF A CRAFT boards it: a seat inside a closed cockpit cannot be aimed at past its canopy (the X
+  // fighter, #169, 2026-11-10) — Use on another part of it (a thruster) takes the seat it is built round
+  const part = boxes.filter((b) => b[6] === 65).sort((a, b) => b[0] - a[0])[0];       // the eastmost thruster
+  const pc = { u: q.u0 + (part[0] + part[3] / 2) / 100, v: q.v0 + (part[1] + part[4] / 2) / 100, h: (part[2] + part[5] / 2) / 100 };
+  const tu = pc.u + 2.6, tv = pc.v, th = Wd.column(q.face, Math.floor(tu), Math.floor(tv)).top + 1;
+  await stand(B, tu, tv, th, -Math.PI / 2, -Math.atan2(th + EYE - pc.h, 2.6));
+  await send(B, "Input.dispatchKeyEvent", { type: "keyDown", code: "Slash", key: "/", windowsVirtualKeyCode: 191 });
+  await send(B, "Input.dispatchKeyEvent", { type: "keyUp", code: "Slash", key: "/", windowsVirtualKeyCode: 191 });
+  await until(B, "document.activeElement && document.activeElement.id === 'conIn'", 8000);
+  await send(B, "Input.insertText", { text: "aim" });
+  await send(B, "Input.dispatchKeyEvent", { type: "keyDown", code: "Enter", key: "Enter", windowsVirtualKeyCode: 13 });
+  await send(B, "Input.dispatchKeyEvent", { type: "keyUp", code: "Enter", key: "Enter", windowsVirtualKeyCode: 13 });
+  await sleep(1500);
+  const aimed = await evl(B, "document.getElementById('conLog').textContent.slice(-120)");
+  ok(/Aiming at Thruster/.test(aimed), "aiming at a thruster of the craft, not its seat: " + aimed.slice(-80));
+  await evl(B, "document.getElementById('tUse').click(), true");
+  ok(await until(B, "/Flying/.test(document.getElementById('hudPos').textContent)", 15000), "Use on it takes the craft's seat: " + await hudText(B));
   ok(errors.length === 0, "no page errors" + (errors.length ? ": " + errors.join(" | ") : ""));
   // the pilot sees their craft: flying, the camera hangs behind and above it (from the seat it was never in view)
   const page = (await import("node:fs")).readFileSync(join(ROOT, "static", "land.js"), "utf8");
