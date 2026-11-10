@@ -135,6 +135,8 @@ async def main():
     check("dying now, they wake at their bed", r[0] == "died" and r[1][:4] == pl["bed"][:4] and world.player(me)["pos"][:3] == pl["bed"][:3], r)
 
     # ---- a struck boar fights back ------------------------------------------------------------------------------------
+    # back in the wild: the bed made this plot settled land, where no animal charges anyone (#168)
+    world.plot(p)["boxes"].clear()
     pl["grace"] = 0
     pl["tools"].append("spear")
     boar = animal("boar", 2.5)

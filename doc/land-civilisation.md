@@ -145,6 +145,10 @@ The genre's mechanics, in this world's own names and look (no other game's chara
   picked up. A stone knife: a kill gives hide and bone only to a hunter carrying one. A saw cuts 6 planks from a log
   (without one: 4) and beams; a chisel makes a wheel of planks and iron. Next: a thrown spear, the plane and the mallet,
   furniture, doors and windows.
+* **travel and settled land — built** (#167, #168; operator: "pick recommended"): a block is broken only within 12 m of
+  where you stand (placed too, except on a plot you may build on), a place moves no faster than anyone can go (about
+  65 m/s), /tp goes to the landing or your bed only; no animal spawns on, walks onto or strikes anyone on a plot with
+  a piece built on it, or in the town — the wild stays dangerous.
 * Next: research (#164) waits for the operator.
 
 Order: slice 1 first (one piece at a time, each live before the next), then 2, then the rest as listed.

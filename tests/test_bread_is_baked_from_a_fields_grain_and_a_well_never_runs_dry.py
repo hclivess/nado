@@ -119,6 +119,7 @@ async def main():
     # the work bucket is charged less while fed: a break that costs `hard` seconds costs hard * work
     world.workb[me] = [S.WORK_CAP, time.time()]
     pl["tools"].append("pick")
+    world.keep_place(me, [rock[0], rock[1] + 0.5, rock[2] + 1.5, rock[3] - 1, 0])   # beside it: a break is within reach (#167)
     r = await api("/land/api/set", {"cells": [rock + [0]]})
     spent = S.WORK_CAP - world.workb[me][0]
     check("a fed player's break costs less of their work", r["applied"] == 1 and abs(spent - hard / RULES["tools"]["pick"]["speed"] * FOOD["work"]) < 0.05, (r, spent))

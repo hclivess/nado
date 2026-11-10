@@ -9,7 +9,9 @@
   3. python3 scripts/land_agent.py --keys agent.json build --plot <id> --file house.json
                                                                 places a structure: a JSON list of [x, z, y, block] cells,
                                                                 x/z 0..15 within the plot, y the layer (0..255)
-  Also: `plot --plot <id>` (the plot's edits), `set --cells '[[face,u,v,h,block],…]'`, `watch --plot <id>` (live edits).
+  Also: `plot --plot <id>` (the plot's edits), `set --cells '[[face,u,v,h,block],…]'`, `watch --plot <id>` (live edits),
+  `move --to face,u,v,h,yaw` (where the agent stands: a cell is BROKEN only within 12 m of it, and the agent moves no
+  faster than a player — about 65 m/s — so a long way is many moves; #167).
 
 THE AGENT PLAYS BY THE SAME RULES AS A PERSON (static/land-recipes.json): a cell set to 0 is BROKEN — gathered into the
 agent's own inventory, if its tools can break it, at the speed a hand (or that tool) works — anywhere in the wilderness,
@@ -78,6 +80,7 @@ def main():
     nk = sub.add_parser("newkey"); nk.add_argument("--out", required=True); nk.add_argument("--alg", default=None)
     pl = sub.add_parser("plot"); pl.add_argument("--plot", type=int, required=True)
     st = sub.add_parser("set"); st.add_argument("--cells", required=True)
+    mv = sub.add_parser("move"); mv.add_argument("--to", required=True)
     bd = sub.add_parser("build"); bd.add_argument("--plot", type=int, required=True); bd.add_argument("--file", required=True)
     wt = sub.add_parser("watch"); wt.add_argument("--plot", type=int, required=True)
     pc = sub.add_parser("pieces"); pc.add_argument("--plot", type=int, required=True); pc.add_argument("--add", default="[]"); pc.add_argument("--remove", default="[]")
@@ -106,6 +109,8 @@ def main():
     kd = json.load(open(a.keys))
     if a.cmd == "plot":
         print(json.dumps(call(a.server, f"/land/api/plot?plot={a.plot}", token=login(a.server, kd)), indent=1))
+    elif a.cmd == "move":
+        print(json.dumps(call(a.server, "/land/api/move", {"p": [float(x) for x in a.to.split(",")]}, token=login(a.server, kd))))
     elif a.cmd == "set":
         print(json.dumps(call(a.server, "/land/api/set", {"cells": json.loads(a.cells)}, token=login(a.server, kd))))
     elif a.cmd == "build":

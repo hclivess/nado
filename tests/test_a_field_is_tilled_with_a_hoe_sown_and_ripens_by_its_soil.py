@@ -98,8 +98,15 @@ async def main():
     me = A["address"]
 
     async def setc(cells):
-        world.workb.clear()                                        # a full work bucket: timing never decides a check
-        return await (await c.post("/land/api/set", json={"cells": cells}, headers=h)).json()
+        # each cell from beside it, the answers merged: the fields lie tens of metres apart, and a cell is worked only
+        # within reach of where the player stands (#167)
+        out = {"applied": 0, "refused": []}
+        for c0 in cells:
+            world.workb.clear()                                    # a full work bucket: timing never decides a check
+            world.keep_place(me, [c0[0], c0[1] + 0.5, c0[2] + 1.5, c0[3] - 1, 0])
+            r = await (await c.post("/land/api/set", json={"cells": [c0]}, headers=h)).json()
+            out["applied"] += r["applied"]; out["refused"] += r["refused"]; out["inventory"] = r["inventory"]
+        return out
     items = lambda: world.inv_json(me)["items"]
     edit = lambda cell: world.plots[S.plot_of(*cell[:3])]["edits"].get((cell[1] % 16, cell[2] % 16, cell[3]))
     above = lambda cell: cell[:3] + [cell[3] + 1]

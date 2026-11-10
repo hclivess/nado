@@ -116,6 +116,8 @@ async def main():
     ha, hb = await login(c, A), await login(c, Bk)
     post = lambda path, body, h: c.post(path, json=body, headers=h)
     async def setc(cells, h):
+        c0 = cells[0]                                              # the player stands beside the first cell (#167: reach)
+        world.keep_place(A["address"] if h is ha else Bk["address"], [c0[0], c0[1] + 0.5, c0[2] + 1.5, c0[3] - 1, 0])
         return await (await post("/land/api/set", {"cells": cells}, h)).json()
     async def craft(rid, h, times=1):
         return await (await post("/land/api/craft", {"recipe": rid, "times": times}, h)).json()
@@ -163,7 +165,8 @@ async def main():
     # ---- time -----------------------------------------------------------------------------------------------------
     rest()
     fx, fz, fy = CELLS["grass"][1], CELLS["grass"][2], CELLS["grass"][3]
-    lots = [[0, fx + i, fz + 1, fy - 1, 0] for i in range(1, 30)]            # 29 earth cells at 0.6 s each by hand
+    # 29 earth cells at 0.6 s each by hand, in a patch within reach of one place (#167: it was a 29 m row)
+    lots = [[0, fx + 1 + i % 6, fz + 1 + i // 6, fy - 1, 0] for i in range(29)]
     r = await setc(lots, ha)
     check("breaking spends work: a caller cannot break faster than a hand",
           r["applied"] < 20 and any("too fast" in x[1] for x in r["refused"]), (r["applied"], r["refused"][:1]))

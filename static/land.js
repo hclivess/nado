@@ -1088,6 +1088,16 @@ function connect() {
       showHp(m.hp); const f = $("hurtFlash"); f.classList.add("on"); setTimeout(() => f.classList.remove("on"), 120);
     } else if (m.t === "died") {
       died(m.by, m.bed);
+    } else if (m.t === "pos_fix") {
+      // TRAVEL (#167): the world server puts the player where it says — after /tp (the landing, or their bed), or back
+      // where it last saw them when the page moved faster than anyone can go
+      if (m.why === "nobed") { conLine(T("tpNoBed", "You have no bed yet — Use on a bed you built, and /tp bed takes you there."), "err"); return; }
+      if (!Array.isArray(m.p) || flying) return;
+      P.face = m.p[0]; P.u = m.p[1]; P.v = m.p[2];
+      P.h = Number.isFinite(m.p[3]) ? m.p[3] : groundAt(P.face, P.u, P.v); P.vu = P.vv = P.vh = 0;
+      save(); updateChunks();
+      if (m.why === "tp") conLine(m.to === "bed" ? T("tpBed", "At your bed.") : T("tpSpawn", "At the landing."));
+      else notify(T("tpPace", "Faster than anyone can go — back where the world last saw you."), 4000);
     } else if (m.t === "shoot" || m.t === "pickup") {
       if (m.t === "shoot" && m.flight) {
         // the server's arrow ended after `flight` seconds (in a body, or on the ground): the page's own arrow stops there
@@ -2312,17 +2322,19 @@ async function bench() {
   }
 }
 const CMDS = {
-  help: () => [["/help", T("cHelp", "this list")], ["/pos", T("cPos", "where you are")], ["/tp spawn | /tp <u> <v>", T("cTp", "go to the landing, or to a column of this face")],
+  help: () => [["/help", T("cHelp", "this list")], ["/pos", T("cPos", "where you are")], ["/tp spawn | /tp bed", T("cTpTo", "go to the landing, or to your bed")],
     ["/aim", T("cAim", "what you aim at, and where a block would go")], ["/prof", T("cProf", "the profiler: where each frame's time goes")], ["/dock", T("cDock", "set your landed craft down as pieces")], ["/fly", T("cFly", "fly or walk")], ["/settings", T("cSettings", "your settings")], ["/bench", T("cBench", "measure this device and pick its graphics")], ["/set <name> <value>", T("cSet", "change one (e.g. /set fov 90)")],
     ["/clear", T("cClear", "clear this log")], ["…", T("cChat", "anything else is chat to the players around you")]].forEach(([c, d]) => conLine(c + " — " + d)),
   pos: () => conLine(`${T("cFace", "face")} ${P.face} · u ${Math.floor(P.u)} · v ${Math.floor(P.v)} · h ${P.h.toFixed(1)} · ${T("cPlot", "plot")} ${Wd.plotOf(P.face, Math.floor(P.u), Math.floor(P.v))}`),
+  // /tp (#167): to the landing or to your own bed — nowhere else; going far is walking, flying, or a craft. Signed in, the
+  // world server moves you (and refuses a page that moves itself faster than anyone can go); a visitor goes to the landing
   tp: (a) => {
-    let u, v;
-    if (a[0] === "spawn") { const sp = townSpawn(); P.face = sp[0]; u = Math.floor(sp[1]); v = Math.floor(sp[2]); P.yaw = sp[3]; }
-    else { u = Number(a[0]); v = Number(a[1]); }
-    if (!(Number.isInteger(u) && Number.isInteger(v) && u >= 0 && v >= 0 && u < W && v < W)) return conLine(T("cTpBad", "Usage: /tp spawn, or /tp <u> <v> with whole numbers from 0 to {w}", { w: W - 1 }), "err");
-    P.u = u + 0.5; P.v = v + 0.5; P.h = groundAt(P.face, P.u, P.v); P.vu = P.vv = P.vh = 0;
-    save(); conLine(T("cTpOk", "Moved to u {u}, v {v}.", { u, v }));
+    const to = (a[0] || "").toLowerCase();
+    if (to !== "spawn" && to !== "bed") return conLine(T("cTpUse", "Usage: /tp spawn (the landing), or /tp bed (your bed)."), "err");
+    if (net.online && net.me) return net.send({ t: "tp", to });
+    if (to === "bed") return conLine(T("signInFirst", "Sign in first."), "err");
+    const sp = townSpawn(); P.face = sp[0]; P.u = sp[1]; P.v = sp[2]; P.yaw = sp[3]; P.h = groundAt(P.face, P.u, P.v); P.vu = P.vv = P.vh = 0;
+    save(); conLine(T("tpSpawn", "At the landing."));
   },
   // /aim: what the crosshair is on and the cell a block goes into — what the outline shows, in words a report can quote
   // ("it is impossible to judge what will happen upon placing a block", operator 2026-11-08)

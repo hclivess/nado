@@ -362,6 +362,11 @@ nado-land.service and documented with a reference client:
   (`pieces`), under exactly the rules a person plays by; craft, give, offer, accept and withdraw offers;
 - live: the same websocket the page uses (players' positions and everyone's edits);
 - limits: per-caller rate and size limits on writes, so an agent builds at the pace the world can carry.
+- where it stands (#167): a cell is **broken** only within 12 m of where the agent stands — and placed too, except on a
+  plot it may build on (an owner's house from a file is placed from anywhere, paid from its own bag). An agent without a
+  page says where it is with `POST /land/api/move {"p": [face, u, v, h, yaw]}` (`land_agent.py move --to …`); a place
+  moves no faster than a player can (about 65 m/s over the ground, at most 5 s counted since the last), so a long way
+  is many moves. `/tp` goes only to the landing or one's own bed.
 
 ## Still to build
 

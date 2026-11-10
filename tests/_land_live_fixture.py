@@ -46,6 +46,9 @@ title = lambda p: {"id": TITLES[p]["id"], "issuer": L.ISSUER, "seed": str(L.plot
 
 async def main():
     world, hub = S.World(tempfile.mkdtemp(prefix="nado_land_live_", dir=os.environ["HOME"]), "http://127.0.0.1:1", "e" * 32), S.Hub()
+    # the walks put their player where each step needs them (a place written, a reload): no pace here — the pace
+    # (#167) has its own test; reach stays on, as live
+    world.pace_free = True
     app = S.make_app(world, hub, "http://land.test", "http://wallet.test", secure_cookies=False)
     port_box = {}
 

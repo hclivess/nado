@@ -87,6 +87,8 @@ PASSABLE = {0, 5}
 # card of facts read from the planet itself (land_terrain.mjs card). One photo at a time, niced — the browser renders in
 # software on the relay's CPU — re-taken only once a plot has changed AND its photo is SHOT_STALE old.
 TOWN_HALL_PLOT = 40963440         # scripts/land_town.py: the hall stands on plot (5000, 3440) of face 0
+# scripts/land_town.py: the town is the four central plots of the first wave (face 0, rows 4999-5000, cols 3439-3440)
+TOWN_PLOTS = frozenset(r * FACE_N + c for r in (4999, 5000) for c in (3439, 3440))
 SHOT_STALE = 1800
 SHOT_DAILY = 86400                # and every title's photo is retaken once a day, changed or not: the market shows the plot
                                   # as it is ("plot pics on the nft bazar should be updated daily", operator 2026-11-07)
@@ -114,6 +116,33 @@ WEAR_SLOTS = ("head", "body", "legs", "back")
 LOOK_SKIN, LOOK_HAIR = 6, 12      # static/land.js SKIN / HAIR palettes (hair: six natural, six bright — #145)
 LOOK_BODY, LOOK_FACE = 2, 6       # static/land.js BODIES / FACES: a body type and a drawn kawaii face (#145)
 POS_SAVE_S = 10                   # a signed-in player's place is kept at most this often (and when they leave)
+# TRAVEL (#167, operator 2026-11-10, "pick recommended"): a cell was broken anywhere on the planet without going there
+# (the town agent dug ore 48 m off, standing still), and a page's place jumped anywhere (/tp <u> <v>) — so the local
+# markets, a trip to the beach for sand, a hunt, all measured a place that cost nothing to change. Now a block is
+# BROKEN only within REACH_M of the breaker's eye (placed too, except on a plot they may build on: an agent builds an
+# owner's house from a file, and placing pays from their own bag); a reported place moves at most PACE_MPS over the
+# ground (+ PACE_SLACK), counting at most PACE_DT_MAX s since the last one (waiting buys no jump); /tp goes to the
+# landing or your own bed only.
+REACH_M = 12                      # the page reaches 7 m; its levelling square (shovel, L) works up to ~11 m from the eye
+PACE_MPS, PACE_SLACK, PACE_DT_MAX = 65.0, 6.0, 5.0      # free flight's fastest is 60 m/s (static/land.js FLY_FAST)
+EYE = 1.62                        # static/land.js EYE: the eye over the feet
+
+
+def pace_ok(last, last_t, p, now):
+    """May a place move from `last` (kept at `last_t`) to `p` by `now`? Over the ground only: a fall or a climb is no
+    journey. Another face only from near a face's edge (walking over it)."""
+    if not last:
+        return True
+    reach = PACE_MPS * max(0.0, min(now - last_t, PACE_DT_MAX)) + PACE_SLACK
+    if int(p[0]) != int(last[0]):
+        return min(last[1], last[2], W - last[1], W - last[2]) <= reach
+    return math.hypot(p[1] - last[1], p[2] - last[2]) <= reach
+
+
+def landing():
+    """Where the landing is (static/land.js townSpawn): the town hall's door, its height left to the page."""
+    face, row, col = plot_coords(TOWN_HALL_PLOT)
+    return [face, col * PLOT + 8.5, row * PLOT + 1.5]
 MAX_CELLS = 4096                  # per /set call or ws "set"
 RATE = 400                        # cells per second per caller, refilling a bucket that holds one full call (MAX_CELLS)
 PLANET = 0
@@ -341,6 +370,9 @@ class World:
         # signed every player and agent out mid-game (found walking the live page, 2026-11-08). They are kept in
         # sessions.json under the token's hash — never the token itself, so the file signs nobody in.
         self.sessions = {}                    # blake2b(token) -> {"address", "until"}
+        # the page walks put their player where a step needs them (tests/_land_live_fixture.py): no pace there; the pace
+        # has its own test (#167)
+        self.pace_free = False
         try:
             now = time.time()
             self.sessions = {k: v for k, v in json.load(open(os.path.join(self.dir, "sessions.json"))).items() if v["until"] > now}
@@ -572,6 +604,14 @@ class World:
         return r["cols"]
 
     # -- HUNTING (#156, doc/land-civilisation.md) ---------------------------------------------------------------------
+    def tame(self, face, u, v):
+        """SETTLED LAND IS SAFE (#168, operator 2026-11-10, "pick recommended": "no animals on plots with buildings or in
+        the town"): stags killed players who stood still — reading the bag, a panel, building — four times in three hours
+        on the town agent. The town's plots and any plot with a piece built on it take no animal: none is spawned there,
+        none walks in, and none strikes a player standing there. The wild stays dangerous."""
+        p = plot_of(face, int(u), int(v))
+        return (face == 0 and p in TOWN_PLOTS) or bool((self.plots.get(p) or {}).get("boxes"))
+
     async def herd(self, present, dt=0.5, players=None):
         """One step of the animals near the players present ([face, u, v, h, ...] each): those no player is near go,
         each player's surroundings fill up to per_area (a couple a step, 18-40 m off, on dry land, of the kinds its biome
@@ -586,7 +626,7 @@ class World:
             for _ in range(min(2, Hn["per_area"] - n)):
                 ang, d = self.rng.random() * math.tau, 18 + self.rng.random() * 22
                 u, v = q[1] + math.cos(ang) * d, q[2] + math.sin(ang) * d
-                if 0 <= u < W and 0 <= v < W:
+                if 0 <= u < W and 0 <= v < W and not self.tame(int(q[0]), u, v):      # none spawned on settled land (#168)
                     want.append([int(q[0]), u, v])
         now = time.time()
         for (f, u, v), (hgt, top, biome) in zip(want, await self.cols(want)):
@@ -606,8 +646,9 @@ class World:
             # metres and strikes within strike_reach, every strike_every_s
             dmg = Hn["species"][a["kind"]].get("damage", 0)
             if (a.get("angry") or a.get("mad", 0) > now) and dmg and players:
-                foe = min(((math.hypot(q[1] - a["u"], q[2] - a["v"]), who, q) for who, q in players if q and q[0] == a["face"]),
-                          default=None, key=lambda x: x[0])
+                # a player on settled land is no foe (#168): it neither charges nor strikes them there
+                foe = min(((math.hypot(q[1] - a["u"], q[2] - a["v"]), who, q) for who, q in players
+                           if q and q[0] == a["face"] and not self.tame(q[0], q[1], q[2])), default=None, key=lambda x: x[0])
                 if foe and foe[0] < Hn["charge"]:
                     a["yaw"] = math.atan2(foe[2][1] - a["u"], foe[2][2] - a["v"])
                     if foe[0] <= Hn["strike_reach"] and abs(foe[2][3] - a["h"]) < 2.5:
@@ -637,7 +678,9 @@ class World:
                 if 0 <= nu < W and 0 <= nv < W:
                     moved.append((a, nu, nv))
         for (a, nu, nv), (hgt, top, _) in zip(moved, await self.cols([[a["face"], nu, nv] for a, nu, nv in moved])):
-            if top <= SEA:                                    # never into the sea: it turns back
+            # never into the sea, and never onto settled land (#168) — an animal already there (the plot was built on around
+            # it) may still walk out: it turns back
+            if top <= SEA or (self.tame(a["face"], nu, nv) and not self.tame(a["face"], a["u"], a["v"])):
                 a["yaw"] += math.pi
                 continue
             a["u"], a["v"], a["h"] = nu, nv, hgt
@@ -1230,9 +1273,12 @@ class World:
         self.workb[who] = [t - seconds, time.time()]
         return True
 
-    async def apply(self, who, cells):
+    async def apply(self, who, cells, at=False):
         """Apply [face, u, v, h, block] cells: block 0 BREAKS (gathering: its yield goes to the caller's inventory),
-        any other id PLACES one item from the inventory. Returns (applied by plot, refused, inventory changed)."""
+        any other id PLACES one item from the inventory. Returns (applied by plot, refused, inventory changed).
+        `at` is where the caller stands ([face, u, v, h, ...]) and each break — and each place off a plot they may build
+        on — must be within REACH_M of their eye (#167); None: nobody knows where they are, so nothing within reach;
+        False (the server's own work and tests that call this directly): not checked."""
         if not isinstance(cells, list) or len(cells) > MAX_CELLS:
             return {}, [[None, f"at most {MAX_CELLS} cells per call"]], False
         if not self.take(who, len(cells)):
@@ -1266,6 +1312,12 @@ class World:
             titled, may = titled_ok[p]
             if h < 0:                                               # THE DEEP: nobody's, and it does not grow back
                 titled, may = False, True
+            # REACH (#167): broken only beside the breaker; placed from afar only on a plot they may build on
+            if at is not False and (b == 0 or not (titled and may)):
+                if at is None:
+                    refused.append([c, "stand in the world first — open the game, or say where you are (/land/api/move)"]); continue
+                if int(at[0]) != face or math.dist((u + 0.5, v + 0.5, h + 0.5), (at[1], at[2], at[3] + EYE)) > REACH_M:
+                    refused.append([c, "out of reach — stand within %d m of it" % REACH_M]); continue
             if b == 0 and cur == FIRE:                              # ---- beat out a fire: it goes, nothing is gathered
                 self.fires.pop((face, u, v, h), None)
                 rec = self.plot(p)
@@ -2329,6 +2381,8 @@ class Hub:
             return None
         msg = {"t": "hurt", "hp": res[1], "by": by} if res[0] == "hurt" else {"t": "died", "by": by, "bed": res[1][:4] if res[1] else None}
         for ws, st in list(self.socks.items()):
+            if st["who"] == who and res[0] == "died":              # they wake far off: the pace starts again there (#167)
+                st["pace"] = ((res[1][:4] if res[1] else landing()), time.time())
             if st["who"] == who:
                 try:
                     await ws.send_json(msg)
@@ -2336,6 +2390,15 @@ class Hub:
                     pass
         await self.inv(world, who)
         return res
+
+    @staticmethod
+    def pace_anchor(world, st, addr):
+        """The place (and when) a socket's next reported place is measured from: its last accepted one, else the place
+        the world server kept for the player (#167)."""
+        if st.get("pace"):
+            return st["pace"]
+        pl = world.player(addr)
+        return (pl["pos"], pl.get("pos_at", 0)) if pl.get("pos") else None
 
     def where(self, world, addr):
         """Where a player stands: their open page's place, else the place the world server kept for them."""
@@ -2601,7 +2664,7 @@ def make_app(world, hub, site_origin, wallet_url, secure_cookies=True, shot_page
         if not addr:
             raise web.HTTPUnauthorized(text="sign in first (agents: /land/api/agent_login)")
         d = await request.json()
-        applied, refused, changed = await world.apply(addr, d.get("cells"))
+        applied, refused, changed = await world.apply(addr, d.get("cells"), at=hub.where(world, addr))
         await hub.edits(applied, addr)
         if changed:
             await hub.inv(world, addr)
@@ -2640,6 +2703,20 @@ def make_app(world, hub, site_origin, wallet_url, secure_cookies=True, shot_page
         if not err:
             await hub.inv(world, addr)
         return web.json_response({"ok": not err, "error": err, "inventory": world.inv_json(addr)})
+
+    async def move(request):
+        """POST /land/api/move {"p": [face, u, v, h, yaw]}: where an agent without a page stands (#167) — no faster than a
+        player can go from where it last stood; refused with where it is kept."""
+        addr, d = need_addr(request), await request.json()
+        p = d.get("p")
+        if not (isinstance(p, list) and len(p) == 5 and all(isinstance(x, (int, float)) and not isinstance(x, bool) for x in p)
+                and 0 <= p[0] < 6 and 0 <= p[1] < W and 0 <= p[2] < W and DEEP_MIN <= p[3] < H + 400):
+            return web.json_response({"ok": False, "error": "p is [face, u, v, h, yaw] in the world"})
+        pl = world.player(addr)
+        if not world.pace_free and pl.get("pos") and not pace_ok(pl["pos"], pl.get("pos_at", 0), p, time.time()):
+            return web.json_response({"ok": False, "error": "faster than you can go — move in steps (about %d m/s)" % PACE_MPS, "at": pl["pos"]})
+        world.keep_place(addr, p)
+        return web.json_response({"ok": True, "at": world.player(addr)["pos"]})
 
     async def draw_well(request):
         addr, d = need_addr(request), await request.json()
@@ -2769,6 +2846,12 @@ def make_app(world, hub, site_origin, wallet_url, secure_cookies=True, shot_page
                     p = m.get("p")
                     if (isinstance(p, list) and len(p) == 5 and all(isinstance(x, (int, float)) and not isinstance(x, bool) for x in p)
                             and 0 <= p[0] < 6 and 0 <= p[1] < W and 0 <= p[2] < W and DEEP_MIN <= p[3] < H + 400):
+                        if addr and not world.pace_free:            # TRAVEL (#167): no faster than one can go
+                            anc = hub.pace_anchor(world, st, addr)
+                            if anc and not pace_ok(anc[0], anc[1], p, time.time()):
+                                await ws.send_json({"t": "pos_fix", "p": list(anc[0][:4]), "why": "pace"})
+                                continue
+                            st["pace"] = (list(p), time.time())
                         st["pos"] = [int(p[0]), float(p[1]), float(p[2]), float(p[3]), float(p[4])]
                         if time.time() - st.get("offers_at", 0) > 5:      # the market where they stand now (#161)
                             st["offers_at"] = time.time()
@@ -2779,11 +2862,24 @@ def make_app(world, hub, site_origin, wallet_url, secure_cookies=True, shot_page
                     if not addr:
                         await ws.send_json({"t": "set_ok", "applied": 0, "refused": [[None, "sign in to build"]], "req": m.get("req")})
                         continue
-                    applied, refused, changed = await world.apply(addr, m.get("cells"))
+                    applied, refused, changed = await world.apply(addr, m.get("cells"), at=st["pos"] or hub.where(world, addr))
                     await ws.send_json({"t": "set_ok", "applied": sum(len(c) for c in applied.values()), "refused": refused, "req": m.get("req")})
                     await hub.edits(applied, addr)
                     if changed:
                         await hub.inv(world, addr)
+                elif t == "tp":
+                    # /tp (#167): to the landing, or to your own bed — nowhere else; the page is told where it now is
+                    if not addr:
+                        continue
+                    pl = world.player(addr)
+                    if m.get("to") == "bed":
+                        if not pl.get("bed"):
+                            await ws.send_json({"t": "pos_fix", "p": None, "why": "nobed"}); continue
+                        to = list(pl["bed"][:4])
+                    else:
+                        to = landing() + [None]
+                    st["pace"] = (to, time.time())
+                    await ws.send_json({"t": "pos_fix", "p": to, "why": "tp", "to": "bed" if m.get("to") == "bed" else "spawn"})
                 elif t == "chat":
                     # the console's chat: one line to every socket watching any plot the sender watches (the players
                     # around them), signed-in only, one line a second, 200 characters, no control characters
@@ -2961,6 +3057,7 @@ def make_app(world, hub, site_origin, wallet_url, secure_cookies=True, shot_page
         web.get("/land/api/animals", animals),
         web.get("/land/api/prices", prices),
         web.post("/land/api/well", draw_well),
+        web.post("/land/api/move", move),
         web.get("/land/api/offers", offers),
         web.post("/land/api/offer", offer),
         web.post("/land/api/accept", accept),

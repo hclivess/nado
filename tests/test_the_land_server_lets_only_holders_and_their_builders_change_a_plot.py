@@ -128,6 +128,8 @@ async def main():
     st, stranger, _ = await agent_login(c, STRANGER)
     st, builder, _ = await agent_login(c, BUILDER)
     cell = [SPAWN_FACE, UA + 3, VA + 4, AIR, 11]
+    for kd in (OWNER, BUILDER, BUYER, STRANGER):               # all stand by the cells written below (#167: reach)
+        world.keep_place(kd["address"], [SPAWN_FACE, UA + 5.5, VA + 1.5, AIR - 1, 0])
     r = await (await c.post("/land/api/set", json={"cells": [cell]}, headers=auth(owner["token"]))).json()
     check("the holder builds on their plot", r["applied"] == 1 and not r["refused"], r)
     r = await (await c.post("/land/api/set", json={"cells": [[SPAWN_FACE, UA + 5, VA, AIR, 11]]}, headers=auth(stranger["token"]))).json()
