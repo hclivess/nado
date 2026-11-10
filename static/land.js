@@ -33,6 +33,7 @@ import { snapBox, piecesFor, restOnGround } from "./land-snap.js";
 import { levelOps, earthNeeded, trunkIn, siteLayer, topFirst } from "./land-level.js";
 import { groundWeights } from "./land-mesher.js";
 import { craftStep, flightOf } from "./land-flight.js";
+import { GFX_PRESETS, BENCH_ORDER, benchTarget, frameStats, holds, pickPreset } from "./land-gfx.js";
 import { NadoDapp, wireWallet, renderWallet, alertBar, notify, uiConfirm, uiPrompt, isAddress, esc, base, disp, rawToNado, nadoToRaw, randId, $ } from "./nadodapp.js";
 
 const CID = "e7dfe9aa3cbb4b0c9293caeaf992a041";      // the land title contract (deployed 2026-11-07, scripts/land_first_wave.py); redeploy.py wire() repoints it
@@ -2148,12 +2149,6 @@ const SET_RANGE = { fov: [50, 110], sens: [0.2, 4], invert: [0, 1], grass: [0, 1
 // view the chunks drawn around you, fps a frame-rate cap (0: none). A phone starts on what it can carry — no shadows,
 // grass or effects, 4 chunks — and any of them can be turned on in the panel (they used to be refused on a touch screen).
 const SET_PHONE = { shadows: 0, grass: 0, effects: 0, view: 4 };
-const GFX_PRESETS = {
-  low: { res: 60, shadows: 0, view: 3, grass: 0, effects: 0 },
-  medium: { res: 80, shadows: 1, view: 4, grass: 1, effects: 0 },
-  high: { res: 100, shadows: 2, view: 6, grass: 1, effects: 1 },
-  ultra: { res: 100, shadows: 3, view: 8, grass: 1, effects: 1 },
-};
 const SHADOW_Q = [null, { map: 1024, box: 32 }, { map: 2048, box: 48 }, { map: 4096, box: 64 }];   // by SET.shadows
 const SET_VER = 2;                      // stored with the settings: 1 had shadows 0/1 (1 = today's medium), no phone choice
 const SET = (() => {
@@ -2167,6 +2162,8 @@ const SET = (() => {
   for (const k in SET_DEF) if (typeof s[k] === "number" && s[k] >= SET_RANGE[k][0] && s[k] <= SET_RANGE[k][1]) o[k] = s[k];
   return o;
 })();
+// settings saved since the panel came (#166): the player has chosen, and the first-run benchmark leaves their choice alone
+const SET_CHOSEN = (() => { try { return (JSON.parse(localStorage.getItem(LS_SET) || "{}") || {}).sv === SET_VER; } catch (e) { return false; } })();
 function saveSet() { try { localStorage.setItem(LS_SET, JSON.stringify({ ...SET, sv: SET_VER })); } catch (e) {} }
 const gfxPreset = () => Object.keys(GFX_PRESETS).find((n) => Object.entries(GFX_PRESETS[n]).every(([k, v]) => SET[k] === v)) || "custom";
 const basePR = () => Math.min(PHONE ? 1.25 : 2, devicePixelRatio || 1);
@@ -2228,13 +2225,15 @@ function renderSettings() {
   const box = $("setGrid");
   if (!box) return;
   const now = gfxPreset(), esc = (x) => String(x).replace(/[&<>"]/g, (c) => "&#" + c.charCodeAt(0) + ";");
-  const NAMES = { low: T("gLow", "Low"), medium: T("gMedium", "Medium"), high: T("gHigh", "High"), ultra: T("gUltra", "Ultra"), custom: T("gCustom", "Custom") };
+  const NAMES = Object.fromEntries(Object.keys(GFX_PRESETS).concat("custom").map((n) => [n, presetName(n)])), last = benchLast();
   const sel = (k, label, opts) => `<label class="srow"><span>${esc(label)}</span><select data-set="${k}">`
     + opts.map(([v, t]) => `<option value="${v}"${SET[k] === v ? " selected" : ""}>${esc(t)}</option>`).join("") + `</select></label>`;
   const onOff = [[0, T("gOff", "Off")], [1, T("gOn", "On")]];
   box.innerHTML = `<div class="presets">` + Object.keys(GFX_PRESETS).concat("custom").map((n) =>
     n === "custom" ? (now === "custom" ? `<button class="ghost on" disabled>${esc(NAMES.custom)}</button>` : "")
       : `<button class="ghost${now === n ? " on" : ""}" data-preset="${n}">${esc(NAMES[n])}</button>`).join("") + `</div>`
+    + `<div class="srow"><span class="dim">${esc(last ? T("benchLast", "Measured here: {p} — {f} fps", { p: presetName(last.preset), f: last.fps }) : T("benchNone", "Not measured on this device yet"))}</span>`
+    + `<button class="ghost" id="benchGo"${benching ? " disabled" : ""}>${esc(benching ? T("benchBusy", "Measuring…") : T("benchBtn", "Benchmark"))}</button></div>`
     + sel("res", T("gRes", "Render resolution"), [50, 60, 70, 80, 90, 100].map((v) => [v, v + " %"]))
     + sel("shadows", T("gShadows", "Shadows"), [[0, T("gOff", "Off")], [1, NAMES.low], [2, NAMES.medium], [3, NAMES.high]])
     + sel("view", T("gView", "View distance"), [2, 3, 4, 5, 6, 7, 8, 9, 10].map((v) => [v, T("gViewN", "{n} {n|one:chunk|other:chunks} · {m} m", { n: v, m: v * CHUNK })]))
@@ -2248,10 +2247,51 @@ function renderSettings() {
     renderSettings();
   };
   for (const e of box.querySelectorAll("select[data-set]")) e.onchange = () => { setSetting(e.dataset.set, Number(e.value)); renderSettings(); };
+  const go = box.querySelector("#benchGo"); if (go) go.onclick = () => bench();
+}
+function presetName(n) {
+  return { low: T("gLow", "Low"), medium: T("gMedium", "Medium"), high: T("gHigh", "High"), ultra: T("gUltra", "Ultra") }[n] || T("gCustom", "Custom");
+}
+// ---- THE BENCHMARK (#166: "performance benchmark that sets graphical settings"): from Ultra down, each preset is put on,
+// warmed (its chunks meshed, its shaders compiled, its shadows cast) and its frames measured where the player stands; the
+// first that holds the device's target (60 fps, a phone 30 — land-gfx.js holds) is kept. Run from the panel or /bench,
+// and once by itself on a device that has never chosen (not in a headless browser: page tests and plot photos).
+const LS_BENCH = "nado_land_bench";
+let benching = false;
+function benchLast() { try { const b = JSON.parse(localStorage.getItem(LS_BENCH) || "null"); return b && GFX_PRESETS[b.preset] ? b : null; } catch (e) { return null; } }
+/** Frame intervals (ms) for `ms` of drawing; a tab that stops drawing (hidden) ends it at 3 × ms with what it has. */
+const framesFor = (ms) => new Promise((done) => {
+  const out = []; let last = 0, over = false; const t0 = performance.now();
+  const end = () => { if (!over) { over = true; done(out); } };
+  const f = (now) => { if (over) return; if (last) out.push(now - last); last = now; if (now - t0 < ms) requestAnimationFrame(f); else end(); };
+  requestAnimationFrame(f); setTimeout(end, ms * 3);
+});
+async function bench() {
+  if (benching || !renderer) return;
+  benching = true;
+  const target = benchTarget(PHONE), cap = SET.fps, measured = {};
+  SET.fps = 0;                                              // measured uncapped: a cap would pass a preset it cannot hold
+  if (settingsOpen()) renderSettings();
+  notify(T("benchRun", "Measuring which graphics this device draws smoothly — a few seconds…"), 4000);
+  try {
+    for (const name of BENCH_ORDER) {
+      for (const [k, v] of Object.entries(GFX_PRESETS[name])) setSetting(k, v);
+      await framesFor(PHONE ? 3000 : 2000);
+      measured[name] = await framesFor(3000);
+      if (holds(frameStats(measured[name]), target)) break;
+    }
+    const chosen = pickPreset(measured, target), st = frameStats(measured[chosen]), fps = st ? Math.round(st.fps) : 0;
+    for (const [k, v] of Object.entries(GFX_PRESETS[chosen])) setSetting(k, v);
+    try { localStorage.setItem(LS_BENCH, JSON.stringify({ at: Date.now(), preset: chosen, fps })); } catch (e) {}
+    notify(T("benchDone", "Graphics: {p} — {f} fps. Change it in Settings.", { p: presetName(chosen), f: fps }), 6000);
+  } finally {
+    SET.fps = cap; saveSet(); benching = false;
+    if (settingsOpen()) renderSettings();
+  }
 }
 const CMDS = {
   help: () => [["/help", T("cHelp", "this list")], ["/pos", T("cPos", "where you are")], ["/tp spawn | /tp <u> <v>", T("cTp", "go to the landing, or to a column of this face")],
-    ["/aim", T("cAim", "what you aim at, and where a block would go")], ["/prof", T("cProf", "the profiler: where each frame's time goes")], ["/dock", T("cDock", "set your landed craft down as pieces")], ["/fly", T("cFly", "fly or walk")], ["/settings", T("cSettings", "your settings")], ["/set <name> <value>", T("cSet", "change one (e.g. /set fov 90)")],
+    ["/aim", T("cAim", "what you aim at, and where a block would go")], ["/prof", T("cProf", "the profiler: where each frame's time goes")], ["/dock", T("cDock", "set your landed craft down as pieces")], ["/fly", T("cFly", "fly or walk")], ["/settings", T("cSettings", "your settings")], ["/bench", T("cBench", "measure this device and pick its graphics")], ["/set <name> <value>", T("cSet", "change one (e.g. /set fov 90)")],
     ["/clear", T("cClear", "clear this log")], ["…", T("cChat", "anything else is chat to the players around you")]].forEach(([c, d]) => conLine(c + " — " + d)),
   pos: () => conLine(`${T("cFace", "face")} ${P.face} · u ${Math.floor(P.u)} · v ${Math.floor(P.v)} · h ${P.h.toFixed(1)} · ${T("cPlot", "plot")} ${Wd.plotOf(P.face, Math.floor(P.u), Math.floor(P.v))}`),
   tp: (a) => {
@@ -2302,6 +2342,7 @@ const CMDS = {
     conLine(`${k} = ${v}`);
   },
   clear: () => { $("conLog").textContent = ""; },
+  bench: () => { bench(); },
   prof: () => { profToggle(); conLine(PROF.on ? T("cProfOn", "Profiler on — ` (the key left of 1) or /prof closes it.") : T("cProfOff", "Profiler off.")); },
 };
 function conRun(line) {
@@ -3234,6 +3275,8 @@ async function start() {
   setInterval(slow, 250);
   try { if (new URLSearchParams(location.search).get("prof") === "1") profToggle(true); } catch (e) {}
   renderer.setAnimationLoop(frame);
+  // the first-run benchmark (#166): a device that never chose its graphics measures them once, a little after it starts
+  if (SHOT === null && !SET_CHOSEN && !benchLast() && !/HeadlessChrome/.test(navigator.userAgent)) setTimeout(bench, 15000);
   connect();
   $("loading").classList.add("hidden");
   try { await dapp.init(); } catch (e) { alertBar(T("cryptoFail", "The wallet bundle failed to load — reload to sign in.")); return; }

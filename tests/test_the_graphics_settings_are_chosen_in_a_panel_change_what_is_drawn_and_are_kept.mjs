@@ -8,7 +8,9 @@
  *      loaded; grass the triangles drawn; shadows the draw calls (when the sun is up: no sun, no shadow pass);
  *   3. a preset sets them all (Low: 60 %, no shadows, 3 chunks), and the panel shows it chosen;
  *   4. after a reload the choice is kept, and drawn so; /settings opens the panel too;
- *   5. the effects are built again live (Ultra), with no page errors.
+ *   5. the effects are built again live (Ultra);
+ *   6. the benchmark (#166): never run by itself in a headless browser (page tests, plot photos); Benchmark in the panel
+ *      measures from Ultra down, keeps a preset, says it ("Measured here: Low — 3 fps") and remembers it; no page errors.
  *
  * Run:  node tests/test_the_graphics_settings_are_chosen_in_a_panel_change_what_is_drawn_and_are_kept.mjs   (needs chrome, python3)
  */
@@ -201,6 +203,19 @@ try {
   ok(await val("effects") === "1" && await val("shadows") === "3" && await val("view") === "8", "Ultra: effects on, high shadows, 8 chunks");
   const fr = await evl(B, "new Promise((r) => { let n = 0; const f = () => { n++; if (n < 3) requestAnimationFrame(f); else r(n); }; requestAnimationFrame(f); setTimeout(() => r(n), 20000); })");
   ok(fr >= 3, `…and the page still draws frames with the effects built again (${fr})`);
+
+  // 6. the benchmark
+  ok(await evl(B, "localStorage.getItem('nado_land_bench') === null"), "the benchmark never ran by itself in a headless browser");
+  ok(await tap("#benchGo"), "the panel has a Benchmark button");
+  ok(await until(B, "localStorage.getItem('nado_land_bench') !== null", 180000), "…and the benchmark finishes");
+  const bres = JSON.parse(await evl(B, "localStorage.getItem('nado_land_bench')"));
+  const P = (await import(join(ROOT, "static", "land-gfx.js"))).GFX_PRESETS[bres.preset];
+  ok(!!P && bres.fps > 0, `…keeping a preset: ${bres.preset} at ${bres.fps} fps`);
+  await sleep(1500);
+  ok(P && await val("res") === String(P.res) && await val("view") === String(P.view) && await val("shadows") === String(P.shadows),
+    "…which the settings now are");
+  ok(new RegExp("Measured here: \\w+ — " + bres.fps + " fps").test(await evl(B, "document.getElementById('setGrid').textContent")), "…and the panel says what it measured");
+  ok(await evl(B, "!!document.querySelector('[data-preset=\"" + bres.preset + "\"].on')"), "…with that preset shown chosen");
   ok(errors.length === 0, "no page errors" + (errors.length ? ": " + errors.join(" | ") : ""));
 } catch (e) {
   ok(false, "harness: " + (e && e.message || e) + "\n" + fxOut.slice(-1500));

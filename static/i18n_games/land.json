@@ -439,7 +439,14 @@
   "land.gGrass": "Grass",
   "land.gEffects": "Effects (bloom, ambient light)",
   "land.gFov": "Field of view",
-  "land.gNote": "Kept in this browser. Each change applies at once."
+  "land.gNote": "Kept in this browser. Each change applies at once.",
+  "land.benchRun": "Measuring which graphics this device draws smoothly — a few seconds…",
+  "land.benchDone": "Graphics: {p} — {f} fps. Change it in Settings.",
+  "land.benchLast": "Measured here: {p} — {f} fps",
+  "land.benchNone": "Not measured on this device yet",
+  "land.benchBusy": "Measuring…",
+  "land.benchBtn": "Benchmark",
+  "land.cBench": "measure this device and pick its graphics"
  },
  "cs": {
   "land.notYours": "Pozemek {p} patří někomu jinému. Kupte si pozemek, nebo požádejte jeho vlastníka o pozvání.",
@@ -881,7 +888,14 @@
   "land.gGrass": "Tráva",
   "land.gEffects": "Efekty (záře, okolní světlo)",
   "land.gFov": "Zorné pole",
-  "land.gNote": "Uloženo v tomto prohlížeči. Každá změna platí hned."
+  "land.gNote": "Uloženo v tomto prohlížeči. Každá změna platí hned.",
+  "land.benchRun": "Měřím, jakou grafiku toto zařízení vykreslí plynule — pár sekund…",
+  "land.benchDone": "Grafika: {p} — {f} snímků/s. Změníte ji v Nastavení.",
+  "land.benchLast": "Naměřeno zde: {p} — {f} snímků/s",
+  "land.benchNone": "Na tomto zařízení zatím neměřeno",
+  "land.benchBusy": "Měřím…",
+  "land.benchBtn": "Test výkonu",
+  "land.cBench": "změřit toto zařízení a zvolit grafiku"
  },
  "es": {
   "land.notYours": "La parcela {p} pertenece a otra persona. Compra una parcela o pide a su dueño que te invite.",
@@ -1323,7 +1337,14 @@
   "land.gGrass": "Hierba",
   "land.gEffects": "Efectos (resplandor, luz ambiental)",
   "land.gFov": "Campo de visión",
-  "land.gNote": "Se guarda en este navegador. Cada cambio se aplica al instante."
+  "land.gNote": "Se guarda en este navegador. Cada cambio se aplica al instante.",
+  "land.benchRun": "Midiendo qué gráficos dibuja este dispositivo con fluidez — unos segundos…",
+  "land.benchDone": "Gráficos: {p} — {f} fps. Cámbialo en Ajustes.",
+  "land.benchLast": "Medido aquí: {p} — {f} fps",
+  "land.benchNone": "Aún sin medir en este dispositivo",
+  "land.benchBusy": "Midiendo…",
+  "land.benchBtn": "Prueba de rendimiento",
+  "land.cBench": "medir este dispositivo y elegir sus gráficos"
  },
  "pt": {
   "land.notYours": "O lote {p} pertence a outra pessoa. Compre um lote ou peça ao dono que convide você.",
@@ -1765,7 +1786,14 @@
   "land.gGrass": "Grama",
   "land.gEffects": "Efeitos (brilho, luz ambiente)",
   "land.gFov": "Campo de visão",
-  "land.gNote": "Guardado neste navegador. Cada mudança vale na hora."
+  "land.gNote": "Guardado neste navegador. Cada mudança vale na hora.",
+  "land.benchRun": "Medindo quais gráficos este aparelho desenha com fluidez — alguns segundos…",
+  "land.benchDone": "Gráficos: {p} — {f} fps. Mude em Configurações.",
+  "land.benchLast": "Medido aqui: {p} — {f} fps",
+  "land.benchNone": "Ainda não medido neste aparelho",
+  "land.benchBusy": "Medindo…",
+  "land.benchBtn": "Teste de desempenho",
+  "land.cBench": "medir este aparelho e escolher os gráficos"
  },
  "fr": {
   "land.notYours": "La parcelle {p} appartient à quelqu'un d'autre. Achetez une parcelle ou demandez à son propriétaire de vous inviter.",
@@ -2207,7 +2235,14 @@
   "land.gGrass": "Herbe",
   "land.gEffects": "Effets (halo, lumière ambiante)",
   "land.gFov": "Champ de vision",
-  "land.gNote": "Gardé dans ce navigateur. Chaque changement s’applique aussitôt."
+  "land.gNote": "Gardé dans ce navigateur. Chaque changement s’applique aussitôt.",
+  "land.benchRun": "Mesure des graphismes que cet appareil affiche avec fluidité — quelques secondes…",
+  "land.benchDone": "Graphismes : {p} — {f} i/s. Modifiable dans Réglages.",
+  "land.benchLast": "Mesuré ici : {p} — {f} i/s",
+  "land.benchNone": "Pas encore mesuré sur cet appareil",
+  "land.benchBusy": "Mesure…",
+  "land.benchBtn": "Test de performance",
+  "land.cBench": "mesurer cet appareil et choisir ses graphismes"
  },
  "de": {
   "land.notYours": "Grundstück {p} gehört jemand anderem. Kauf dir ein Grundstück oder bitte den Besitzer um eine Einladung.",
@@ -2649,7 +2684,14 @@
   "land.gGrass": "Gras",
   "land.gEffects": "Effekte (Leuchten, Umgebungslicht)",
   "land.gFov": "Sichtfeld",
-  "land.gNote": "In diesem Browser gespeichert. Jede Änderung gilt sofort."
+  "land.gNote": "In diesem Browser gespeichert. Jede Änderung gilt sofort.",
+  "land.benchRun": "Messe, welche Grafik dieses Gerät flüssig darstellt — ein paar Sekunden…",
+  "land.benchDone": "Grafik: {p} — {f} fps. Änderbar in den Einstellungen.",
+  "land.benchLast": "Hier gemessen: {p} — {f} fps",
+  "land.benchNone": "Auf diesem Gerät noch nicht gemessen",
+  "land.benchBusy": "Messe…",
+  "land.benchBtn": "Leistungstest",
+  "land.cBench": "dieses Gerät messen und seine Grafik wählen"
  },
  "it": {
   "land.notYours": "Il lotto {p} appartiene a qualcun altro. Compra un lotto o chiedi al proprietario di invitarti.",
@@ -3091,7 +3133,14 @@
   "land.gGrass": "Erba",
   "land.gEffects": "Effetti (bagliore, luce ambientale)",
   "land.gFov": "Campo visivo",
-  "land.gNote": "Salvato in questo browser. Ogni modifica vale subito."
+  "land.gNote": "Salvato in questo browser. Ogni modifica vale subito.",
+  "land.benchRun": "Misuro quale grafica questo dispositivo disegna fluida — pochi secondi…",
+  "land.benchDone": "Grafica: {p} — {f} fps. Cambiala in Impostazioni.",
+  "land.benchLast": "Misurato qui: {p} — {f} fps",
+  "land.benchNone": "Non ancora misurato su questo dispositivo",
+  "land.benchBusy": "Misuro…",
+  "land.benchBtn": "Test prestazioni",
+  "land.cBench": "misurare questo dispositivo e sceglierne la grafica"
  },
  "ru": {
   "land.notYours": "Участок {p} принадлежит другому игроку. Купите участок или попросите владельца пригласить вас.",
@@ -3533,7 +3582,14 @@
   "land.gGrass": "Трава",
   "land.gEffects": "Эффекты (свечение, окружающий свет)",
   "land.gFov": "Поле зрения",
-  "land.gNote": "Хранится в этом браузере. Каждое изменение применяется сразу."
+  "land.gNote": "Хранится в этом браузере. Каждое изменение применяется сразу.",
+  "land.benchRun": "Измеряю, какую графику это устройство рисует плавно — несколько секунд…",
+  "land.benchDone": "Графика: {p} — {f} кадр/с. Изменить можно в Настройках.",
+  "land.benchLast": "Измерено здесь: {p} — {f} кадр/с",
+  "land.benchNone": "На этом устройстве ещё не измерялось",
+  "land.benchBusy": "Измеряю…",
+  "land.benchBtn": "Тест производительности",
+  "land.cBench": "измерить устройство и выбрать графику"
  },
  "zh": {
   "land.notYours": "地块 {p} 属于别人。购买一块地，或请它的所有者邀请你。",
@@ -3975,7 +4031,14 @@
   "land.gGrass": "草",
   "land.gEffects": "效果（泛光、环境光）",
   "land.gFov": "视野",
-  "land.gNote": "保存在此浏览器中。每项更改立即生效。"
+  "land.gNote": "保存在此浏览器中。每项更改立即生效。",
+  "land.benchRun": "正在测量此设备能流畅绘制的画面——需要几秒钟…",
+  "land.benchDone": "画面：{p} — {f} 帧/秒。可在设置中更改。",
+  "land.benchLast": "此处测得：{p} — {f} 帧/秒",
+  "land.benchNone": "尚未在此设备上测量",
+  "land.benchBusy": "测量中…",
+  "land.benchBtn": "性能测试",
+  "land.cBench": "测量此设备并选择画面"
  },
  "ja": {
   "land.notYours": "区画 {p} は他の人のものです。区画を購入するか、所有者に招待してもらいましょう。",
@@ -4417,7 +4480,14 @@
   "land.gGrass": "草",
   "land.gEffects": "エフェクト（ブルーム、環境光）",
   "land.gFov": "視野角",
-  "land.gNote": "このブラウザに保存されます。変更はすぐに反映されます。"
+  "land.gNote": "このブラウザに保存されます。変更はすぐに反映されます。",
+  "land.benchRun": "このデバイスで滑らかに描ける画質を測定中 — 数秒かかります…",
+  "land.benchDone": "グラフィック：{p} — {f} fps。設定で変更できます。",
+  "land.benchLast": "ここでの測定：{p} — {f} fps",
+  "land.benchNone": "このデバイスではまだ測定していません",
+  "land.benchBusy": "測定中…",
+  "land.benchBtn": "ベンチマーク",
+  "land.cBench": "このデバイスを測定して画質を選ぶ"
  },
  "ko": {
   "land.notYours": "구역 {p}은(는) 다른 사람의 땅입니다. 구역을 사거나 소유자에게 초대를 요청하세요.",
@@ -4859,7 +4929,14 @@
   "land.gGrass": "풀",
   "land.gEffects": "효과(블룸, 주변광)",
   "land.gFov": "시야각",
-  "land.gNote": "이 브라우저에 저장됩니다. 변경 사항은 바로 적용됩니다."
+  "land.gNote": "이 브라우저에 저장됩니다. 변경 사항은 바로 적용됩니다.",
+  "land.benchRun": "이 기기가 부드럽게 그리는 그래픽을 측정하는 중 — 몇 초 걸립니다…",
+  "land.benchDone": "그래픽: {p} — {f} fps. 설정에서 바꿀 수 있습니다.",
+  "land.benchLast": "여기서 측정: {p} — {f} fps",
+  "land.benchNone": "이 기기에서는 아직 측정하지 않았습니다",
+  "land.benchBusy": "측정 중…",
+  "land.benchBtn": "벤치마크",
+  "land.cBench": "이 기기를 측정해 그래픽 선택"
  },
  "ar": {
   "land.notYours": "القطعة {p} ملك لشخص آخر. اشترِ قطعة، أو اطلب من مالكها أن يدعوك.",
@@ -5301,7 +5378,14 @@
   "land.gGrass": "العشب",
   "land.gEffects": "المؤثرات (التوهج، الإضاءة المحيطة)",
   "land.gFov": "مجال الرؤية",
-  "land.gNote": "محفوظ في هذا المتصفح. يُطبَّق كل تغيير فورًا."
+  "land.gNote": "محفوظ في هذا المتصفح. يُطبَّق كل تغيير فورًا.",
+  "land.benchRun": "أقيس الرسوميات التي يرسمها هذا الجهاز بسلاسة — بضع ثوانٍ…",
+  "land.benchDone": "الرسوميات: {p} — {f} إطارًا/ث. غيّرها من الإعدادات.",
+  "land.benchLast": "القياس هنا: {p} — {f} إطارًا/ث",
+  "land.benchNone": "لم يُقَس هذا الجهاز بعد",
+  "land.benchBusy": "جارٍ القياس…",
+  "land.benchBtn": "اختبار الأداء",
+  "land.cBench": "قياس هذا الجهاز واختيار رسومياته"
  },
  "hi": {
   "land.notYours": "प्लॉट {p} किसी और का है। कोई प्लॉट खरीदें, या उसके मालिक से आपको आमंत्रित करने को कहें।",
@@ -5743,7 +5827,14 @@
   "land.gGrass": "घास",
   "land.gEffects": "इफ़ेक्ट (चमक, परिवेश प्रकाश)",
   "land.gFov": "दृश्य क्षेत्र",
-  "land.gNote": "इसी ब्राउज़र में सहेजा गया। हर बदलाव तुरंत लागू होता है।"
+  "land.gNote": "इसी ब्राउज़र में सहेजा गया। हर बदलाव तुरंत लागू होता है।",
+  "land.benchRun": "माप रहे हैं कि यह डिवाइस कौन-से ग्राफ़िक्स सहज चलाता है — कुछ सेकंड…",
+  "land.benchDone": "ग्राफ़िक्स: {p} — {f} fps। सेटिंग्स में बदलें।",
+  "land.benchLast": "यहाँ मापा गया: {p} — {f} fps",
+  "land.benchNone": "इस डिवाइस पर अभी नहीं मापा गया",
+  "land.benchBusy": "माप रहे हैं…",
+  "land.benchBtn": "बेंचमार्क",
+  "land.cBench": "इस डिवाइस को मापें और ग्राफ़िक्स चुनें"
  },
  "tr": {
   "land.notYours": "{p} arsası başkasına ait. Bir arsa satın al ya da sahibinden seni davet etmesini iste.",
@@ -6185,7 +6276,14 @@
   "land.gGrass": "Çimen",
   "land.gEffects": "Efektler (parlama, ortam ışığı)",
   "land.gFov": "Görüş alanı",
-  "land.gNote": "Bu tarayıcıda saklanır. Her değişiklik hemen uygulanır."
+  "land.gNote": "Bu tarayıcıda saklanır. Her değişiklik hemen uygulanır.",
+  "land.benchRun": "Bu cihazın hangi grafikleri akıcı çizdiği ölçülüyor — birkaç saniye…",
+  "land.benchDone": "Grafik: {p} — {f} fps. Ayarlar'dan değiştirebilirsiniz.",
+  "land.benchLast": "Burada ölçülen: {p} — {f} fps",
+  "land.benchNone": "Bu cihazda henüz ölçülmedi",
+  "land.benchBusy": "Ölçülüyor…",
+  "land.benchBtn": "Performans testi",
+  "land.cBench": "bu cihazı ölç ve grafiğini seç"
  },
  "id": {
   "land.notYours": "Petak {p} milik orang lain. Beli sebuah petak, atau minta pemiliknya mengundangmu.",
@@ -6627,7 +6725,14 @@
   "land.gGrass": "Rumput",
   "land.gEffects": "Efek (pendar, cahaya sekitar)",
   "land.gFov": "Bidang pandang",
-  "land.gNote": "Disimpan di browser ini. Setiap perubahan langsung berlaku."
+  "land.gNote": "Disimpan di browser ini. Setiap perubahan langsung berlaku.",
+  "land.benchRun": "Mengukur grafis yang digambar lancar oleh perangkat ini — beberapa detik…",
+  "land.benchDone": "Grafis: {p} — {f} fps. Ubah di Pengaturan.",
+  "land.benchLast": "Diukur di sini: {p} — {f} fps",
+  "land.benchNone": "Belum diukur di perangkat ini",
+  "land.benchBusy": "Mengukur…",
+  "land.benchBtn": "Uji kinerja",
+  "land.cBench": "ukur perangkat ini dan pilih grafisnya"
  },
  "vi": {
   "land.notYours": "Mảnh đất {p} thuộc về người khác. Hãy mua một mảnh, hoặc nhờ chủ của nó mời bạn.",
@@ -7069,7 +7174,14 @@
   "land.gGrass": "Cỏ",
   "land.gEffects": "Hiệu ứng (phát sáng, ánh sáng môi trường)",
   "land.gFov": "Góc nhìn",
-  "land.gNote": "Lưu trong trình duyệt này. Mỗi thay đổi áp dụng ngay."
+  "land.gNote": "Lưu trong trình duyệt này. Mỗi thay đổi áp dụng ngay.",
+  "land.benchRun": "Đang đo đồ họa thiết bị này vẽ mượt — vài giây…",
+  "land.benchDone": "Đồ họa: {p} — {f} fps. Đổi trong Cài đặt.",
+  "land.benchLast": "Đo tại đây: {p} — {f} fps",
+  "land.benchNone": "Chưa đo trên thiết bị này",
+  "land.benchBusy": "Đang đo…",
+  "land.benchBtn": "Đo hiệu năng",
+  "land.cBench": "đo thiết bị này và chọn đồ họa"
  },
  "pl": {
   "land.notYours": "Działka {p} należy do kogoś innego. Kup działkę albo poproś jej właściciela o zaproszenie.",
@@ -7511,6 +7623,13 @@
   "land.gGrass": "Trawa",
   "land.gEffects": "Efekty (poświata, światło otoczenia)",
   "land.gFov": "Pole widzenia",
-  "land.gNote": "Zapisane w tej przeglądarce. Każda zmiana działa od razu."
+  "land.gNote": "Zapisane w tej przeglądarce. Każda zmiana działa od razu.",
+  "land.benchRun": "Mierzę, jaką grafikę to urządzenie rysuje płynnie — kilka sekund…",
+  "land.benchDone": "Grafika: {p} — {f} kl./s. Zmienisz ją w Ustawieniach.",
+  "land.benchLast": "Zmierzono tutaj: {p} — {f} kl./s",
+  "land.benchNone": "Na tym urządzeniu jeszcze nie mierzono",
+  "land.benchBusy": "Mierzę…",
+  "land.benchBtn": "Test wydajności",
+  "land.cBench": "zmierz to urządzenie i wybierz grafikę"
  }
 }
