@@ -4,7 +4,7 @@
  * against the real world server (tests/_land_live_fixture.py) as a player on a phone, with the on-screen buttons:
  *   1. a small craft built on the owner's plot — a steel-plate hull, a pilot seat on it, two thrusters behind;
  *   (3b: a reload in the air brings the page back to the controls — 2026-11-10; 5: Use on a thruster, not the seat, boards it;
- *   6: held forward at a wall, its hull stops at the wall; 7: /handover hands it to a player near, whose page takes its
+ *   4b: /crafts tells how far, which way and how high your craft is; 6: held forward at a wall, its hull stops at the wall; 7: /handover hands it to a player near, whose page takes its
  *   controls — #171)
  *   2. Use on the seat takes the controls: the HUD says flying, with its thrust against its weight; a visitor near is sent
  *      the craft, its pieces and its engines' work (#171);
@@ -220,6 +220,19 @@ try {
   let parked = null;
   for (let t = 0; t < 20 && !(parked && parked.pilot === null); t++) { await sleep(500); parked = (await getJ(`/land/api/crafts?face=${q.face}&u=${su}&v=${sv}`)).crafts[0]; }
   ok(parked && parked.pilot === null && parked.eng === null, "Use again leaves it parked, its engines stopped");
+  // 4b. /crafts finds it (#171, "i left the x somewhere"): how far, which way, how high
+  await send(B, "Input.dispatchKeyEvent", { type: "keyDown", code: "Slash", key: "/", windowsVirtualKeyCode: 191 });
+  await send(B, "Input.dispatchKeyEvent", { type: "keyUp", code: "Slash", key: "/", windowsVirtualKeyCode: 191 });
+  await until(B, "document.activeElement && document.activeElement.id === 'conIn'", 8000);
+  await send(B, "Input.insertText", { text: "crafts" });
+  await send(B, "Input.dispatchKeyEvent", { type: "keyDown", code: "Enter", key: "Enter", windowsVirtualKeyCode: 13 });
+  await send(B, "Input.dispatchKeyEvent", { type: "keyUp", code: "Enter", key: "Enter", windowsVirtualKeyCode: 13 });
+  await until(B, "/Your craft/.test(document.getElementById('conLog').textContent)", 10000);
+  const found = (await evl(B, "document.getElementById('conLog').textContent")).match(/Your craft (\w+): (\d+) m away, bearing (\d+)° \(north 0°, east 90°\), (\d+) m up/);
+  const me = JSON.parse(await evl(B, "localStorage.getItem('nado_land_v1')") || "{}").p || [];
+  const want = me.length ? Math.round(Math.hypot(parked.pose[1] - me[1], parked.pose[2] - me[2])) : -1;
+  ok(found && parked.id.startsWith(found[1]) && Math.abs(Number(found[2]) - want) <= 3 && Number(found[4]) <= 2,
+    `/crafts tells where the parked craft is — how far, which way, how high: ${found ? found[0] : "(nothing)"} (measured ${want} m)`);
   await send(B, "Input.dispatchKeyEvent", { type: "keyDown", code: "Slash", key: "/", windowsVirtualKeyCode: 191 });
   await send(B, "Input.dispatchKeyEvent", { type: "keyUp", code: "Slash", key: "/", windowsVirtualKeyCode: 191 });
   await until(B, "document.activeElement && document.activeElement.id === 'conIn'", 8000);

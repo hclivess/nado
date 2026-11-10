@@ -14,7 +14,8 @@ the game and build a real usable xfighter", operator 2026-11-09). scripts/land_s
      owner may not build; the craft is then gone; turn_pieces turns a point (x, z) to (z, -x) at +90°;
   6. players near are sent the craft — its pieces the first time, then its pose;
   7. its owner gives it to another player (#171): they own it and are its pilot; only its owner gives it, only to a player
-     the world knows.
+     the world knows;
+  8. a player is told where every craft they own is (#171, "i left the x somewhere").
 
 Run: python3 tests/test_a_craft_of_pieces_takes_off_flies_within_its_thrust_and_docks.py
 """
@@ -156,6 +157,10 @@ async def main():
     _, _, err = await world.board(a, cid=cid2)
     check("…and the one who gave it cannot board it any more", err is not None)
     check("…nor give it away while another flies it", world.give_craft(a, cid2, a) is not None)
+    # 8. FINDING ONE'S CRAFTS (#171, "i left the x somewhere"): every craft a player owns, wherever it is
+    mine = world.crafts_of(b)
+    check("a player is told every craft they own, wherever it is, with its pose", [c["id"] for c in mine] == [cid2] and mine[0]["pose"] == world.crafts[cid2]["pose"], mine)
+    check("…and none they do not", all(c["id"] != cid2 for c in world.crafts_of(a)))
     await world.http.close(); await ex.close()
 
 

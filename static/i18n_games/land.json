@@ -463,7 +463,12 @@
   "land.cGive": "give your craft to a player — they take its controls",
   "land.cGiveWho": "Give it to whom? /handover <address> — or the start of the address of a player near.",
   "land.fGave": "Given to {w}. It is theirs, and they are at its controls.",
-  "land.fGiven": "{w} gave you a craft — you are at its controls."
+  "land.fGiven": "{w} gave you a craft — you are at its controls.",
+  "land.cCrafts": "where your crafts are: distance, bearing, height",
+  "land.fCraftsNone": "You own no craft.",
+  "land.fCraftMine": "Your craft {id}: you are flying it.",
+  "land.fCraftOther": "Your craft {id}: on another face of the planet.",
+  "land.fCraftAt": "Your craft {id}: {d} m away, bearing {b}° (north 0°, east 90°), {h} m up."
  },
  "cs": {
   "land.notYours": "Pozemek {p} patří někomu jinému. Kupte si pozemek, nebo požádejte jeho vlastníka o pozvání.",
@@ -929,7 +934,12 @@
   "land.cGive": "dát své plavidlo hráči — převezme jeho řízení",
   "land.cGiveWho": "Komu ho dát? /handover <adresa> — nebo začátek adresy hráče poblíž.",
   "land.fGave": "Předáno hráči {w}. Je jeho a řídí ho.",
-  "land.fGiven": "Od {w} máš plavidlo — máš ho v řízení."
+  "land.fGiven": "Od {w} máš plavidlo — máš ho v řízení.",
+  "land.cCrafts": "kde jsou tvá plavidla: vzdálenost, azimut, výška",
+  "land.fCraftsNone": "Nemáš žádné plavidlo.",
+  "land.fCraftMine": "Tvé plavidlo {id}: právě ho řídíš.",
+  "land.fCraftOther": "Tvé plavidlo {id}: na jiné stěně planety.",
+  "land.fCraftAt": "Tvé plavidlo {id}: {d} m daleko, azimut {b}° (sever 0°, východ 90°), {h} m nad zemí."
  },
  "es": {
   "land.notYours": "La parcela {p} pertenece a otra persona. Compra una parcela o pide a su dueño que te invite.",
@@ -1395,7 +1405,12 @@
   "land.cGive": "dar tu nave a un jugador: toma sus mandos",
   "land.cGiveWho": "¿A quién dársela? /handover <dirección>, o el comienzo de la dirección de un jugador cercano.",
   "land.fGave": "Entregada a {w}. Es suya y está a los mandos.",
-  "land.fGiven": "{w} te dio una nave: estás a los mandos."
+  "land.fGiven": "{w} te dio una nave: estás a los mandos.",
+  "land.cCrafts": "dónde están tus naves: distancia, rumbo, altura",
+  "land.fCraftsNone": "No tienes ninguna nave.",
+  "land.fCraftMine": "Tu nave {id}: la estás pilotando.",
+  "land.fCraftOther": "Tu nave {id}: en otra cara del planeta.",
+  "land.fCraftAt": "Tu nave {id}: a {d} m, rumbo {b}° (norte 0°, este 90°), a {h} m de altura."
  },
  "pt": {
   "land.notYours": "O lote {p} pertence a outra pessoa. Compre um lote ou peça ao dono que convide você.",
@@ -1861,7 +1876,12 @@
   "land.cGive": "dar sua nave a um jogador — ele assume os comandos",
   "land.cGiveWho": "Dar para quem? /handover <endereço> — ou o início do endereço de um jogador próximo.",
   "land.fGave": "Entregue a {w}. É dele, e ele está nos comandos.",
-  "land.fGiven": "{w} te deu uma nave — você está nos comandos."
+  "land.fGiven": "{w} te deu uma nave — você está nos comandos.",
+  "land.cCrafts": "onde estão suas naves: distância, rumo, altura",
+  "land.fCraftsNone": "Você não tem nenhuma nave.",
+  "land.fCraftMine": "Sua nave {id}: você a está pilotando.",
+  "land.fCraftOther": "Sua nave {id}: em outra face do planeta.",
+  "land.fCraftAt": "Sua nave {id}: a {d} m, rumo {b}° (norte 0°, leste 90°), a {h} m de altura."
  },
  "fr": {
   "land.notYours": "La parcelle {p} appartient à quelqu'un d'autre. Achetez une parcelle ou demandez à son propriétaire de vous inviter.",
@@ -2327,7 +2347,12 @@
   "land.cGive": "donner ton engin à un joueur — il en prend les commandes",
   "land.cGiveWho": "À qui le donner ? /handover <adresse> — ou le début de l'adresse d'un joueur proche.",
   "land.fGave": "Donné à {w}. Il est à lui, et il en tient les commandes.",
-  "land.fGiven": "{w} t'a donné un engin — tu en tiens les commandes."
+  "land.fGiven": "{w} t'a donné un engin — tu en tiens les commandes.",
+  "land.cCrafts": "où sont tes engins : distance, cap, hauteur",
+  "land.fCraftsNone": "Tu n'as aucun engin.",
+  "land.fCraftMine": "Ton engin {id} : tu le pilotes.",
+  "land.fCraftOther": "Ton engin {id} : sur une autre face de la planète.",
+  "land.fCraftAt": "Ton engin {id} : à {d} m, cap {b}° (nord 0°, est 90°), à {h} m de haut."
  },
  "de": {
   "land.notYours": "Grundstück {p} gehört jemand anderem. Kauf dir ein Grundstück oder bitte den Besitzer um eine Einladung.",
@@ -2793,7 +2818,12 @@
   "land.cGive": "dein Fluggerät einem Spieler geben — er übernimmt die Steuerung",
   "land.cGiveWho": "Wem geben? /handover <Adresse> — oder der Anfang der Adresse eines Spielers in der Nähe.",
   "land.fGave": "An {w} gegeben. Es gehört nun ihm, und er sitzt am Steuer.",
-  "land.fGiven": "{w} hat dir ein Fluggerät gegeben — du sitzt am Steuer."
+  "land.fGiven": "{w} hat dir ein Fluggerät gegeben — du sitzt am Steuer.",
+  "land.cCrafts": "wo deine Fluggeräte sind: Entfernung, Peilung, Höhe",
+  "land.fCraftsNone": "Du besitzt kein Fluggerät.",
+  "land.fCraftMine": "Dein Fluggerät {id}: du fliegst es gerade.",
+  "land.fCraftOther": "Dein Fluggerät {id}: auf einer anderen Seite des Planeten.",
+  "land.fCraftAt": "Dein Fluggerät {id}: {d} m entfernt, Peilung {b}° (Nord 0°, Ost 90°), {h} m hoch."
  },
  "it": {
   "land.notYours": "Il lotto {p} appartiene a qualcun altro. Compra un lotto o chiedi al proprietario di invitarti.",
@@ -3259,7 +3289,12 @@
   "land.cGive": "dare il tuo velivolo a un giocatore — ne prende i comandi",
   "land.cGiveWho": "A chi darlo? /handover <indirizzo> — o l'inizio dell'indirizzo di un giocatore vicino.",
   "land.fGave": "Dato a {w}. Ora è suo, e ne ha i comandi.",
-  "land.fGiven": "{w} ti ha dato un velivolo — ne hai i comandi."
+  "land.fGiven": "{w} ti ha dato un velivolo — ne hai i comandi.",
+  "land.cCrafts": "dove sono i tuoi velivoli: distanza, rotta, altezza",
+  "land.fCraftsNone": "Non possiedi alcun velivolo.",
+  "land.fCraftMine": "Il tuo velivolo {id}: lo stai pilotando.",
+  "land.fCraftOther": "Il tuo velivolo {id}: su un'altra faccia del pianeta.",
+  "land.fCraftAt": "Il tuo velivolo {id}: a {d} m, rotta {b}° (nord 0°, est 90°), a {h} m di altezza."
  },
  "ru": {
   "land.notYours": "Участок {p} принадлежит другому игроку. Купите участок или попросите владельца пригласить вас.",
@@ -3725,7 +3760,12 @@
   "land.cGive": "отдать свой аппарат игроку — он берёт управление",
   "land.cGiveWho": "Кому отдать? /handover <адрес> — или начало адреса игрока поблизости.",
   "land.fGave": "Передано {w}. Теперь аппарат его, и он за управлением.",
-  "land.fGiven": "Вам передан аппарат от {w} — вы за управлением."
+  "land.fGiven": "Вам передан аппарат от {w} — вы за управлением.",
+  "land.cCrafts": "где ваши аппараты: расстояние, азимут, высота",
+  "land.fCraftsNone": "У вас нет аппаратов.",
+  "land.fCraftMine": "Ваш аппарат {id}: вы им управляете.",
+  "land.fCraftOther": "Ваш аппарат {id}: на другой грани планеты.",
+  "land.fCraftAt": "Ваш аппарат {id}: в {d} м, азимут {b}° (север 0°, восток 90°), на высоте {h} м."
  },
  "zh": {
   "land.notYours": "地块 {p} 属于别人。购买一块地，或请它的所有者邀请你。",
@@ -4191,7 +4231,12 @@
   "land.cGive": "把你的飞行器交给一名玩家——由他接手驾驶",
   "land.cGiveWho": "交给谁？/handover <地址>——或附近玩家地址的开头。",
   "land.fGave": "已交给 {w}。它归对方所有，并由对方驾驶。",
-  "land.fGiven": "{w} 送给你一架飞行器——你正在驾驶它。"
+  "land.fGiven": "{w} 送给你一架飞行器——你正在驾驶它。",
+  "land.cCrafts": "你的飞行器在哪里：距离、方位、高度",
+  "land.fCraftsNone": "你没有飞行器。",
+  "land.fCraftMine": "你的飞行器 {id}：你正在驾驶。",
+  "land.fCraftOther": "你的飞行器 {id}：在星球的另一面。",
+  "land.fCraftAt": "你的飞行器 {id}：距离 {d} 米，方位 {b}°（北 0°，东 90°），高 {h} 米。"
  },
  "ja": {
   "land.notYours": "区画 {p} は他の人のものです。区画を購入するか、所有者に招待してもらいましょう。",
@@ -4657,7 +4702,12 @@
   "land.cGive": "機体をプレイヤーに渡す — その人が操縦を引き継ぐ",
   "land.cGiveWho": "誰に渡す？ /handover <アドレス> — または近くのプレイヤーのアドレスの先頭。",
   "land.fGave": "{w} に渡しました。機体はその人のもので、操縦しています。",
-  "land.fGiven": "{w} から機体を受け取りました — あなたが操縦しています。"
+  "land.fGiven": "{w} から機体を受け取りました — あなたが操縦しています。",
+  "land.cCrafts": "自分の機体の位置：距離、方位、高さ",
+  "land.fCraftsNone": "機体を持っていません。",
+  "land.fCraftMine": "あなたの機体 {id}：操縦中です。",
+  "land.fCraftOther": "あなたの機体 {id}：惑星の別の面にあります。",
+  "land.fCraftAt": "あなたの機体 {id}：{d} m 先、方位 {b}°（北 0°・東 90°）、高さ {h} m。"
  },
  "ko": {
   "land.notYours": "구역 {p}은(는) 다른 사람의 땅입니다. 구역을 사거나 소유자에게 초대를 요청하세요.",
@@ -5123,7 +5173,12 @@
   "land.cGive": "내 기체를 플레이어에게 넘김 — 그가 조종을 맡음",
   "land.cGiveWho": "누구에게 줄까요? /handover <주소> — 또는 근처 플레이어 주소의 앞부분.",
   "land.fGave": "{w}에게 넘겼습니다. 이제 그의 것이며 그가 조종합니다.",
-  "land.fGiven": "{w}님이 기체를 주었습니다 — 당신이 조종합니다."
+  "land.fGiven": "{w}님이 기체를 주었습니다 — 당신이 조종합니다.",
+  "land.cCrafts": "내 기체 위치: 거리, 방위, 높이",
+  "land.fCraftsNone": "소유한 기체가 없습니다.",
+  "land.fCraftMine": "내 기체 {id}: 지금 조종 중입니다.",
+  "land.fCraftOther": "내 기체 {id}: 행성의 다른 면에 있습니다.",
+  "land.fCraftAt": "내 기체 {id}: {d} m 거리, 방위 {b}° (북 0°, 동 90°), 높이 {h} m."
  },
  "ar": {
   "land.notYours": "القطعة {p} ملك لشخص آخر. اشترِ قطعة، أو اطلب من مالكها أن يدعوك.",
@@ -5589,7 +5644,12 @@
   "land.cGive": "أعطِ مركبتك للاعب — فيتولّى قيادتها",
   "land.cGiveWho": "لمن تعطيها؟ /handover <العنوان> — أو بداية عنوان لاعب قريب.",
   "land.fGave": "أُعطيت إلى {w}. أصبحت له، وهو على مقودها.",
-  "land.fGiven": "أعطاك {w} مركبة — أنت على مقودها."
+  "land.fGiven": "أعطاك {w} مركبة — أنت على مقودها.",
+  "land.cCrafts": "أين مركباتك: المسافة والاتجاه والارتفاع",
+  "land.fCraftsNone": "لا تملك أي مركبة.",
+  "land.fCraftMine": "مركبتك {id}: أنت تقودها.",
+  "land.fCraftOther": "مركبتك {id}: على وجه آخر من الكوكب.",
+  "land.fCraftAt": "مركبتك {id}: على بعد {d} م، باتجاه {b}° (الشمال 0°، الشرق 90°)، على ارتفاع {h} م."
  },
  "hi": {
   "land.notYours": "प्लॉट {p} किसी और का है। कोई प्लॉट खरीदें, या उसके मालिक से आपको आमंत्रित करने को कहें।",
@@ -6055,7 +6115,12 @@
   "land.cGive": "अपना यान किसी खिलाड़ी को दें — वह उसका नियंत्रण लेता है",
   "land.cGiveWho": "किसे दें? /handover <पता> — या पास के किसी खिलाड़ी के पते की शुरुआत।",
   "land.fGave": "{w} को दिया गया। अब यह उनका है, और नियंत्रण उन्हीं के पास है।",
-  "land.fGiven": "{w} ने आपको एक यान दिया — नियंत्रण आपके पास है।"
+  "land.fGiven": "{w} ने आपको एक यान दिया — नियंत्रण आपके पास है।",
+  "land.cCrafts": "आपके यान कहाँ हैं: दूरी, दिशा-कोण, ऊँचाई",
+  "land.fCraftsNone": "आपके पास कोई यान नहीं है।",
+  "land.fCraftMine": "आपका यान {id}: आप इसे उड़ा रहे हैं।",
+  "land.fCraftOther": "आपका यान {id}: ग्रह के दूसरे फलक पर।",
+  "land.fCraftAt": "आपका यान {id}: {d} मी दूर, दिशा-कोण {b}° (उत्तर 0°, पूर्व 90°), {h} मी ऊपर।"
  },
  "tr": {
   "land.notYours": "{p} arsası başkasına ait. Bir arsa satın al ya da sahibinden seni davet etmesini iste.",
@@ -6521,7 +6586,12 @@
   "land.cGive": "aracını bir oyuncuya ver — kumandayı o alır",
   "land.cGiveWho": "Kime verilsin? /handover <adres> — ya da yakındaki bir oyuncunun adresinin başı.",
   "land.fGave": "{w} adlı oyuncuya verildi. Artık onun ve kumandada o var.",
-  "land.fGiven": "{w} sana bir araç verdi — kumandada sen varsın."
+  "land.fGiven": "{w} sana bir araç verdi — kumandada sen varsın.",
+  "land.cCrafts": "araçların nerede: uzaklık, kerteriz, yükseklik",
+  "land.fCraftsNone": "Hiç aracın yok.",
+  "land.fCraftMine": "Aracın {id}: şu an onu uçuruyorsun.",
+  "land.fCraftOther": "Aracın {id}: gezegenin başka bir yüzünde.",
+  "land.fCraftAt": "Aracın {id}: {d} m uzakta, kerteriz {b}° (kuzey 0°, doğu 90°), {h} m yukarıda."
  },
  "id": {
   "land.notYours": "Petak {p} milik orang lain. Beli sebuah petak, atau minta pemiliknya mengundangmu.",
@@ -6987,7 +7057,12 @@
   "land.cGive": "berikan wahanamu ke pemain — ia mengambil kendalinya",
   "land.cGiveWho": "Berikan ke siapa? /handover <alamat> — atau awal alamat pemain di dekatmu.",
   "land.fGave": "Diberikan kepada {w}. Kini miliknya, dan ia memegang kendalinya.",
-  "land.fGiven": "{w} memberimu sebuah wahana — kamu memegang kendalinya."
+  "land.fGiven": "{w} memberimu sebuah wahana — kamu memegang kendalinya.",
+  "land.cCrafts": "di mana wahanamu: jarak, arah, ketinggian",
+  "land.fCraftsNone": "Kamu tidak punya wahana.",
+  "land.fCraftMine": "Wahanamu {id}: kamu sedang menerbangkannya.",
+  "land.fCraftOther": "Wahanamu {id}: di sisi lain planet.",
+  "land.fCraftAt": "Wahanamu {id}: {d} m jauhnya, arah {b}° (utara 0°, timur 90°), {h} m di atas tanah."
  },
  "vi": {
   "land.notYours": "Mảnh đất {p} thuộc về người khác. Hãy mua một mảnh, hoặc nhờ chủ của nó mời bạn.",
@@ -7453,7 +7528,12 @@
   "land.cGive": "trao phi thuyền cho một người chơi — họ nắm quyền điều khiển",
   "land.cGiveWho": "Trao cho ai? /handover <địa chỉ> — hoặc phần đầu địa chỉ của một người chơi ở gần.",
   "land.fGave": "Đã trao cho {w}. Giờ nó là của họ, và họ đang điều khiển.",
-  "land.fGiven": "{w} đã trao cho bạn một phi thuyền — bạn đang điều khiển."
+  "land.fGiven": "{w} đã trao cho bạn một phi thuyền — bạn đang điều khiển.",
+  "land.cCrafts": "phi thuyền của bạn ở đâu: khoảng cách, phương vị, độ cao",
+  "land.fCraftsNone": "Bạn không có phi thuyền nào.",
+  "land.fCraftMine": "Phi thuyền {id} của bạn: bạn đang lái nó.",
+  "land.fCraftOther": "Phi thuyền {id} của bạn: ở một mặt khác của hành tinh.",
+  "land.fCraftAt": "Phi thuyền {id} của bạn: cách {d} m, phương vị {b}° (bắc 0°, đông 90°), cao {h} m."
  },
  "pl": {
   "land.notYours": "Działka {p} należy do kogoś innego. Kup działkę albo poproś jej właściciela o zaproszenie.",
@@ -7919,6 +7999,11 @@
   "land.cGive": "oddaj swój pojazd graczowi — przejmuje jego stery",
   "land.cGiveWho": "Komu go dać? /handover <adres> — albo początek adresu gracza w pobliżu.",
   "land.fGave": "Oddano graczowi {w}. Jest teraz jego, a on siedzi za sterami.",
-  "land.fGiven": "Od {w} masz pojazd — siedzisz za sterami."
+  "land.fGiven": "Od {w} masz pojazd — siedzisz za sterami.",
+  "land.cCrafts": "gdzie są twoje pojazdy: odległość, namiar, wysokość",
+  "land.fCraftsNone": "Nie masz żadnego pojazdu.",
+  "land.fCraftMine": "Twój pojazd {id}: właśnie nim lecisz.",
+  "land.fCraftOther": "Twój pojazd {id}: na innej ścianie planety.",
+  "land.fCraftAt": "Twój pojazd {id}: {d} m stąd, namiar {b}° (północ 0°, wschód 90°), {h} m nad ziemią."
  }
 }

@@ -2163,6 +2163,12 @@ class World:
     def crafts_near(self, pos, near):
         return [c for c in self.crafts.values() if c["pose"][0] == pos[0] and abs(c["pose"][1] - pos[1]) < near and abs(c["pose"][2] - pos[2]) < near]
 
+    def crafts_of(self, who):
+        """FINDING ONE'S CRAFTS (#171, operator: "i left the x somewhere"): every craft a player owns, wherever it is —
+        [{id, pose, pilot, pieces: n}], nearest first is the page's to sort."""
+        return [{"id": c["id"], "pose": c["pose"], "pilot": c["pilot"], "pieces": len(c["pieces"])}
+                for c in sorted(self.crafts.values(), key=lambda c: c["id"]) if c["owner"] == who]
+
     async def chest(self, who, p, b, put, take):
         """Move items between the caller's bag and chest `b` on plot `p` (#114): `put` and `take` are {item: count}. On an
         owned plot only its owner and their builders open it; in the commons a chest is everyone's. All or nothing: a
@@ -3057,6 +3063,9 @@ def make_app(world, hub, site_origin, wallet_url, secure_cookies=True, shot_page
                         continue
                     cfg, can, err = await world.set_machine(addr, m.get("plot"), m.get("box"), m.get("recipe"))
                     await ws.send_json({"t": "machine", "req": m.get("req"), "plot": m.get("plot"), "box": m.get("box"), "cfg": cfg, "can": can, "error": err})
+                elif t == "mycrafts":                               # #171: where are my crafts
+                    await ws.send_json({"t": "mycrafts", "req": m.get("req"), "list": world.crafts_of(addr) if addr else [],
+                                        **({} if addr else {"error": "sign in first"})})
                 elif t in ("board", "fly", "leave", "dock", "handover"):   # not "give": that is a gift of items
                     # FLIGHT (#147): take the seat, say where the craft is, leave it parked, set it down as pieces
                     if not addr:

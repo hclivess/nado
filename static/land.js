@@ -535,6 +535,17 @@ function craftsSeen(list) {
 }
 // the materials a craft is made of (land-world.js: steel plate, glass, thruster): Use on one of them may mean "fly this"
 const CRAFT_SKIN = new Set([B.steelplate, B.glass, B.thruster]);
+/** Where each of my crafts is from where I stand, nearest first (#171): d metres over the ground (null on another face), b
+ *  the bearing in whole degrees clockwise from north, h its height over the untouched ground under it. */
+function craftsBearing(list) {
+  return list.map((c) => {
+    const [f, u, v, h] = c.pose;
+    if (f !== P.face) return { id: c.id, d: null };
+    const du = u - P.u, dv = v - P.v;
+    return { id: c.id, d: Math.round(Math.hypot(du, dv)), b: (Math.round(Math.atan2(du, dv) * 180 / Math.PI) + 360) % 360,
+      h: Math.max(0, Math.round(h - Wd.column(f, Math.floor(u), Math.floor(v)).height)) };
+  }).sort((a, b) => (a.d === null) - (b.d === null) || a.d - b.d);
+}
 /** The pilot seat among the pieces touching piece b on its plot (and those touching them…, as the world server joins a
  *  craft: land_server.py connected, CRAFT_PAD 1 cm), or null. */
 function craftSeat(plot, b) {
@@ -1288,6 +1299,15 @@ function connect() {
       else if (m.op === "board" && m.craft) startFlying(m.craft);
       else if (m.op === "dock") { notify(T("fDocked", "Set down as pieces.")); }
       else if (m.op === "handover") { const w = String(m.to || ""); conLine(T("fGave", "Given to {w}. It is theirs, and they are at its controls.", { w: w.slice(0, 6) + "…" + w.slice(-5) })); }
+    } else if (m.t === "mycrafts") {
+      if (m.error) return conLine(String(m.error), "err");
+      if (!(m.list || []).length) return conLine(T("fCraftsNone", "You own no craft."));
+      for (const c of craftsBearing(m.list)) {
+        const id = c.id.slice(0, 6);
+        if (flying && flying.id === c.id) conLine(T("fCraftMine", "Your craft {id}: you are flying it.", { id }));
+        else if (c.d === null) conLine(T("fCraftOther", "Your craft {id}: on another face of the planet.", { id }));
+        else conLine(T("fCraftAt", "Your craft {id}: {d} m away, bearing {b}° (north 0°, east 90°), {h} m up.", { id, d: c.d, b: c.b, h: c.h }));
+      }
     } else if (m.t === "given") {
       // a craft handed to me (#171): mine now, and I am at its controls — wherever it is
       const w = String(m.by || "");
@@ -2511,7 +2531,7 @@ async function bench() {
 }
 const CMDS = {
   help: () => [["/help", T("cHelp", "this list")], ["/pos", T("cPos", "where you are")], ["/tp spawn | /tp bed", T("cTpTo", "go to the landing, or to your bed")],
-    ["/aim", T("cAim", "what you aim at, and where a block would go")], ["/prof", T("cProf", "the profiler: where each frame's time goes")], ["/dock", T("cDock", "set your landed craft down as pieces")], ["/handover <player>", T("cGive", "give your craft to a player — they take its controls")], ["/fly", T("cFly", "fly or walk")], ["/settings", T("cSettings", "your settings")], ["/bench", T("cBench", "measure this device and pick its graphics")], ["/tilt <yaw> <pitch> <roll>", T("cTilt", "turn the piece in hand, in degrees")], ["/set <name> <value>", T("cSet", "change one (e.g. /set fov 90)")],
+    ["/aim", T("cAim", "what you aim at, and where a block would go")], ["/prof", T("cProf", "the profiler: where each frame's time goes")], ["/dock", T("cDock", "set your landed craft down as pieces")], ["/crafts", T("cCrafts", "where your crafts are: distance, bearing, height")], ["/handover <player>", T("cGive", "give your craft to a player — they take its controls")], ["/fly", T("cFly", "fly or walk")], ["/settings", T("cSettings", "your settings")], ["/bench", T("cBench", "measure this device and pick its graphics")], ["/tilt <yaw> <pitch> <roll>", T("cTilt", "turn the piece in hand, in degrees")], ["/set <name> <value>", T("cSet", "change one (e.g. /set fov 90)")],
     ["/clear", T("cClear", "clear this log")], ["…", T("cChat", "anything else is chat to the players around you")]].forEach(([c, d]) => conLine(c + " — " + d)),
   pos: () => conLine(`${T("cFace", "face")} ${P.face} · u ${Math.floor(P.u)} · v ${Math.floor(P.v)} · h ${P.h.toFixed(1)} · ${T("cPlot", "plot")} ${Wd.plotOf(P.face, Math.floor(P.u), Math.floor(P.v))}`),
   // /tp (#167): to the landing or to your own bed — nowhere else; going far is walking, flying, or a craft. Signed in, the
@@ -2551,6 +2571,8 @@ const CMDS = {
     if (flying) leaveCraft();
     net.send({ t: "dock", craft: id, req: ++net.req });
   },
+  // /crafts: WHERE YOUR CRAFTS ARE (#171, operator: "i left the x somewhere") — each one's distance, bearing and height
+  crafts: () => net.send({ t: "mycrafts", req: ++net.req }),
   // /handover <player>: HAND A CRAFT OVER (#171) — the one you fly, or your parked craft near; to a player by their address, or
   // by the start of the address of one standing near. They own it and take its controls at once (land_server.py give).
   handover: (a) => {
