@@ -32,7 +32,7 @@ import { walk, trunkAt, TRUNK_R, restorePlace } from "./land-walk.js";
 import { snapBox, piecesFor, restOnGround } from "./land-snap.js";
 import { levelOps, earthNeeded, trunkIn, siteLayer, topFirst } from "./land-level.js";
 import { groundWeights } from "./land-mesher.js";
-import { craftStep, flightOf } from "./land-flight.js";
+import { craftStep, flightOf, craftBody, bodyInside } from "./land-flight.js";
 import { GFX_PRESETS, BENCH_ORDER, benchTarget, frameStats, holds, pickPreset, LADDER, governor, govStep } from "./land-gfx.js";
 import { NadoDapp, wireWallet, renderWallet, alertBar, notify, uiConfirm, uiPrompt, isAddress, esc, base, disp, rawToNado, nadoToRaw, randId, $ } from "./nadodapp.js";
 
@@ -216,10 +216,57 @@ function boxAt(f, u, v, h) {
 }
 function setPlotBoxes(plot, list) {
   const old = plotBoxes.get(plot);
-  plotBoxes.set(plot, { list, idx: indexBoxes(list) });
+  plotBoxes.set(plot, { list, idx: indexBoxes(list) }); topSeq++;
   const ys = [...list, ...(old ? old.list : [])];
   const ab = ys.map((b) => Wd.boxAabb(b));                    // a turned piece reaches higher and lower than its box (#169)
   if (ys.length) remeshPlotRange(plot, Math.min(...ab.map((b) => b[2])), Math.max(...ab.map((b) => b[2] + b[5])));
+}
+// THE HIGHEST THING ON A PLOT (#171): a craft's body is hundreds of points, swept in 15 cm moves — near things that is
+// the price of not flying through them, but in the open sky it is all air. A craft whose lowest reach is over the top of
+// every plot it spans skips them: the top is the plot's highest ground + TREE_TOP, its highest placed block, its highest
+// piece. Kept until something is added (topSeq); a removal only leaves the top too high, which costs checks, never a miss.
+let topSeq = 0;
+const plotTops = new Map(), TREE_TOP = 40;
+function plotTop(plot) {
+  const c = plotTops.get(plot);
+  if (c && c.seq === topSeq) return c.top;
+  const q = Wd.plotCoords(plot);
+  let top = -Infinity;
+  for (let i = 0; i <= Wd.PLOT; i += 2) for (let j = 0; j <= Wd.PLOT; j += 2)
+    top = Math.max(top, colAt(q.face, Math.min(W - 1, q.u0 + i), Math.min(W - 1, q.v0 + j)).height + TREE_TOP);
+  for (const lk of (plotEdit.get(plot) || new Map()).keys()) top = Math.max(top, Number(lk.split(":")[2]) + 1);
+  for (const b of (plotBoxes.get(plot) || { list: [] }).list) { const a = Wd.boxAabb(b); top = Math.max(top, (a[2] + a[5]) / Wd.CM); }
+  plotTops.set(plot, { seq: topSeq, top });
+  return top;
+}
+/** The ground under a craft's seat (#171): the ground itself, never the top of something built — that is its body's to
+ *  meet. groundAt rises out of whatever the point is buried in, so a seat that came to a wall was put on top of it and the
+ *  craft hopped over the wall (the page walk, 2026-11-10). Lower than the untouched planet (a pit, the levelled town) is
+ *  still the ground. */
+function craftGround(f, u, v) {
+  const g = groundAt(f, u, v), plain = colAt(f, Math.floor(u), Math.floor(v)).height + 0.05;
+  return g > plain + 0.5 ? plain : g;
+}
+/** Which of the craft's body points are inside something at pose (bodyInside) — only over a plot something reaches up to. */
+function craftHits(c, pose) {
+  const [f, u, v, h] = pose, low = h + c.bodyLow, r = c.bodyR;
+  for (const du of [-r, r]) for (const dv of [-r, r]) {
+    const pu = Math.max(0, Math.min(W - 1, Math.floor(u + du))), pv = Math.max(0, Math.min(W - 1, Math.floor(v + dv)));
+    if (plotTop(Wd.plotOf(f, pu, pv)) >= low) return bodyInside(c.body, pose, craftSolid);
+  }
+  return [];
+}
+/** solidAt for a craft's body (#171): hundreds of points a step, most of them in open air — a point well over the smooth
+ *  ground with no block or piece there is air without the ground field's eight-cell sum. */
+function craftSolid(f, u, v, h) {
+  if (boxAt(f, u, v, h)) return true;
+  const cu = Math.floor(u), cv = Math.floor(v), b = blockAt(f, cu, cv, Math.floor(h));
+  if (crispB(b)) return BLOCKS[b].solid;
+  if (b === B.air && h > colAt(f, cu, cv).height + 2) return false;
+  if (b === B.air && edits.get(key(f, cu, cv, Math.floor(h))) === B.air) return false;   // dug out (solidAt)
+  // the smooth ground holds a point only when it is still ground 30 cm over it: a craft resting on the ground, its belly
+  // in the turf's rounding, is on it, not in it (it hovered 10 cm up and never landed); a hillside ahead still stops it
+  return fieldAt(f, u, v, h + 0.3) > 0;
 }
 function solidAt(f, u, v, h) {
   if (boxAt(f, u, v, h)) return true;
@@ -350,7 +397,7 @@ const PILOT_SIT = 0.6;                  // m the pilot's feet sit below the seat
 function flyStep(dt, fwd, side) {
   const c = flying, F = FLIGHT();
   craftStep(c, { fwd, side, yaw: P.yaw, up: keys.has("Space") || !!(touch && touch.up), down: keys.has("KeyC") || keys.has("ControlLeft") || !!(touch && touch.down) },
-    dt, F, (u, v) => groundAt(c.pose[0], u, v) - 0.05);
+    dt, F, (u, v) => craftGround(c.pose[0], u, v) - 0.05, (pose) => craftHits(c, pose));
   // the craft stays on its face of the planet (crossing an edge flying is for later)
   c.pose[1] = Math.max(1, Math.min(W - 1, c.pose[1])); c.pose[2] = Math.max(1, Math.min(W - 1, c.pose[2]));
   P.face = c.pose[0]; P.u = c.pose[1]; P.v = c.pose[2]; P.h = c.pose[3] - PILOT_SIT; P.vu = P.vv = P.vh = 0; P.ground = true;
@@ -534,7 +581,10 @@ function leaveCraft() {
 }
 function startFlying(c) {
   const bottom = Math.min(0, ...c.pieces.map((b) => Wd.boxAabb(b)[2])) / Wd.CM;   // a turned piece: its lowest reach
-  flying = { id: c.id, pose: c.pose.slice(), vel: [0, 0, 0], mass: c.mass, thrust: c.thrust, bottom, grounded: true };
+  flying = { id: c.id, pose: c.pose.slice(), vel: [0, 0, 0], mass: c.mass, thrust: c.thrust, bottom, grounded: true,
+    body: craftBody(c.pieces, Wd.boxAabb) };                              // what of it meets the world (#171)
+  flying.bodyLow = Math.min(0, ...flying.body.map((p) => p[2]));
+  flying.bodyR = Math.max(1, ...flying.body.map((p) => Math.hypot(p[0], p[1])));
   P.yaw = c.pose[4]; P.fly = false;
   const k = crafts.get(c.id) || { pieces: c.pieces, mesh: craftMesh(c.pieces) };
   if (!crafts.has(c.id)) { scene.add(k.mesh); crafts.set(c.id, k); }
@@ -658,7 +708,7 @@ function putCell(face, u, v, h, b) {
   const plot = Wd.plotOf(face, u, v), k = key(face, u, v, h);
   const pc = Wd.plotCoords(plot), lk = (u - pc.u0) + ":" + (v - pc.v0) + ":" + h;
   let pe = plotEdit.get(plot); if (!pe) { pe = new Map(); plotEdit.set(plot, pe); }
-  edits.set(k, b); pe.set(lk, b);
+  edits.set(k, b); pe.set(lk, b); topSeq++;
   remeshAround(face, u, v, h);
 }
 /** A cell back to the untouched planet (the wilderness regrew it). */

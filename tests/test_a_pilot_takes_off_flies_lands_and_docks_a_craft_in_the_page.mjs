@@ -3,7 +3,8 @@
  * engines and gravity to the game and build a real usable xfighter", operator 2026-11-09), walked in the real page
  * against the real world server (tests/_land_live_fixture.py) as a player on a phone, with the on-screen buttons:
  *   1. a small craft built on the owner's plot — a steel-plate hull, a pilot seat on it, two thrusters behind;
- *   (3b: a reload in the air brings the page back to the controls — 2026-11-10; 5: Use on a thruster, not the seat, boards it)
+ *   (3b: a reload in the air brings the page back to the controls — 2026-11-10; 5: Use on a thruster, not the seat, boards it;
+ *   6: held forward at a wall, its hull stops at the wall — #171)
  *   2. Use on the seat takes the controls: the HUD says flying, with its thrust against its weight; a visitor near is sent
  *      the craft, its pieces and its engines' work (#171);
  *   3. holding Jump climbs — the HUD shows the height and the engines at full, and the world server holds the craft
@@ -246,6 +247,23 @@ try {
   ok(/Aiming at Thruster/.test(aimed), "aiming at a thruster of the craft, not its seat: " + aimed.slice(-80));
   await evl(B, "document.getElementById('tUse').click(), true");
   ok(await until(B, "/Flying/.test(document.getElementById('hudPos').textContent)", 15000), "Use on it takes the craft's seat: " + await hudText(B));
+  // 6. ITS BODY MEETS THE WORLD (#171, "x has no collision in the air"): a steel wall 2 m ahead of its hull; held forward,
+  // the craft goes up to the wall and no farther — its hull stops at it, not its seat (which was all that collided)
+  await getJ("/fixture/seed?who=owner&items=" + encodeURIComponent(JSON.stringify({ steel_plate: 8 })));
+  const hullN = boxes.find((b) => b[6] === 64), wallZ = hullN[1] + hullN[4] + 200;
+  const wallB = await (await fetch(base + "/land/api/boxes", { method: "POST", headers: { "Content-Type": "application/json", Authorization: "Bearer " + token },
+    body: JSON.stringify({ plot: PAid, add: [[hullN[0] - 200, wallZ, hullN[2], hullN[3] + 400, 20, 400, 64]] }) })).json();
+  ok(wallB.added === 1 || (Array.isArray(wallB.added) && wallB.added.length === 1), "a wall is built 2 m ahead of the craft's hull: " + JSON.stringify(wallB).slice(0, 120));
+  await sleep(8000);                                             // the page has the wall (it came 1.5-2.5 s later on a slow page)
+  const seatV0 = (await getJ(`/land/api/crafts?face=${q.face}&u=${su}&v=${sv}`)).crafts[0].pose[2];
+  await send(B, "Input.dispatchKeyEvent", { type: "keyDown", code: "KeyW", key: "w", windowsVirtualKeyCode: 87 });
+  await sleep(5000);
+  await send(B, "Input.dispatchKeyEvent", { type: "keyUp", code: "KeyW", key: "w", windowsVirtualKeyCode: 87 });
+  await sleep(1500);
+  const seatV1 = (await getJ(`/land/api/crafts?face=${q.face}&u=${su}&v=${sv}`)).crafts[0].pose[2];
+  const hullFront = seatV1 + (hullN[1] + hullN[4] - (boxes.find((b) => b[6] === 66)[1] + boxes.find((b) => b[6] === 66)[4] / 2)) / 100, wallFace = q.v0 + wallZ / 100;
+  ok(seatV1 > seatV0 + 0.8, `held forward, the craft goes toward the wall (${(seatV1 - seatV0).toFixed(2)} m)`);
+  ok(hullFront <= wallFace + 0.2, `…and its hull stops at the wall, not through it (hull front ${hullFront.toFixed(2)}, wall at ${wallFace.toFixed(2)})`);
   ok(errors.length === 0, "no page errors" + (errors.length ? ": " + errors.join(" | ") : ""));
   // the pilot sees their craft: flying, the camera hangs behind and above it (from the seat it was never in view)
   const page = (await import("node:fs")).readFileSync(join(ROOT, "static", "land.js"), "utf8");
