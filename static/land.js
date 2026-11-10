@@ -73,7 +73,7 @@ let mouseHeld = false;
 // any W x D x H in the bag) and lands on a SNAP grid they choose; the ground stays whole cells.
 const PRESETS = [[100, 100, 100], [100, 100, 10], [100, 10, 100], [10, 10, 100], [200, 20, 5], [25, 25, 25], [5, 5, 5], [1, 1, 1]];
 const SNAPS = [1, 5, 10, 25, 50, 100];
-let piece = { w: 100, d: 100, h: 100, snap: 10, shape: 0, rot: 0 };   // shape: 0 box, 1 slope, 2 stairs (G cycles; T turns)
+let piece = { w: 100, d: 100, h: 100, snap: 10, shape: 0, rot: 0, tilt: [0, 0, 0] };   // shape: 0 box, 1 slope, 2 stairs (G cycles; T turns); tilt: yaw, pitch, roll in tenths of a degree (#169)
 const plotBoxes = new Map();          // plot -> { list, idx: Map(1 m bucket -> [box]) }
 let pipeline = null;                  // the post-processed render (or null: the plain render on a weak device)
 let renderer, scene, camera, sun, hemi, atlasTex, matSolid, matClear, matGround, matTrees, matPieces, matGlassy, matBark, matLeaves, matWater, matFlame, ghost, farMesh = null, farAt = null;
@@ -192,11 +192,13 @@ function fieldAt(f, u, v, h) {
 const bkey = (i, j, k) => (i * 64 + j) * 4096 + k;
 function indexBoxes(list) {
   const idx = new Map();
-  for (const b of list) for (let i = Math.floor(b[0] / Wd.CM); i <= Math.floor((b[0] + b[3] - 1) / Wd.CM); i++)
-    for (let j = Math.floor(b[1] / Wd.CM); j <= Math.floor((b[1] + b[4] - 1) / Wd.CM); j++)
-      for (let k = Math.floor(b[2] / Wd.CM); k <= Math.floor((b[2] + b[5] - 1) / Wd.CM); k++) {
+  for (const b0 of list) { const a = Wd.boxAabb(b0), b = b0;            // a turned piece (#169): every bucket it reaches
+   for (let i = Math.floor(a[0] / Wd.CM); i <= Math.floor((a[0] + a[3] - 1) / Wd.CM); i++)
+    for (let j = Math.floor(a[1] / Wd.CM); j <= Math.floor((a[1] + a[4] - 1) / Wd.CM); j++)
+      for (let k = Math.floor(a[2] / Wd.CM); k <= Math.floor((a[2] + a[5] - 1) / Wd.CM); k++) {
         const key = bkey(i, j, k); let l = idx.get(key); if (!l) idx.set(key, l = []); l.push(b);
       }
+  }
   return idx;
 }
 /** The plot a grid point is in and the point in that plot's centimetres. */
@@ -216,7 +218,8 @@ function setPlotBoxes(plot, list) {
   const old = plotBoxes.get(plot);
   plotBoxes.set(plot, { list, idx: indexBoxes(list) });
   const ys = [...list, ...(old ? old.list : [])];
-  if (ys.length) remeshPlotRange(plot, Math.min(...ys.map((b) => b[2])), Math.max(...ys.map((b) => b[2] + b[5])));
+  const ab = ys.map((b) => Wd.boxAabb(b));                    // a turned piece reaches higher and lower than its box (#169)
+  if (ys.length) remeshPlotRange(plot, Math.min(...ab.map((b) => b[2])), Math.max(...ab.map((b) => b[2] + b[5])));
 }
 function solidAt(f, u, v, h) {
   if (boxAt(f, u, v, h)) return true;
@@ -373,10 +376,24 @@ function craftMesh(pieces) {
   for (const b of pieces) {
     const m = new THREE.Mesh(pieceBox(b[3] / Wd.CM, b[5] / Wd.CM, b[4] / Wd.CM), pieceMaterial(b[6]));
     m.position.set((b[0] + b[3] / 2) / Wd.CM, (b[2] + b[5] / 2) / Wd.CM, -(b[1] + b[4] / 2) / Wd.CM);
+    if (Wd.isTurned(b)) m.quaternion.copy(turnQuat(b, (v) => [v[0], v[2], -v[1]]));   // the craft's frame: x east, y up, z south
     g.add(m);
   }
   g.matrixAutoUpdate = false;
   return g;
+}
+/** Degrees (a number or text) to tenths of a degree in -1799..1800, the range a piece's turn is kept in. */
+function tenths(x) {
+  let t = Math.round((Number(x) || 0) * 10) % 3600;
+  if (t > 1800) t -= 3600; if (t <= -1800) t += 3600;
+  return t;
+}
+/** The orientation of a turned piece (#169) in a frame whose axes `toFrame` maps [east, north, up] vectors into. */
+function turnQuat(b, toFrame) {
+  const r = Wd.rotOf(b), V = (a) => new THREE.Vector3(...toFrame(Wd.turnVec(r, a)));
+  // the box's own axes turned: its width along east, its height along up, its depth along the frame's third axis
+  const X = V([1, 0, 0]), Y = V([0, 0, 1]), Z = new THREE.Vector3().crossVectors(X, Y);
+  return new THREE.Quaternion().setFromRotationMatrix(new THREE.Matrix4().makeBasis(X, Y, Z));
 }
 function craftPlace(mesh, pose, cam) {
   const [f, u, v, h, yaw] = pose, q = Wd.posOf(f, u, v, h), fr = Wd.frameOf(f, u, v);
@@ -424,7 +441,7 @@ function leaveCraft() {
   hud();
 }
 function startFlying(c) {
-  const bottom = Math.min(0, ...c.pieces.map((b) => b[2])) / Wd.CM;
+  const bottom = Math.min(0, ...c.pieces.map((b) => Wd.boxAabb(b)[2])) / Wd.CM;   // a turned piece: its lowest reach
   flying = { id: c.id, pose: c.pose.slice(), vel: [0, 0, 0], mass: c.mass, thrust: c.thrust, bottom, grounded: true };
   P.yaw = c.pose[4]; P.fly = false;
   const k = crafts.get(c.id) || { pieces: c.pieces, mesh: craftMesh(c.pieces) };
@@ -587,7 +604,9 @@ function pieceInfo() {
   if (!el) return;
   const [w, d, h] = pieceDims();
   const shapeName = [T("shapeBox", "box"), T("shapeSlope", "slope"), T("shapeStairs", "stairs")][piece.shape || 0];
-  el.textContent = id && RULES && !NATURAL_ITEMS.has(id) ? T("pieceInfo", "Piece {w} × {d} × {h} cm · snap {s} cm", { w, d, h, s: piece.snap }) + " · " + shapeName : "";
+  const tl = piece.tilt || [0, 0, 0], tilted = tl.some((t) => t);
+  el.textContent = id && RULES && !NATURAL_ITEMS.has(id) ? T("pieceInfo", "Piece {w} × {d} × {h} cm · snap {s} cm", { w, d, h, s: piece.snap }) + " · " + shapeName
+    + (tilted ? " · " + T("tiltInfo", "tilt {y}° {p}° {r}°", { y: tl[0] / 10, p: tl[1] / 10, r: tl[2] / 10 }) : "") : "";
   save();
 }
 // A NEWCOMER ARRIVES BY THE TOWN HALL ("make people spawn by the town hall by default", operator 2026-11-07): on the
@@ -611,7 +630,10 @@ function load() {
   try { d = JSON.parse(localStorage.getItem(LS) || "null"); } catch (e) {}
   localPlace = d && Array.isArray(d.p) ? (Number.isFinite(d.at) ? d.at : Infinity) : 0;   // when this browser last saved a place
   if (d && Array.isArray(d.hot)) hot = d.hot.filter((x) => typeof x === "string").slice(0, 9);
-  if (d && d.piece && [d.piece.w, d.piece.d, d.piece.h].every((x) => Number.isInteger(x) && x >= 1 && x <= Wd.PLOT_CM) && SNAPS.includes(d.piece.snap)) piece = d.piece;
+  if (d && d.piece && [d.piece.w, d.piece.d, d.piece.h].every((x) => Number.isInteger(x) && x >= 1 && x <= Wd.PLOT_CM) && SNAPS.includes(d.piece.snap)) {
+    piece = d.piece;
+    if (!(Array.isArray(piece.tilt) && piece.tilt.length === 3 && piece.tilt.every((t) => Number.isInteger(t) && t > -1800 && t <= 1800))) piece.tilt = [0, 0, 0];
+  }
   const at = d && restorePlace(d.p, W, (f, u, v, h) => { const pf = P.face; P.face = f; const c = collides(u, v, h); P.face = pf; return c; },
     (f, u, v) => colAt(f, Math.floor(u), Math.floor(v)).height, (f, u, v) => { const pf = P.face; P.face = f; const g = groundAt(f, u, v); P.face = pf; return g; });
   if (at) {
@@ -1732,6 +1754,10 @@ function renderBag() {
     <div class="tradeform">${[T("shapeBox", "box"), T("shapeSlope", "slope"), T("shapeStairs", "stairs")].map((n, i) =>
       `<button class="chip pl${(piece.shape || 0) === i ? " tool" : ""}" data-shape="${i}" aria-pressed="${(piece.shape || 0) === i}">${esc(n)}</button>`).join("")}
       <button class="chip pl" id="pzTurn">${esc(T("turnPiece", "Turn ↻"))}</button></div>
+    <div class="tradeform"><span>${esc(T("tiltYaw", "Yaw"))}</span><input id="pzYaw" type="number" step="0.1" min="-179.9" max="180" value="${(piece.tilt || [0, 0, 0])[0] / 10}">
+      <span>${esc(T("tiltPitch", "Pitch"))}</span><input id="pzPitch" type="number" step="0.1" min="-179.9" max="180" value="${(piece.tilt || [0, 0, 0])[1] / 10}">
+      <span>${esc(T("tiltRoll", "Roll"))}</span><input id="pzRoll" type="number" step="0.1" min="-179.9" max="180" value="${(piece.tilt || [0, 0, 0])[2] / 10}"><span>°</span>
+      <button class="chip pl" id="pzSquare">${esc(T("tiltSquare", "Square"))}</button></div>
     <h3>${esc(T("make", "Make"))}</h3>
     <div class="recipes">${RULES.recipes.map((r) => {
       const out = r.makes.map(([id, n]) => (RULES.items[id] ? n + " " : "") + nameOf(id)).join(", ");
@@ -1771,10 +1797,12 @@ function renderBag() {
   $("pzTurn").onclick = () => { turnPiece(); renderBag(); };
   const size = () => {
     const v = (id, max) => Math.max(1, Math.min(max, Math.round(Number($(id).value) || 1)));
-    piece = { w: v("pzW", Wd.PLOT_CM), d: v("pzD", Wd.PLOT_CM), h: v("pzH", Wd.H_CM), snap: Number($("pzS").value), shape: piece.shape, rot: piece.rot, turned: piece.turned };
+    piece = { w: v("pzW", Wd.PLOT_CM), d: v("pzD", Wd.PLOT_CM), h: v("pzH", Wd.H_CM), snap: Number($("pzS").value), shape: piece.shape, rot: piece.rot, turned: piece.turned,
+      tilt: ["pzYaw", "pzPitch", "pzRoll"].map((id) => tenths($(id).value)) };
     pieceInfo();
   };
-  for (const id of ["pzW", "pzD", "pzH", "pzS"]) $(id).onchange = size;
+  for (const id of ["pzW", "pzD", "pzH", "pzS", "pzYaw", "pzPitch", "pzRoll"]) $(id).onchange = size;
+  $("pzSquare").onclick = () => { piece.tilt = [0, 0, 0]; pieceInfo(); renderBag(); };
   $("ofPost").onclick = () => req({ t: "offer", give: { [$("ofG").value]: Number($("ofGN").value) }, want: { [$("ofW").value]: Number($("ofWN").value) } });
   $("gvGo").onclick = () => {
     const to = $("gvTo").value.trim();
@@ -1818,8 +1846,13 @@ function placement(a) {
   const me = plotCm(P.face, P.u, P.v, P.h);
   const body = [me.x - HALF * Wd.CM, me.z - HALF * Wd.CM, me.y, 2 * HALF * Wd.CM, 2 * HALF * Wd.CM, TALL * Wd.CM];
   const rec = plotBoxes.get(c.plot);
-  const clash = (me.plot === c.plot && Wd.boxesOverlap(box, body)) || (rec && rec.list.some((o) => Wd.boxesOverlap(box, o)));
-  return { plot: c.plot, box, pieces: shaped(box, it && it.unit ? 0 : piece.shape), ok: !clash && box[2] >= 0 && box[2] + h <= Wd.H_CM };
+  // TILT (#169): a box or a slope is turned about its centre by the piece's yaw, pitch and roll (never a unit part — a
+  // seat, a door, a chest stand square — nor a flight of stairs, which is many pieces); it must still fit the plot
+  const tl = piece.tilt || [0, 0, 0], tilt = !(it && it.unit) && (piece.shape || 0) !== 2 && tl.some((t) => t);
+  const pieces = shaped(box, it && it.unit ? 0 : piece.shape).map((p) => (tilt ? [...p.slice(0, 7), p.length > 7 ? p[7] : 0, ...tl] : p));
+  if (tilt) box = pieces[0];
+  const clash = (me.plot === c.plot && pieces.some((p) => Wd.boxesOverlap(p, body))) || (rec && pieces.some((p) => rec.list.some((o) => Wd.boxesOverlap(p, o))));
+  return { plot: c.plot, box, pieces, ok: !clash && pieces.every((p) => Wd.boxOk(Wd.normalBox(p.slice(0, 6).concat([p[6] || 1], p.slice(7))))) && box[2] >= 0 && box[2] + h <= Wd.H_CM };
 }
 // ROOFS AND STAIRS ("A REAL HOUSE"): which way a slope or a flight rises — away from the player, the way they face, then
 // turned a quarter at a time by T — as land-world's shape number (1 +x, 2 -x, 3 +z, 4 -z)
@@ -2326,7 +2359,7 @@ async function bench() {
 }
 const CMDS = {
   help: () => [["/help", T("cHelp", "this list")], ["/pos", T("cPos", "where you are")], ["/tp spawn | /tp bed", T("cTpTo", "go to the landing, or to your bed")],
-    ["/aim", T("cAim", "what you aim at, and where a block would go")], ["/prof", T("cProf", "the profiler: where each frame's time goes")], ["/dock", T("cDock", "set your landed craft down as pieces")], ["/fly", T("cFly", "fly or walk")], ["/settings", T("cSettings", "your settings")], ["/bench", T("cBench", "measure this device and pick its graphics")], ["/set <name> <value>", T("cSet", "change one (e.g. /set fov 90)")],
+    ["/aim", T("cAim", "what you aim at, and where a block would go")], ["/prof", T("cProf", "the profiler: where each frame's time goes")], ["/dock", T("cDock", "set your landed craft down as pieces")], ["/fly", T("cFly", "fly or walk")], ["/settings", T("cSettings", "your settings")], ["/bench", T("cBench", "measure this device and pick its graphics")], ["/tilt <yaw> <pitch> <roll>", T("cTilt", "turn the piece in hand, in degrees")], ["/set <name> <value>", T("cSet", "change one (e.g. /set fov 90)")],
     ["/clear", T("cClear", "clear this log")], ["…", T("cChat", "anything else is chat to the players around you")]].forEach(([c, d]) => conLine(c + " — " + d)),
   pos: () => conLine(`${T("cFace", "face")} ${P.face} · u ${Math.floor(P.u)} · v ${Math.floor(P.v)} · h ${P.h.toFixed(1)} · ${T("cPlot", "plot")} ${Wd.plotOf(P.face, Math.floor(P.u), Math.floor(P.v))}`),
   // /tp (#167): to the landing or to your own bed — nowhere else; going far is walking, flying, or a craft. Signed in, the
@@ -2380,6 +2413,12 @@ const CMDS = {
   },
   clear: () => { $("conLog").textContent = ""; },
   bench: () => { bench(); },
+  // /tilt <yaw> <pitch> <roll> in degrees (to a tenth): the piece in hand turns about its centre (#169); /tilt 0 0 0 squares it
+  tilt: (a) => {
+    if (a.length !== 3 || !a.every((x) => Number.isFinite(Number(x)))) return conLine(T("cTiltUse", "Usage: /tilt <yaw> <pitch> <roll> in degrees, e.g. /tilt 40 0 15 — /tilt 0 0 0 squares the piece."), "err");
+    piece.tilt = a.map(tenths); pieceInfo(); if (bagOpen()) renderBag();
+    conLine(T("tiltInfo", "tilt {y}° {p}° {r}°", { y: piece.tilt[0] / 10, p: piece.tilt[1] / 10, r: piece.tilt[2] / 10 }));
+  },
   prof: () => { profToggle(); conLine(PROF.on ? T("cProfOn", "Profiler on — ` (the key left of 1) or /prof closes it.") : T("cProfOff", "Profiler off.")); },
 };
 function conRun(line) {
@@ -3063,6 +3102,8 @@ function frame(now) {
     obj.position.set(c[0] - cam[0], c[1] - cam[1], c[2] - cam[2]);
     obj.up.set(fr.up[0], fr.up[1], fr.up[2]);
     obj.lookAt(obj.position.x + fr.north[0], obj.position.y + fr.north[1], obj.position.z + fr.north[2]);
+    // a turned piece (#169): the outline turns with it — its width along its turned east, its height along its turned up
+    if (Wd.isTurned(b)) obj.quaternion.copy(turnQuat(b, (v) => [0, 1, 2].map((i) => fr.east[i] * v[0] + fr.north[i] * v[1] + fr.up[i] * v[2])));
     obj.scale.set(b[3] / Wd.CM + 0.01, b[5] / Wd.CM + 0.01, b[4] / Wd.CM + 0.01);
     obj.visible = true;
   };

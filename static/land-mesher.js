@@ -19,7 +19,7 @@
 // Cells are generated with a one-cell border (wrapped across face seams by land-world.wrap). A surface edge is drawn by
 // the chunk that holds its LOWER cell, so every edge of the world belongs to exactly one chunk (no gaps, no doubles).
 // Positions are metres RELATIVE TO THE CHUNK'S ANCHOR; the page places each mesh at anchor - camera in doubles.
-import { CHUNK, H, R0, W, B, BLOCKS, ATLAS_TILES, NATURAL, CM, DEEP_MIN, TREE_WOOD, TREE_LEAVES, isTree, opaque, dirOf, frameOf, wrap, column, terrainBlock, fieldOf, treeAt, treeCell, LITTER, shapeOf, FLOWERS, saplingTree, soilOf } from "./land-world.js";
+import { CHUNK, H, R0, W, B, BLOCKS, ATLAS_TILES, NATURAL, CM, DEEP_MIN, TREE_WOOD, TREE_LEAVES, isTree, opaque, dirOf, frameOf, wrap, column, terrainBlock, fieldOf, treeAt, treeCell, LITTER, shapeOf, FLOWERS, saplingTree, soilOf, isTurned, rotOf, turnVec, boxAabb } from "./land-world.js";
 import { treeModel, leafCellModel, twigModel, flaxModel, saplingModel, flowerModel, wheatModel, berryBushModel } from "./land-trees.js";
 
 const N = CHUNK + 2;                                     // cells with the border: real index r in -1..16 is r + 1
@@ -108,17 +108,19 @@ const LOD_SKIP_CM = 20;
 const BOX_FACES = [{ ax: 2, s: 1 }, { ax: 2, s: -1 }, { ax: 0, s: 1 }, { ax: 0, s: -1 }, { ax: 1, s: 1 }, { ax: 1, s: -1 }];
 function meshBoxes(boxes, u0, v0, h0, place, solid, clear, lod) {
   const lo = h0 * CM, hi = (h0 + CHUNK) * CM;
-  const mine = boxes.filter((b) => b[2] < hi && b[2] + b[5] > lo && !(lod >= 2 && Math.max(b[3], b[4], b[5]) < LOD_SKIP_CM));
+  // a turned piece (#169) is drawn whole by the chunk its centre is in (its faces are not sliced at a chunk's floor)
+  const mine = boxes.filter((b) => (isTurned(b) ? b[2] + b[5] / 2 >= lo && b[2] + b[5] / 2 < hi : b[2] < hi && b[2] + b[5] > lo)
+    && !(lod >= 2 && Math.max(b[3], b[4], b[5]) < LOD_SKIP_CM));
   if (!mine.length) return;
   // neighbours by 1 m bucket, for the covered-face test
   const idx = new Map(), bk = (i, j, k) => (i * 64 + j) * 4096 + k;
-  for (const b of boxes) for (let i = Math.floor(b[0] / CM); i <= Math.floor((b[0] + b[3] - 1) / CM); i++)
+  for (const b of boxes) if (!isTurned(b)) for (let i = Math.floor(b[0] / CM); i <= Math.floor((b[0] + b[3] - 1) / CM); i++)
     for (let j = Math.floor(b[1] / CM); j <= Math.floor((b[1] + b[4] - 1) / CM); j++)
       for (let k = Math.floor(b[2] / CM); k <= Math.floor((b[2] + b[5] - 1) / CM); k++) {
         const key = bk(i, j, k); let l = idx.get(key); if (!l) idx.set(key, l = []); l.push(b);
       }
   const covered = (b, ax, s) => {
-    // the face's plane and rectangle (in the other two axes); a touching opaque piece whose opposite face spans it hides it
+    if (isTurned(b)) return false;                          // a turned piece's face is never flush with a square one    // the face's plane and rectangle (in the other two axes); a touching opaque piece whose opposite face spans it hides it
     const plane = s > 0 ? b[ax] + b[ax + 3] : b[ax], o = [0, 1, 2].filter((a) => a !== ax);
     const cell = [0, 0, 0];
     cell[ax] = Math.floor((s > 0 ? plane : plane - 1) / CM);
@@ -137,7 +139,10 @@ function meshBoxes(boxes, u0, v0, h0, place, solid, clear, lod) {
   const close = () => { if (runM >= 0 && solid.idx.length > runAt) solid.groups.push([runAt, solid.idx.length - runAt, runM]); };
   for (const b of mine) {
     if (opaque(b[6]) && b[6] !== runM) { close(); runM = b[6]; runAt = solid.idx.length; }
-    if (shapeOf(b)) { meshSlope(b, u0, v0, place, !opaque(b[6]) ? clear : solid, lo, hi); continue; }
+    // a TURNED piece (#169): every corner it would have square goes round its centre before it is placed on the planet;
+    // its faces are drawn whole (no chunk slices) and lit by the normal of the turned face (computed from the corners)
+    const turned = isTurned(b), at = turned ? turnPlace(b, u0, v0, place) : place, lo1 = turned ? -Infinity : lo, hi1 = turned ? Infinity : hi;
+    if (shapeOf(b)) { meshSlope(b, u0, v0, at, !opaque(b[6]) ? clear : solid, lo1, hi1); continue; }
     if (b[6] === B.window) { meshWindow(b, u0, v0, place, solid, clear, lo, hi); continue; }
     if (MODELS[b[6]]) {
       // a part of another material (a bed's straw tick, a torch's flame) is its own draw group; the run of the piece's
@@ -149,11 +154,11 @@ function meshBoxes(boxes, u0, v0, h0, place, solid, clear, lod) {
       continue;
     }
     const info = BLOCKS[b[6]], buf = !opaque(b[6]) ? clear : solid;
-    const y0 = Math.max(b[2], lo), y1 = Math.min(b[2] + b[5], hi);          // this chunk's slice of the piece
+    const y0 = Math.max(b[2], lo1), y1 = Math.min(b[2] + b[5], hi1);        // this chunk's slice of the piece
     const mn = [b[0], b[1], y0], mx = [b[0] + b[3], b[1] + b[4], y1];
     for (const F of BOX_FACES) {
-      if (F.ax === 2 && F.s > 0 && b[2] + b[5] > hi) continue;              // its top is in the chunk above
-      if (F.ax === 2 && F.s < 0 && b[2] < lo) continue;                     // its bottom is in the chunk below
+      if (F.ax === 2 && F.s > 0 && b[2] + b[5] > hi1) continue;             // its top is in the chunk above
+      if (F.ax === 2 && F.s < 0 && b[2] < lo1) continue;                    // its bottom is in the chunk below
       if (covered(b, F.ax, F.s)) continue;
       const o = [0, 1, 2].filter((a) => a !== F.ax), base = buf.n;
       const tile = info.tex[F.ax === 2 ? (F.s > 0 ? 0 : 2) : 1];
@@ -164,7 +169,7 @@ function meshBoxes(boxes, u0, v0, h0, place, solid, clear, lod) {
         const q = [0, 0, 0];
         q[F.ax] = F.s > 0 ? mx[F.ax] : mn[F.ax];
         q[o[0]] = a ? mx[o[0]] : mn[o[0]]; q[o[1]] = c ? mx[o[1]] : mn[o[1]];
-        const p = place(u0 + q[0] / CM, v0 + q[1] / CM, q[2] / CM);
+        const p = at(u0 + q[0] / CM, v0 + q[1] / CM, q[2] / CM);
         buf.pos.push(p[0], p[1], p[2]);
         buf.uv.push(q[o[0]] / CM, q[o[1]] / CM);                           // metres: the texture tiles once per metre
         buf.tile.push(tile);
@@ -181,6 +186,15 @@ function meshBoxes(boxes, u0, v0, h0, place, solid, clear, lod) {
     }
   }
   close();
+}
+
+/** `place` for a turned piece: a point of the square piece (plot grid u, v, h) turned about the piece's centre first. */
+function turnPlace(b, u0, v0, place) {
+  const r = rotOf(b), c = [b[0] + b[3] / 2, b[1] + b[4] / 2, b[2] + b[5] / 2];
+  return (u, v, h) => {
+    const t = turnVec(r, [(u - u0) * CM - c[0], (v - v0) * CM - c[1], h * CM - c[2]]);
+    return place(u0 + (c[0] + t[0]) / CM, v0 + (c[1] + t[1]) / CM, (c[2] + t[2]) / CM);
+  };
 }
 
 /** Mesh one chunk: { anchor, smooth (the ground), trees, bark, foliage, stones, solid, clear, water, pieces, glassy, grass }
@@ -489,7 +503,7 @@ export function meshChunk(face, cu, cv, ch, edits, boxes, lod, grassOn = true) {
   // never through a built piece lying on the ground (blades stood up through a plank floor, the furniture render
   // 2026-11-07): a blade whose spot a piece covers, from just under the ground to 60 cm above it, is not grown. A chunk
   // column IS a plot, so the blade's grid offset from the chunk's corner is the piece's own frame (cm).
-  const lying = boxes && boxes.length ? boxes.filter((b) => !shapeOf(b)) : null;
+  const lying = boxes && boxes.length ? boxes.filter((b) => !shapeOf(b)).map((b) => (isTurned(b) ? boxAabb(b) : b)) : null;   // a turned piece: what it reaches
   const under = lying ? (gu, gv, gh) => {
     const x = (((gu - u0) % 4096) + 4096) % 4096 * CM, z = (((gv - v0) % 4096) + 4096) % 4096 * CM, y = gh * CM;
     return lying.some((b) => x >= b[0] && x < b[0] + b[3] && z >= b[1] && z < b[1] + b[4] && b[2] <= y + 60 && b[2] + b[5] >= y - 10);

@@ -10,7 +10,8 @@ change. The world server (scripts/land_server.py REACH_M, pace_ok, move, tp):
     over another face's edge only from near it;
   * the page's socket: a place reported too far from the last is put back (pos_fix, "pace"); /tp spawn moves the
     player to the landing; /tp bed without a bed is refused ("nobed"), with one it goes there; /tp <u> <v> does nothing;
-  * dying, the pace starts again where they wake.
+  * dying, the pace starts again where they wake;
+  * with two pages open, a dig is measured from the page that moved last (not the first one found).
 
 Run: python3 tests/test_a_block_is_broken_only_within_reach_and_a_place_moves_no_faster_than_one_can_go.py
 """
@@ -132,6 +133,16 @@ async def main():
     st = next(iter(hub.socks.values()))
     check("…and the pace starts there", abs(st["pace"][0][1] - (u + 2)) < 0.01)
     await ws.close()
+
+    # ---- two pages open: measured from the one that moved last ----------------------------------------------------------
+    w1 = await c.ws_connect("/land/ws?token=" + tok); w2 = await c.ws_connect("/land/ws?token=" + tok)
+    world.pace_free = True                                       # the two places are put by hand here; the pace has its own checks above
+    await w1.send_json({"t": "pos", "p": [0, u + 300.5, v + 0.5, top + 1, 0]}); await asyncio.sleep(0.3)
+    await w2.send_json({"t": "pos", "p": [0, u + 1.5, v + 2.5, top + 1, 0]}); await asyncio.sleep(0.3)
+    r = await dig([[0, u, v + 2, top, 0]])
+    check("with two pages open, a dig is measured from the page that moved last (beside it), not the first one found",
+          r["applied"] == 1 or "nothing here" in str(r["refused"]), r)
+    await w1.close(); await w2.close()
 
     await c.close(); await ex.close()
 

@@ -279,6 +279,8 @@ try {
   // 3c. A 1 m SHAFT: dug four cells straight down, a player standing over it drops to its floor — the smooth surface
   // rounded into the hole and a body 60 cm wide hung inside it (the agent's first mine, 2026-11-09)
   const SH = spot(5, 9), shu = Math.floor(SH.u), shv = Math.floor(SH.v), shTop = Math.floor(SH.h) - 1;
+  // dug standing beside it (a block is broken only within reach of where the player stands, #167), then stepped over
+  await stand(B, shu + 0.5, shv - 1.5, SH.h, 0, -1.2);
   for (let k = 0; k < 4; k++) for (let t = 0; t < 40; t++) {
     const r = await (await fetch(base + "/land/api/set", { method: "POST", headers: { "Content-Type": "application/json", Authorization: "Bearer " + token },
       body: JSON.stringify({ cells: [[q.face, shu, shv, shTop - k, 0]] }) })).json();

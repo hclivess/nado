@@ -113,6 +113,10 @@ try {
   for (let h = FLOOR; h <= FLOOR + 2; h++) for (let du = -1; du <= 1; du++) for (let dv = -1; dv <= 1; dv++) if (du || dv) cells.push([q.face, u + du, v + dv, h]);
   let refusedOther = null;
   for (const c of cells) {
+    // the player stands in the shaft right over each cell it digs: a block is broken only within reach of where the
+    // player stands (#167) — said through /land/api/move, as an agent without a page says it
+    await fetch(base + "/land/api/move", { method: "POST", headers: { "Content-Type": "application/json", Authorization: "Bearer " + token },
+      body: JSON.stringify({ p: [c[0], c[1] + 0.5, c[2] + 0.5, c[3] + 1, 0] }) });
     for (let tries = 0; tries < 40; tries++) {
       const r = await (await fetch(base + "/land/api/set", { method: "POST", headers: { "Content-Type": "application/json", Authorization: "Bearer " + token },
         body: JSON.stringify({ cells: [[...c, 0]] }) })).json();

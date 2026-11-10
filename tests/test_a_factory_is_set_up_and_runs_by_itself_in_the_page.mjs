@@ -145,6 +145,9 @@ try {
     const t = Wd.column(q.face, q.u0 + cu, q.v0 + cv).top;
     for (let k = 1; k <= 4; k++) if (Wd.BLOCKS[Wd.terrainBlock(q.face, q.u0 + cu, q.v0 + cv, t + k)].solid) brush.push([q.face, q.u0 + cu, q.v0 + cv, t + k, 0]);
   }
+  // the owner stands in the middle of the site to clear it: a block is broken only within reach (#167)
+  await fetch(base + "/land/api/move", { method: "POST", headers: { "Content-Type": "application/json", Authorization: "Bearer " + token },
+    body: JSON.stringify({ p: [q.face, q.u0 + site.du + 1.5, q.v0 + site.dv + 3, site.top + 1, 0] }) });
   let cleared = brush.length ? null : { refused: [] };
   for (let t = 0; t < 40 && brush.length; t++) {
     cleared = await (await fetch(base + "/land/api/set", { method: "POST", headers: { "Content-Type": "application/json", Authorization: "Bearer " + token },

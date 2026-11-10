@@ -535,20 +535,84 @@ export function canonicalEdits(edits) {
 // slope (a wedge) rising toward +x, -x, +z, -z across its box; absent (or 0) a box. A wedge is solid below its slope; it
 // pays half its box's volume; for overlap it is its box (two wedges of a gable sit side by side).
 export const SLOPE_POS_X = 1, SLOPE_NEG_X = 2, SLOPE_POS_Z = 3, SLOPE_NEG_Z = 4;
-/** Is [x, z, y, w, d, h, m] (or with a shape 1..4 as an 8th number) a piece inside the plot? */
+// ROTATION (#169, operator 2026-11-10: "maybe add fine rotation if needed" — the evidence: a fighter's 40° swept wing and
+// an X of wings cannot be pieces square to the plot): a piece may carry three more numbers after its shape — yaw, pitch
+// and roll in TENTHS OF A DEGREE (-1799..1800) — turning it about its own centre: roll about north (+z), then pitch about
+// east (+x), then yaw about up (+y), all in the plot's frame. [x, z, y, w, d, h] stays the piece before it turns; the
+// turned piece must lie inside the plot (its bounding box). An unturned piece keeps its 7 or 8 numbers, byte for byte.
+const ROT_MAX = 1800;
+/** Is [x, z, y, w, d, h, m] (or with a shape 1..4 as an 8th number, and yaw, pitch, roll as 9th-11th) a piece inside
+ *  the plot? */
 export function boxOk(b) {
-  if (!Array.isArray(b) || (b.length !== 7 && b.length !== 8) || !b.every(Number.isInteger)) return false;
+  if (!Array.isArray(b) || (b.length !== 7 && b.length !== 8 && b.length !== 11) || !b.every(Number.isInteger)) return false;
   const [x, z, y, w, d, h, m] = b;
-  return x >= 0 && z >= 0 && y >= 0 && w >= 1 && d >= 1 && h >= 1 && x + w <= PLOT_CM && z + d <= PLOT_CM && y + h <= H_CM
-    && m > 0 && m < BLOCKS.length && !BLOCKS[m].liquid && (b.length === 7 || (b[7] >= 1 && b[7] <= 4));
+  if (!(x >= 0 && z >= 0 && y >= 0 && w >= 1 && d >= 1 && h >= 1 && m > 0 && m < BLOCKS.length && !BLOCKS[m].liquid)) return false;
+  if (b.length > 7 && !(b[7] >= 0 && b[7] <= 4) || (b.length === 8 && !b[7])) return false;
+  if (b.length === 11) {
+    if (!b.slice(8).every((r) => r > -ROT_MAX && r <= ROT_MAX) || !(b[8] || b[9] || b[10])) return false;
+    const a = boxAabb(b);
+    return a[0] >= 0 && a[1] >= 0 && a[2] >= 0 && a[0] + a[3] <= PLOT_CM && a[1] + a[4] <= PLOT_CM && a[2] + a[5] <= H_CM;
+  }
+  return x + w <= PLOT_CM && z + d <= PLOT_CM && y + h <= H_CM;
 }
 export const shapeOf = (b) => (b.length > 7 ? b[7] : 0);
-/** One canonical spelling: a box is 7 numbers, a slope 8 (a trailing 0 is dropped). */
-export const normalBox = (b) => (b.length > 7 && !b[7] ? b.slice(0, 7) : b.slice());
-export const boxesOverlap = (a, b) => a[0] < b[0] + b[3] && b[0] < a[0] + a[3] && a[1] < b[1] + b[4] && b[1] < a[1] + a[4] && a[2] < b[2] + b[5] && b[2] < a[2] + a[5];
+/** yaw, pitch, roll in tenths of a degree; [0, 0, 0] for a piece square to the plot. */
+export const rotOf = (b) => (b.length > 8 ? [b[8], b[9], b[10]] : [0, 0, 0]);
+export const isTurned = (b) => b.length > 8 && !!(b[8] || b[9] || b[10]);
+/** One canonical spelling: a box is 7 numbers, a slope 8, a turned piece 11 (no rotation dropped, a trailing 0 too). */
+export const normalBox = (b) => {
+  if (b.length > 8 && !(b[8] || b[9] || b[10])) b = b.slice(0, 8);
+  return b.length === 8 && !b[7] ? b.slice(0, 7) : b.slice();
+};
+/** Turn vector [x, z, y] (east, north, up) by rotation r (tenths of a degree): roll, then pitch, then yaw. */
+export function turnVec(r, v, inverse = false) {
+  const rad = (t) => (t / 10) * Math.PI / 180;
+  const roll = (q, a) => [q[0] * Math.cos(a) - q[2] * Math.sin(a), q[1], q[0] * Math.sin(a) + q[2] * Math.cos(a)];
+  const pitch = (q, a) => [q[0], q[1] * Math.cos(a) - q[2] * Math.sin(a), q[1] * Math.sin(a) + q[2] * Math.cos(a)];
+  const yaw = (q, a) => [q[0] * Math.cos(a) - q[1] * Math.sin(a), q[0] * Math.sin(a) + q[1] * Math.cos(a), q[2]];
+  if (!inverse) return yaw(pitch(roll(v, rad(r[2])), rad(r[1])), rad(r[0]));
+  return roll(pitch(yaw(v, -rad(r[0])), -rad(r[1])), -rad(r[2]));
+}
+const centreOf = (b) => [b[0] + b[3] / 2, b[1] + b[4] / 2, b[2] + b[5] / 2];
+/** The box [x, z, y, w, d, h] (whole cm, outward) a piece fills — itself, or what a turned piece reaches. */
+export function boxAabb(b) {
+  if (!isTurned(b)) return b.slice(0, 6);
+  const r = rotOf(b), c = centreOf(b), ex = [0, 0, 0];
+  for (let i = 0; i < 3; i++) {
+    const e = [0, 0, 0]; e[i] = b[3 + i] / 2;
+    const t = turnVec(r, e);
+    for (let k = 0; k < 3; k++) ex[k] += Math.abs(t[k]);
+  }
+  const lo = [0, 1, 2].map((k) => Math.floor(c[k] - ex[k] + 1e-6)), hi = [0, 1, 2].map((k) => Math.ceil(c[k] + ex[k] - 1e-6));
+  return [lo[0], lo[1], lo[2], hi[0] - lo[0], hi[1] - lo[1], hi[2] - lo[2]];
+}
+const aabbOverlap = (a, b) => a[0] < b[0] + b[3] && b[0] < a[0] + a[3] && a[1] < b[1] + b[4] && b[1] < a[1] + a[4] && a[2] < b[2] + b[5] && b[2] < a[2] + a[5];
+/** Do two pieces overlap? Square ones as boxes (touching faces do not overlap); a turned one by the separating axis test
+ *  of two oriented boxes (touching, within a hundredth of a millimetre, does not either). A slope overlaps as its box. */
+export function boxesOverlap(a, b) {
+  if (!isTurned(a) && !isTurned(b)) return aabbOverlap(a, b);
+  if (!aabbOverlap(boxAabb(a), boxAabb(b))) return false;
+  const axes = (p) => [0, 1, 2].map((i) => { const e = [0, 0, 0]; e[i] = 1; return turnVec(rotOf(p), e); });
+  const A = axes(a), Bx = axes(b), ha = [a[3] / 2, a[4] / 2, a[5] / 2], hb = [b[3] / 2, b[4] / 2, b[5] / 2];
+  const ca = centreOf(a), cb = centreOf(b), T = [cb[0] - ca[0], cb[1] - ca[1], cb[2] - ca[2]];
+  const dot = (u, v) => u[0] * v[0] + u[1] * v[1] + u[2] * v[2];
+  const cross = (u, v) => [u[1] * v[2] - u[2] * v[1], u[2] * v[0] - u[0] * v[2], u[0] * v[1] - u[1] * v[0]];
+  const tests = [...A, ...Bx];
+  for (const u of A) for (const v of Bx) { const c = cross(u, v); if (Math.hypot(...c) > 1e-9) tests.push(c); }
+  for (const L of tests) {
+    const n = Math.hypot(...L), l = [L[0] / n, L[1] / n, L[2] / n];
+    const ra = A.reduce((s, u, i) => s + ha[i] * Math.abs(dot(u, l)), 0), rb = Bx.reduce((s, v, i) => s + hb[i] * Math.abs(dot(v, l)), 0);
+    if (Math.abs(dot(T, l)) >= ra + rb - 1e-3) return false;            // a gap, or a touch: no overlap
+  }
+  return true;
+}
 export const boxVolume = (b) => (shapeOf(b) ? Math.floor(b[3] * b[4] * b[5] / 2) : b[3] * b[4] * b[5]);   // cm³; a block is 1,000,000
 /** Is the point (x, z, y) in cm inside piece b — for a slope, below its sloped face? */
 export function inPiece(b, x, z, y) {
+  if (isTurned(b)) {                                       // into the piece's own frame: about its centre, turned back
+    const c = centreOf(b), l = turnVec(rotOf(b), [x - c[0], z - c[1], y - c[2]], true);
+    x = c[0] + l[0]; z = c[1] + l[1]; y = c[2] + l[2];
+  }
   if (!(x >= b[0] && x < b[0] + b[3] && z >= b[1] && z < b[1] + b[4] && y >= b[2] && y < b[2] + b[5])) return false;
   const s = shapeOf(b);
   if (!s) return true;
@@ -557,7 +621,12 @@ export function inPiece(b, x, z, y) {
 }
 export function canonicalBoxes(boxes) {
   const out = [...new Map(boxes.map((b0) => { const b = normalBox(b0); if (!boxOk(b)) throw new Error("bad box"); return [b.join(","), b]; })).values()];
-  return out.sort((a, b) => { for (let i = 0; i < 7; i++) if (a[i] !== b[i]) return a[i] - b[i]; return a.length - b.length; });
+  return out.sort((a, b) => {
+    for (let i = 0; i < 7; i++) if (a[i] !== b[i]) return a[i] - b[i];
+    if (a.length !== b.length) return a.length - b.length;
+    for (let i = 7; i < a.length; i++) if (a[i] !== b[i]) return a[i] - b[i];
+    return 0;
+  });
 }
 const enc = new TextEncoder();
 /** The bytes a commitment hashes: tag, plot id (u32 BE), the 32-byte salt, the edit count (u32 BE) and each edit as
@@ -566,9 +635,12 @@ const enc = new TextEncoder();
  *  scripts/land_server.py builds the same bytes (commitment_bytes; the server test checks the two agree). */
 export function commitmentBytes(plot, salt, edits, boxes = []) {
   // the deep below a plot is the commons, not the plot's build: never committed (scripts/land_server.py agrees)
-  const tag = enc.encode("nado-land-plot-v3"), ce = canonicalEdits(edits.filter((e) => e[2] >= 0)), cb = canonicalBoxes(boxes);
+  const ce = canonicalEdits(edits.filter((e) => e[2] >= 0)), cb = canonicalBoxes(boxes);
+  // v4 (#169) only for a plot with a turned piece: each piece then carries yaw, pitch, roll (i16 BE); every plot without
+  // one keeps its v3 bytes, so a commitment anchored before rotation existed stays the plot's commitment
+  const v4 = cb.some(isTurned), tag = enc.encode(v4 ? "nado-land-plot-v4" : "nado-land-plot-v3");
   if (!(salt instanceof Uint8Array) || salt.length !== 32) throw new Error("salt must be 32 bytes");
-  const out = new Uint8Array(tag.length + 4 + 32 + 4 + ce.length * 5 + 4 + cb.length * 14);
+  const out = new Uint8Array(tag.length + 4 + 32 + 4 + ce.length * 5 + 4 + cb.length * (v4 ? 20 : 14));
   out.set(tag, 0);
   let o = tag.length;
   const u32 = (n) => { out[o++] = n >>> 24; out[o++] = (n >>> 16) & 255; out[o++] = (n >>> 8) & 255; out[o++] = n & 255; };
@@ -578,7 +650,10 @@ export function commitmentBytes(plot, salt, edits, boxes = []) {
   u32(ce.length);
   for (const [x, z, y, b] of ce) { out[o++] = x; out[o++] = z; u16(y); out[o++] = b; }
   u32(cb.length);
-  for (const b of cb) { const [x, z, y, w, d, h, m] = b; u16(x); u16(z); u16(y); u16(w); u16(d); u16(h); out[o++] = m; out[o++] = shapeOf(b); }
+  for (const b of cb) {
+    const [x, z, y, w, d, h, m] = b; u16(x); u16(z); u16(y); u16(w); u16(d); u16(h); out[o++] = m; out[o++] = shapeOf(b);
+    if (v4) for (const r of rotOf(b)) u16(r & 0xffff);         // i16 two's complement, big-endian
+  }
   return out;
 }
 /** The commitment anchored on chain (land.py anchor arg 1): SHA-256 of commitmentBytes as a 256-bit integer string. */

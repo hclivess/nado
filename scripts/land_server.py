@@ -181,24 +181,103 @@ MAX_BOXES = 20000                                  # pieces on one plot
 MAX_BOX_OPS = 1024                                 # pieces added or removed per call
 
 
+ROT_MAX = 1800                                     # land-world.js ROTATION (#169): yaw, pitch, roll in tenths of a degree
+
+
 def box_ok(b):
     """land-world.js boxOk: [x, z, y, w, d, h, m] in whole centimetres inside the plot, positive size, a solid material —
-    or with an 8th number, a slope's shape 1..4 (land-world.js SHAPES: a roof needs slopes)."""
-    if not isinstance(b, (list, tuple)) or len(b) not in (7, 8) or not all(isinstance(v, int) and not isinstance(v, bool) for v in b):
+    with an 8th number a slope's shape 1..4 (land-world.js SHAPES: a roof needs slopes), and with a 9th-11th its yaw,
+    pitch and roll in tenths of a degree (#169: turned about its centre; the turned piece inside the plot)."""
+    if not isinstance(b, (list, tuple)) or len(b) not in (7, 8, 11) or not all(isinstance(v, int) and not isinstance(v, bool) for v in b):
         return False
     x, z, y, w, d, h, m = b[:7]
-    return (x >= 0 and z >= 0 and y >= 0 and w >= 1 and d >= 1 and h >= 1 and x + w <= PLOT_CM and z + d <= PLOT_CM
-            and y + h <= H_CM and 0 < m < N_BLOCKS and m != 5 and (len(b) == 7 or 1 <= b[7] <= 4))
+    if not (x >= 0 and z >= 0 and y >= 0 and w >= 1 and d >= 1 and h >= 1 and 0 < m < N_BLOCKS and m != 5):
+        return False
+    if (len(b) > 7 and not 0 <= b[7] <= 4) or (len(b) == 8 and not b[7]):
+        return False
+    if len(b) == 11:
+        if not all(-ROT_MAX < r <= ROT_MAX for r in b[8:]) or not any(b[8:]):
+            return False
+        a = box_aabb(b)
+        return a[0] >= 0 and a[1] >= 0 and a[2] >= 0 and a[0] + a[3] <= PLOT_CM and a[1] + a[4] <= PLOT_CM and a[2] + a[5] <= H_CM
+    return x + w <= PLOT_CM and z + d <= PLOT_CM and y + h <= H_CM
 
 
 def normal_box(b):
-    """land-world.js normalBox: one spelling — a box is 7 numbers, a slope 8 (a trailing shape 0 is dropped)."""
+    """land-world.js normalBox: one spelling — a box is 7 numbers, a slope 8, a turned piece 11 (no rotation dropped, a
+    trailing shape 0 too)."""
     b = list(b)
-    return b[:7] if len(b) > 7 and not b[7] else b
+    if len(b) > 8 and not any(b[8:11]):
+        b = b[:8]
+    return b[:7] if len(b) == 8 and not b[7] else b
+
+
+def turned(b):
+    return len(b) > 8 and any(b[8:11])
+
+
+def rot_of(b):
+    return list(b[8:11]) if len(b) > 8 else [0, 0, 0]
+
+
+def turn_vec(r, v, inverse=False):
+    """land-world.js turnVec: [x, z, y] turned by roll, then pitch, then yaw (tenths of a degree)."""
+    rad = lambda t: math.radians(t / 10)
+    roll = lambda q, a: [q[0] * math.cos(a) - q[2] * math.sin(a), q[1], q[0] * math.sin(a) + q[2] * math.cos(a)]
+    pitch = lambda q, a: [q[0], q[1] * math.cos(a) - q[2] * math.sin(a), q[1] * math.sin(a) + q[2] * math.cos(a)]
+    yaw = lambda q, a: [q[0] * math.cos(a) - q[1] * math.sin(a), q[0] * math.sin(a) + q[1] * math.cos(a), q[2]]
+    if not inverse:
+        return yaw(pitch(roll(v, rad(r[2])), rad(r[1])), rad(r[0]))
+    return roll(pitch(yaw(v, -rad(r[0])), -rad(r[1])), -rad(r[2]))
+
+
+def box_aabb(b):
+    """land-world.js boxAabb: the box [x, z, y, w, d, h] (whole cm, outward) a piece fills, turned or not."""
+    if not turned(b):
+        return list(b[:6])
+    r, c, ex = rot_of(b), [b[0] + b[3] / 2, b[1] + b[4] / 2, b[2] + b[5] / 2], [0.0, 0.0, 0.0]
+    for i in range(3):
+        e = [0.0, 0.0, 0.0]; e[i] = b[3 + i] / 2
+        t = turn_vec(r, e)
+        for k in range(3):
+            ex[k] += abs(t[k])
+    lo = [math.floor(c[k] - ex[k] + 1e-6) for k in range(3)]
+    hi = [math.ceil(c[k] + ex[k] - 1e-6) for k in range(3)]
+    return [lo[0], lo[1], lo[2], hi[0] - lo[0], hi[1] - lo[1], hi[2] - lo[2]]
+
+
+def _aabb_overlap(a, b):
+    return a[0] < b[0] + b[3] and b[0] < a[0] + a[3] and a[1] < b[1] + b[4] and b[1] < a[1] + a[4] and a[2] < b[2] + b[5] and b[2] < a[2] + a[5]
 
 
 def boxes_overlap(a, b):
-    return a[0] < b[0] + b[3] and b[0] < a[0] + a[3] and a[1] < b[1] + b[4] and b[1] < a[1] + a[4] and a[2] < b[2] + b[5] and b[2] < a[2] + a[5]
+    """land-world.js boxesOverlap: square pieces as boxes; a turned one by the separating axis test of oriented boxes."""
+    if not turned(a) and not turned(b):
+        return _aabb_overlap(a, b)
+    if not _aabb_overlap(box_aabb(a), box_aabb(b)):
+        return False
+    def axes(p):
+        out = []
+        for i in range(3):
+            e = [0.0, 0.0, 0.0]; e[i] = 1.0
+            out.append(turn_vec(rot_of(p), e))
+        return out
+    A, Bx = axes(a), axes(b)
+    ha, hb = [a[3] / 2, a[4] / 2, a[5] / 2], [b[3] / 2, b[4] / 2, b[5] / 2]
+    T = [b[k] + b[k + 3] / 2 - a[k] - a[k + 3] / 2 for k in range(3)]
+    dot = lambda u, v: u[0] * v[0] + u[1] * v[1] + u[2] * v[2]
+    tests = A + Bx
+    for u in A:
+        for v in Bx:
+            c = [u[1] * v[2] - u[2] * v[1], u[2] * v[0] - u[0] * v[2], u[0] * v[1] - u[1] * v[0]]
+            if math.hypot(*c) > 1e-9:
+                tests.append(c)
+    for L in tests:
+        n = math.hypot(*L); l = [L[0] / n, L[1] / n, L[2] / n]
+        ra = sum(ha[i] * abs(dot(A[i], l)) for i in range(3)); rb = sum(hb[i] * abs(dot(Bx[i], l)) for i in range(3))
+        if abs(dot(T, l)) >= ra + rb - 1e-3:
+            return False
+    return True
 
 
 def commitment_bytes(plot, salt, edits, boxes=()):
@@ -206,16 +285,20 @@ def commitment_bytes(plot, salt, edits, boxes=()):
     if len(salt) != 32:
         raise ValueError("salt must be 32 bytes")
     # the deep below a plot is the commons, not the plot's build: never committed (land-world.js commitmentBytes agrees)
-    ce, cb = canonical_edits([e for e in edits if e[2] >= 0]), sorted({tuple(normal_box(b)) for b in boxes})
+    ce, cb = canonical_edits([e for e in edits if e[2] >= 0]), sorted({tuple(normal_box(b)) for b in boxes}, key=lambda b: (b[:7], len(b), b[7:]))
     if not all(box_ok(list(b)) for b in cb):
         raise ValueError("bad box")
-    out = bytearray(b"nado-land-plot-v3") + plot.to_bytes(4, "big") + salt + len(ce).to_bytes(4, "big")
+    # v4 (#169) only for a plot with a turned piece; every other plot keeps its v3 bytes (and so its anchored commitment)
+    v4 = any(turned(b) for b in cb)
+    out = bytearray(b"nado-land-plot-v4" if v4 else b"nado-land-plot-v3") + plot.to_bytes(4, "big") + salt + len(ce).to_bytes(4, "big")
     for x, z, y, b in ce:
         out += bytes([x, z, y >> 8, y & 255, b])
     out += len(cb).to_bytes(4, "big")
     for bx in cb:
         x, z, y, w, d, h, m = bx[:7]
         out += b"".join(v.to_bytes(2, "big") for v in (x, z, y, w, d, h)) + bytes([m, bx[7] if len(bx) > 7 else 0])
+        if v4:
+            out += b"".join((r & 0xFFFF).to_bytes(2, "big") for r in rot_of(bx))
     return bytes(out)
 
 
@@ -231,7 +314,8 @@ def box_vol(b):
 
 def buckets_of(b):
     """The 1 m buckets a piece touches: the spatial index that keeps an overlap check local instead of a scan of every
-    piece on the plot (20,000 x 1,024 per call would be 20 million comparisons)."""
+    piece on the plot (20,000 x 1,024 per call would be 20 million comparisons). A turned piece: the box it reaches."""
+    b = box_aabb(b)
     return [(i, j, k) for i in range(b[0] // CM, (b[0] + b[3] - 1) // CM + 1)
             for j in range(b[1] // CM, (b[1] + b[4] - 1) // CM + 1)
             for k in range(b[2] // CM, (b[2] + b[5] - 1) // CM + 1)]
@@ -282,6 +366,9 @@ CRAFT_SLACK = 12.0                # m a pose may run ahead of vmax x the time si
 
 
 def boxes_touch(a, b):
+    if turned(a) or turned(b):                      # a turned piece (#169): its own box grown by the pad, oriented
+        g = [a[0] - CRAFT_PAD, a[1] - CRAFT_PAD, a[2] - CRAFT_PAD, a[3] + 2 * CRAFT_PAD, a[4] + 2 * CRAFT_PAD, a[5] + 2 * CRAFT_PAD] + list(a[6:])
+        return boxes_overlap(g, b)
     return all(a[i] - CRAFT_PAD < b[i] + b[i + 3] and b[i] - CRAFT_PAD < a[i] + a[i + 3] for i in range(3))
 
 
@@ -313,6 +400,18 @@ def turn_pieces(pieces, quarter):
     (land.js craftMesh: forward = sin(yaw)·east + cos(yaw)·north). A slope rises the next way round: +x -> -z -> -x -> +z."""
     out = []
     for b in pieces:
+        if turned(b):
+            # a turned piece (#169) keeps its own size and turns about the craft's yaw axis: its centre goes round with the
+            # quarter turns and its yaw takes -90° each (yaw +90° in the page sends the nose east = a turn of -90° about up
+            # in the piece's frame: (x, z) -> (z, -x)); its roll and pitch ride along. A centre on a half centimetre
+            # rounds to the nearer whole one.
+            cx, cz = b[0] + b[3] / 2, b[1] + b[4] / 2
+            yw = b[8]
+            for _ in range(quarter % 4):
+                cx, cz = cz, -cx
+                yw = yw - 900 if yw - 900 > -ROT_MAX else yw + 2700
+            out.append([round(cx - b[3] / 2), round(cz - b[4] / 2)] + list(b[2:8]) + [yw, b[9], b[10]])
+            continue
         x, z, y, w, d, h = b[:6]
         shape = b[7] if len(b) > 7 else 0
         for _ in range(quarter % 4):
@@ -1624,8 +1723,8 @@ class World:
             return []
         fc, fr = p % FACE_N, (p // FACE_N) % FACE_N
         x0, z0, y0 = (u - fc * PLOT) * 100 - 50, (v - fr * PLOT) * 100 - 50, h * 100 - 50
-        return [b for b in rec["boxes"] if b[6] in PIECE_BURNS and b[0] < x0 + 200 and b[0] + b[3] > x0
-                and b[1] < z0 + 200 and b[1] + b[4] > z0 and b[2] < y0 + 200 and b[2] + b[5] > y0]
+        return [b for b in rec["boxes"] if b[6] in PIECE_BURNS and (a := box_aabb(b))[0] < x0 + 200 and a[0] + a[3] > x0
+                and a[1] < z0 + 200 and a[1] + a[4] > z0 and a[2] < y0 + 200 and a[2] + a[5] > y0]      # a turned piece: what it reaches
 
     async def ignite(self, who, cell):
         """Light a fire in air cell `cell` beside something that burns, with a fire-making tool (class "fire"), where the
@@ -2401,8 +2500,14 @@ class Hub:
         return (pl["pos"], pl.get("pos_at", 0)) if pl.get("pos") else None
 
     def where(self, world, addr):
-        """Where a player stands: their open page's place, else the place the world server kept for them."""
-        return next((st["pos"] for st in self.socks.values() if st.get("who") == addr and st.get("pos")), None) or (world.player(addr).get("pos") if addr else None)
+        """Where a player stands: the place their most recently moved open page said, else the place the world server
+        kept for them. The most recent, not the first found: a player with two pages open (a phone and a desktop, or an
+        old tab) was measured from whichever socket came first — a dig beside them refused "out of reach" (the page walk
+        with two tabs, 2026-11-10, #167)."""
+        mine = [st for st in self.socks.values() if st.get("who") == addr and st.get("pos")]
+        if mine:
+            return max(mine, key=lambda st: st.get("pos_t", 0))["pos"]
+        return world.player(addr).get("pos") if addr else None
 
     async def positions(self, world=None):
         socks = list(self.socks.items())
@@ -2857,6 +2962,7 @@ def make_app(world, hub, site_origin, wallet_url, secure_cookies=True, shot_page
                                 continue
                             st["pace"] = (list(p), time.time())
                         st["pos"] = [int(p[0]), float(p[1]), float(p[2]), float(p[3]), float(p[4])]
+                        st["pos_t"] = time.time()                  # which of a player's pages moved last (Hub.where)
                         if time.time() - st.get("offers_at", 0) > 5:      # the market where they stand now (#161)
                             st["offers_at"] = time.time()
                             await ws.send_json({"t": "offers", "offers": world.offers_for(addr, st["pos"])})
