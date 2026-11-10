@@ -52,7 +52,7 @@ CHALLENGE_TTL = 300
 SESSION_TTL = 7 * 86400
 sid = lambda token: hashlib.blake2b(token.encode(), digest_size=32).hexdigest()   # a session's name on disk (World.sessions)
 FACE_N, PLOT, W, H = L.FACE_N, L.PLOT, L.FACE_N * L.PLOT, 256
-N_BLOCKS = 76                     # static/land-world.js BLOCKS.length (tests/test_the_land_planet_… checks the two agree)
+N_BLOCKS = 78                     # static/land-world.js BLOCKS.length (tests/test_the_land_planet_… checks the two agree)
 DOOR = 37                         # static/land-world.js B.door: a piece that swings open and shut ("door" op)
 THRUSTER, SEAT = 65, 66           # static/land-world.js B.thruster, B.pilotseat: a craft's working parts (FLIGHT, #147)
 SMELTER, ASSEMBLER, GENERATOR = 67, 68, 69   # static/land-world.js: FACTORIES (#148) — machines and their power

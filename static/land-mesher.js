@@ -66,7 +66,9 @@ export function groundWeights(b, up) {          // (static/land.js weighs the fa
 // the faint per-place grain, and the colour of what is IN the ground where a dig exposes it — a vein of ore must be
 // seen to be followed (2026-11-07): coal dark, iron rusty, copper verdigris, tin pale, clay a reddish earth
 const ORE_TINT = { [B.coal]: [0.38, 0.38, 0.4], [B.ironore]: [1.12, 0.82, 0.66], [B.copperore]: [0.78, 1.08, 0.92],
-  [B.tinore]: [1.18, 1.18, 1.22], [B.clay]: [1.12, 0.86, 0.72], [B.silverore]: [1.3, 1.32, 1.38], [B.goldore]: [1.35, 1.15, 0.55] };
+  [B.tinore]: [1.18, 1.18, 1.22], [B.clay]: [1.12, 0.86, 0.72], [B.silverore]: [1.3, 1.32, 1.38], [B.goldore]: [1.35, 1.15, 0.55],
+  // #173: magnetite a dark blue-grey, lodestone darker still with a rust cast (the photographs, land research ore/OBSERVED.md)
+  [B.magnetite]: [0.55, 0.62, 0.63], [B.lodestone]: [0.3, 0.27, 0.22] };
 // a FIELD is earth tinted by its soil (#154): dark loam, pale sand, red clay, black peat — the soil is seen where it is tilled
 const SOIL_TINT = { loam: [0.62, 0.52, 0.44], sandy: [1.15, 1.02, 0.78], clay: [1.05, 0.72, 0.58], peat: [0.4, 0.36, 0.34], stony: [0.9, 0.9, 0.9] };
 const groundGrain = (b, up, u, v, h, face) => {

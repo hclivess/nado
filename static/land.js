@@ -101,6 +101,11 @@ const PAINT = {
   45: ["#a5765a", 0.1], 46: ["#7d7570", 0.14, "silver"], 47: ["#7d7570", 0.14, "gold"],
   48: ["#9aa3ad", 0.05, "steel"], 49: ["#3b3f45", 0.08, "thruster"], 50: ["#4a5058", 0.06, "seat"],
   51: ["#5a5f66", 0.08, "smelter"], 52: ["#5f6670", 0.06, "assembler"], 53: ["#4d5a4f", 0.06, "generator"],
+  // #173, colours measured off photographs (land research ore/OBSERVED.md): magnetite dark grey with fine metallic glints
+  // (median #596565, glints #c3c5c0); lodestone near-black and dull (median #16160a) with rust specks and iron filings
+  // caught on it. Given as the hex that STORES as the measured colour: THREE.Color takes a hex as sRGB and paintAtlas
+  // writes its linear value, so "#596565" painted as #2c3434 — reviewed side by side with the photos, 2026-11-10.
+  54: ["#9fa9a9", 0.12, "magnetite"], 55: ["#535338", 0.1, "lodestone"],
 };
 function paintAtlas() {
   const cv = document.createElement("canvas");
@@ -141,6 +146,9 @@ function paintAtlas() {
       if (kind === "tin" && (x * 7 + y * 2) % 9 < 2) col = new THREE.Color("#c9ccd2").multiplyScalar(k);     // pale metal
       if (kind === "silver" && (x * 3 + y * 7) % 8 < 2) col = new THREE.Color("#e4e8ee").multiplyScalar(k);  // bright metal
       if (kind === "gold" && (x * 5 + y * 2) % 8 < 2) col = new THREE.Color("#e8c547").multiplyScalar(k);    // gold flecks
+      if (kind === "magnetite" && rnd() < 0.16) col = new THREE.Color("#e3e4e1").multiplyScalar(0.8 + 0.4 * rnd());   // fine metallic glints (#c3c5c0 stored)
+      if (kind === "lodestone" && rnd() < 0.07) col = new THREE.Color("#93765d").multiplyScalar(k);                    // rust specks
+      if (kind === "lodestone" && ((x - y === 3 && x > 4 && x < 11) || (x + y === 20 && x > 8 && x < 14))) col = new THREE.Color("#dad8ce").multiplyScalar(k);   // filings caught on it
       if (kind === "thruster" && Math.hypot(x - 7.5, y - 7.5) < 4.5) col = new THREE.Color("#ff8a3a").multiplyScalar(k * (1.3 - Math.hypot(x - 7.5, y - 7.5) / 7));   // the nozzle's glow
       if (kind === "seat" && y < 7 && x > 2 && x < 13) col = new THREE.Color("#6fd3e8").multiplyScalar(k * 0.9);             // the canopy glass
       if (kind === "smelter" && y > 8 && y < 13 && x > 4 && x < 11) col = new THREE.Color("#ff7a2a").multiplyScalar(k * 1.2);   // its mouth, glowing
@@ -1752,6 +1760,13 @@ async function builderCheck(plot) {
 }
 
 // ---- HUD -------------------------------------------------------------------------------------------------------
+// A COMPASS (#173, doc/land-navigation.md 1.2): carried, it says which way you face — the bearing clockwise from north and
+// its point of eight. North is +v on a face (land-world.js frameOf), the grid's north: no declination (a design choice).
+const POINTS = [["cpN", "N"], ["cpNE", "NE"], ["cpE", "E"], ["cpSE", "SE"], ["cpS", "S"], ["cpSW", "SW"], ["cpW", "W"], ["cpNW", "NW"]];
+function compassSays(yaw) {
+  const b = ((Math.round(yaw * 180 / Math.PI) % 360) + 360) % 360, [k, d] = POINTS[Math.round(b / 45) % 8];
+  return T("compass", "compass {b}° {p}", { b, p: T(k, d) });
+}
 const plotLabel = (plot) => { const q = Wd.plotCoords(plot); return `${q.face}·${q.prow}·${q.pcol}`; };
 function hud() {
   const w = Wd.wrap(P.face, Math.floor(P.u), Math.floor(P.v)), plot = Wd.plotOf(w.face, w.u, w.v), t = titles.get(plot);
@@ -1764,6 +1779,7 @@ function hud() {
     $("hudPos").textContent = T("fHud", "Flying · {s} m/s · {a} m up · thrust {t} kN, weight {w} kN", { s: sp.toFixed(1), a: Math.max(0, up).toFixed(1), t: Math.round(flying.thrust), w: Math.round(flightOf(FLIGHT(), flying.mass, flying.thrust).weight) })
       + " · " + T("fEngines", "engines {e} %", { e: Math.round(100 * ((flying.engine && flying.engine.throttle) || 0)) });   // the thrust in use (#171)
   }
+  if ((inv.items.compass || 0) > 0) $("hudPos").textContent += " · " + compassSays(P.yaw);   // a compass carried (#173)
   const st = $("hudPlot");
   // the owner is looked up once the plot's title is KNOWN (titles load after the first frames), once per refresh
   if (t && !mine.has(plot) && !t.asked) { t.asked = true; holderOf(plot).then(hud); }

@@ -252,9 +252,14 @@ export const BLOCKS = [
   { key: "well", solid: true, tex: [19, 19, 19] },
   // A TRADING STAND (#161): a market stall of planks; offers are made at one and taken at the stands near it
   { key: "stand", solid: true, tex: [12, 12, 12] },
+  // FINDING THE WAY (#173, doc/land-navigation.md): magnetite, an iron ore that is magnetic (Magnetite l.47), runs in some of
+  // the iron veins; near the surface some of it is lodestone — magnetite magnetised, the leading theory says by lightning
+  // (Lodestone l.66) — which magnetises the needle of a compass. Drawn from photographs (land research ore/OBSERVED.md).
+  { key: "magnetite", solid: true, tex: [54, 54, 54] },
+  { key: "lodestone", solid: true, tex: [55, 55, 55] },
 ];
 export const B = Object.fromEntries(BLOCKS.map((b, i) => [b.key, i]));
-export const ATLAS_TILES = 54;              // tiles 0..53 (0 unused; the farm's blocks reuse earth's and leaves')
+export const ATLAS_TILES = 56;              // tiles 0..55 (0 unused; the farm's blocks reuse earth's and leaves')
 export const opaque = (id) => BLOCKS[id].solid && !BLOCKS[id].see;
 
 // ---- terrain ---------------------------------------------------------------------------------------------------
@@ -444,11 +449,18 @@ export function litterAt(face, u, v, col) {
 // gold. Under DEEP_MIN the floor of what is built so far is bedrock again (the mantle is phase 3).
 export const DEEP_MIN = -2048;               // a whole number of chunks (CHUNK), so a chunk is never half deep
 export const DEEP_RICH = -300;
+// MAGNETITE (#173): a quarter of the ~8 m regions an iron vein runs through hold magnetite instead — the same ore family,
+// smelted to iron the same way (land-recipes.json iron_magnetite), so no iron is lost to it (the share is a design choice).
+// Within LODE_DEPTH of the rock's top it is LODESTONE: lightning, the leading theory of how magnetite is magnetised
+// (Lodestone l.66), reaches the rock near the surface, never the deep — the depth is a design choice.
+export const LODE_DEPTH = 8;
+const isMagnetite = (face, u, v, h) => hash32(face + 37, (u >> 3) * 5 + (h >> 3), v >> 3) % 4 === 0;
 export function deepBlock(face, u, v, h) {
   if (h < DEEP_MIN) return B.bedrock;
   if (!(noise3(PERM[6], u / 7.3, v / 7.3, h / 4.1 + face * 977) > 0.33)) return B.stone;
   const r = hash32(face + 31, (u >> 3) * 7 + (h >> 3), v >> 3) % 100;
-  if (h > DEEP_RICH) return r < 40 ? B.coal : r < 75 ? B.ironore : r < 92 ? B.copperore : B.tinore;
+  if (h > DEEP_RICH) return r >= 40 && r < 75 && isMagnetite(face, u, v, h) ? B.magnetite : r < 40 ? B.coal : r < 75 ? B.ironore : r < 92 ? B.copperore : B.tinore;
+  if (r >= 30 && r < 56 && isMagnetite(face, u, v, h)) return B.magnetite;
   return r < 30 ? B.coal : r < 56 ? B.ironore : r < 70 ? B.copperore : r < 80 ? B.tinore : r < 93 ? B.silverore : B.goldore;
 }
 
@@ -466,6 +478,7 @@ export function terrainBlock(face, u, v, h, colCache) {
       // every cell of a chunk, and four fields would have cost four times as much.
       if (!(noise3(PERM[6], u / 7.3, v / 7.3, h / 4.1 + face * 977) > 0.33)) return B.stone;
       const r = hash32(face + 31, (u >> 3) * 7 + (h >> 3), v >> 3) % 100;
+      if (r >= 40 && r < 75 && isMagnetite(face, u, v, h)) return h >= col.top - col.soil + 1 - LODE_DEPTH ? B.lodestone : B.magnetite;
       return r < 40 ? B.coal : r < 75 ? B.ironore : r < 92 ? B.copperore : B.tinore;
     }
     // CLAY BEDS in the subsoil (two to four layers down) where a broad field says the ground is clayey — clay is dug,
@@ -504,7 +517,7 @@ export function terrainBlock(face, u, v, h, colCache) {
 //   an untouched cell:  height(column) - (h + 0.5), clamped to [-1, 1] — the generator's exact, unrounded ground;
 //   an edited cell:     +1 if a natural material was put there, -1 otherwise (dug out, or a built block, which carves
 //                       its own room in the ground and is drawn crisp).
-export const NATURAL = new Set([B.grass, B.dirt, B.stone, B.sand, B.snow, B.gravel, B.basalt, B.bedrock, B.ironore, B.coal, B.copperore, B.tinore, B.clay,
+export const NATURAL = new Set([B.grass, B.dirt, B.stone, B.sand, B.snow, B.gravel, B.basalt, B.bedrock, B.ironore, B.magnetite, B.lodestone, B.coal, B.copperore, B.tinore, B.clay,
   B.silverore, B.goldore, B.farmland]);   // farmland: tilled earth, smooth ground like the rest (#154)
 export function fieldOf(col, h, edit) {
   if (edit !== undefined) return NATURAL.has(edit) ? 1 : -1;

@@ -422,6 +422,18 @@
   },
   "wheel": {
    "name": "Wheel"
+  },
+  "magnetite": {
+   "name": "Magnetite"
+  },
+  "lodestone": {
+   "name": "Lodestone"
+  },
+  "compass_needle": {
+   "name": "Magnetised needle"
+  },
+  "compass": {
+   "name": "Compass"
   }
  },
  "tools": {
@@ -1233,6 +1245,28 @@
      1
     ]
    ]
+  },
+  "76": {
+   "hard": 3.5,
+   "class": "pick",
+   "needs": "pick",
+   "yields": [
+    [
+     "magnetite",
+     1
+    ]
+   ]
+  },
+  "77": {
+   "hard": 3.5,
+   "class": "pick",
+   "needs": "pick",
+   "yields": [
+    [
+     "lodestone",
+     1
+    ]
+   ]
   }
  },
  "recipes": [
@@ -2003,6 +2037,50 @@
    "uses": [
     [
      "ironore",
+     2
+    ],
+    [
+     "coal",
+     1
+    ]
+   ],
+   "with": [
+    "bloomery"
+   ]
+  },
+  {
+   "id": "iron_magnetite",
+   "makes": [
+    [
+     "iron",
+     1
+    ]
+   ],
+   "uses": [
+    [
+     "magnetite",
+     2
+    ],
+    [
+     "charcoal",
+     2
+    ]
+   ],
+   "with": [
+    "bloomery"
+   ]
+  },
+  {
+   "id": "iron_magnetite_coal",
+   "makes": [
+    [
+     "iron",
+     1
+    ]
+   ],
+   "uses": [
+    [
+     "magnetite",
      2
     ],
     [
@@ -3511,6 +3589,59 @@
    "with": [
     "workbench",
     "chisel"
+   ]
+  },
+  {
+   "id": "compass_needle",
+   "makes": [
+    [
+     "compass_needle",
+     1
+    ],
+    [
+     "lodestone",
+     1
+    ]
+   ],
+   "uses": [
+    [
+     "iron",
+     1
+    ],
+    [
+     "lodestone",
+     1
+    ]
+   ],
+   "with": [
+    "anvil",
+    "hammer"
+   ]
+  },
+  {
+   "id": "compass",
+   "makes": [
+    [
+     "compass",
+     1
+    ]
+   ],
+   "uses": [
+    [
+     "compass_needle",
+     1
+    ],
+    [
+     "planks",
+     1
+    ],
+    [
+     "glass",
+     1
+    ]
+   ],
+   "with": [
+    "workbench"
    ]
   }
  ],

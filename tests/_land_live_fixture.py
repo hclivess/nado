@@ -8,7 +8,7 @@ under /land/) and a fake exec node (/exec/*) that says OWNER holds plot PA and h
   GET /fixture/agent_token   -> {token}: AGENT signed in the same way — a second player's page (a craft handed to them)
   GET /fixture/agent_build   -> AGENT signs in with ITS OWN key and builds a 3 x 3 wall through POST /land/api/set
   GET /fixture/plot          -> {plot, owner, agent, other_plot, other}
-  GET /fixture/seed?who=owner|agent&items={json}[&tools=[json]]  -> stocks that player's inventory (what gathering and
+  GET /fixture/seed?who=owner|agent&items={json}[&tools=[json]][&stations=[json]]  -> stocks that player's inventory (what gathering and
                                 crafting would have given)
   GET /fixture/animal?kind=&u=&v=  -> the herd held still (its loop stopped: nothing wanders, flees, comes or goes)
                                 and one animal of that kind standing at (u, v) on face 0 -> {id}; a hunt can aim at it
@@ -103,6 +103,9 @@ async def main():
         for t in json.loads(req.query.get("tools", "[]")):                # tools a walk needs (a drill to reach the deep)
             if t not in world.player(who)["tools"]:
                 world.player(who)["tools"].append(t)
+        for t in json.loads(req.query.get("stations", "[]")):             # stations a walk crafts at (an anvil, a bloomery)
+            if t not in world.player(who)["stations"]:
+                world.player(who)["stations"].append(t)
         await hub.inv(world, who)
         return web.json_response(world.inv_json(who))
 
