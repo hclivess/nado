@@ -620,6 +620,16 @@ The contract ids come from `static/dex.js`'s own `const CID` / `const OTC_CID`, 
 at different contracts; the file carries the chain id and starts fresh after a reroll. Nodes without an exec node
 write nothing. It used to be a hand-started script that died at a reboot (doc/jobs.md).
 
+**The long history (#185).** The samples are capped at 2,880 a market — one day for a market whose price moves at
+every sample — so the chart's week and ALL ranges used to end a day back. Beside them the sampler keeps **hourly
+candles** `[hour, open, high, low, close, NADO volume]` for the life of the chain in `/static/market/history.json`:
+a file of its own, written only when an hour closes, because `prices.json` is fetched by every open page at every
+refresh and must not grow with the chain's age. The page fetches it every ten minutes and draws any range that reaches
+behind the oldest sample from it (each hour at its close), thinned to a bounded number of points. A candle is made of
+the samples: the history holds no price the samples never held, an hour with no quote has no candle, and a market the
+history has not met is seeded from the samples still on disk — so it reaches back as far as this node's data does and
+no further. Prices from before the first sample kept were never recorded and are not reconstructed.
+
 ## 15. How it compares
 
 | bridge model | authority | worst-case loss | on NADO |

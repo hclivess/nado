@@ -12,6 +12,18 @@ own loop (nado.py _dex_prices_loop) now runs it wherever the node runs. INVARIAN
   * the file carries the chain id it was sampled on; a reroll (a different CHAIN_ID) starts a fresh history instead of
     drawing the old chain's prices under the new one;
   * pull-only and failure-isolated: an unreachable exec node (fleet nodes run none) writes nothing and retries.
+
+THE LONG HISTORY (#185, operator 2026-11-11: "can you add at least some market history? last 24 hours is kinda weak").
+The samples are capped at KEEP a market — a day, for a market whose price moves at every sample — so the chart's 1W
+and ALL ranges drew one day. Beside them the sampler now keeps HOURLY CANDLES [hour, open, high, low, close, NADO
+volume] for the life of the chain, in static/market/history.json. INVARIANTS:
+  * the history is its OWN file, written when an hour closes: prices.json is fetched by every open DEX page at every
+    refresh and must not grow with the chain's age;
+  * a candle is made of the samples (and the volume of the trades fold() booked) — the history adds no price the
+    samples never held, and an hour with no quote has no candle (nothing is back-filled, as the page says);
+  * a market the history has not met is first seeded from the samples already on disk, so the history reaches as far
+    back as anything this node still holds;
+  * it carries the chain id and restarts on a reroll, exactly like the samples.
 """
 import json
 import os
@@ -25,6 +37,9 @@ DEX_JS = os.path.join(_HERE, "static", "dex.js")
 EX = os.environ.get("NADO_EXEC_URL", "http://127.0.0.1:9273").rstrip("/")
 EVERY = 30                      # seconds between samples
 KEEP = 2880                     # ~24h at 30s
+HIST = os.path.join(_HERE, "static", "market", "history.json")
+HOUR = 3600                     # a history candle
+HIST_KEEP = 10 * 366 * 24       # ten years of hours a market: a bound, so the file cannot grow without one
 
 
 def contract_ids():
@@ -112,8 +127,13 @@ def fold(doc, prices, res, fills, now):
     for pid, price in prices.items():
         arr = doc["pools"].setdefault(pid, [])
         moved = bool(arr) and abs(arr[-1][1] - price) > 1e-12
-        if not arr or moved or now - arr[-1][0] >= 300:
-            arr.append([now, round(price, 10)])
+        # INVARIANT (#185): whether to STORE a sample is decided between ROUNDED prices — the stored one is rounded to
+        # 10 places. Compared with the unrounded sample (`moved`, which the volume estimate below still reads), a price
+        # like 11723.62024466781… differed at every sample, so a market that had not moved once filled its KEEP in a
+        # day instead of ten (measured 2026-11-11: 2,879 of ETH's 2,880 samples were equal to the one before them).
+        p = round(price, 10)
+        if not arr or arr[-1][1] != p or now - arr[-1][0] >= 300:
+            arr.append([now, p])
             del arr[:-KEEP]
         if pid in res:
             prev = last.get(pid)
@@ -137,6 +157,111 @@ def fold(doc, prices, res, fills, now):
     return doc
 
 
+def _candles(samples, trades, lo, hi):
+    """Hourly candles [hour, open, high, low, close, volume] of the samples with lo <= ts < hi; a trade adds its NADO
+    to the candle of its hour (an hour with trades but no sample has no price to draw, and no candle)."""
+    out = {}
+    for ts, p in samples:
+        if not lo <= ts < hi:
+            continue
+        b = ts - ts % HOUR
+        c = out.get(b)
+        if c is None:
+            out[b] = [b, p, p, p, p, 0]
+        else:
+            c[2], c[3], c[4] = max(c[2], p), min(c[3], p), p
+    for ts, n in trades:
+        b = ts - ts % HOUR
+        if lo <= ts < hi and b in out:
+            out[b][5] = round(out[b][5] + n, 4)
+    return [out[b] for b in sorted(out)]
+
+
+def roll(doc, prices, now):
+    """Advance each market's OPEN hourly candle (doc["open"]) by this sample; return the candles that closed, as
+    [(key, candle)]. Pure, and called right after fold() with the same `now`: the volume this sample booked is the
+    trades fold() stamped with `now`."""
+    opened, closed, hour = doc.setdefault("open", {}), [], now - now % HOUR
+    booked = {}
+    for key, arr in (doc.get("trades") or {}).items():
+        v = sum(t[1] for t in arr if t[0] == now)
+        if v:
+            booked[key] = v
+    for key in sorted(set(prices) | set(booked)):
+        cur = opened.get(key)
+        if cur and cur[0] != hour:
+            closed.append((key, cur))
+            cur = None
+        p = prices.get(key)
+        if p is None:                                 # a swap settled while nothing was quoted: at the last price known
+            arr = doc["pools"].get(key) or []
+            p = cur[4] if cur else (arr[-1][1] if arr else None)
+            if p is None:
+                continue
+        p = round(p, 10)
+        if cur is None:
+            # the hour's first candle. At a first run the samples already hold part of this hour: it opens from them.
+            seed = _candles(doc["pools"].get(key) or [], [t for t in (doc.get("trades") or {}).get(key, []) if t[0] < now], hour, now)
+            cur = opened[key] = seed[0] if seed else [hour, p, p, p, p, 0]
+        cur[2], cur[3], cur[4] = max(cur[2], p), min(cur[3], p), p
+        if key in booked:
+            cur[5] = round(cur[5] + booked[key], 4)
+    for key in sorted(opened):                        # a market whose quote went away: its last hour still closes
+        if opened[key][0] != hour:
+            closed.append((key, opened.pop(key)))
+    return closed
+
+
+_hist = None                                          # the long history, read from disk once a process
+
+
+def history(chain_id):
+    """The long history — from memory, else from disk, else a fresh one (another chain's is not continued)."""
+    global _hist
+    if _hist is not None and _hist.get("chain_id") == chain_id:
+        return _hist
+    try:
+        with open(HIST) as f:
+            doc = json.load(f)
+        if doc.get("chain_id") == chain_id and isinstance(doc.get("pools"), dict):
+            _hist = doc
+            return _hist
+    except Exception:
+        pass
+    _hist = {"chain_id": chain_id, "tf": HOUR, "pools": {}}
+    return _hist
+
+
+def extend(hist, doc, closed, now):
+    """Fold the closed candles into the long history (pure); True when it changed. A market the history has not met
+    is first seeded from the samples on disk — every whole hour they still hold."""
+    changed, hour = False, now - now % HOUR
+    for key in sorted(doc["pools"]):
+        if key not in hist["pools"]:
+            hist["pools"][key] = _candles(doc["pools"][key], (doc.get("trades") or {}).get(key, []), 0, hour)
+            changed = True
+    for key, c in closed:
+        arr = hist["pools"].setdefault(key, [])
+        # INVARIANT: hours only ever go forward. An hour the seed already covers (the history file was lost, or the
+        # write below landed and prices.json's did not) is not appended a second time.
+        if arr and arr[-1][0] >= c[0]:
+            continue
+        arr.append(c)
+        del arr[:-HIST_KEEP]
+        changed = True
+    if changed:
+        hist["ts"] = now
+    return changed
+
+
+def _write(path, doc):
+    os.makedirs(os.path.dirname(path), exist_ok=True)
+    tmp = path + ".tmp"
+    with open(tmp, "w") as f:
+        json.dump(doc, f, separators=(",", ":"))
+    os.replace(tmp, path)                             # atomic: a reader never sees a half-written file
+
+
 def sample_once(chain_id):
     """One pass: sample, fold, write atomically. Returns the number of series sampled, or None when the exec node or
     the DEX contracts are unavailable (nothing is written then)."""
@@ -147,10 +272,13 @@ def sample_once(chain_id):
         prices, res, fills = sample(amm, otc)
     except Exception:
         return None                                   # no exec node here (fleet nodes run none) or it is restarting
-    doc = fold(load(chain_id), prices, res, fills, int(time.time()))
-    os.makedirs(os.path.dirname(OUT), exist_ok=True)
-    tmp = OUT + ".tmp"
-    with open(tmp, "w") as f:
-        json.dump(doc, f, separators=(",", ":"))
-    os.replace(tmp, OUT)                              # atomic: a reader never sees a half-written file
+    now = int(time.time())
+    doc = fold(load(chain_id), prices, res, fills, now)
+    closed = roll(doc, prices, now)
+    hist = history(chain_id)
+    # the history FIRST: if this process dies between the two writes, the hour that closed is in the history and still
+    # open in prices.json — it closes again at the next sample and extend() refuses the repeat. The other order loses it.
+    if extend(hist, doc, closed, now) or not os.path.exists(HIST):
+        _write(HIST, hist)
+    _write(OUT, doc)
     return len(prices)

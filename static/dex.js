@@ -1158,7 +1158,10 @@ function renderXMarket() {
   ].map(([l, v]) => `<div class="stat"><div class="l">${esc(l)}</div><div class="v">${v}</div></div>`).join("");
   const mcX = $("marketCard"); if (mcX) mcX.classList.remove("nomarket");   // a cross-chain market always has a book to show
   const cap = $("depthCap"); if (cap) cap.textContent = LT("depthBook", "Live order book — how much is offered at each price:");
-  const mc = $("mktCap"); if (mc) mc.textContent = LT("capBook", "Prices come from open orders on this book. Nothing is back-filled — a gap means nothing was offered.");
+  // …and how far back the record goes: a range button that reaches behind it draws what there is, and says so here
+  const since = seriesStart(XKEY(xsel));
+  const mc = $("mktCap"); if (mc) mc.textContent = LT("capBook", "Prices come from open orders on this book. Nothing is back-filled — a gap means nothing was offered.")
+    + (since ? " " + LT("capFrom", "The price record starts {ago}.", { ago: fmtAgo(since) }) : "");
   // WHAT YOU NEED, said up front — the other chain's side is signed by that chain's wallet, and a page that
   // only reveals this at the lock step has already let someone post an order they cannot finish here
   const rq = $("xReq");
@@ -2023,6 +2026,20 @@ async function refreshSharedPrices() {
     if (r && r.trades) sharedTrades = r.trades;
   } catch (e) { /* sampler not running — the local series still works */ }
 }
+// THE LONG HISTORY (#185, operator 2026-11-11: "can you add at least some market history? last 24 hours is kinda
+// weak"). The samples above are capped a market — a day, for a market that moves at every sample — so 1W and ALL drew one
+// day. The node also keeps HOURLY CANDLES [hour, open, high, low, close, NADO] for the life of the chain
+// (ops/dex_prices.py, static/market/history.json). INVARIANT: it is its own file, asked for every ten minutes — never
+// folded into prices.json, which every open page fetches at every refresh and must not grow with the chain's age.
+let sharedHistory = { tf: 3600, pools: {} }, histAt = 0;
+async function refreshSharedHistory() {
+  if (Date.now() - histAt < 600000) return;          // an hour closes once an hour
+  histAt = Date.now();
+  try {
+    const r = await (await fetch("/static/market/history.json", { cache: "no-store" })).json();
+    if (r && r.pools) sharedHistory = { tf: Number(r.tf) || 3600, pools: r.pools };
+  } catch (e) { histAt = Date.now() - 540000; }       // none yet (a node that has not updated): asked again in a minute
+}
 let mktRange = 3600;                                 // seconds; 0 = all
 let wantMarket = null;                               // a symbol from the URL, resolved once assets load
 let curMode = "swap";
@@ -2070,11 +2087,12 @@ function samplePrices(sto) {
   }
   if (changed) { try { localStorage.setItem(LS_PRICES, JSON.stringify(store)); } catch (e) {} }
 }
-function priceSeriesAll(id) {                          // the merged series, ignoring the range buttons
+const unitScale = (id) => lastSto && /^\d+$/.test(String(id)) ? pScale(poolOf(lastSto, id).asset) : 1;   // pool series: units -> the token's decimals
+function priceSeriesAll(id) {                          // the merged FINE series (the samples), ignoring the range buttons
   const shared = (sharedPrices[id] || []).map((x) => [x[0] * 1000, x[1]]);
   const local = priceStore()[id] || [];
   const seen = new Set(), all = [];
-  const sc = lastSto && /^\d+$/.test(String(id)) ? pScale(poolOf(lastSto, id).asset) : 1;   // pool series: units -> the token's decimals
+  const sc = unitScale(id);
   for (const pt of shared.concat(local).sort((a, b) => a[0] - b[0])) {
     const k = Math.round(pt[0] / 1000);
     if (seen.has(k)) continue;
@@ -2082,9 +2100,45 @@ function priceSeriesAll(id) {                          // the merged series, ign
   }
   return all;
 }
+/** The hours of the long history that ended before `before` (ms): each one its closing price, at the hour's end. */
+function priceHistory(id, before) {
+  const tf = sharedHistory.tf * 1000, sc = unitScale(id), out = [];
+  for (const c of sharedHistory.pools[id] || []) {
+    const t = c[0] * 1000 + tf;
+    if (t >= before) break;                            // the samples take over where they begin
+    out.push([t, c[4] * sc]);
+  }
+  return out;
+}
+/** When this market's record begins (ms), 0 when there is none: the oldest hour of the history or the oldest sample. */
+function seriesStart(id) {
+  const h = (sharedHistory.pools[id] || [])[0], f = priceSeriesAll(id)[0];
+  const t = Math.min(h ? h[0] * 1000 : Infinity, f ? f[0] : Infinity);
+  return Number.isFinite(t) ? t : 0;
+}
 function priceSeries(id) {
-  const all = priceSeriesAll(id);
-  return mktRange > 0 ? all.filter((x) => x[0] >= Date.now() - mktRange * 1000) : all;
+  const fine = priceSeriesAll(id), cut = mktRange > 0 ? Date.now() - mktRange * 1000 : 0;
+  // INVARIANT (#185): a range that reaches behind the oldest sample is drawn from the hourly history — without this
+  // 1W, 1M and ALL end where the samples do, a day back on a market that moves at every sample.
+  const all = !fine.length || fine[0][0] > cut ? priceHistory(id, fine.length ? fine[0][0] : Infinity).concat(fine) : fine;
+  return mktRange > 0 ? all.filter((x) => x[0] >= cut) : all;
+}
+/** At most ~`max` points of a series for drawing: per slice of time its lowest and highest point (in time order) and
+ *  both ends, so no spike is thinned away. The history grows by an hour every hour; the path the chart draws must not. */
+function thinSeries(data, max = 800) {
+  if (data.length <= max) return data;
+  const t0 = data[0][0], span = Math.max(1, data[data.length - 1][0] - t0), nb = Math.floor(max / 2), out = [];
+  let b = -1, lo = null, hi = null;
+  const flush = () => { if (lo) out.push(...(lo === hi ? [lo] : lo[0] < hi[0] ? [lo, hi] : [hi, lo])); };
+  for (const d of data) {
+    const k = Math.min(nb - 1, Math.floor((d[0] - t0) / span * nb));
+    if (k !== b) { flush(); b = k; lo = hi = d; }
+    else { if (d[1] < lo[1]) lo = d; if (d[1] > hi[1]) hi = d; }
+  }
+  flush();
+  if (out[0] !== data[0]) out.unshift(data[0]);
+  if (out[out.length - 1] !== data[data.length - 1]) out.push(data[data.length - 1]);
+  return out;
 }
 function stats24(id, priceNow) {
   const cut = Date.now() - 86400000;
@@ -2429,7 +2483,7 @@ let _mktBound = false, _mktPts = [], _ttSym = "token", _ttUnit = "";
 function renderChart(key, sym, unit) {
   _ttSym = sym; _ttUnit = unit || "";
   const svg = $("mktChart"), empty = $("mktEmpty");
-  const data = priceSeries(key);
+  const data = thinSeries(priceSeries(key));
   svg._cs = null;                                     // a line chart now: the candle tooltip stands down
   svg.parentElement.classList.toggle("empty", data.length < 2);
   if (data.length < 2) {
@@ -2534,6 +2588,7 @@ async function refresh() {
     } catch (e) { /* transient relay blip — keep the last good view rather than blanking the page */ }
     await refreshAssets();
     await refreshSharedPrices();
+    await refreshSharedHistory();
     await ixStats();
     samplePrices(lastSto);
     await otcRefresh();
