@@ -174,6 +174,14 @@ try {
   ok(Math.abs(area - tiles * 64 * 64 / 1e6) < 0.0006, `it shows the squares passed through carrying it — ${tiles} squares, ${area} km² — not the ones visited before it was made`);
   const px = await evl(T, "(() => { const c = document.getElementById('mapCanvas'), d = c.getContext('2d').getImageData(0, 0, c.width, c.height).data; let land = 0, blank = 0; for (let i = 0; i < d.length; i += 4) { if (d[i] === 0x1b && d[i + 1] === 0x24 && d[i + 2] === 0x30) blank++; else land++; } return [land, blank]; })()");
   ok(px[0] > 2000 && px[1] > px[0], `the surveyed squares are painted from the planet, the rest left blank (${px[0]} painted, ${px[1]} blank pixels)`);
+  // THE PLANET (operator 2026-11-11: "proper planetary physical properties like in Kerbal space"): from the Map, its facts
+  await evl(T, "document.getElementById('mapPlanet').click(), true");
+  ok(await until(T, "!document.getElementById('planetPanel').classList.contains('hidden') && /Escape speed/.test(document.getElementById('planetGrid').textContent)", 10000), "the Map opens the planet's facts");
+  const pf = await evl(T, "document.getElementById('planetGrid').textContent");
+  ok(/Radius: 83\.4 km/.test(pf) && /Escape speed: 1,279 m\/s/.test(pf) && /Synchronous orbit.*131\.7 km up/.test(pf) && /none above 30 km/.test(pf),
+    "…its radius, escape speed, synchronous orbit and the air's top, as land-planet.js computes them: " + pf.slice(0, 160));
+  await evl(T, "document.getElementById('planetClose').click(), document.getElementById('mapBtn').click(), true");
+  await until(T, "/km² surveyed/.test(document.getElementById('mapLegend').textContent)", 10000);
   // on a short phone screen the whole map and its legend are in view (the live 800 x 480 page cut the card off below)
   await send(T, "Emulation.setDeviceMetricsOverride", { width: 800, height: 480, deviceScaleFactor: 1, mobile: true });
   await sleep(800);

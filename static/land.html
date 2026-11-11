@@ -116,6 +116,10 @@
   #wardPanel{position:fixed;inset:0;z-index:8;display:grid;place-items:center;background:rgba(0,0,0,.45)}
   #mapPanel{position:fixed;inset:0;z-index:8;display:grid;place-items:center;background:rgba(0,0,0,.45)}
   #padPanel{position:fixed;inset:0;z-index:8;display:grid;place-items:center;background:rgba(0,0,0,.45)}
+  #planetPanel{position:fixed;inset:0;z-index:8;display:grid;place-items:center;background:rgba(0,0,0,.45)}
+  #planetPanel .card{width:min(480px,calc(100vw - 32px));max-height:88vh;overflow:auto;background:var(--elev);border:1px solid var(--border);border-radius:14px;padding:16px;font-size:13px;line-height:1.7}
+  #planetPanel h2{margin:0 0 10px;font-size:16px;display:flex;align-items:center}#planetPanel h2 button{margin-left:auto}
+  #planetPanel .note{opacity:.7;font-size:12px}
   #padPanel .card{width:min(460px,calc(100vw - 32px));max-height:88vh;overflow:auto;background:var(--elev);border:1px solid var(--border);border-radius:14px;padding:16px;font-size:13px;line-height:1.6}
   #padPanel h2{margin:0 0 10px;font-size:16px;display:flex;align-items:center}#padPanel h2 button{margin-left:auto}
   #mapPanel .card{width:min(520px,calc(100vw - 32px));max-height:92vh;overflow:auto;background:var(--elev);border:1px solid var(--border);border-radius:14px;padding:16px;font-size:13px}
@@ -197,12 +201,16 @@
   <h2><span data-i18n="land.setTitle">Graphics</span><button id="setClose" class="ghost" data-i18n="land.close">Close</button></h2>
   <div id="setGrid"></div>
 </div></div>
+<div id="planetPanel" class="hidden"><div class="card">
+  <h2><span data-i18n="land.plTitle">The planet</span><button id="planetClose" class="ghost" data-i18n="land.close">Close</button></h2>
+  <div id="planetGrid"></div>
+</div></div>
 <div id="padPanel" class="hidden"><div class="card">
   <h2><span data-i18n="land.padTitle">Launch pad</span><button id="padClose" class="ghost" data-i18n="land.close">Close</button></h2>
   <div id="padGrid"></div>
 </div></div>
 <div id="mapPanel" class="hidden"><div class="card">
-  <h2><span data-i18n="land.mapTitle">Map</span><button id="mapClose" class="ghost" data-i18n="land.close">Close</button></h2>
+  <h2><span data-i18n="land.mapTitle">Map</span><button id="mapPlanet" class="ghost" data-i18n="land.plTitle">The planet</button><button id="mapClose" class="ghost" data-i18n="land.close">Close</button></h2>
   <canvas id="mapCanvas" width="480" height="480"></canvas>
   <div id="mapLegend"></div>
 </div></div>

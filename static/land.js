@@ -28,6 +28,7 @@ import { bloom } from "three/addons/tsl/display/BloomNode.js";
 import { fxaa } from "three/addons/tsl/display/FXAANode.js";
 import * as Wd from "./land-world.js";
 import * as Cosmos from "./land-cosmos.js";
+import * as Planet from "./land-planet.js";
 import { walk, trunkAt, TRUNK_R, restorePlace } from "./land-walk.js";
 import { snapBox, piecesFor, restOnGround } from "./land-snap.js";
 import { levelOps, earthNeeded, trunkIn, siteLayer, topFirst } from "./land-level.js";
@@ -1845,6 +1846,27 @@ function drawMap(m) {
   $("mapLegend").innerHTML = (tiles.length ? esc(T("mapArea", "{a} km² surveyed near you", { a: km2 })) : esc(T("mapEmpty", "Nothing surveyed here yet — carry the map and go: it draws the land you pass through.")))
     + "<br>" + key("#fff", T("mapYou", "you")) + key("#e8c547", T("mapTown", "town hall")) + key("#c0392b", T("mapBed", "your bed")) + key("#6fd3e8", T("mapCraft", "your crafts"));
 }
+// THE PLANET'S FACTS (operator 2026-11-11: "we need proper planetary physical properties like in Kerbal space"): what the
+// planet is as a body, every figure computed in land-planet.js from its radius, its gravity and cited constants
+function planetPanel(open) {
+  $("planetPanel").classList.toggle("hidden", !open);
+  if (!open) return;
+  if (document.pointerLockElement) document.exitPointerLock();
+  const f = Planet.facts(), km = (m) => (m / 1000).toLocaleString(undefined, { maximumFractionDigits: 1 }), n0 = (x) => Math.round(x).toLocaleString();
+  const exp = Math.floor(Math.log10(f.mass)), mant = (f.mass / 10 ** exp).toFixed(2);
+  const row = (k, d, v) => `<div>${esc(T(k, d, v))}</div>`;
+  $("planetGrid").innerHTML = row("plRadius", "Radius: {r} km", { r: km(f.radius) })
+    + row("plGravity", "Gravity at the surface: {g} m/s²", { g: f.g })
+    + row("plMass", "Mass: {m} × 10^{e} kg", { m: mant, e: exp })
+    + row("plDensity", "Density: {d} kg/m³ — {x} times Earth's: a small world with a strong pull is a very dense one", { d: n0(f.density), x: f.densityTimesEarth.toFixed(0) })
+    + row("plEscape", "Escape speed: {v} m/s", { v: n0(f.escape) })
+    + row("plDay", "A day: {m} minutes — the equator turns at {s} m/s", { m: f.day / 60, s: n0(f.equatorSpin) })
+    + row("plAir", "Air at sea level: {p} kPa, {t} °C, {r} kg/m³ — thinner with height, none above {top} km", { p: (f.sea.p / 1000).toFixed(1), t: (f.sea.T - 273.15).toFixed(0), r: f.sea.rho.toFixed(3), top: km(f.airTop) })
+    + row("plOrbit", "Lowest orbit, just above the air: {v} m/s, once every {t} minutes", { v: n0(f.orbitLow), t: (f.periodLow / 60).toFixed(1) })
+    + row("plSync", "Synchronous orbit, over the same ground all day: {h} km up", { h: km(f.syncHeight) })
+    + row("plSats", "Positioning satellites in orbit: {n}", { n: satCount })
+    + `<p class="note">${esc(T("plNote", "The air's top is the one number not from physics: a real atmosphere would not stay on so small a world, so here it ends, as in other space games."))}</p>`;
+}
 // THE WHOLE PLANET (#173: "the nav system should show the entire earth - and requires launching orbital real physical gps
 // satellites into orbit"): a craft whose nav unit has a satellite fix shows the planet entire — two hemispheres, the one
 // under the craft and the one opposite, each pixel the planet's own ground there (land-world.js column: its biome, sea
@@ -2723,7 +2745,7 @@ async function bench() {
 }
 const CMDS = {
   help: () => [["/help", T("cHelp", "this list")], ["/pos", T("cPos", "where you are")], ["/tp spawn | /tp bed", T("cTpTo", "go to the landing, or to your bed")],
-    ["/aim", T("cAim", "what you aim at, and where a block would go")], ["/prof", T("cProf", "the profiler: where each frame's time goes")], ["/dock", T("cDock", "set your landed craft down as pieces")], ["/map", T("cMap", "your map: the land you have surveyed (also M)")], ["/crafts", T("cCrafts", "where your crafts are: distance, bearing, height")], ["/handover <player>", T("cGive", "give your craft to a player — they take its controls")], ["/fly", T("cFly", "fly or walk")], ["/settings", T("cSettings", "your settings")], ["/bench", T("cBench", "measure this device and pick its graphics")], ["/tilt <yaw> <pitch> <roll>", T("cTilt", "turn the piece in hand, in degrees")], ["/set <name> <value>", T("cSet", "change one (e.g. /set fov 90)")],
+    ["/aim", T("cAim", "what you aim at, and where a block would go")], ["/prof", T("cProf", "the profiler: where each frame's time goes")], ["/dock", T("cDock", "set your landed craft down as pieces")], ["/planet", T("cPlanet", "the planet: its size, gravity, mass, orbits and air")], ["/map", T("cMap", "your map: the land you have surveyed (also M)")], ["/crafts", T("cCrafts", "where your crafts are: distance, bearing, height")], ["/handover <player>", T("cGive", "give your craft to a player — they take its controls")], ["/fly", T("cFly", "fly or walk")], ["/settings", T("cSettings", "your settings")], ["/bench", T("cBench", "measure this device and pick its graphics")], ["/tilt <yaw> <pitch> <roll>", T("cTilt", "turn the piece in hand, in degrees")], ["/set <name> <value>", T("cSet", "change one (e.g. /set fov 90)")],
     ["/clear", T("cClear", "clear this log")], ["…", T("cChat", "anything else is chat to the players around you")]].forEach(([c, d]) => conLine(c + " — " + d)),
   pos: () => conLine(`${T("cFace", "face")} ${P.face} · u ${Math.floor(P.u)} · v ${Math.floor(P.v)} · h ${P.h.toFixed(1)} · ${T("cPlot", "plot")} ${Wd.plotOf(P.face, Math.floor(P.u), Math.floor(P.v))}`),
   // /tp (#167): to the landing or to your own bed — nowhere else; going far is walking, flying, or a craft. Signed in, the
@@ -2763,6 +2785,8 @@ const CMDS = {
     if (flying) leaveCraft();
     net.send({ t: "dock", craft: id, req: ++net.req });
   },
+  // /planet: THE PLANET as a physical body (land-planet.js) — its size, gravity, mass, density, orbits and air
+  planet: () => planetPanel(true),
   // /map: THE SURVEYED MAP (#173) — also M, and the Map button a carried map puts under the HUD
   map: () => mapPanel(true),
   // /crafts: WHERE YOUR CRAFTS ARE (#171, operator: "i left the x somewhere") — each one's distance, bearing and height
@@ -2922,6 +2946,8 @@ function wireInput(canvas) {
   $("setOpen").onclick = () => { palette(false); settings(true); };
   $("setClose").onclick = () => settings(false);
   $("mapClose").onclick = () => mapPanel(false);
+  $("mapPlanet").onclick = () => { mapPanel(false); planetPanel(true); };
+  $("planetClose").onclick = () => planetPanel(false);
   $("padClose").onclick = () => { $("padPanel").classList.add("hidden"); pad = null; };
   $("mapBtn").onclick = () => mapPanel(true);
   $("wardOpen").onclick = () => { palette(false); wardrobe(true); };
