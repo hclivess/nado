@@ -257,9 +257,12 @@ export const BLOCKS = [
   // (Lodestone l.66) — which magnetises the needle of a compass. Drawn from photographs (land research ore/OBSERVED.md).
   { key: "magnetite", solid: true, tex: [54, 54, 54] },
   { key: "lodestone", solid: true, tex: [55, 55, 55] },
+  // the NAV UNIT (#173, doc/land-navigation.md 1.4): an instrument a craft carries — built into it like its seat, it
+  // tells the pilot the way to the town hall by dead reckoning (land-flight.js navSays)
+  { key: "navunit", solid: true, tex: [56, 56, 56] },
 ];
 export const B = Object.fromEntries(BLOCKS.map((b, i) => [b.key, i]));
-export const ATLAS_TILES = 56;              // tiles 0..55 (0 unused; the farm's blocks reuse earth's and leaves')
+export const ATLAS_TILES = 57;              // tiles 0..56 (0 unused; the farm's blocks reuse earth's and leaves')
 export const opaque = (id) => BLOCKS[id].solid && !BLOCKS[id].see;
 
 // ---- terrain ---------------------------------------------------------------------------------------------------

@@ -20,6 +20,23 @@
 //     already partly inside something (a piece was built through it) makes only moves that take no more of it in, so
 //     it can always fly out and never further in.
 
+// THE NAV UNIT (#173, doc/land-navigation.md 1.4): a craft holding one knows where it is by DEAD RECKONING — from a known
+// position (a fix), advanced by its measured motion (Dead reckoning l.7) — as an inertial navigation system does, and with
+// its fault: small errors in the measured acceleration integrate into a position error that keeps growing, ½·b·t² for an
+// accelerometer error b (Inertial navigation system l.30-31: the best, 10 micro-g, are 50 m out after 17 minutes). The
+// game's unit is ten times worse than the best — NAV_BIAS, a design choice — until satellites correct it (1.6).
+export const NAV_BIAS = 100e-6 * 9.8;                   // m/s²: 100 micro-g
+/** What the nav unit believes and says, t seconds after its last fix: its estimate of where the craft is (the true
+ *  place pushed along `dir`, a unit vector fixed at the fix, by ½·b·t²), the error it knows it may have, and the bearing
+ *  (degrees from north), distance and turn (degrees, + right) to `dest` [u, v] from that estimate for a craft facing yaw. */
+export function navSays(pose, t, dir, dest, b = NAV_BIAS) {
+  const err = 0.5 * b * t * t, u = pose[1] + dir[0] * err, v = pose[2] + dir[1] * err;
+  const du = dest[0] - u, dv = dest[1] - v, dist = Math.hypot(du, dv);
+  const bearing = ((Math.atan2(du, dv) * 180 / Math.PI) + 360) % 360, facing = ((pose[4] * 180 / Math.PI) % 360 + 360) % 360;
+  const turn = ((bearing - facing + 540) % 360) - 180;
+  return { est: [u, v], err, dist, bearing, turn };
+}
+
 /** The flight numbers a craft flies by, from the recipes' "flight" block. */
 export function flightOf(F, mass, thrust) {
   const acc = mass > 0 ? thrust / mass : 0;

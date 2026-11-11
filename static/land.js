@@ -32,7 +32,7 @@ import { walk, trunkAt, TRUNK_R, restorePlace } from "./land-walk.js";
 import { snapBox, piecesFor, restOnGround } from "./land-snap.js";
 import { levelOps, earthNeeded, trunkIn, siteLayer, topFirst } from "./land-level.js";
 import { groundWeights } from "./land-mesher.js";
-import { craftStep, flightOf, craftBody, bodyInside } from "./land-flight.js";
+import { craftStep, flightOf, craftBody, bodyInside, navSays } from "./land-flight.js";
 import { GFX_PRESETS, BENCH_ORDER, benchTarget, frameStats, holds, pickPreset, LADDER, governor, govStep } from "./land-gfx.js";
 import { NadoDapp, wireWallet, renderWallet, alertBar, notify, uiConfirm, uiPrompt, isAddress, esc, base, disp, rawToNado, nadoToRaw, randId, $ } from "./nadodapp.js";
 
@@ -106,6 +106,7 @@ const PAINT = {
   // caught on it. Given as the hex that STORES as the measured colour: THREE.Color takes a hex as sRGB and paintAtlas
   // writes its linear value, so "#596565" painted as #2c3434 — reviewed side by side with the photos, 2026-11-10.
   54: ["#9fa9a9", 0.12, "magnetite"], 55: ["#535338", 0.1, "lodestone"],
+  56: ["#3b3f45", 0.06, "navunit"],
 };
 function paintAtlas() {
   const cv = document.createElement("canvas");
@@ -154,6 +155,7 @@ function paintAtlas() {
       if (kind === "smelter" && y > 8 && y < 13 && x > 4 && x < 11) col = new THREE.Color("#ff7a2a").multiplyScalar(k * 1.2);   // its mouth, glowing
       if (kind === "assembler" && (x === 7 || y === 7)) col = new THREE.Color("#e8c547").multiplyScalar(k);                   // a hazard cross
       if (kind === "generator" && Math.hypot(x - 7.5, y - 7.5) < 3) col = new THREE.Color("#6fe39a").multiplyScalar(k * 1.1);  // a green lamp
+      if (kind === "navunit" && x > 2 && x < 13 && y > 3 && y < 11) col = new THREE.Color(Math.abs(x - 7.5) + Math.abs(y - 7) < 2 ? "#9cf2b4" : "#1f4a32").multiplyScalar(k);   // its display, a mark at its centre
       const a = kind === "glass" && !(x === 0 || y === 0 || x === TILE - 1 || y === TILE - 1) ? 0.25 : t === 6 ? 0.75 : 1;
       g.fillStyle = `rgba(${Math.min(255, col.r * 255) | 0},${Math.min(255, col.g * 255) | 0},${Math.min(255, col.b * 255) | 0},${a})`;
       g.fillRect(x0 + x, y0 + y, 1, 1);
@@ -603,6 +605,9 @@ function startFlying(c) {
   flying = { id: c.id, pose: c.pose.slice(), vel: [0, 0, 0], mass: c.mass, thrust: c.thrust, bottom, grounded: true,
     body: craftBody(c.pieces, Wd.boxAabb) };                              // what of it meets the world (#171)
   flying.bodyLow = Math.min(0, ...flying.body.map((p) => p[2]));
+  // a NAV UNIT among its pieces (#173): dead reckoning from here, the place it took off from — its fix — with an error
+  // that grows along a direction fixed at the fix (land-flight.js navSays)
+  if (c.pieces.some((b) => b[6] === B.navunit)) { const a = Math.random() * 2 * Math.PI; flying.nav = { t0: performance.now(), dir: [Math.sin(a), Math.cos(a)] }; }
   flying.bodyR = Math.max(1, ...flying.body.map((p) => Math.hypot(p[0], p[1])));
   P.yaw = c.pose[4]; P.fly = false;
   const k = crafts.get(c.id) || { pieces: c.pieces, mesh: craftMesh(c.pieces) };
@@ -1820,6 +1825,17 @@ function drawMap(m) {
     + "<br>" + key("#fff", T("mapYou", "you")) + key("#e8c547", T("mapTown", "town hall")) + key("#c0392b", T("mapBed", "your bed")) + key("#6fd3e8", T("mapCraft", "your crafts"));
 }
 // ---- HUD -------------------------------------------------------------------------------------------------------
+// THE NAV UNIT'S LINE (#173): the way to the town hall from where it believes the craft is, and how far out it may be. In
+// sight of the town hall (NAV_SIGHT m) the pilot sees where they are: a fix, the error back to nothing (a design choice).
+const NAV_SIGHT = 150;
+function navLine(c) {
+  const town = townSpawn();
+  if (c.pose[0] === town[0] && Math.hypot(town[1] - c.pose[1], town[2] - c.pose[2]) < NAV_SIGHT) c.nav.t0 = performance.now();
+  const n = navSays(c.pose, (performance.now() - c.nav.t0) / 1000, c.nav.dir, [town[1], town[2]]);
+  const d = n.dist >= 1000 ? (n.dist / 1000).toFixed(1) + " km" : Math.round(n.dist) + " m", a = Math.round(Math.abs(n.turn));
+  const turn = a < 5 ? T("navAhead", "ahead") : n.turn > 0 ? T("navRight", "{a}° right", { a }) : T("navLeft", "{a}° left", { a });
+  return T("navTo", "Nav: town hall {d}, bearing {b}° — {turn} · ±{e} m", { d, b: Math.round(n.bearing), turn, e: Math.round(n.err) });
+}
 // A COMPASS (#173, doc/land-navigation.md 1.2): carried, it says which way you face — the bearing clockwise from north and
 // its point of eight. North is +v on a face (land-world.js frameOf), the grid's north: no declination (a design choice).
 const POINTS = [["cpN", "N"], ["cpNE", "NE"], ["cpE", "E"], ["cpSE", "SE"], ["cpS", "S"], ["cpSW", "SW"], ["cpW", "W"], ["cpNW", "NW"]];
@@ -1838,6 +1854,7 @@ function hud() {
     const sp = Math.hypot(...flying.vel), up = flying.pose[3] + flying.bottom - groundAt(flying.pose[0], flying.pose[1], flying.pose[2]);
     $("hudPos").textContent = T("fHud", "Flying · {s} m/s · {a} m up · thrust {t} kN, weight {w} kN", { s: sp.toFixed(1), a: Math.max(0, up).toFixed(1), t: Math.round(flying.thrust), w: Math.round(flightOf(FLIGHT(), flying.mass, flying.thrust).weight) })
       + " · " + T("fEngines", "engines {e} %", { e: Math.round(100 * ((flying.engine && flying.engine.throttle) || 0)) });   // the thrust in use (#171)
+    if (flying.nav) $("hudPos").textContent += "\n" + navLine(flying);
   }
   if ((inv.items.compass || 0) > 0) $("hudPos").textContent += " · " + compassSays(P.yaw);   // a compass carried (#173)
   $("mapBtn").classList.toggle("hidden", !((inv.items.map || 0) > 0));                       // a map carried: its button (#173)

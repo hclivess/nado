@@ -17,7 +17,7 @@ import { readFileSync } from "node:fs";
 import { join, dirname } from "node:path";
 import { fileURLToPath } from "node:url";
 const ROOT = join(dirname(fileURLToPath(import.meta.url)), "..");
-const { craftStep, flightOf, craftBody, bodyHits, bodyInside } = await import(join(ROOT, "static", "land-flight.js"));
+const { craftStep, flightOf, craftBody, bodyHits, bodyInside, navSays, NAV_BIAS } = await import(join(ROOT, "static", "land-flight.js"));
 const Wd = await import(join(ROOT, "static", "land-world.js"));
 const F = JSON.parse(readFileSync(join(ROOT, "static", "land-recipes.json"), "utf8")).flight;
 let fails = 0;
@@ -153,6 +153,17 @@ for (let t = 0; t < 6; t += 0.05) craftStep(lb, { down: true }, 0.05, F, flat, (
 ok(lb.grounded && lb.pose[3] > 100.5 && lb.engine.throttle === 0, `brought down with its nose over a bank, it lands on it — grounded, engines idle (seat ${(lb.pose[3] - 100).toFixed(2)} m over the ground under it)`);
 for (let t = 0; t < 1; t += 0.05) craftStep(lb, { up: true }, 0.05, F, flat, (p) => bodyInside(body, p, bank));
 ok(!lb.grounded && lb.pose[3] > 102, "…and takes off from it again");
+
+// 7. THE NAV UNIT (#173): dead reckoning from a fix, its error growing as ½·b·t² (Inertial navigation system l.31)
+const at0 = navSays([0, 500, 500, 100, 0], 0, [1, 0], [600, 500]);
+ok(at0.err === 0 && Math.abs(at0.dist - 100) < 1e-9 && Math.abs(at0.bearing - 90) < 1e-9 && Math.abs(at0.turn - 90) < 1e-9,
+  "at its fix it knows where it is: the town hall 100 m east, bearing 90°, 90° right of a craft facing north");
+ok(Math.abs(navSays([0, 500, 500, 100, Math.PI], 0, [1, 0], [600, 500]).turn + 90) < 1e-9, "…facing south, it is 90° left");
+const best = navSays([0, 0, 0, 0, 0], 17 * 60, [1, 0], [1000, 0], 10e-6 * 9.8);
+ok(Math.abs(best.err - 50) < 1.5, `with the best accelerometers (10 micro-g) it is ~50 m out after 17 minutes, as its source says (${best.err.toFixed(1)} m)`);
+const fiveMin = navSays([0, 500, 500, 100, 0], 300, [0, 1], [500, 1500]);
+ok(Math.abs(fiveMin.err - 0.5 * NAV_BIAS * 300 * 300) < 1e-9 && fiveMin.err > 40 && Math.abs(fiveMin.est[1] - (500 + fiveMin.err)) < 1e-9,
+  `the game's unit (ten times worse) is ${fiveMin.err.toFixed(0)} m out after five minutes, and believes itself that far along its error`);
 
 if (fails) { console.log(`${fails} FAILURES`); process.exit(1); }
 console.log("ALL PASS");

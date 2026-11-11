@@ -446,6 +446,15 @@
   },
   "map": {
    "name": "Map"
+  },
+  "nav_unit": {
+   "name": "Nav unit",
+   "places": 78,
+   "unit": [
+    40,
+    30,
+    30
+   ]
   }
  },
  "tools": {
@@ -1281,6 +1290,16 @@
    "yields": [
     [
      "lodestone",
+     1
+    ]
+   ]
+  },
+  "78": {
+   "hard": 2.0,
+   "class": "pick",
+   "yields": [
+    [
+     "nav_unit",
      1
     ]
    ]
@@ -3792,6 +3811,36 @@
    "with": [
     "workbench"
    ]
+  },
+  {
+   "id": "nav_unit",
+   "makes": [
+    [
+     "nav_unit",
+     1
+    ]
+   ],
+   "uses": [
+    [
+     "circuit",
+     4
+    ],
+    [
+     "compass",
+     1
+    ],
+    [
+     "gear",
+     2
+    ],
+    [
+     "glass",
+     1
+    ]
+   ],
+   "with": [
+    "machine_shop"
+   ]
   }
  ],
  "wilderness_regrow_s": 900,
@@ -3817,7 +3866,8 @@
   },
   "unit_mass": {
    "65": 0.4,
-   "66": 0.15
+   "66": 0.15,
+   "78": 0.02
   }
  },
  "machines": {
