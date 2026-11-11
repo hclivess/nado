@@ -174,6 +174,11 @@ try {
   ok(Math.abs(area - tiles * 64 * 64 / 1e6) < 0.0006, `it shows the squares passed through carrying it — ${tiles} squares, ${area} km² — not the ones visited before it was made`);
   const px = await evl(T, "(() => { const c = document.getElementById('mapCanvas'), d = c.getContext('2d').getImageData(0, 0, c.width, c.height).data; let land = 0, blank = 0; for (let i = 0; i < d.length; i += 4) { if (d[i] === 0x1b && d[i + 1] === 0x24 && d[i + 2] === 0x30) blank++; else land++; } return [land, blank]; })()");
   ok(px[0] > 2000 && px[1] > px[0], `the surveyed squares are painted from the planet, the rest left blank (${px[0]} painted, ${px[1]} blank pixels)`);
+  // on a short phone screen the whole map and its legend are in view (the live 800 x 480 page cut the card off below)
+  await send(T, "Emulation.setDeviceMetricsOverride", { width: 800, height: 480, deviceScaleFactor: 1, mobile: true });
+  await sleep(800);
+  const fit = await evl(T, "(() => { const c = document.querySelector('#mapPanel .card').getBoundingClientRect(), l = document.getElementById('mapLegend').getBoundingClientRect(); return [Math.round(c.bottom), Math.round(l.bottom), innerHeight]; })()");
+  ok(fit[0] <= fit[2] && fit[1] <= fit[2], `on an 800 x 480 phone screen the whole map and its legend are in view (card to ${fit[0]}, legend to ${fit[1]}, screen ${fit[2]})`);
   await shot(T, "map");
   ok(errors.length === 0, "no page errors" + (errors.length ? ": " + errors.join(" | ") : ""));
 } catch (e) {
