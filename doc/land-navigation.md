@@ -82,6 +82,13 @@ Sources: `/root/land-research/rockets/` (INDEX.md).
   (*Liquid hydrogen l.50, l.108*); liquid oxygen is the oxidiser. Chain (stations: an electrolyser and a liquefier, both
   machines on a generator's power, as the factory machines run): water → hydrogen + oxygen (gas) → liquid hydrogen +
   liquid oxygen → a propellant tank's load, mixed 6.03 : 1 by mass.
+* **What it costs** (the derivation: land research rockets/ENERGY.md): a bucketful of water (10 L, a design choice) is
+  555 mol; electrolysed at a practical 1.5 V (*Electrolysis of water l.103*: 237.24 × 1.5 / 1.229 = 289.6 kJ/mol) it takes
+  160.7 MJ and gives 1.119 kg of hydrogen and 8.88 kg of oxygen; liquefying the hydrogen (10–13 kWh/kg, *Liquid hydrogen
+  l.77*) and the 6.75 kg of oxygen it burns with (0.70–1.75 kWh/kg: the minimum computed from NIST data, times the 4–10
+  real-to-ideal factor MIT's notes give for hydrogen — an extrapolation, labelled) brings it to **236.7 MJ for 7.87 kg of
+  propellant**. A coal (a 1 m³ block: 1.35 t × 24 MJ/kg × 38 % at the power station, *Energy density*, *Magnetite l.160*,
+  *Thermal power station l.40*) makes 12.3 GJ of electricity — **409 kg of propellant per coal**.
 * **The parts.** A rocket engine (a unit part), propellant tanks (their dry mass and what they hold), and a payload —
   built like any craft on a launch pad, its mass the sum of its pieces' (`land-flight.js`).
 * **The launch.** Use on the pad: the world server computes it — the rocket's Δv from its own masses and the engine's Isp,
