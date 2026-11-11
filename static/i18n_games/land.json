@@ -530,7 +530,11 @@
   "land.padWhySat": "No satellite to carry.",
   "land.padWhyProp": "No propellant in a chest beside the pad.",
   "land.padWhyHeavy": "Too heavy to leave the pad: its thrust does not beat its weight.",
-  "land.padWhyDv": "Not enough Δv to reach orbit — more propellant, or less mass."
+  "land.padWhyDv": "Not enough Δv to reach orbit — more propellant, or less mass.",
+  "land.navGps": "satellite fix ({n} in view)",
+  "land.navNoFix": "dead reckoning ({n} of 4 satellites in view)",
+  "land.mapPlanet": "The whole planet — this side and the far side — from your nav unit's satellite fix.",
+  "land.mapNoFix": "Your nav unit shows the whole planet once it has a satellite fix — four satellites in view. In view now: {n}."
  },
  "cs": {
   "land.notYours": "Pozemek {p} patří někomu jinému. Kupte si pozemek, nebo požádejte jeho vlastníka o pozvání.",
@@ -1063,7 +1067,11 @@
   "land.padWhySat": "Žádná družice k vynesení.",
   "land.padWhyProp": "V truhle u rampy není pohonná látka.",
   "land.padWhyHeavy": "Příliš těžká, aby se odlepila: tah nepřekoná váhu.",
-  "land.padWhyDv": "Málo Δv na oběžnou dráhu — víc pohonné látky, nebo méně hmotnosti."
+  "land.padWhyDv": "Málo Δv na oběžnou dráhu — víc pohonné látky, nebo méně hmotnosti.",
+  "land.navGps": "družicový fix ({n} viditelných)",
+  "land.navNoFix": "výpočet podle kurzu ({n} ze 4 družic viditelných)",
+  "land.mapPlanet": "Celá planeta — tato strana i odvrácená — z družicového fixu tvé navigační jednotky.",
+  "land.mapNoFix": "Navigační jednotka ukáže celou planetu, jakmile bude mít družicový fix — čtyři družice v dohledu. Teď viditelné: {n}."
  },
  "es": {
   "land.notYours": "La parcela {p} pertenece a otra persona. Compra una parcela o pide a su dueño que te invite.",
@@ -1596,7 +1604,11 @@
   "land.padWhySat": "No hay satélite que llevar.",
   "land.padWhyProp": "No hay propelente en un cofre junto a la plataforma.",
   "land.padWhyHeavy": "Demasiado pesado para despegar: su empuje no supera su peso.",
-  "land.padWhyDv": "No hay Δv suficiente para la órbita: más propelente o menos masa."
+  "land.padWhyDv": "No hay Δv suficiente para la órbita: más propelente o menos masa.",
+  "land.navGps": "posición por satélite ({n} a la vista)",
+  "land.navNoFix": "navegación a estima ({n} de 4 satélites a la vista)",
+  "land.mapPlanet": "Todo el planeta, este lado y el opuesto, según la posición por satélite de tu unidad de navegación.",
+  "land.mapNoFix": "Tu unidad de navegación muestra todo el planeta cuando tiene posición por satélite: cuatro satélites a la vista. A la vista ahora: {n}."
  },
  "pt": {
   "land.notYours": "O lote {p} pertence a outra pessoa. Compre um lote ou peça ao dono que convide você.",
@@ -2129,7 +2141,11 @@
   "land.padWhySat": "Não há satélite para levar.",
   "land.padWhyProp": "Não há propelente num baú ao lado da plataforma.",
   "land.padWhyHeavy": "Pesado demais para decolar: seu empuxo não supera seu peso.",
-  "land.padWhyDv": "Δv insuficiente para a órbita — mais propelente ou menos massa."
+  "land.padWhyDv": "Δv insuficiente para a órbita — mais propelente ou menos massa.",
+  "land.navGps": "posição por satélite ({n} à vista)",
+  "land.navNoFix": "navegação estimada ({n} de 4 satélites à vista)",
+  "land.mapPlanet": "O planeta inteiro — este lado e o oposto — pela posição por satélite da sua unidade de navegação.",
+  "land.mapNoFix": "Sua unidade de navegação mostra o planeta inteiro quando tem posição por satélite — quatro satélites à vista. À vista agora: {n}."
  },
  "fr": {
   "land.notYours": "La parcelle {p} appartient à quelqu'un d'autre. Achetez une parcelle ou demandez à son propriétaire de vous inviter.",
@@ -2662,7 +2678,11 @@
   "land.padWhySat": "Pas de satellite à emporter.",
   "land.padWhyProp": "Pas d'ergols dans un coffre près du pas de tir.",
   "land.padWhyHeavy": "Trop lourde pour décoller : sa poussée ne vainc pas son poids.",
-  "land.padWhyDv": "Pas assez de Δv pour l'orbite — plus d'ergols, ou moins de masse."
+  "land.padWhyDv": "Pas assez de Δv pour l'orbite — plus d'ergols, ou moins de masse.",
+  "land.navGps": "position satellite ({n} en vue)",
+  "land.navNoFix": "navigation à l'estime ({n} satellites en vue sur 4)",
+  "land.mapPlanet": "La planète entière — ce côté et l'autre — d'après la position satellite de ta centrale de navigation.",
+  "land.mapNoFix": "Ta centrale de navigation montre la planète entière dès qu'elle a une position satellite — quatre satellites en vue. En vue maintenant : {n}."
  },
  "de": {
   "land.notYours": "Grundstück {p} gehört jemand anderem. Kauf dir ein Grundstück oder bitte den Besitzer um eine Einladung.",
@@ -3195,7 +3215,11 @@
   "land.padWhySat": "Kein Satellit an Bord.",
   "land.padWhyProp": "Kein Treibstoff in einer Truhe neben der Rampe.",
   "land.padWhyHeavy": "Zu schwer zum Abheben: ihr Schub übertrifft ihr Gewicht nicht.",
-  "land.padWhyDv": "Zu wenig Δv für den Orbit — mehr Treibstoff oder weniger Masse."
+  "land.padWhyDv": "Zu wenig Δv für den Orbit — mehr Treibstoff oder weniger Masse.",
+  "land.navGps": "Satellitenposition ({n} in Sicht)",
+  "land.navNoFix": "Koppelnavigation ({n} von 4 Satelliten in Sicht)",
+  "land.mapPlanet": "Der ganze Planet — diese und die abgewandte Seite — aus der Satellitenposition deines Navigationsgeräts.",
+  "land.mapNoFix": "Dein Navigationsgerät zeigt den ganzen Planeten, sobald es eine Satellitenposition hat — vier Satelliten in Sicht. Jetzt in Sicht: {n}."
  },
  "it": {
   "land.notYours": "Il lotto {p} appartiene a qualcun altro. Compra un lotto o chiedi al proprietario di invitarti.",
@@ -3728,7 +3752,11 @@
   "land.padWhySat": "Nessun satellite da portare.",
   "land.padWhyProp": "Nessun propellente in un baule accanto alla rampa.",
   "land.padWhyHeavy": "Troppo pesante per decollare: la spinta non supera il peso.",
-  "land.padWhyDv": "Δv insufficiente per l'orbita: più propellente o meno massa."
+  "land.padWhyDv": "Δv insufficiente per l'orbita: più propellente o meno massa.",
+  "land.navGps": "posizione satellitare ({n} in vista)",
+  "land.navNoFix": "navigazione stimata ({n} di 4 satelliti in vista)",
+  "land.mapPlanet": "L'intero pianeta — questo lato e quello opposto — dalla posizione satellitare della tua unità di navigazione.",
+  "land.mapNoFix": "La tua unità di navigazione mostra l'intero pianeta quando ha la posizione satellitare: quattro satelliti in vista. In vista ora: {n}."
  },
  "ru": {
   "land.notYours": "Участок {p} принадлежит другому игроку. Купите участок или попросите владельца пригласить вас.",
@@ -4261,7 +4289,11 @@
   "land.padWhySat": "Нет спутника для вывода.",
   "land.padWhyProp": "В сундуке у площадки нет топлива.",
   "land.padWhyHeavy": "Слишком тяжёлая, чтобы взлететь: тяга не превышает вес.",
-  "land.padWhyDv": "Недостаточно Δv для орбиты — больше топлива или меньше массы."
+  "land.padWhyDv": "Недостаточно Δv для орбиты — больше топлива или меньше массы.",
+  "land.navGps": "спутниковая привязка ({n} в зоне видимости)",
+  "land.navNoFix": "счисление пути ({n} из 4 спутников видно)",
+  "land.mapPlanet": "Вся планета — эта сторона и обратная — по спутниковой привязке вашего навигационного блока.",
+  "land.mapNoFix": "Навигационный блок покажет всю планету, когда будет спутниковая привязка — четыре спутника в зоне видимости. Сейчас видно: {n}."
  },
  "zh": {
   "land.notYours": "地块 {p} 属于别人。购买一块地，或请它的所有者邀请你。",
@@ -4794,7 +4826,11 @@
   "land.padWhySat": "没有要搭载的卫星。",
   "land.padWhyProp": "发射台旁的箱子里没有推进剂。",
   "land.padWhyHeavy": "太重无法离开发射台：推力不及重量。",
-  "land.padWhyDv": "Δv 不足以入轨——增加推进剂或减轻质量。"
+  "land.padWhyDv": "Δv 不足以入轨——增加推进剂或减轻质量。",
+  "land.navGps": "卫星定位（可见 {n} 颗）",
+  "land.navNoFix": "航位推算（可见 {n}/4 颗卫星）",
+  "land.mapPlanet": "整个星球——这一面和背面——来自你的导航单元的卫星定位。",
+  "land.mapNoFix": "你的导航单元在获得卫星定位后会显示整个星球——需要可见 4 颗卫星。现在可见：{n}。"
  },
  "ja": {
   "land.notYours": "区画 {p} は他の人のものです。区画を購入するか、所有者に招待してもらいましょう。",
@@ -5327,7 +5363,11 @@
   "land.padWhySat": "運ぶ衛星がありません。",
   "land.padWhyProp": "発射台の横の箱に推進剤がありません。",
   "land.padWhyHeavy": "重すぎて発射台を離れられません：推力が重量を上回りません。",
-  "land.padWhyDv": "軌道に Δv が足りません — 推進剤を増やすか質量を減らしてください。"
+  "land.padWhyDv": "軌道に Δv が足りません — 推進剤を増やすか質量を減らしてください。",
+  "land.navGps": "衛星測位（{n} 機が見えています）",
+  "land.navNoFix": "推測航法（衛星 4 機中 {n} 機が見えています）",
+  "land.mapPlanet": "惑星全体 — こちら側と裏側 — 航法装置の衛星測位から。",
+  "land.mapNoFix": "航法装置は衛星測位が得られると惑星全体を表示します — 衛星 4 機が必要です。今見えている数：{n}。"
  },
  "ko": {
   "land.notYours": "구역 {p}은(는) 다른 사람의 땅입니다. 구역을 사거나 소유자에게 초대를 요청하세요.",
@@ -5860,7 +5900,11 @@
   "land.padWhySat": "실을 위성이 없습니다.",
   "land.padWhyProp": "발사대 옆 상자에 추진제가 없습니다.",
   "land.padWhyHeavy": "너무 무거워 이륙할 수 없습니다: 추력이 무게를 넘지 못합니다.",
-  "land.padWhyDv": "궤도에 Δv가 부족합니다 — 추진제를 늘리거나 질량을 줄이세요."
+  "land.padWhyDv": "궤도에 Δv가 부족합니다 — 추진제를 늘리거나 질량을 줄이세요.",
+  "land.navGps": "위성 위치 확인 ({n}개 보임)",
+  "land.navNoFix": "추측 항법 (위성 4개 중 {n}개 보임)",
+  "land.mapPlanet": "행성 전체 — 이쪽 면과 반대쪽 면 — 항법 장치의 위성 위치 확인으로.",
+  "land.mapNoFix": "항법 장치는 위성 위치를 확인하면 행성 전체를 보여 줍니다 — 위성 4개가 보여야 합니다. 지금 보이는 수: {n}."
  },
  "ar": {
   "land.notYours": "القطعة {p} ملك لشخص آخر. اشترِ قطعة، أو اطلب من مالكها أن يدعوك.",
@@ -6393,7 +6437,11 @@
   "land.padWhySat": "لا يوجد قمر صناعي لحمله.",
   "land.padWhyProp": "لا يوجد وقود في صندوق بجانب المنصة.",
   "land.padWhyHeavy": "ثقيل جدًا لمغادرة المنصة: دفعه لا يتغلب على وزنه.",
-  "land.padWhyDv": "Δv غير كافٍ للمدار — مزيد من الوقود أو كتلة أقل."
+  "land.padWhyDv": "Δv غير كافٍ للمدار — مزيد من الوقود أو كتلة أقل.",
+  "land.navGps": "تحديد بالأقمار ({n} مرئية)",
+  "land.navNoFix": "ملاحة تقديرية ({n} من 4 أقمار مرئية)",
+  "land.mapPlanet": "الكوكب كله — هذا الوجه والوجه البعيد — من تحديد الأقمار لوحدة الملاحة لديك.",
+  "land.mapNoFix": "تعرض وحدة الملاحة الكوكب كله حين تحصل على تحديد بالأقمار — أربعة أقمار مرئية. المرئي الآن: {n}."
  },
  "hi": {
   "land.notYours": "प्लॉट {p} किसी और का है। कोई प्लॉट खरीदें, या उसके मालिक से आपको आमंत्रित करने को कहें।",
@@ -6926,7 +6974,11 @@
   "land.padWhySat": "ले जाने के लिए कोई उपग्रह नहीं है।",
   "land.padWhyProp": "पैड के बगल के संदूक में प्रणोदक नहीं है।",
   "land.padWhyHeavy": "पैड छोड़ने के लिए बहुत भारी: इसका थ्रस्ट वज़न से अधिक नहीं।",
-  "land.padWhyDv": "कक्षा के लिए पर्याप्त Δv नहीं — अधिक प्रणोदक या कम द्रव्यमान।"
+  "land.padWhyDv": "कक्षा के लिए पर्याप्त Δv नहीं — अधिक प्रणोदक या कम द्रव्यमान।",
+  "land.navGps": "उपग्रह स्थिति ({n} दिख रहे)",
+  "land.navNoFix": "अनुमानित नेविगेशन (4 में से {n} उपग्रह दिख रहे)",
+  "land.mapPlanet": "पूरा ग्रह — यह ओर और दूर की ओर — आपकी नेविगेशन यूनिट की उपग्रह स्थिति से।",
+  "land.mapNoFix": "आपकी नेविगेशन यूनिट उपग्रह स्थिति मिलने पर पूरा ग्रह दिखाती है — चार उपग्रह दिखने चाहिए। अभी दिख रहे: {n}।"
  },
  "tr": {
   "land.notYours": "{p} arsası başkasına ait. Bir arsa satın al ya da sahibinden seni davet etmesini iste.",
@@ -7459,7 +7511,11 @@
   "land.padWhySat": "Taşınacak uydu yok.",
   "land.padWhyProp": "Rampanın yanındaki sandıkta yakıt yok.",
   "land.padWhyHeavy": "Rampadan kalkamayacak kadar ağır: itkisi ağırlığını yenemiyor.",
-  "land.padWhyDv": "Yörünge için yeterli Δv yok — daha fazla yakıt ya da daha az kütle."
+  "land.padWhyDv": "Yörünge için yeterli Δv yok — daha fazla yakıt ya da daha az kütle.",
+  "land.navGps": "uydu konumu ({n} görünüyor)",
+  "land.navNoFix": "parakete seyir (4 uydudan {n} tanesi görünüyor)",
+  "land.mapPlanet": "Gezegenin tamamı — bu yüzü ve uzak yüzü — seyir biriminin uydu konumundan.",
+  "land.mapNoFix": "Seyir birimin uydu konumu bulunca gezegenin tamamını gösterir — dört uydu görünmeli. Şu an görünen: {n}."
  },
  "id": {
   "land.notYours": "Petak {p} milik orang lain. Beli sebuah petak, atau minta pemiliknya mengundangmu.",
@@ -7992,7 +8048,11 @@
   "land.padWhySat": "Tidak ada satelit untuk dibawa.",
   "land.padWhyProp": "Tidak ada propelan di peti di samping landasan.",
   "land.padWhyHeavy": "Terlalu berat untuk lepas landas: daya dorongnya tidak melebihi beratnya.",
-  "land.padWhyDv": "Δv tidak cukup untuk orbit — tambah propelan atau kurangi massa."
+  "land.padWhyDv": "Δv tidak cukup untuk orbit — tambah propelan atau kurangi massa.",
+  "land.navGps": "posisi satelit ({n} terlihat)",
+  "land.navNoFix": "navigasi perkiraan ({n} dari 4 satelit terlihat)",
+  "land.mapPlanet": "Seluruh planet — sisi ini dan sisi jauh — dari posisi satelit unit navigasimu.",
+  "land.mapNoFix": "Unit navigasimu menampilkan seluruh planet setelah mendapat posisi satelit — empat satelit terlihat. Terlihat sekarang: {n}."
  },
  "vi": {
   "land.notYours": "Mảnh đất {p} thuộc về người khác. Hãy mua một mảnh, hoặc nhờ chủ của nó mời bạn.",
@@ -8525,7 +8585,11 @@
   "land.padWhySat": "Không có vệ tinh để mang.",
   "land.padWhyProp": "Không có nhiên liệu trong rương cạnh bệ.",
   "land.padWhyHeavy": "Quá nặng để rời bệ: lực đẩy không thắng trọng lượng.",
-  "land.padWhyDv": "Không đủ Δv để vào quỹ đạo — thêm nhiên liệu hoặc giảm khối lượng."
+  "land.padWhyDv": "Không đủ Δv để vào quỹ đạo — thêm nhiên liệu hoặc giảm khối lượng.",
+  "land.navGps": "định vị vệ tinh ({n} thấy được)",
+  "land.navNoFix": "dẫn đường ước tính ({n}/4 vệ tinh thấy được)",
+  "land.mapPlanet": "Toàn bộ hành tinh — mặt này và mặt kia — từ định vị vệ tinh của bộ dẫn đường.",
+  "land.mapNoFix": "Bộ dẫn đường hiển thị toàn bộ hành tinh khi có định vị vệ tinh — cần thấy bốn vệ tinh. Đang thấy: {n}."
  },
  "pl": {
   "land.notYours": "Działka {p} należy do kogoś innego. Kup działkę albo poproś jej właściciela o zaproszenie.",
@@ -9058,6 +9122,10 @@
   "land.padWhySat": "Brak satelity do wyniesienia.",
   "land.padWhyProp": "W skrzyni obok wyrzutni nie ma materiału pędnego.",
   "land.padWhyHeavy": "Za ciężka, by oderwać się od wyrzutni: ciąg nie przewyższa ciężaru.",
-  "land.padWhyDv": "Za mało Δv na orbitę — więcej materiału pędnego albo mniej masy."
+  "land.padWhyDv": "Za mało Δv na orbitę — więcej materiału pędnego albo mniej masy.",
+  "land.navGps": "pozycja satelitarna ({n} widocznych)",
+  "land.navNoFix": "nawigacja zliczeniowa ({n} z 4 satelitów widocznych)",
+  "land.mapPlanet": "Cała planeta — ta strona i druga — z pozycji satelitarnej twojego modułu nawigacyjnego.",
+  "land.mapNoFix": "Moduł nawigacyjny pokaże całą planetę, gdy uzyska pozycję satelitarną — cztery satelity w zasięgu. Teraz widocznych: {n}."
  }
 }

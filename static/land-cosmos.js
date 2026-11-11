@@ -61,3 +61,36 @@ export function skyRotation(planetId = 0, t = Date.now() / 1000 - EPOCH, sysId =
   const m = planetToInertial(planetOf(SYSTEMS[sysId], planetId), t);
   return [m[0], m[3], m[6], m[1], m[4], m[7], m[2], m[5], m[8]];      // the transpose
 }
+
+// ---- POSITIONING SATELLITES (#173, doc/land-navigation.md 1.6) ---------------------------------------------------------
+// A satellite circles the planet's centre in a plane that does not spin with it: radius ORBIT.r, period ORBIT.T (two
+// orbits a day, as GPS's two a sidereal day — Global Positioning System l.232), its plane inclined ORBIT.incl_deg to the
+// equator, the constellation laid out as GPS's: six planes 60° apart round the equator, four satellites to each (l.230).
+// The n-th launched takes the n-th slot: plane n % 6, place in it ⌊n / 6⌋ % 4, a quarter-orbit apart, each plane a
+// twenty-fourth of an orbit on from the last (evenly — GPS's own spacing is uneven, l.230). Pure functions of n and time,
+// so every page and the world server agree where each one is. In the planet's frame (land-world's: poles on ±y) only the
+// spin matters — the tilt is the same for the orbit and the planet — so a satellite's place there is its orbit's place
+// turned back by the spin: Sᵀ·p.
+export const ORBIT = { r: 135520, T: 1200, incl_deg: 55, planes: 6, per_plane: 4 };   // land-recipes.json "rocket".orbit
+/** Satellite n's place in planet 0's frame (metres from its centre) at wall-clock second t (since EPOCH). */
+export function satPosition(n, t, O = ORBIT, planet = SYSTEMS[0].planets[0]) {
+  const k = n % O.planes, j = Math.floor(n / O.planes) % O.per_plane, slots = O.planes * O.per_plane;
+  const node = (2 * Math.PI * k) / O.planes, inc = (O.incl_deg * Math.PI) / 180;
+  const u = (2 * Math.PI * t) / O.T + (2 * Math.PI * j) / O.per_plane + (2 * Math.PI * k) / slots;
+  const N = [Math.cos(node), 0, Math.sin(node)];                                           // the ascending node
+  const Q = [-Math.sin(node) * Math.cos(inc), Math.sin(inc), Math.cos(node) * Math.cos(inc)];   // 90° on in the plane
+  const p = [0, 1, 2].map((i) => O.r * (Math.cos(u) * N[i] + Math.sin(u) * Q[i]));
+  const th = (2 * Math.PI * t) / planet.day, c = Math.cos(th), s = Math.sin(th);
+  return [c * p[0] - s * p[2], p[1], s * p[0] + c * p[2]];                                   // Sᵀ·p (S: spin about y)
+}
+/** The satellites above the horizon of a point at `at` (metres, planet frame): those whose direction from it is above
+ *  its local horizontal plane — no elevation mask (a design choice; GPS counts those "with a clear horizon", l.234). */
+export function satsInView(count, at, t, O = ORBIT) {
+  const r = Math.hypot(...at), up = at.map((x) => x / r), out = [];
+  for (let n = 0; n < count; n++) {
+    const p = satPosition(n, t, O), d = [p[0] - at[0], p[1] - at[1], p[2] - at[2]];
+    if (d[0] * up[0] + d[1] * up[1] + d[2] * up[2] > 0) out.push(n);
+  }
+  return out;
+}
+export const FIX_SATS = 4;   // three position coordinates and the receiver's clock error (Global Positioning System l.187, l.216)

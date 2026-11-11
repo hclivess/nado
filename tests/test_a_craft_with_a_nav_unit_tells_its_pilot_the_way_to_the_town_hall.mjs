@@ -5,7 +5,9 @@
  *   1. a nav unit is made of circuits, a compass, gears and glass at the machine shop, and is a craft part (a unit piece);
  *   2. built into a craft, at the controls the HUD gives the way to the town hall — distance and bearing from where the
  *      unit believes the craft is, which way to turn, and how far out it may be: nothing at its fix (take-off);
- *   3. the distance it gives is the real distance to the town hall's door (land.js townSpawn) within its error.
+ *   3. the distance it gives is the real distance to the town hall's door (land.js townSpawn) within its error;
+ *   4. with 24 satellites in orbit it says whether it has a satellite fix as the orbits give it for that place and moment,
+ *      and with a fix the Map shows the whole planet (#173 rung 5).
  *
  * Run: node tests/test_a_craft_with_a_nav_unit_tells_its_pilot_the_way_to_the_town_hall.mjs   (needs chrome, python3)
  */
@@ -171,6 +173,27 @@ try {
   const cp = (await getJ(`/land/api/crafts?face=${q.face}&u=${su}&v=${sv}`)).crafts[0].pose;
   const real = Math.hypot(TOWN.u0 + 8.5 - cp[1], TOWN.v0 + 1.5 - cp[2]);
   ok(m && Math.abs(dist - real) <= (m[2] === "km" ? 60 : 2) + Number(m[5]), `…and the distance it gives is the real one to the town hall's door (${m && m[1]} ${m && m[2]}; measured ${real.toFixed(0)} m)`);
+  // 4. SATELLITES (#173, rung 5): 24 in orbit — the nav unit says whether it has a fix exactly as the orbits give it for
+  // this place and moment (four in view), and with one the Map shows the whole planet; without one it says why
+  await getJ("/fixture/sats?n=24");
+  await evl(B, "location.reload(), true");                                  // the page asks how many are up as it starts
+  await until(B, "/Nav: town hall/.test(document.getElementById('hudPos').textContent)", 30000);
+  await sleep(2000);
+  const C = await import(join(ROOT, "static", "land-cosmos.js"));
+  const cp2 = (await getJ(`/land/api/crafts?face=${q.face}&u=${su}&v=${sv}`)).crafts[0].pose;
+  const view = C.satsInView(24, Wd.posOf(cp2[0], cp2[1], cp2[2], cp2[3]), Date.now() / 1000 - C.EPOCH).length;
+  const hud2 = await evl(B, "document.getElementById('hudPos').textContent");
+  ok(view >= 4 ? new RegExp(`satellite fix \\(${view} in view\\)`).test(hud2) : new RegExp(`dead reckoning \\(${view} of 4`).test(hud2),
+    `with 24 satellites up, the nav unit says what the orbits give here and now (${view} in view): ` + hud2.split("\n")[1]);
+  await evl(B, "document.getElementById('mapBtn').click(), true");
+  if (view >= 4) {
+    ok(await until(B, "/The whole planet/.test(document.getElementById('mapLegend').textContent)", 15000), "…with a fix the Map shows the whole planet");
+    const px = await evl(B, "(() => { const c = document.getElementById('mapCanvas'), g = c.getContext('2d'), h = c.width / 2; const cnt = (x0) => { const d = g.getImageData(x0, 0, h, c.height).data; let n = 0; for (let i = 0; i < d.length; i += 4) if (!(d[i] === 0x1b && d[i + 1] === 0x24 && d[i + 2] === 0x30)) n++; return n; }; return [cnt(0), cnt(h)]; })()");
+    ok(px[0] > 20000 && px[1] > 20000, `…both hemispheres painted from the planet's ground (${px[0]} and ${px[1]} pixels)`);
+  } else {
+    ok(await until(B, "/four satellites in view/.test(document.getElementById('mapLegend').textContent)", 15000), "…without a fix the Map says it needs four satellites in view");
+  }
+  await shot(B, "planet");
   ok(errors.length === 0, "no page errors" + (errors.length ? ": " + errors.join(" | ") : ""));
 } catch (e) {
   ok(false, "harness: " + (e && e.message || e) + "\n" + fxOut.slice(-1500));

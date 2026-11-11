@@ -1788,6 +1788,13 @@ const MAP_COL = { grass: [106, 154, 74], forest: [63, 107, 53], desert: [216, 19
 function mapPanel(open) {
   $("mapPanel").classList.toggle("hidden", !open);
   if (!open) return;
+  if (flying && flying.nav && flying.nav.fix) return drawPlanet();          // the nav unit with a fix: the whole planet
+  if (flying && flying.nav && !((inv.items.map || 0) > 0)) {                 // …without one, it says what it lacks
+    clearMap();
+    $("mapLegend").textContent = T("mapNoFix", "Your nav unit shows the whole planet once it has a satellite fix — four satellites in view. In view now: {n}.",
+      { n: Cosmos.satsInView(satCount, Wd.posOf(flying.pose[0], flying.pose[1], flying.pose[2], flying.pose[3]), Date.now() / 1000 - Cosmos.EPOCH).length });
+    return;
+  }
   if (!((inv.items.map || 0) > 0)) { $("mapLegend").textContent = T("mapNone", "You have no map. Paper and ink at the workbench make one."); clearMap(); return; }
   $("mapLegend").textContent = T("mapLoading", "Unrolling the map…");
   net.send({ t: "survey", req: ++net.req });
@@ -1838,17 +1845,56 @@ function drawMap(m) {
   $("mapLegend").innerHTML = (tiles.length ? esc(T("mapArea", "{a} km² surveyed near you", { a: km2 })) : esc(T("mapEmpty", "Nothing surveyed here yet — carry the map and go: it draws the land you pass through.")))
     + "<br>" + key("#fff", T("mapYou", "you")) + key("#e8c547", T("mapTown", "town hall")) + key("#c0392b", T("mapBed", "your bed")) + key("#6fd3e8", T("mapCraft", "your crafts"));
 }
+// THE WHOLE PLANET (#173: "the nav system should show the entire earth - and requires launching orbital real physical gps
+// satellites into orbit"): a craft whose nav unit has a satellite fix shows the planet entire — two hemispheres, the one
+// under the craft and the one opposite, each pixel the planet's own ground there (land-world.js column: its biome, sea
+// below SEA), with the craft and the town hall on it.
+function drawPlanet() {
+  const c = $("mapCanvas"), g = c.getContext("2d"), N = c.width, R = N / 4 - 6, step = 3;
+  clearMap();
+  const fr = Wd.frameOf(flying.pose[0], flying.pose[1], flying.pose[2]);
+  const disc = (cx, sign) => {
+    for (let py = -R; py < R; py += step) for (let px = -R; px < R; px += step) {
+      const x = px / R, y = -py / R, z2 = 1 - x * x - y * y;
+      if (z2 <= 0) continue;
+      const z = Math.sqrt(z2), d = [0, 1, 2].map((i) => sign * (fr.up[i] * z) + fr.east[i] * x * sign + fr.north[i] * y);
+      const q = Wd.gridOf(d), col = Wd.column(q.face, Math.max(0, Math.min(Wd.W - 1, Math.floor(q.u))), Math.max(0, Math.min(Wd.W - 1, Math.floor(q.v))));
+      const sea = col.top < Wd.SEA, k = sea ? 1 : Math.max(0.7, Math.min(1.3, 0.85 + (col.top - Wd.SEA) / 160));
+      const rgb = sea ? [59, 111, 168] : (MAP_COL[col.biome] || MAP_COL.grass).map((v) => Math.min(255, Math.round(v * k * (0.55 + 0.45 * z))));
+      g.fillStyle = `rgb(${rgb[0]},${rgb[1]},${rgb[2]})`;
+      g.fillRect(cx + px, N / 2 + py, step, step);
+    }
+  };
+  disc(N / 4, 1); disc((3 * N) / 4, -1);
+  // where a planet point falls: on the near disc or the far one (the far one seen from the other side, mirrored)
+  const place = (face, u, v, fill) => {
+    const p = Wd.posOf(face, u, v, 0), r = Math.hypot(...p), d = p.map((x) => x / r);
+    const z = d[0] * fr.up[0] + d[1] * fr.up[1] + d[2] * fr.up[2], x = d[0] * fr.east[0] + d[1] * fr.east[1] + d[2] * fr.east[2], y = d[0] * fr.north[0] + d[1] * fr.north[1] + d[2] * fr.north[2];
+    const cx = z >= 0 ? N / 4 + x * R : (3 * N) / 4 - x * R, cy = N / 2 - y * R;
+    g.fillStyle = fill; g.strokeStyle = "#000"; g.lineWidth = 1.5; g.beginPath(); g.arc(cx, cy, 6, 0, 2 * Math.PI); g.fill(); g.stroke();
+  };
+  const town = townSpawn();
+  place(town[0], town[1], town[2], "#e8c547");
+  place(flying.pose[0], flying.pose[1], flying.pose[2], "#fff");
+  const key = (fill, label) => `<b style="background:${fill}"></b>${esc(label)}`;
+  $("mapLegend").innerHTML = esc(T("mapPlanet", "The whole planet — this side and the far side — from your nav unit's satellite fix.")) + "<br>" + key("#fff", T("mapYou", "you")) + key("#e8c547", T("mapTown", "town hall"));
+}
 // ---- HUD -------------------------------------------------------------------------------------------------------
 // THE NAV UNIT'S LINE (#173): the way to the town hall from where it believes the craft is, and how far out it may be. In
 // sight of the town hall (NAV_SIGHT m) the pilot sees where they are: a fix, the error back to nothing (a design choice).
 const NAV_SIGHT = 150;
 function navLine(c) {
   const town = townSpawn();
-  if (c.pose[0] === town[0] && Math.hypot(town[1] - c.pose[1], town[2] - c.pose[2]) < NAV_SIGHT) c.nav.t0 = performance.now();
+  // A SATELLITE FIX (#173, doc/land-navigation.md 1.6): four in view of the craft give its place outright (three
+  // coordinates and the receiver's clock, Global Positioning System l.187, l.216) — dead reckoning's error is gone
+  const view = Cosmos.satsInView(satCount, Wd.posOf(c.pose[0], c.pose[1], c.pose[2], c.pose[3]), Date.now() / 1000 - Cosmos.EPOCH).length;
+  c.nav.fix = view >= Cosmos.FIX_SATS;
+  if (c.nav.fix || (c.pose[0] === town[0] && Math.hypot(town[1] - c.pose[1], town[2] - c.pose[2]) < NAV_SIGHT)) c.nav.t0 = performance.now();
   const n = navSays(c.pose, (performance.now() - c.nav.t0) / 1000, c.nav.dir, [town[1], town[2]]);
   const d = n.dist >= 1000 ? (n.dist / 1000).toFixed(1) + " km" : Math.round(n.dist) + " m", a = Math.round(Math.abs(n.turn));
   const turn = a < 5 ? T("navAhead", "ahead") : n.turn > 0 ? T("navRight", "{a}° right", { a }) : T("navLeft", "{a}° left", { a });
-  return T("navTo", "Nav: town hall {d}, bearing {b}° — {turn} · ±{e} m", { d, b: Math.round(n.bearing), turn, e: Math.round(n.err) });
+  return T("navTo", "Nav: town hall {d}, bearing {b}° — {turn} · ±{e} m", { d, b: Math.round(n.bearing), turn, e: Math.round(n.err) })
+    + " · " + (c.nav.fix ? T("navGps", "satellite fix ({n} in view)", { n: view }) : T("navNoFix", "dead reckoning ({n} of 4 satellites in view)", { n: view }));
 }
 // A COMPASS (#173, doc/land-navigation.md 1.2): carried, it says which way you face — the bearing clockwise from north and
 // its point of eight. North is +v on a face (land-world.js frameOf), the grid's north: no declination (a design choice).
@@ -1871,7 +1917,7 @@ function hud() {
     if (flying.nav) $("hudPos").textContent += "\n" + navLine(flying);
   }
   if ((inv.items.compass || 0) > 0) $("hudPos").textContent += " · " + compassSays(P.yaw);   // a compass carried (#173)
-  $("mapBtn").classList.toggle("hidden", !((inv.items.map || 0) > 0));                       // a map carried: its button (#173)
+  $("mapBtn").classList.toggle("hidden", !((inv.items.map || 0) > 0 || (flying && flying.nav)));   // a map carried, or a nav unit flown: its button (#173)
   const st = $("hudPlot");
   // the owner is looked up once the plot's title is KNOWN (titles load after the first frames), once per refresh
   if (t && !mine.has(plot) && !t.asked) { t.asked = true; holderOf(plot).then(hud); }
@@ -3203,7 +3249,7 @@ function buildPipeline() {
 // horizon's colour so the land melts into the sky instead of ending at a wall.
 const SKY = { zenith: new THREE.Color(0x2f6fc8), horizon: new THREE.Color(0xb7d6ef), nightZ: new THREE.Color(0x03060d),
   nightH: new THREE.Color(0x0b1424), moonFill: new THREE.Color(0x4a5f8a), dusk: new THREE.Color(0xf0874a), duskZ: new THREE.Color(0x29386d), white: new THREE.Color(0xfff8ee) };
-let moon, dome, sunDisc, sunGlow, sunHalo, stars, skyAt = 0;
+let moon, dome, sunDisc, sunGlow, sunHalo, stars, skyAt = 0, satPts = null;
 const SKY_R = 3200;                          // the dome's radius: everything celestial is drawn at its true ANGLE on it
 const smooth01 = (a, b, x) => { const t = Math.max(0, Math.min(1, (x - a) / (b - a))); return t * t * (3 - 2 * t); };
 function glowTexture() {
@@ -3239,6 +3285,33 @@ function buildSky() {
   stars = new THREE.Points(g, new THREE.PointsMaterial({ color: 0xffffff, size: 1.6, sizeAttenuation: false, transparent: true, fog: false, depthWrite: false }));
   stars.renderOrder = -1;
   scene.add(stars);
+  // THE POSITIONING SATELLITES (#173): points crossing the sky where they really are (land-cosmos.js satPosition), seen
+  // as the sky darkens, as the stars are
+  const sg = new THREE.BufferGeometry(); sg.setAttribute("position", new THREE.BufferAttribute(new Float32Array(3 * 64), 3));
+  satPts = new THREE.Points(sg, new THREE.PointsMaterial({ color: 0xfff4d6, size: 3.2, sizeAttenuation: false, transparent: true, fog: false, depthWrite: false }));
+  satPts.renderOrder = -1; satPts.frustumCulled = false;
+  scene.add(satPts);
+}
+// how many satellites are in orbit (the world server's GET /land/api/sats), asked again every minute
+let satCount = 0, satAt = 0;
+function satsTick() {
+  if (performance.now() - satAt < 60000 && satAt) return;
+  satAt = performance.now();
+  fetch("/land/api/sats", { credentials: "same-origin" }).then((r) => r.json()).then((j) => { satCount = Math.min(64, (j.sats || []).length); }).catch(() => {});
+}
+/** Where the satellites in orbit are seen from eye `at` (metres, planet frame): the sky's points; and how many are up. */
+function satSky(at, opacity) {
+  satsTick();
+  if (!satPts) return;
+  const t = Date.now() / 1000 - Cosmos.EPOCH, pos = satPts.geometry.attributes.position, r = Math.hypot(...at), up = at.map((x) => x / r);
+  let k = 0;
+  for (let n = 0; n < satCount; n++) {
+    const p = Cosmos.satPosition(n, t), d = [p[0] - at[0], p[1] - at[1], p[2] - at[2]], l = Math.hypot(...d);
+    if ((d[0] * up[0] + d[1] * up[1] + d[2] * up[2]) / l <= 0) continue;                    // below this horizon
+    pos.setXYZ(k++, (d[0] / l) * SKY_R * 0.97, (d[1] / l) * SKY_R * 0.97, (d[2] / l) * SKY_R * 0.97);
+  }
+  satPts.geometry.setDrawRange(0, k); pos.needsUpdate = true;
+  satPts.material.opacity = opacity;
 }
 function sky(fr) {
   const star = Cosmos.sunFrom(Wd.PLANET), sd = new THREE.Vector3(...star.dir), up = new THREE.Vector3(fr.up[0], fr.up[1], fr.up[2]);
@@ -3275,6 +3348,7 @@ function sky(fr) {
   sunHalo.position.copy(sd).multiplyScalar(SKY_R * 0.98); sunHalo.scale.setScalar(rs * 60);
   sunGlow.material.opacity = 1; sunHalo.material.opacity = 0.35 + 0.25 * day;
   stars.material.opacity = 1 - smooth01(-0.15, 0.05, elev);
+  satSky(Wd.posOf(P.face, P.u, P.v, P.h + EYE), 1 - smooth01(-0.05, 0.12, elev));          // lit by a sun just below the horizon
   const R = Cosmos.skyRotation(Wd.PLANET);                  // the fixed stars, carried into the turning planet's frame
   stars.matrixAutoUpdate = false;
   stars.matrix.set(R[0], R[1], R[2], 0, R[3], R[4], R[5], 0, R[6], R[7], R[8], 0, 0, 0, 0, 1);
