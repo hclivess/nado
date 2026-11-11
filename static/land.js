@@ -108,6 +108,7 @@ const PAINT = {
   54: ["#9fa9a9", 0.12, "magnetite"], 55: ["#535338", 0.1, "lodestone"],
   56: ["#3b3f45", 0.06, "navunit"],
   57: ["#8a96a3", 0.06, "electrolyser"], 58: ["#d6dde4", 0.05, "liquefier"],
+  59: ["#3a3d42", 0.08, "rocketengine"], 60: ["#e8e4dc", 0.05, "proptank"], 61: ["#c9b26a", 0.06, "satellite"], 62: ["#7c7f84", 0.1, "launchpad"],
 };
 function paintAtlas() {
   const cv = document.createElement("canvas");
@@ -158,6 +159,10 @@ function paintAtlas() {
       if (kind === "generator" && Math.hypot(x - 7.5, y - 7.5) < 3) col = new THREE.Color("#6fe39a").multiplyScalar(k * 1.1);  // a green lamp
       if (kind === "electrolyser" && (x === 4 || x === 11) && y > 2 && y < 13) col = new THREE.Color("#c87533").multiplyScalar(k);   // two copper electrodes
       if (kind === "liquefier" && (y === 4 || y === 8 || y === 12) && x > 1 && x < 14) col = new THREE.Color("#7fb8e0").multiplyScalar(k);   // frosted coils
+      if (kind === "rocketengine" && Math.hypot(x - 7.5, y - 9) < 4.5) col = new THREE.Color(Math.hypot(x - 7.5, y - 9) < 2.5 ? "#2a2a2a" : "#9a6a44").multiplyScalar(k);   // its bell
+      if (kind === "proptank" && y % 5 === 0) col = new THREE.Color("#c8c2b6").multiplyScalar(k);                     // its weld seams
+      if (kind === "satellite" && (x < 4 || x > 11)) col = new THREE.Color("#2a3f7a").multiplyScalar(k * (y % 3 ? 1 : 0.7));   // solar panels
+      if (kind === "launchpad" && (x + y) % 6 === 0) col = new THREE.Color("#e8c547").multiplyScalar(k);                // hazard stripes
       if (kind === "navunit" && x > 2 && x < 13 && y > 3 && y < 11) col = new THREE.Color(Math.abs(x - 7.5) + Math.abs(y - 7) < 2 ? "#9cf2b4" : "#1f4a32").multiplyScalar(k);   // its display, a mark at its centre
       const a = kind === "glass" && !(x === 0 || y === 0 || x === TILE - 1 || y === TILE - 1) ? 0.25 : t === 6 ? 0.75 : 1;
       g.fillStyle = `rgba(${Math.min(255, col.r * 255) | 0},${Math.min(255, col.g * 255) | 0},${Math.min(255, col.b * 255) | 0},${a})`;
@@ -1315,6 +1320,12 @@ function connect() {
       else if (m.op === "board" && m.craft) startFlying(m.craft);
       else if (m.op === "dock") { notify(T("fDocked", "Set down as pieces.")); }
       else if (m.op === "handover") { const w = String(m.to || ""); conLine(T("fGave", "Given to {w}. It is theirs, and they are at its controls.", { w: w.slice(0, 6) + "…" + w.slice(-5) })); }
+    } else if (m.t === "pad") {
+      if (pad && m.plot === pad.plot) renderPad(m);
+    } else if (m.t === "launched") {
+      if (m.error) { notify(padWhy(m.error), 6000); if (pad) net.send({ t: "pad", plot: pad.plot, box: pad.box, req: ++net.req }); return; }
+      notify(m.num && m.num.ok ? T("padOrbit", "In orbit! Satellites in the constellation: {n}.", { n: m.num.in_orbit }) : T("padSpent", "It did not reach orbit — the rocket is spent."), 8000);
+      $("padPanel").classList.add("hidden"); pad = null;
     } else if (m.t === "survey") {
       drawMap(m);
     } else if (m.t === "mycrafts") {
@@ -2192,7 +2203,7 @@ function useDoor() {
   if (a && a.box && CRAFT_SKIN.has(a.box.b[6])) { const st = craftSeat(a.box.plot, a.box.b); if (st) return board({ plot: a.box.plot, box: st }); }
   { const n = npcAimed(); if (n) return openNpc(n); }                          // Use on a person: talk to them (#165)
   if (a && !a.box && a.hit && net.me && tillAt(a.hit)) return;                 // Use on the ground with a hoe: till it
-  if (!(a && a.box && ([B.door, B.chest, B.generator, B.well, B.bed].includes(a.box.b[6]) || isMachine(a.box.b[6])))) { const mine = nearMyCraft(); if (mine) return board({ craft: mine }); }
+  if (!(a && a.box && ([B.door, B.chest, B.generator, B.well, B.bed, B.launchpad].includes(a.box.b[6]) || isMachine(a.box.b[6])))) { const mine = nearMyCraft(); if (mine) return board({ craft: mine }); }
   if (a && a.box && a.box.b[6] === B.chest) return openChest(a.box);           // Q uses what you aim at: a door or a chest
   if (a && a.box && a.box.b[6] === B.bed) {                                    // a bed: wake here after a death (#162)
     if (!net.online || !net.me) return notify(T("signInFirst", "Sign in first."));
@@ -2204,6 +2215,7 @@ function useDoor() {
     return net.send({ t: "well", plot: a.box.plot, box: a.box.b, req: ++net.req });
   }
   if (a && a.box && (a.box.b[6] === B.generator || isMachine(a.box.b[6]))) return openMachine(a.box);   // a machine
+  if (a && a.box && a.box.b[6] === B.launchpad) return openPad(a.box);                                    // a launch pad (#173)
   if (!a || !a.box || a.box.b[6] !== B.door) return notify(T("noUse", "Aim at a door or a chest to use it."));
   if (!net.online || !net.me) return notify(T("signInFirst", "Sign in first."));
   net.send({ t: "door", plot: a.box.plot, box: a.box.b, req: ++net.req });
@@ -2230,6 +2242,40 @@ function machineStatus(st) {
   if (st.startsWith("needs ")) { const name = st.slice(6), id = Object.keys(RULES.items).find((k) => RULES.items[k].name.toLowerCase() === name); return T("mNeeds", "Needs {i} in the chest beside it.", { i: id ? nameOf(id) : name }); }
   if (st.startsWith("no power")) return T("mNoPower", "No power — a generator with coal or charcoal beside it, within {m} m.", { m: RULES.machines.power_reach });
   return st;
+}
+// ---- A LAUNCH PAD (#173, doc/land-navigation.md 1.5): the rocket built on it, its numbers as the world server computes them
+// (land_server.py launch_numbers — the rocket equation from its own masses, less gravity loss, against the orbit's Δv), and
+// the launch. Launched without the Δv for orbit, it is spent: the panel says so first and asks.
+let pad = null;
+function openPad(bx) {
+  if (!net.online || !net.me) return notify(T("signInFirst", "Sign in first."));
+  pad = { plot: bx.plot, box: bx.b };
+  if (document.pointerLockElement) document.exitPointerLock();
+  $("padGrid").textContent = "…";
+  $("padPanel").classList.remove("hidden");
+  net.send({ t: "pad", plot: pad.plot, box: pad.box, req: ++net.req });
+}
+const PAD_WHY = { "no rocket engine on the pad": ["padWhyEngine", "No rocket engine on the pad."], "no propellant tank": ["padWhyTank", "No propellant tank."],
+  "no satellite to carry": ["padWhySat", "No satellite to carry."], "no propellant in a chest beside the pad": ["padWhyProp", "No propellant in a chest beside the pad."],
+  "too heavy to leave the pad: its thrust does not beat its weight": ["padWhyHeavy", "Too heavy to leave the pad: its thrust does not beat its weight."],
+  "not enough Δv to reach orbit — more propellant, or less mass": ["padWhyDv", "Not enough Δv to reach orbit — more propellant, or less mass."] };
+const padWhy = (w) => (PAD_WHY[w] ? T(PAD_WHY[w][0], PAD_WHY[w][1]) : String(w));
+function renderPad(m) {
+  const g = $("padGrid");
+  if (m.error) { g.textContent = String(m.error); return; }
+  const n = m.num, row = (k, d, v) => `<div>${esc(T(k, d, v))}</div>`;
+  g.innerHTML = row("padEngines", "Rocket engines: {n}", { n: n.engines }) + row("padTanks", "Propellant tanks: {n}", { n: n.tanks }) + row("padSats", "Satellites: {n}", { n: n.sats })
+    + row("padLoad", "Propellant: {kg} kg from the chests beside it", { kg: Math.round(n.load * RULES.rocket.canister_kg) })
+    + row("padMass", "Mass: {dry} kg empty, {wet} kg loaded", { dry: Math.round(n.dry_kg), wet: Math.round(n.wet_kg) })
+    + row("padThrust", "Thrust {t} kN against its weight {w} kN", { t: n.thrust_kn, w: n.weight_kn })
+    + row("padDv", "Δv {dv} m/s − {loss} m/s lost to gravity = {net} m/s; orbit needs {need} m/s", { dv: n.dv, loss: n.loss, net: n.net, need: n.need })
+    + `<p><b>${esc(n.ok ? T("padOk", "It can reach orbit.") : padWhy(n.why))}</b></p>`
+    + (n.engines && n.tanks && n.sats && n.load && n.thrust_kn > n.weight_kn ? `<button id="padGo">${esc(T("padGo", "Launch"))}</button>` : "");
+  const go = $("padGo");
+  if (go) go.onclick = async () => {
+    if (!n.ok && !await uiConfirm({ title: T("padGo", "Launch"), body: T("padConfirm", "It does not have the Δv for orbit — launched, it is spent. Launch anyway?") })) return;
+    net.send({ t: "launch", plot: pad.plot, box: pad.box, req: ++net.req });
+  };
 }
 /** A machine block: every one land-recipes.json "machines" lists (the smelter, the assembler, and the electrolyser and the
  *  liquefier that make propellant, #173) — not a hard-coded pair. */
@@ -2830,6 +2876,7 @@ function wireInput(canvas) {
   $("setOpen").onclick = () => { palette(false); settings(true); };
   $("setClose").onclick = () => settings(false);
   $("mapClose").onclick = () => mapPanel(false);
+  $("padClose").onclick = () => { $("padPanel").classList.add("hidden"); pad = null; };
   $("mapBtn").onclick = () => mapPanel(true);
   $("wardOpen").onclick = () => { palette(false); wardrobe(true); };
 }

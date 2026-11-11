@@ -482,6 +482,42 @@
   },
   "propellant": {
    "name": "Liquid propellant (7.87 kg)"
+  },
+  "rocket_engine": {
+   "name": "Rocket engine",
+   "places": 81,
+   "unit": [
+    60,
+    60,
+    120
+   ]
+  },
+  "propellant_tank": {
+   "name": "Propellant tank",
+   "places": 82,
+   "unit": [
+    100,
+    100,
+    220
+   ]
+  },
+  "nav_satellite": {
+   "name": "Positioning satellite",
+   "places": 83,
+   "unit": [
+    150,
+    150,
+    150
+   ]
+  },
+  "launch_pad": {
+   "name": "Launch pad",
+   "places": 84,
+   "unit": [
+    300,
+    300,
+    20
+   ]
   }
  },
  "tools": {
@@ -1347,6 +1383,46 @@
    "yields": [
     [
      "liquefier",
+     1
+    ]
+   ]
+  },
+  "81": {
+   "hard": 2.0,
+   "class": "pick",
+   "yields": [
+    [
+     "rocket_engine",
+     1
+    ]
+   ]
+  },
+  "82": {
+   "hard": 2.0,
+   "class": "pick",
+   "yields": [
+    [
+     "propellant_tank",
+     1
+    ]
+   ]
+  },
+  "83": {
+   "hard": 2.0,
+   "class": "pick",
+   "yields": [
+    [
+     "nav_satellite",
+     1
+    ]
+   ]
+  },
+  "84": {
+   "hard": 2.0,
+   "class": "pick",
+   "yields": [
+    [
+     "launch_pad",
      1
     ]
    ]
@@ -3994,6 +4070,114 @@
     "liquefier"
    ],
    "mj": 75.9
+  },
+  {
+   "id": "rocket_engine",
+   "makes": [
+    [
+     "rocket_engine",
+     1
+    ]
+   ],
+   "uses": [
+    [
+     "steel_plate",
+     6
+    ],
+    [
+     "motor",
+     2
+    ],
+    [
+     "copper",
+     6
+    ],
+    [
+     "circuit",
+     2
+    ]
+   ],
+   "with": [
+    "machine_shop"
+   ]
+  },
+  {
+   "id": "propellant_tank",
+   "makes": [
+    [
+     "propellant_tank",
+     1
+    ]
+   ],
+   "uses": [
+    [
+     "steel_plate",
+     3
+    ],
+    [
+     "fiber",
+     8
+    ]
+   ],
+   "with": [
+    "machine_shop"
+   ]
+  },
+  {
+   "id": "nav_satellite",
+   "makes": [
+    [
+     "nav_satellite",
+     1
+    ]
+   ],
+   "uses": [
+    [
+     "steel_plate",
+     2
+    ],
+    [
+     "circuit",
+     6
+    ],
+    [
+     "silicon",
+     4
+    ],
+    [
+     "power_cell",
+     4
+    ],
+    [
+     "wire",
+     8
+    ]
+   ],
+   "with": [
+    "machine_shop"
+   ]
+  },
+  {
+   "id": "launch_pad",
+   "makes": [
+    [
+     "launch_pad",
+     1
+    ]
+   ],
+   "uses": [
+    [
+     "stonebrick",
+     12
+    ],
+    [
+     "steel_plate",
+     4
+    ]
+   ],
+   "with": [
+    "workbench"
+   ]
   }
  ],
  "wilderness_regrow_s": 900,
@@ -4020,7 +4204,10 @@
   "unit_mass": {
    "65": 0.4,
    "66": 0.15,
-   "78": 0.02
+   "78": 0.02,
+   "81": 0.3177,
+   "82": 0.02833,
+   "83": 1.633
   }
  },
  "machines": {
@@ -4361,6 +4548,30 @@
    "bring": 20,
    "hunt": 35,
    "deliver": 15
+  }
+ },
+ "rocket": {
+  "about": "#173 ROCKETS (doc/land-navigation.md 1.5, land research rockets/). engine: a tenth-scale RS-25 — its Isp and thrust-to-weight kept (RS-25 l.29-31, l.39, l.52: 1,859 kN sea level, 3,177 kg) — thrust and mass a design choice; tank: holds `holds` propellant canisters (7.87 kg each, 21.7 L: 1.119 kg LH2 at 70.85 kg/m3 + 6.748 kg LOX at 1,141 kg/m3), its dry mass dry_frac of what it holds (Space Shuttle external tank l.16, l.90: 26.5 t empty for 735.5 t of propellant); satellite: a GPS Block IIF's mass (GPS Block IIF l.34). The launch: dv = isp_sl * g0 * ln(m0/mf) (Tsiolkovsky l.10; sea-level Isp throughout — conservative), less a gravity loss g * burn time as if straight up (Gravity loss l.11 — conservative), against dv_orbit (vis-viva, doc 1.5); thrust must beat weight to leave the pad.",
+  "engine": {
+   "thrust_kn": 185.9,
+   "isp_sl": 366,
+   "isp_vac": 452.3,
+   "kg": 317.7
+  },
+  "tank": {
+   "holds": 100,
+   "dry_frac": 0.036
+  },
+  "satellite_kg": 1633,
+  "canister_kg": 7.87,
+  "dv_orbit": 1096,
+  "g0": 9.80665,
+  "orbit": {
+   "r": 135520,
+   "T": 1200,
+   "incl_deg": 55,
+   "planes": 6,
+   "per_plane": 4
   }
  }
 }

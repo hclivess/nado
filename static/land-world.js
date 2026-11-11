@@ -265,9 +265,15 @@ export const BLOCKS = [
   // charged the energy its recipe takes (land-recipes.json "mj"; land research rockets/ENERGY.md)
   { key: "electrolyser", solid: true, tex: [57, 57, 57] },
   { key: "liquefier", solid: true, tex: [58, 58, 58] },
+  // ROCKETS (#173, doc/land-navigation.md 1.5): an engine, a propellant tank and a positioning satellite, built on a launch
+  // pad — the world server computes the launch from their masses (land_server.py launch_numbers)
+  { key: "rocketengine", solid: true, tex: [59, 59, 59] },
+  { key: "proptank", solid: true, tex: [60, 60, 60] },
+  { key: "satellite", solid: true, tex: [61, 61, 61] },
+  { key: "launchpad", solid: true, tex: [62, 62, 62] },
 ];
 export const B = Object.fromEntries(BLOCKS.map((b, i) => [b.key, i]));
-export const ATLAS_TILES = 59;              // tiles 0..58 (0 unused; the farm's blocks reuse earth's and leaves')
+export const ATLAS_TILES = 63;              // tiles 0..62 (0 unused; the farm's blocks reuse earth's and leaves')
 export const opaque = (id) => BLOCKS[id].solid && !BLOCKS[id].see;
 
 // ---- terrain ---------------------------------------------------------------------------------------------------

@@ -115,6 +115,9 @@
   .presets{display:flex;gap:6px;flex-wrap:wrap;margin:0 0 8px}.presets button.on{border-color:var(--accent2);color:var(--accent2)}
   #wardPanel{position:fixed;inset:0;z-index:8;display:grid;place-items:center;background:rgba(0,0,0,.45)}
   #mapPanel{position:fixed;inset:0;z-index:8;display:grid;place-items:center;background:rgba(0,0,0,.45)}
+  #padPanel{position:fixed;inset:0;z-index:8;display:grid;place-items:center;background:rgba(0,0,0,.45)}
+  #padPanel .card{width:min(460px,calc(100vw - 32px));max-height:88vh;overflow:auto;background:var(--elev);border:1px solid var(--border);border-radius:14px;padding:16px;font-size:13px;line-height:1.6}
+  #padPanel h2{margin:0 0 10px;font-size:16px;display:flex;align-items:center}#padPanel h2 button{margin-left:auto}
   #mapPanel .card{width:min(520px,calc(100vw - 32px));max-height:92vh;overflow:auto;background:var(--elev);border:1px solid var(--border);border-radius:14px;padding:16px;font-size:13px}
   #mapPanel h2{margin:0 0 10px;font-size:16px;display:flex;align-items:center}#mapPanel h2 button{margin-left:auto}
   #mapCanvas{width:min(100%,calc(92vh - 150px));height:auto;aspect-ratio:1;display:block;margin:0 auto;border-radius:8px;background:#1b2430}   /* a short phone screen: the whole map in view, not cut off below (#173) */
@@ -193,6 +196,10 @@
 <div id="setPanel" class="hidden"><div class="card">
   <h2><span data-i18n="land.setTitle">Graphics</span><button id="setClose" class="ghost" data-i18n="land.close">Close</button></h2>
   <div id="setGrid"></div>
+</div></div>
+<div id="padPanel" class="hidden"><div class="card">
+  <h2><span data-i18n="land.padTitle">Launch pad</span><button id="padClose" class="ghost" data-i18n="land.close">Close</button></h2>
+  <div id="padGrid"></div>
 </div></div>
 <div id="mapPanel" class="hidden"><div class="card">
   <h2><span data-i18n="land.mapTitle">Map</span><button id="mapClose" class="ghost" data-i18n="land.close">Close</button></h2>

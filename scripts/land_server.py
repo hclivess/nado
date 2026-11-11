@@ -52,10 +52,11 @@ CHALLENGE_TTL = 300
 SESSION_TTL = 7 * 86400
 sid = lambda token: hashlib.blake2b(token.encode(), digest_size=32).hexdigest()   # a session's name on disk (World.sessions)
 FACE_N, PLOT, W, H = L.FACE_N, L.PLOT, L.FACE_N * L.PLOT, 256
-N_BLOCKS = 81                     # static/land-world.js BLOCKS.length (tests/test_the_land_planet_… checks the two agree)
+N_BLOCKS = 85                     # static/land-world.js BLOCKS.length (tests/test_the_land_planet_… checks the two agree)
 DOOR = 37                         # static/land-world.js B.door: a piece that swings open and shut ("door" op)
 THRUSTER, SEAT = 65, 66           # static/land-world.js B.thruster, B.pilotseat: a craft's working parts (FLIGHT, #147)
 SMELTER, ASSEMBLER, GENERATOR = 67, 68, 69   # static/land-world.js: FACTORIES (#148) — machines and their power
+ROCKET_ENGINE, PROP_TANK, SATELLITE, LAUNCH_PAD = 81, 82, 83, 84   # static/land-world.js: ROCKETS (#173)
 CHEST = 54                        # static/land-world.js B.chest: a piece that keeps items on its plot ("chest" op, #114)
 CHEST_MAX = 2000                  # items one chest holds
 TREE_WOOD = {7, 31}                # static/land-world.js TREE_WOOD (log, birchlog): cutting one fells its tree above
@@ -518,6 +519,11 @@ class World:
             c["eng"] = None
         self.cdirty = False
         self.survey_sets = {}                              # #173: each surveying player's squares, as a set (survey_at)
+        try:                                               # #173: satellites in orbit, kept across restarts
+            self.sats = json.load(open(os.path.join(self.dir, "sats.json")))
+        except Exception:
+            self.sats = []
+        self.sdirty = False
         # HUNTING (#156): the animals near players — the world server's own, never saved (they wander off and others come)
         self.animals, self.animal_seq, self.rng = {}, 0, random.Random()
         self.drops, self.drop_seq = {}, 0                 # things lying on the ground to pick up: arrows that missed (#157)
@@ -574,6 +580,9 @@ class World:
         if self.cdirty:
             self._write("crafts.json", self.crafts)
             self.cdirty = False
+        if self.sdirty:
+            self._write("sats.json", self.sats)
+            self.sdirty = False
 
     def _write(self, rel, body):
         path = os.path.join(self.dir, rel)
@@ -2076,6 +2085,73 @@ class World:
                 changed.add(p); self.dirty.add(p)
         return changed
 
+    # -- ROCKETS (#173, doc/land-navigation.md 1.5): a rocket is the pieces built onto a launch pad (chests aside); the world
+    # server computes its launch from their masses — land-recipes.json "rocket" holds every constant and where it comes from
+    def launch_numbers(self, p, pad):
+        """What the rocket on launch pad `pad` (plot `p`) would do: its dry and loaded mass (kg), its thrust and weight (kN),
+        the propellant it would load from the chests beside the pad, its Δv (rocket equation at sea-level Isp) less the
+        gravity loss of its whole burn (as if straight up), against the Δv the orbit asks — and why not, when it cannot."""
+        RK = RULES["rocket"]
+        rec = self.plots.get(p) or {}
+        boxes = rec.get("boxes", [])
+        rocket = [b for b in connected([b for b in boxes if b[6] != CHEST], pad) if b != pad]
+        n = lambda blk: sum(1 for b in rocket if b[6] == blk)
+        engines, tanks, sats = n(ROCKET_ENGINE), n(PROP_TANK), n(SATELLITE)
+        store = rec.get("chests", {})
+        have = sum(store.get(chest_key(c), {}).get("propellant", 0) for c in boxes if c[6] == CHEST and boxes_touch(c, pad))
+        load = min(have, tanks * RK["tank"]["holds"])
+        dry = craft_mass(rocket) * 1000
+        wet = dry + load * RK["canister_kg"]
+        thrust = engines * RK["engine"]["thrust_kn"]
+        weight = wet * FLIGHT["g"] / 1000
+        isp, g0 = RK["engine"]["isp_sl"], RK["g0"]
+        dv = isp * g0 * math.log(wet / dry) if dry > 0 and load else 0.0
+        burn = load * RK["canister_kg"] * isp * g0 / (thrust * 1000) if thrust else 0.0
+        net = dv - FLIGHT["g"] * burn
+        why = (None if engines and tanks and sats and load and thrust > weight and net >= RK["dv_orbit"] else
+               "no rocket engine on the pad" if not engines else "no propellant tank" if not tanks else
+               "no satellite to carry" if not sats else "no propellant in a chest beside the pad" if not load else
+               "too heavy to leave the pad: its thrust does not beat its weight" if thrust <= weight else
+               "not enough Δv to reach orbit — more propellant, or less mass")
+        return {"engines": engines, "tanks": tanks, "sats": sats, "pieces": len(rocket), "load": load, "have": have,
+                "dry_kg": round(dry, 1), "wet_kg": round(wet, 1), "thrust_kn": round(thrust, 1), "weight_kn": round(weight, 1),
+                "dv": round(dv, 1), "loss": round(FLIGHT["g"] * burn, 1), "net": round(net, 1), "need": RK["dv_orbit"],
+                "ok": why is None, "why": why}
+
+    async def launch(self, who, p, pad):
+        """Fire the rocket on `pad`: refused unless its thrust beats its weight (it would not leave the pad). Otherwise it
+        goes: its pieces leave the plot and the propellant it loaded leaves the chests — spent either way — and with
+        enough Δv its satellites are in orbit, each the next slot of the constellation. Returns (numbers, removed, err)."""
+        rec = self.plots.get(p)
+        pad = list(pad) if isinstance(pad, (list, tuple)) else pad
+        if not rec or not isinstance(pad, list) or pad not in rec.get("boxes", []) or pad[6] != LAUNCH_PAD:
+            return None, [], "no launch pad here"
+        if (await self.holder(p)) is not None and not await self.may_build(p, who):
+            return None, [], "not your plot — only its owner and the builders they invite launch from it"
+        num = self.launch_numbers(p, pad)
+        if not (num["engines"] and num["tanks"] and num["sats"] and num["load"]) or num["thrust_kn"] <= num["weight_kn"]:
+            return num, [], num["why"]
+        rocket = [b for b in connected([b for b in rec["boxes"] if b[6] != CHEST], pad) if b != pad]
+        left = num["load"]
+        for c in (c for c in rec["boxes"] if c[6] == CHEST and boxes_touch(c, pad)):
+            cs = rec.setdefault("chests", {}).get(chest_key(c), {})
+            k = min(left, cs.get("propellant", 0))
+            if k:
+                cs["propellant"] -= k; left -= k
+                if not cs["propellant"]:
+                    del cs["propellant"]
+        if "index" not in rec:
+            rec["index"] = BoxIndex(rec["boxes"])
+        for b in rocket:
+            rec["boxes"].remove(b); rec["index"].remove(b)
+        rec["ver"] += 1; self.dirty.add(p)
+        if num["ok"]:
+            for _ in range(num["sats"]):
+                self.sats.append({"n": len(self.sats), "owner": who, "at": round(time.time(), 3)})
+            self.sdirty = True
+        num["in_orbit"] = len(self.sats)
+        return num, rocket, None
+
     # -- FLIGHT (#147): board, fly, leave, dock
     async def board(self, who, p=None, b=None, cid=None):
         """Take the pilot seat. Of a parked craft `cid` (its owner only), or of seat piece `b` on plot `p`: the pieces
@@ -3116,6 +3192,20 @@ def make_app(world, hub, site_origin, wallet_url, secure_cookies=True, shot_page
                         continue
                     cfg, can, err = await world.set_machine(addr, m.get("plot"), m.get("box"), m.get("recipe"))
                     await ws.send_json({"t": "machine", "req": m.get("req"), "plot": m.get("plot"), "box": m.get("box"), "cfg": cfg, "can": can, "error": err})
+                elif t in ("pad", "launch"):                       # #173: a launch pad's numbers, and the launch
+                    if not addr:
+                        await ws.send_json({"t": "pad", "req": m.get("req"), "error": "sign in first"})
+                        continue
+                    if t == "pad":
+                        pl, pd = m.get("plot"), m.get("box")
+                        ok = pl in world.plots and isinstance(pd, list) and pd in world.plots[pl].get("boxes", []) and pd[6] == LAUNCH_PAD
+                        await ws.send_json({"t": "pad", "req": m.get("req"), "plot": pl, "box": pd,
+                                            **({"num": world.launch_numbers(pl, pd)} if ok else {"error": "no launch pad here"})})
+                    else:
+                        num, gone, err = await world.launch(addr, m.get("plot"), m.get("box"))
+                        await ws.send_json({"t": "launched", "req": m.get("req"), "plot": m.get("plot"), "num": num, "error": err})
+                        if gone:
+                            await hub.boxes(m.get("plot"), [], gone, addr)
                 elif t == "survey":                                 # #173: what my map shows
                     await ws.send_json({"t": "survey", "req": m.get("req"), **(world.survey_of(addr) if addr else {"error": "sign in first"})})
                 elif t == "mycrafts":                               # #171: where are my crafts
@@ -3258,6 +3348,7 @@ def make_app(world, hub, site_origin, wallet_url, secure_cookies=True, shot_page
         web.get("/land/api/region", region),
         web.get("/land/api/card", card),
         web.get("/land/api/crafts", crafts_api),
+        web.get("/land/api/sats", lambda request: web.json_response({"sats": world.sats, "orbit": RULES["rocket"]["orbit"]})),
         web.get("/land/api/shot", shot),
         web.post("/land/api/set", set_cells),
         web.post("/land/api/boxes", boxes),
