@@ -38,6 +38,10 @@
   #hudHp{color:#ff6b6b;font-weight:800;letter-spacing:1px}
   #hurtFlash{position:fixed;inset:0;pointer-events:none;z-index:6;opacity:0;transition:opacity .45s;box-shadow:inset 0 0 120px 40px rgba(220,0,0,.75)}
   #hurtFlash.on{opacity:1;transition:none}
+  #hitDir{position:fixed;left:50%;top:50%;width:0;height:0;pointer-events:none;z-index:6;opacity:0;transition:opacity .5s}
+  #hitDir.on{opacity:1;transition:none}
+  #hitDir i{position:absolute;left:-110px;top:-190px;width:220px;height:70px;box-sizing:border-box;border-top:12px solid rgba(235,30,30,.92);border-radius:50%/100% 100% 0 0}
+  #hitDir.warn i{border-top-color:rgba(255,176,0,.95)}
   #deathCard{position:fixed;inset:0;z-index:40;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:10px;background:rgba(60,0,0,.72);color:#fff;text-align:center;padding:16px}
   #deathCard.hidden{display:none}
   #deathCard h2{margin:0;font-size:22px}
@@ -162,6 +166,7 @@
 </header>
 <div id="hudInfo"><div id="hudPos"></div><div id="hudPlot"></div><div id="hudHp" class="hidden"></div><button id="mapBtn" class="hidden" data-i18n="land.tMap">Map</button></div>
 <div id="hurtFlash"></div>
+<div id="hitDir"><i></i></div>
 <div id="deathCard" class="hidden" role="dialog"><h2 id="deathBy"></h2><p id="deathWhere" class="dim"></p><button id="deathGo" data-i18n="land.respawn">Wake up</button></div>
 <div id="cross"></div>
 <div id="breakBar" class="hidden"><i></i></div>

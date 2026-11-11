@@ -13,7 +13,9 @@ under /land/) and a fake exec node (/exec/*) that says OWNER holds plot PA and h
                                 crafting would have given)
   GET /fixture/animal?kind=&u=&v=  -> the herd held still (its loop stopped: nothing wanders, flees, comes or goes)
                                 and one animal of that kind standing at (u, v) on face 0 -> {id}; a hunt can aim at it
-  GET /fixture/hurt?dmg=&by=  -> OWNER is struck for dmg by an animal of kind `by`, as the herd would (land_server
+  GET /fixture/charge?by=&au=&av=  -> OWNER's pages are told an animal at (au, av) turned on them (Hub.charged, #176)
+  GET /fixture/where         -> where the world server has OWNER: each open page's place and whether it is dead, the deaths
+  GET /fixture/hurt?dmg=&by=[&au=&av=]  -> OWNER is struck for dmg by an animal of kind `by`, as the herd would (land_server
                                 Hub.hurt): their pages hear "hurt", or "died" and where they wake
   GET /fixture/accept?id=&u=&v=  -> AGENT, standing at (u, v) on face 0, takes that offer (world.accept, a stand's
                                 rules applied) — the second player of a market walk -> {error}
@@ -127,8 +129,21 @@ async def main():
         return web.json_response({"id": world.animal_seq})
 
     async def hurt(req):
+        if "au" in req.query:                                        # where the blow comes from, as the herd records it
+            world.struck_from = {OWNER["address"]: (float(req.query["au"]), float(req.query["av"]))}
         res = await hub.hurt(world, OWNER["address"], int(req.query["dmg"]), req.query.get("by", "deer"))
+        world.struck_from = {}
         return web.json_response({"res": res and [res[0], res[1] if res[0] == "hurt" else (res[1] or [])[:4]]})
+
+    async def charge(req):
+        await hub.charged(OWNER["address"], int(req.query.get("id", 0)), req.query.get("by", "deer"), float(req.query["au"]), float(req.query["av"]))
+        return web.json_response({"ok": True})
+
+    async def where(req):
+        sts = [st for st in hub.socks.values() if st.get("who") == OWNER["address"]]
+        pl = world.player(OWNER["address"])
+        return web.json_response({"pos": [st.get("pos") for st in sts], "dead": [bool(st.get("dead")) for st in sts],
+                                  "deaths": pl.get("deaths", 0), "kept": pl.get("pos")})
 
     async def accept(req):
         world.keep_place(AGENT["address"], [0, float(req.query["u"]), float(req.query["v"]), 200.0, 0.0])
@@ -165,7 +180,7 @@ async def main():
                     web.get("/exec/asset", asset), web.get("/exec/view", view), web.get("/fixture/owner_token", owner_token), web.get("/fixture/agent_token", agent_token), web.get("/fixture/sats", sats),
                     web.get("/fixture/agent_build", agent_build), web.get("/fixture/plot", plot), web.get("/fixture/seed", seed),
                     web.get("/fixture/ripen", ripen), web.get("/fixture/animal", animal),
-                    web.get("/fixture/hurt", hurt), web.get("/fixture/accept", accept),
+                    web.get("/fixture/hurt", hurt), web.get("/fixture/charge", charge), web.get("/fixture/where", where), web.get("/fixture/accept", accept),
                     web.get("/fixture/quests", quests)])
     app.router.add_static("/static", STATIC)
     app.router.add_route("*", "/{tail:.*}", empty)

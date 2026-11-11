@@ -140,6 +140,7 @@ def pace_ok(last, last_t, p, now):
     return math.hypot(p[1] - last[1], p[2] - last[2]) <= reach
 
 
+WAKE_NEAR = 8.0                   # metres: a page this near the place its dead player wakes has woken (#176)
 def landing():
     """Where the landing is (static/land.js townSpawn): the town hall's door, its height left to the page."""
     face, row, col = plot_coords(TOWN_HALL_PLOT)
@@ -765,6 +766,7 @@ class World:
                                               "go": now + self.rng.random() * 4, "flee": 0,
                                               "angry": self.rng.random() < Hn["species"][kind].get("angry", 0)}
         moved, hits = [], []
+        self.charges, self.struck_from = [], {}
         for a in self.animals.values():
             sp = Hn["species"][a["kind"]]["speed"]
             # AGGRESSION (#162): an angry animal — a stag, or one a hunter struck — charges the nearest player within charge
@@ -776,16 +778,23 @@ class World:
                            if q and q[0] == a["face"] and not self.tame(q[0], q[1], q[2])), default=None, key=lambda x: x[0])
                 if foe and foe[0] < Hn["charge"]:
                     a["yaw"] = math.atan2(foe[2][1] - a["u"], foe[2][2] - a["v"])
+                    # THE WARNING (#176): the player is told the moment it turns on them — once per charge — while it
+                    # is still `charge` metres off; a strike used to be the first they knew of it
+                    if a.get("warned") != foe[1]:
+                        a["warned"] = foe[1]
+                        self.charges.append((foe[1], a["id"], a["kind"], a["u"], a["v"]))
                     if foe[0] <= Hn["strike_reach"] and abs(foe[2][3] - a["h"]) < 2.5:
                         if now >= a.get("bite", 0):
                             a["bite"] = now + Hn["strike_every_s"]
                             hits.append((foe[1], dmg, a["kind"]))
+                            self.struck_from[foe[1]] = (a["u"], a["v"])      # …and a strike says where it came from
                         continue                                  # at the player: it stands and strikes
                     step = sp * dt
                     nu, nv = a["u"] + math.sin(a["yaw"]) * step, a["v"] + math.cos(a["yaw"]) * step
                     if 0 <= nu < W and 0 <= nv < W:
                         moved.append((a, nu, nv))
                     continue
+                a.pop("warned", None)                             # the charge is over: the next one is told again
             threat = min(((math.hypot(q[1] - a["u"], q[2] - a["v"]), q) for q in present if q[0] == a["face"]), default=(1e9, None), key=lambda x: x[0])
             if threat[0] < Hn["flee"] or a["flee"] > now:
                 if threat[1] is not None:
@@ -973,8 +982,11 @@ class World:
             return ("hurt", pl["hp"])
         pl["hp"], pl["grace"] = Hh["max"], now + Hh["grace_s"]
         pl["deaths"] = pl.get("deaths", 0) + 1
-        if pl.get("bed"):
-            pl["pos"] = pl["bed"][:4] + [0.0]; pl["pos_at"] = int(now)
+        # THE DEAD ARE NOWHERE NEAR THE ANIMAL (#176): the world keeps them at the place they wake — their bed, or the
+        # landing — from the moment they die, not from the moment the page says so. With the place left at the death
+        # spot (the landing case kept it there until 2026-11-11) the animal struck again when the grace ran out.
+        wake = pl["bed"][:4] if pl.get("bed") else landing() + [(pl.get("pos") or [0, 0, 0, 0.0])[3]]
+        pl["pos"] = list(wake) + [0.0]; pl["pos_at"] = int(now)
         return ("died", pl.get("bed"))
 
     def heal(self, now=None):
@@ -2661,9 +2673,20 @@ class Hub:
         if not res:
             return None
         msg = {"t": "hurt", "hp": res[1], "by": by} if res[0] == "hurt" else {"t": "died", "by": by, "bed": res[1][:4] if res[1] else None}
+        at = getattr(world, "struck_from", {}).get(who)
+        if at and res[0] == "hurt":
+            msg["at"] = [round(at[0], 2), round(at[1], 2)]          # where the blow came from: the page shows the side (#176)
         for ws, st in list(self.socks.items()):
             if st["who"] == who and res[0] == "died":              # they wake far off: the pace starts again there (#167)
-                st["pace"] = ((res[1][:4] if res[1] else landing()), time.time())
+                wake = list(res[1][:4]) if res[1] else landing() + [(st.get("pos") or [0, 0, 0, 0.0])[3]]
+                st["pace"] = (wake, time.time())
+                # NO SECOND DEATH BEHIND THE CARD (#176): the socket stands at the wake place from now, whatever the page
+                # (still at the death spot until its player presses Wake up, or away from the keyboard) goes on
+                # reporting — see the "pos" handler. A player left at the death spot died again every grace_s: nine
+                # deaths in one incident on the playtest of 2026-11-11, 1,103 on the town agent's record.
+                st["pos"] = [int(wake[0]), float(wake[1]), float(wake[2]), float(wake[3]), 0.0]
+                st["pos_t"] = time.time()
+                st["dead"] = wake[:3]
             if st["who"] == who:
                 try:
                     await ws.send_json(msg)
@@ -2671,6 +2694,25 @@ class Hub:
                     pass
         await self.inv(world, who)
         return res
+
+    async def herd_step(self, world):
+        """One step of the animals around the open pages, and what it did to the players: who is charged, who is struck."""
+        socks = [st for st in self.socks.values() if st.get("pos")]
+        # the signed-in ones can be charged (#162); a visitor is seen by the animals, never hurt
+        hits = await world.herd([st["pos"] for st in socks], players=[(st["who"], st["pos"]) for st in socks if st["who"]])
+        for who, aid, kind, au, av in world.charges:
+            await self.charged(who, aid, kind, au, av)
+        for who, dmg, by in hits or []:
+            await self.hurt(world, who, dmg, by)
+
+    async def charged(self, who, aid, kind, u, v):
+        """An animal turned on `who` (#176): their pages are told which one and where it is."""
+        for ws, st in list(self.socks.items()):
+            if st["who"] == who:
+                try:
+                    await ws.send_json({"t": "charge", "id": aid, "by": kind, "at": [round(u, 2), round(v, 2)]})
+                except Exception:
+                    pass
 
     @staticmethod
     def pace_anchor(world, st, addr):
@@ -2832,11 +2874,7 @@ def make_app(world, hub, site_origin, wallet_url, secure_cookies=True, shot_page
         while True:
             await asyncio.sleep(0.5)
             try:
-                socks = [st for st in hub.socks.values() if st.get("pos")]
-                # the signed-in ones can be charged (#162); a visitor is seen by the animals, never hurt
-                hits = await world.herd([st["pos"] for st in socks], players=[(st["who"], st["pos"]) for st in socks if st["who"]])
-                for who, dmg, by in hits or []:
-                    await hub.hurt(world, who, dmg, by)
+                await hub.herd_step(world)
                 for who in world.heal():
                     await hub.inv(world, who)
             except Exception:
@@ -3145,6 +3183,17 @@ def make_app(world, hub, site_origin, wallet_url, secure_cookies=True, shot_page
                     p = m.get("p")
                     if (isinstance(p, list) and len(p) == 5 and all(isinstance(x, (int, float)) and not isinstance(x, bool) for x in p)
                             and 0 <= p[0] < 6 and 0 <= p[1] < W and 0 <= p[2] < W and DEEP_MIN <= p[3] < H + 400):
+                        if st.get("dead"):
+                            # the page of someone who died (#176): until it reports from the place they wake (it moves
+                            # there with the death card; an older page only on Wake up) its reports are of the death
+                            # spot — dropped without a word. Answering them with a pace pos_fix told a dead player
+                            # "Faster than anyone can go" four times in eleven seconds.
+                            d = st["dead"]
+                            if int(p[0]) != d[0] or math.hypot(p[1] - d[1], p[2] - d[2]) > WAKE_NEAR:
+                                continue
+                            st["dead"] = None
+                            st["pace"] = (list(p), time.time())
+                            world.player(addr)["grace"] = time.time() + RULES["health"]["grace_s"]   # the grace runs from the waking
                         if addr and not world.pace_free:            # TRAVEL (#167): no faster than one can go
                             anc = hub.pace_anchor(world, st, addr)
                             if anc and not pace_ok(anc[0], anc[1], p, time.time()):

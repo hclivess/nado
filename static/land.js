@@ -1287,6 +1287,11 @@ function connect() {
     } else if (m.t === "hurt") {
       // struck (#162): the hearts drop and the screen flashes red
       showHp(m.hp); const f = $("hurtFlash"); f.classList.add("on"); setTimeout(() => f.classList.remove("on"), 120);
+      hitFrom(m.at, null, false);
+    } else if (m.t === "charge") {
+      // an animal turned on this player (#176): said in words and shown by side, while it is still metres off
+      notify(T("charging", "A {a} is charging you!", { a: animalName(m.by) }), 3000);
+      hitFrom(m.at, m.id, true);
     } else if (m.t === "died") {
       died(m.by, m.bed);
     } else if (m.t === "pos_fix") {
@@ -1540,9 +1545,46 @@ function showHp(hp, max) {
   const full = Math.max(0, Math.ceil(hp / 2)), all = Math.ceil(hpMax / 2);
   el.textContent = "♥".repeat(full) + "♡".repeat(Math.max(0, all - full)) + ` ${hp}/${hpMax}` + (inv.level ? " · " + T("level", "Level {n}", { n: inv.level }) : "");
 }
+// WHERE IT CAME FROM (#176): an arc on the side of the view the animal is on — ahead at the top, behind at the bottom —
+// red for a strike (0.9 s), amber for the charge that precedes it (2.5 s, following the animal). A strike used to be a
+// 120 ms flash with no side to it: with a panel open the first a player knew of a stag was the death card.
+let hitDir = null;                                 // { at: [u, v], id, until }
+function hitFrom(at, id, warn) {
+  const el = $("hitDir");
+  if (!el || !Array.isArray(at)) return;
+  hitDir = { at, id, until: performance.now() + (warn ? 2500 : 900) };
+  el.classList.toggle("warn", !!warn); el.classList.add("on");
+  hitDirFrame(performance.now());
+}
+/** Each frame while the arc shows: it turns with the player's view and with the animal. */
+function hitDirFrame(now) {
+  if (!hitDir) return;
+  const el = $("hitDir");
+  if (now > hitDir.until) { hitDir = null; el.classList.remove("on"); return; }
+  const a = hitDir.id != null && animals.get(hitDir.id), at = a ? [a.u, a.v] : hitDir.at;
+  el.style.transform = `rotate(${(Math.atan2(at[0] - P.u, at[1] - P.v) - P.yaw).toFixed(3)}rad)`;   // yaw 0 faces +v, +u to the right
+}
+/** Every panel shut and what it showed let go (death; nothing may stay open under the card, #176). */
+function closePanels() {
+  palette(false); settings(false); mapPanel(false); wardrobe(false); conShow(false);
+  for (const id of ["chestPanel", "machPanel", "npcPanel", "padPanel", "planetPanel"]) { const el = $(id); if (el) el.classList.add("hidden"); }
+  chest = null; machine = null; talkingTo = null; pad = null;
+}
 let wakeAt = null;
+/** The body at the place it wakes: the bed, else the landing. */
+function toWake() {
+  if (wakeAt) { [P.face, P.u, P.v] = [wakeAt[0], wakeAt[1] + 1.2, wakeAt[2]]; }
+  else { [P.face, P.u, P.v, P.yaw] = townSpawn(); }
+  P.h = groundAt(P.face, P.u, P.v); P.vu = P.vv = P.vh = 0; P.eyeH = P.h;
+  save();
+}
 function died(by, bed) {
   wakeAt = bed || null;
+  // THE BODY IS AT THE WAKE PLACE AT ONCE, not when "Wake up" is pressed (#176): left at the death spot behind the card
+  // it was struck again every few seconds — nine deaths in a row on the playtest of 2026-11-11. The world server keeps
+  // the dead at the wake place too and drops what this page reports until it is there (land_server.py, the "pos" handler).
+  closePanels();
+  toWake(); updateChunks();
   $("deathBy").textContent = T("diedBy", "You were killed by a {a}.", { a: animalName(by) });
   $("deathWhere").textContent = bed ? T("wakeBed", "You wake at your bed.") : T("wakeLanding", "You wake at the landing — use a bed to wake there instead.");
   if (document.pointerLockElement) document.exitPointerLock();
@@ -1550,10 +1592,7 @@ function died(by, bed) {
 }
 function wakeUp() {
   $("deathCard").classList.add("hidden");
-  if (wakeAt) { [P.face, P.u, P.v] = [wakeAt[0], wakeAt[1] + 1.2, wakeAt[2]]; }
-  else { [P.face, P.u, P.v, P.yaw] = townSpawn(); }
-  P.h = groundAt(P.face, P.u, P.v); P.vu = P.vv = P.vh = 0; P.eyeH = P.h;
-  save();
+  toWake();                                                 // again: the ground here is loaded by now (its height is the built one)
   if (!touch) lockPointer();                                // the button's own click: back to play at once
 }
 // ---- NPCS AND QUESTS (#165, "we may need npcs and quests and move this a little towards world of warcraft as well",
@@ -3528,6 +3567,7 @@ function frame(now) {
   for (const m of [farMesh, farSea, borderMesh]) if (m) { const a = m.userData.anchor; m.position.set(a[0] - cam[0], a[1] - cam[1], a[2] - cam[2]); }
   for (const [id, c] of crafts) if (c.pose) { craftPlace(c.mesh, c.pose, cam); engineFrame(id, c, cam, now); }
   animalsFrame(Math.min(0.1, (now - (frame.lastAnimals || now)) / 1000), cam); frame.lastAnimals = now;
+  hitDirFrame(now);
   npcsFrame(cam); arrowsFrame(now, cam); dropsFrame(now, cam);
   for (const r of others.values()) {
     if (!r.p) continue;

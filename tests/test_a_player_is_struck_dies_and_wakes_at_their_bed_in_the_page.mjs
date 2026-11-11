@@ -5,9 +5,12 @@
  * charging stag would (land_server Hub.hurt, the herd's own path):
  *   1. signed in, the HUD shows the player's hearts; struck, they drop and the screen flashes red;
  *   2. Use on a bed built on the plot: "Your bed: you will wake here";
- *   3. struck to death: a card says what killed them and that they wake at their bed; Wake up puts them beside the bed,
- *      their bag kept, their hearts full;
- *   4. no page errors.
+ *   3. the warning (#176): a stag that turns on them is announced in words, with an amber arc on the side of the view it
+ *      is on; a strike shows a red arc on the side it came from;
+ *   4. struck to death with the bag open: the bag shuts, a card says what killed them and that they wake at their bed —
+ *      and they ARE beside the bed already, behind the card, in the page and for the world server (#176: left at the
+ *      death spot they were struck again every few seconds); Wake up closes the card, their bag kept, their hearts full;
+ *   5. no page errors.
  *
  * Run:  node tests/test_a_player_is_struck_dies_and_wakes_at_their_bed_in_the_page.mjs   (needs chrome, python3)
  */
@@ -188,9 +191,28 @@ try {
   ok(set, "Use on the bed: the player will wake there");
 
   // 3. death and waking
-  await stand(B, bu + 30, bv + 30, Wd.column(q.face, Math.floor(bu + 30), Math.floor(bv + 30)).top + 1, 0, -0.2);   // away from the bed
+  await stand(B, bu + 30, bv + 30, Wd.column(q.face, Math.floor(bu + 30), Math.floor(bv + 30)).top + 1, 0, -0.2);   // away from the bed, facing +v
+  // the warning (#176): a stag 9 m to the east (the right of someone facing +v) turns on them
+  const arc = (warn, rot) => `(() => { const e = document.getElementById('hitDir'), r = parseFloat((e.style.transform.match(/rotate\\(([-0-9.]+)rad\\)/) || [])[1]);
+    return e.classList.contains('on') && e.classList.contains('warn') === ${warn} && Math.abs(r - (${rot})) < 0.25; })()`;
+  await getJ(`/fixture/charge?by=deer&au=${bu + 30 + 9}&av=${bv + 30}`);
+  ok(await until(B, "/A deer is charging you!/.test((document.getElementById('alertBar') || {}).textContent || '') && " + arc(true, Math.PI / 2), 6000),
+     "a stag turning on them is announced in words, with an amber arc on the right, where it is: " + await evl(B, "document.getElementById('hitDir').style.transform"));
+  await getJ(`/fixture/hurt?dmg=2&by=deer&au=${bu + 30 - 1.2}&av=${bv + 30}`);
+  ok(await until(B, arc(false, -Math.PI / 2), 6000), "a strike from the west shows a red arc on the left: " + await evl(B, "document.getElementById('hitDir').style.transform"));
+  // death, with the bag open
+  await evl(B, "document.getElementById('tPal').click(), true"); await sleep(700);
+  ok(await evl(B, "!document.getElementById('palette').classList.contains('hidden')"), "the bag is open");
   await getJ("/fixture/hurt?dmg=99&by=deer");
   ok(await until(B, "!document.getElementById('deathCard').classList.contains('hidden')", 8000), "struck to death, the death card shows");
+  ok(await evl(B, "document.getElementById('palette').classList.contains('hidden')"), "…and the open bag is shut: nothing stays open under the card");
+  // BEFORE Wake up is pressed: the body is beside the bed already, in the page and for the world server
+  const pre = await evl(B, "JSON.parse(localStorage.getItem('nado_land_v1')).p");
+  ok(Math.hypot(pre[1] - bu, pre[2] - bv) < 3, `behind the card, the page already has them beside their bed (${pre[1].toFixed(1)}, ${pre[2].toFixed(1)})`);
+  let wh = null;
+  for (let i = 0; i < 40; i++) { wh = await getJ("/fixture/where"); if (wh.dead.length && wh.dead.every((d) => !d)) break; await sleep(250); }
+  ok(wh.deaths === 1 && wh.dead.every((d) => !d) && wh.pos.every((p) => p && Math.hypot(p[1] - bu, p[2] - bv) < 3),
+     `…and so has the world server, the card not yet answered: one death, no page of theirs at the death spot (${JSON.stringify(wh.pos.map((p) => p && [Math.round(p[1]), Math.round(p[2])]))})`);
   const card = await evl(B, "document.getElementById('deathCard').textContent");
   ok(/You were killed by a deer/.test(card) && /You wake at your bed/.test(card), "…saying what killed them, and that they wake at their bed: " + card.replace(/\s+/g, " ").trim());
   await evl(B, "document.getElementById('deathGo').click(), true");
