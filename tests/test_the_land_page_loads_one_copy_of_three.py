@@ -11,7 +11,10 @@ unstamped, where both spellings are one URL — so this test serves them through
   * the page's module graph, walked from land.html's served body with its import map, resolves every import the way a
     browser does (bare names by the map, absolute and relative paths with their stamps);
   * no file in that graph is reached under two different URLs;
-  * the graph does reach three's core and every add-on the page draws with (the walk is not vacuous).
+  * the graph does reach three's core and every add-on the page draws with (the walk is not vacuous);
+  * every FILE the import map names is served under its current version (#186: the two shims were the only files of the
+    page served without ?v= — cached by the CDN for four hours, so yesterday's shim could stand beside today's three),
+    a mapped PREFIX is left as written, and a stamp someone wrote into a map by hand is replaced.
 
 Run: python3 tests/test_the_land_page_loads_one_copy_of_three.py
 """
@@ -24,7 +27,7 @@ ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 sys.path.insert(0, ROOT)
 sys.path.insert(0, os.path.join(ROOT, "tests"))
 import _harness
-from ops.static_versions import StaticVersions   # pure: os/re/hashlib, no node state
+from ops.static_versions import StaticVersions, scan_refs   # pure: os/re/hashlib, no node state
 _report = _harness.Report()
 check = _report.check
 
@@ -87,4 +90,16 @@ check("no module is loaded under two URLs (two URLs = two instances)", not twice
 for f in ("three.webgpu.js", "three.tsl.js", "three.core.js", "addons/tsl/display/GTAONode.js",
           "addons/tsl/display/BloomNode.js", "addons/tsl/display/FXAANode.js"):
     check(f"the page reaches /static/vendor/three/{f}", "/static/vendor/three/" + f in urls_of)
+
+# ---- the import map's files are versioned (#186) ----------------------------------------------------------------------
+files = {k: v for k, v in imap.items() if not k.endswith("/")}
+stale = {k: v for k, v in files.items() if v.split("?v=")[-1] != SV.version(os.path.join(STATIC, v.split("?")[0][len("/static/"):])) or "?v=" not in v}
+check("the import map names files (the walk is not vacuous)", len(files) >= 2, files)
+check("every file the import map names is served under its CURRENT version", not stale, stale)
+check("a mapped prefix is left as written", all("?" not in v for k, v in imap.items() if k.endswith("/")), imap)
+PAGE = (b'<a href="/static/a.css">x</a><script type="importmap">{"imports":{"m":"/static/m.js","old":"/static/o.mjs?v=hand",'
+        b'"dir/":"/static/dir/","data":"/static/d.json"}}</script><script>const s = "/static/not-a-map.js";</script>')
+got = [(spec, PAGE[a:b]) for a, b, _h, spec, _t in scan_refs(PAGE, "html")]
+check("in a page only src=, href= and the import map's .js / .mjs files are references — a hand-written stamp is swallowed",
+      got == [(b"/static/a.css", b'="/static/a.css"'), (b"/static/m.js", b'"/static/m.js"'), (b"/static/o.mjs", b'"/static/o.mjs?v=hand"')], got)
 _report.done()

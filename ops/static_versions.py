@@ -37,6 +37,14 @@ import time
 # at the front of this pattern costs ~0.5 s over the 7.7 MB i18n.js, and a cold page walks the whole graph.)
 HTML_REF_RE = re.compile(rb'((?:src|href)=")(/static/[A-Za-z0-9_./-]+)(?:\?v=[A-Za-z0-9_.-]*)?(")')
 _HTML_FAST = re.compile(rb'="(/static/[A-Za-z0-9_./-]+)(?:\?v=[A-Za-z0-9_.-]*)?"')
+# A page's import map: {"imports": {"three/webgpu": "/static/land-three-webgpu.js"}} names module FILES by path, inside
+# an inline <script type="importmap"> where no src= / href= stands. INVARIANT: they are references like any other and get
+# the file's version — unstamped, land.html's two shims were the only files of the page's graph served without ?v=
+# (no-cache from the node, max-age=14400 from the CDN in front of it): a browser holding yesterday's shim beside today's
+# three.tsl.js loads two copies of three, and the page is black (#186; the 2026-11-06 failure by another road).
+# A mapped PREFIX ("three/addons/": "/static/vendor/three/addons/") names no file and is left alone.
+_IMPORT_MAP = re.compile(rb'<script\b[^>]*\btype\s*=\s*["\']importmap["\'][^>]*>(.*?)</script>', re.S | re.I)
+_MAP_REF = re.compile(rb'"(/static/[A-Za-z0-9_./-]+?\.m?js)(?:\?v=[A-Za-z0-9_.-]*)?"')
 # ES-module specifiers inside a served .js: from "./x.js" · import "./x.js" · import("./x.js") (and ../). Found by the
 # quoted relative path first (fast), then kept only when `from` / `import` / `import(` precedes it.
 JS_IMPORT_RE = re.compile(rb'(["\'])(\.\.?/[A-Za-z0-9_./-]+?\.m?js)(?:\?v=[A-Za-z0-9_.-]*)?(["\'])')
@@ -55,6 +63,10 @@ def scan_refs(raw, kind):
                 s = m.start()
                 if raw[max(0, s - 4):s] == b"href" or raw[max(0, s - 3):s] == b"src":
                     out.append((s, m.end(), b'="', m.group(1), b'"'))
+        if b"importmap" in raw:
+            for block in _IMPORT_MAP.finditer(raw):
+                for m in _MAP_REF.finditer(raw, block.start(1), block.end(1)):
+                    out.append((m.start(), m.end(), b'"', m.group(1), b'"'))
     else:
         if b"./" in raw:
             for m in JS_IMPORT_RE.finditer(raw):

@@ -76,5 +76,11 @@ r = subprocess.run(["bash", HOOK], input=f"refs/heads/main {head} refs/heads/mai
                    capture_output=True, text=True, env={**os.environ, "PY": sys.executable})
 check("... while an untested commit in the same range still is",
       "untested change after the merge" in r.stdout and "merge side" not in r.stdout, r.stdout[-300:])
+# The stamper's test is one of the core guards (#186): it stayed red for five days because no push ran it.
+import re
+_guards = re.search(r'for g in (.*?); do', open(HOOK).read(), re.S).group(1).replace("\\", " ").split()
+check("the core guards are test files that exist", len(_guards) >= 5 and all(os.path.isfile(os.path.join(ROOT, g)) for g in _guards), _guards)
+check("...and the static stamper's test is one of them", "tests/test_static_versions.py" in _guards, _guards)
+
 print("ALL PASS" if not _report.fails else f"{_report.fails} FAILURES")
 sys.exit(1 if _report.fails else 0)
