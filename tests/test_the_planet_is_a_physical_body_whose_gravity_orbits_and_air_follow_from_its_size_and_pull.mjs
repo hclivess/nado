@@ -51,5 +51,19 @@ ok(P.airAt(P.ATM_TOP).rho === 0 && P.airAt(C.ORBIT.r - P.RADIUS).rho === 0 && P.
 ok(near(P.dragAt(0, 100, 1.28, 2), 0.5 * sea.rho * 100 * 100 * 1.28 * 2) && P.dragAt(P.ATM_TOP + 1, 700, 1.28, 2) === 0, "drag is ½ρu²c_dA, and none above the air");
 ok(P.ispAt(101325, 366, 452.3) === 366 && P.ispAt(0, 366, 452.3) === 452.3, "an engine gives its sea-level Isp at sea-level pressure and its vacuum Isp in vacuum");
 
+// 5. AN ASCENT, FLOWN (#174): the two-tank rocket of the launch pad (land-recipes.json "rocket"), flown step by step
+const RK = R.rocket, base = { thrustSeaN: RK.engine.thrust_kn * 1000, ispSea: RK.engine.isp_sl, ispVac: RK.engine.isp_vac, cd: P.FLAT_PLATE_CD, area: 2.25, padH: 97, targetR: RK.orbit.r };
+const dry2 = RK.engine.kg + 2 * R.flight.unit_mass["82"] * 1000 + RK.satellite_kg;
+const two = P.ascent({ ...base, dryKg: dry2, propKg: 2 * RK.tank.holds * RK.canister_kg });
+ok(two.ok && Math.abs(two.apoR - two.periR) < 1 && two.apoR >= RK.orbit.r * 0.99 && two.propLeftKg > 0, `two tanks, flown, reach the satellites' orbit and circularise there (${((two.apoR - P.RADIUS) / 1000).toFixed(1)} km, ${two.propLeftKg.toFixed(0)} kg left)`);
+const ideal = RK.engine.isp_vac * P.G0 * Math.log((dry2 + 2 * RK.tank.holds * RK.canister_kg) / dry2);
+ok(ideal > P.orbitSpeed(two.apoR - P.RADIUS), `…on less Δv than its rocket equation gives in vacuum (${ideal.toFixed(0)} m/s for ${P.orbitSpeed(two.apoR - P.RADIUS).toFixed(0)} m/s of orbit): drag and gravity take the rest`);
+const one = P.ascent({ ...base, dryKg: RK.engine.kg + R.flight.unit_mass["82"] * 1000 + RK.satellite_kg, propKg: RK.tank.holds * RK.canister_kg });
+ok(!one.ok && /propellant/.test(one.why), `one tank runs out below the orbit (${one.why})`);
+const vac = P.ascent({ ...base, cd: 0, dryKg: dry2, propKg: 2 * RK.tank.holds * RK.canister_kg });
+ok(vac.ok && vac.propLeftKg > two.propLeftKg, `without the air's drag the same rocket arrives with more left (${vac.propLeftKg.toFixed(0)} kg against ${two.propLeftKg.toFixed(0)})`);
+const weak = P.ascent({ ...base, thrustSeaN: 10, dryKg: dry2, propKg: 100 });
+ok(!weak.ok, "an engine too weak to lift it never reaches its highest point above the pad");
+
 if (fails) { console.log(`${fails} FAILURES`); process.exit(1); }
 console.log("ALL PASS");

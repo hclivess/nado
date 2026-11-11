@@ -27,6 +27,7 @@ import { fileURLToPath } from "node:url";
 import { dirname, join } from "node:path";
 
 const W = await import(join(dirname(fileURLToPath(import.meta.url)), "..", "static", "land-world.js"));
+const P = await import(join(dirname(fileURLToPath(import.meta.url)), "..", "static", "land-planet.js"));   // the planet as a body (#174)
 const memo = new Map();
 const col = (f, u, v) => {
   const k = (f * W.W + u) * W.W + v;
@@ -89,7 +90,8 @@ rl.on("line", (line) => {
   let out;
   try {
     const req = JSON.parse(line);
-    if (req.fell) out = { cells: fell(...req.fell) };
+    if (req.ascent) out = { ascent: P.ascent(req.ascent) };          // a rocket's ascent, flown (#174, land-planet.js)
+    else if (req.fell) out = { cells: fell(...req.fell) };
     else if (req.grow) out = { cells: grow(...req.grow) };
     else if ("card" in req) out = card(req.card);
     else if ("trees" in req) out = { roots: trees(req.trees) };

@@ -2087,7 +2087,17 @@ class World:
 
     # -- ROCKETS (#173, doc/land-navigation.md 1.5): a rocket is the pieces built onto a launch pad (chests aside); the world
     # server computes its launch from their masses — land-recipes.json "rocket" holds every constant and where it comes from
-    def launch_numbers(self, p, pad):
+    async def fly_ascent(self, params):
+        """The rocket's ascent, flown by land-planet.js through the terrain oracle (the same integrator the page has)."""
+        async with self.oracle_lock:
+            self.oracle.stdin.write((json.dumps({"ascent": params}) + "\n").encode())
+            await self.oracle.stdin.drain()
+            r = json.loads(await self.oracle.stdout.readline())
+        if "error" in r:
+            raise RuntimeError("terrain oracle: " + r["error"])
+        return r["ascent"]
+
+    async def launch_numbers(self, p, pad):
         """What the rocket on launch pad `pad` (plot `p`) would do: its dry and loaded mass (kg), its thrust and weight (kN),
         the propellant it would load from the chests beside the pad, its Δv (rocket equation at sea-level Isp) less the
         gravity loss of its whole burn (as if straight up), against the Δv the orbit asks — and why not, when it cannot."""
@@ -2108,15 +2118,30 @@ class World:
         dv = isp * g0 * math.log(wet / dry) if dry > 0 and load else 0.0
         burn = load * RK["canister_kg"] * isp * g0 / (thrust * 1000) if thrust else 0.0
         net = dv - FLIGHT["g"] * burn
-        why = (None if engines and tanks and sats and load and thrust > weight and net >= RK["dv_orbit"] else
+        # THE ASCENT, FLOWN (#174, doc/land-planet.md): gravity GM/r², the air's drag and the engines' thrust with the outside
+        # pressure, step by step to the orbit — it decides; the rocket equation's figures above stay as the panel's summary
+        flown = None
+        if engines and tanks and sats and load and thrust > weight:
+            xs = [b[0] for b in rocket] + [b[0] + b[3] for b in rocket]; zs = [b[1] for b in rocket] + [b[1] + b[4] for b in rocket]
+            ys = [b[2] for b in rocket] + [b[2] + b[5] for b in rocket]
+            w_, d_, h_ = (max(xs) - min(xs)) / 100, (max(zs) - min(zs)) / 100, (max(ys) - min(ys)) / 100
+            flown = await self.fly_ascent({"dryKg": dry, "propKg": load * RK["canister_kg"], "thrustSeaN": thrust * 1000,
+                                           "ispSea": RK["engine"]["isp_sl"], "ispVac": RK["engine"]["isp_vac"],
+                                           # a rocket climbs along its long axis: what meets the air is its cross-section
+                                           # (the mean of all three faces — the craft's approximation — made a 1.5 m wide,
+                                           # 7.3 m tall rocket 8 m² instead of 2.25, and it never reached orbit)
+                                           "area": w_ * d_, "cd": 1.28, "padH": pad[2] / CM,
+                                           "targetR": RK["orbit"]["r"]})
+        why = (None if engines and tanks and sats and load and thrust > weight and flown and flown["ok"] else
                "no rocket engine on the pad" if not engines else "no propellant tank" if not tanks else
                "no satellite to carry" if not sats else "no propellant in a chest beside the pad" if not load else
                "too heavy to leave the pad: its thrust does not beat its weight" if thrust <= weight else
                "not enough Δv to reach orbit — more propellant, or less mass")
+        flown_out = None if not flown else {k: (round(v, 1) if isinstance(v, float) else v) for k, v in flown.items()}
         return {"engines": engines, "tanks": tanks, "sats": sats, "pieces": len(rocket), "load": load, "have": have,
                 "dry_kg": round(dry, 1), "wet_kg": round(wet, 1), "thrust_kn": round(thrust, 1), "weight_kn": round(weight, 1),
                 "dv": round(dv, 1), "loss": round(FLIGHT["g"] * burn, 1), "net": round(net, 1), "need": RK["dv_orbit"],
-                "ok": why is None, "why": why}
+                "flown": flown_out, "ok": why is None, "why": why}
 
     async def launch(self, who, p, pad):
         """Fire the rocket on `pad`: refused unless its thrust beats its weight (it would not leave the pad). Otherwise it
@@ -2128,7 +2153,7 @@ class World:
             return None, [], "no launch pad here"
         if (await self.holder(p)) is not None and not await self.may_build(p, who):
             return None, [], "not your plot — only its owner and the builders they invite launch from it"
-        num = self.launch_numbers(p, pad)
+        num = await self.launch_numbers(p, pad)
         if not (num["engines"] and num["tanks"] and num["sats"] and num["load"]) or num["thrust_kn"] <= num["weight_kn"]:
             return num, [], num["why"]
         rocket = [b for b in connected([b for b in rec["boxes"] if b[6] != CHEST], pad) if b != pad]
@@ -3200,7 +3225,7 @@ def make_app(world, hub, site_origin, wallet_url, secure_cookies=True, shot_page
                         pl, pd = m.get("plot"), m.get("box")
                         ok = pl in world.plots and isinstance(pd, list) and pd in world.plots[pl].get("boxes", []) and pd[6] == LAUNCH_PAD
                         await ws.send_json({"t": "pad", "req": m.get("req"), "plot": pl, "box": pd,
-                                            **({"num": world.launch_numbers(pl, pd)} if ok else {"error": "no launch pad here"})})
+                                            **({"num": await world.launch_numbers(pl, pd)} if ok else {"error": "no launch pad here"})})
                     else:
                         num, gone, err = await world.launch(addr, m.get("plot"), m.get("box"))
                         await ws.send_json({"t": "launched", "req": m.get("req"), "plot": m.get("plot"), "num": num, "error": err})

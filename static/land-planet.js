@@ -68,6 +68,71 @@ export const ispAt = (p, ispSea, ispVac) => ispVac - (ispVac - ispSea) * (p / 10
 export const FLAT_PLATE_CD = 1.28;             // a flat face square-on to the flow (Drag coefficient, the table: "Flat plate
                                                // perpendicular to flow (3D)")
 
+export const SEA_LEVEL = 96;                   // m: the game's heights are measured from RADIUS; the sea stands at 96 (land-world.js
+                                               // SEA) — the air's "sea level" is there, so a grid height h is airAt(h - SEA_LEVEL)
+
+// ---- AN ASCENT, FLOWN (#174) -------------------------------------------------------------------------------------------
+// A rocket from its pad to the satellites' orbit, integrated step by step rather than read off one formula: gravity
+// GM/r² at every height; thrust at a constant propellant flow (ṁ = F_sea / (Isp_sea g₀)), rising from its sea-level
+// figure to its vacuum one as the air thins (a fixed nozzle: F = ṁvₑ + (pₑ − pₐ)Aₑ, Rocket engine); drag ½ρv²c_dA; up
+// first, then a small pitch-over, then a GRAVITY TURN — thrust along the velocity, gravity bending the path over (Gravity
+// turn) — burning until the path's highest point reaches the orbit, coasting there, and circularising with what is left
+// (the rocket equation at vacuum Isp, Tsiolkovsky l.10). DESIGN CHOICES, labelled: the pitch-over (at KICK_SPEED, KICK_DEG
+// for KICK_S), no help from the planet's spin (it launches as if from a pole — conservative), the step ASCENT_DT.
+export const G0 = 9.80665, KICK_SPEED = 60, KICK_DEG = 20, KICK_S = 8, ASCENT_DT = 0.05;
+/** o: { dryKg, propKg, thrustSeaN, ispSea, ispVac, area (m²), cd, padH (grid height of the pad), targetR (m) }.
+ *  Returns { ok, why, apoR, periR, maxQ (Pa), burnS, propLeftKg, path: [[t, height above sea, downrange m, speed]] }. */
+export function ascent(o) {
+  const mdot = o.thrustSeaN / (o.ispSea * G0), thrustVac = o.thrustSeaN * (o.ispVac / o.ispSea);
+  let x = 0, y = RADIUS + o.padH, vx = 0, vy = 0, m = o.dryKg + o.propKg, t = 0, burn = 0, maxQ = 0;
+  const path = [], seaH = (r) => r - RADIUS - SEA_LEVEL;
+  const orbitOf = () => {                                              // apo- and periapsis of the present path (vis-viva)
+    const r = Math.hypot(x, y), v2 = vx * vx + vy * vy, h = x * vy - y * vx, eps = v2 / 2 - GM / r;
+    const a = -GM / (2 * eps), e = Math.sqrt(Math.max(0, 1 + (2 * eps * h * h) / (GM * GM)));
+    return eps < 0 ? { apo: a * (1 + e), peri: a * (1 - e) } : { apo: Infinity, peri: a * (1 - e) };
+  };
+  let phase = "burn", kickT = null;
+  for (let k = 0; k < 400000; k++) {
+    const r = Math.hypot(x, y), air = airAt(seaH(r)), v = Math.hypot(vx, vy), q = 0.5 * air.rho * v * v;
+    maxQ = Math.max(maxQ, q);
+    if (k % 20 === 0) path.push([Math.round(t * 10) / 10, Math.round(seaH(r)), Math.round(RADIUS * Math.atan2(x, y)), Math.round(v)]);
+    let ax = (-GM * x) / r ** 3, ay = (-GM * y) / r ** 3;
+    if (v > 0) { const d = (q * o.cd * o.area) / m; ax -= (d * vx) / v; ay -= (d * vy) / v; }
+    // thrust whenever the path's highest point is short of the orbit and there is propellant: in the air drag pulls the
+    // highest point back down, and a burn cut off once — when it first reached the orbit — left the rocket 94 km short
+    // (2026-11-11, the first runs); so it burns again whenever it falls short, coasting only when it is enough
+    phase = m - mdot * ASCENT_DT > o.dryKg && orbitOf().apo < o.targetR ? "burn" : "coast";
+    if (phase === "burn") {
+      {
+        const F = o.thrustSeaN + (thrustVac - o.thrustSeaN) * (1 - air.p / 101325);
+        let dx = x / r, dy = y / r;                                     // up
+        if (v >= KICK_SPEED) {
+          if (kickT === null) kickT = t;
+          if (t - kickT < KICK_S) {                                  // the pitch-over: KICK_DEG from up, downrange (+x)
+            const c = Math.cos((KICK_DEG * Math.PI) / 180), sn = Math.sin((KICK_DEG * Math.PI) / 180), ex = y / r, ey = -x / r;
+            dx = c * (x / r) + sn * ex; dy = c * (y / r) + sn * ey;
+          } else { dx = vx / v; dy = vy / v; }                          // the gravity turn: along the velocity
+        }
+        ax += (F / m) * dx; ay += (F / m) * dy;
+        m -= mdot * ASCENT_DT; burn += ASCENT_DT;
+      }
+    }
+    vx += ax * ASCENT_DT; vy += ay * ASCENT_DT; x += vx * ASCENT_DT; y += vy * ASCENT_DT; t += ASCENT_DT;
+    const rr = Math.hypot(x, y);
+    if (rr < RADIUS + o.padH - 1 && t > 1) return { ok: false, why: "it fell back", apoR: 0, periR: 0, maxQ, burnS: burn, propLeftKg: m - o.dryKg, path };
+    if (phase === "coast" && vx * x + vy * y <= 0) {                   // at the highest point: circularise if it can
+      const ob = orbitOf(), vt = Math.abs(x * vy - y * vx) / rr, need = Math.sqrt(GM / rr) - vt;
+      const have = o.ispVac * G0 * Math.log(m / o.dryKg);
+      path.push([Math.round(t * 10) / 10, Math.round(seaH(rr)), Math.round(RADIUS * Math.atan2(x, y)), Math.round(Math.hypot(vx, vy))]);
+      if (rr < o.targetR * 0.99) return { ok: false, why: "it ran out of propellant below the orbit", apoR: ob.apo, periR: ob.peri, maxQ, burnS: burn, propLeftKg: m - o.dryKg, path };
+      if (have < need) return { ok: false, why: "not enough left to circularise", apoR: ob.apo, periR: ob.peri, maxQ, burnS: burn, propLeftKg: m - o.dryKg, path };
+      const mAfter = m / Math.exp(need / (o.ispVac * G0));
+      return { ok: true, why: null, apoR: rr, periR: rr, maxQ, burnS: burn + (m - mAfter) / mdot, propLeftKg: mAfter - o.dryKg, path };
+    }
+  }
+  return { ok: false, why: "it did not reach its highest point", apoR: 0, periR: 0, maxQ, burnS: burn, propLeftKg: m - o.dryKg, path };
+}
+
 /** Everything a page shows about the planet, computed. */
 export function facts() {
   return { radius: RADIUS, g: SURFACE_G, mass: MASS, density: DENSITY, densityTimesEarth: DENSITY / EARTH_DENSITY,

@@ -58,9 +58,9 @@ ok(sp <= F.vmax + 1e-9, `never past the top speed (${sp.toFixed(1)} of ${F.vmax}
 const v0 = Math.hypot(f.vel[0], f.vel[1]);
 run(f, { yaw: Math.PI / 2 }, 3);
 // THE AIR (#174): ½ρv²c_dA on a 2 t craft of 4 m² — v(t) = v₀ / (1 + k v₀ t), k = ½ρc_dA/m (quadratic drag, solved)
-const kAir = (0.5 * Pl.airAt(150).rho * Pl.FLAT_PLATE_CD * 4) / 2000, vAir = v0 / (1 + kAir * v0 * 3);
+const kAir = (0.5 * Pl.airAt(150 - Pl.SEA_LEVEL).rho * Pl.FLAT_PLATE_CD * 4) / 2000, vAir = v0 / (1 + kAir * v0 * 3);
 ok(Math.abs(Math.hypot(f.vel[0], f.vel[1]) - vAir) / vAir < 0.02, `let go, the air slows it as ½ρv²c_dA does: ${v0.toFixed(1)} → ${Math.hypot(f.vel[0], f.vel[1]).toFixed(1)} m/s in 3 s (the solved drag: ${vAir.toFixed(1)})`);
-const hi = craft(2, 4); hi.pose[3] = Pl.ATM_TOP + 500; hi.grounded = false; hi.vel = [40, 0, 0];
+const hi = craft(2, 4); hi.pose[3] = Pl.SEA_LEVEL + Pl.ATM_TOP + 500; hi.grounded = false; hi.vel = [40, 0, 0];
 run(hi, {}, 3);
 ok(Math.abs(hi.vel[0] - 40) < 1e-9, "above the air's top nothing slows it");
 const g150 = Pl.gravityAt(150), down = craft(2, 0); down.pose[3] = 20000; down.grounded = false;

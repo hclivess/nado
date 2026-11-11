@@ -225,6 +225,7 @@ try {
   const txt = await evl(B, "document.getElementById('padGrid').textContent");
   ok(/Rocket engines: 1/.test(txt) && /Propellant tanks: 2/.test(txt) && /Satellites: 1/.test(txt) && /Propellant: 1574 kg/.test(txt), "…its engine, its two tanks, its satellite and the 1,574 kg of propellant it loads");
   ok(/It can reach orbit\./.test(txt), "…and that it can reach orbit");
+  ok(/Flown: it reaches orbit 5\d\.\d km up/.test(txt), "…as the ascent flown through the air shows: " + (txt.match(/Flown:[^.]*?left/) || [""])[0]);
   // 4. launch
   await tap("#padGo");
   ok(await until(B, "/In orbit!/.test(document.body.innerText)", 15000), "Launch: the page says it is in orbit");

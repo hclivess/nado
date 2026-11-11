@@ -6,8 +6,9 @@ physical gps satellites into orbit"). scripts/land_server.py launch_numbers / la
      1,859 kN at sea level for 3,177 kg); a tank weighs 3.6 % of the propellant it holds (the Shuttle's external tank,
      26.5 t empty for 735.5 t); a canister of propellant fits the tank's volume (1.119 kg of LH2 at 70.85 kg/m3 and
      6.748 kg of LOX at 1,141 kg/m3); a satellite weighs a GPS Block IIF's 1,633 kg;
-  2. the launch is the rocket equation at sea-level Isp from the rocket's own masses, less the gravity loss of its whole
-     burn — computed here by hand and matched — against the 1,096 m/s the orbit asks;
+  2. the panel's summary is the rocket equation at sea-level Isp from the rocket's own masses, less the gravity loss of its
+     whole burn — computed here by hand and matched; the launch is decided by the ascent FLOWN (#174, land-planet.js
+     ascent): gravity GM/r², drag and thrust with the outside pressure at every step, to the orbit and circularised;
   3. one full tank falls short: launched, it is spent (pieces and propellant gone) and nothing reaches orbit;
   4. two full tanks reach orbit: the satellite is the next of the constellation, kept across a restart;
   5. a rocket whose thrust does not beat its weight is refused at the pad and nothing is spent;
@@ -59,6 +60,7 @@ async def main():
     data = tempfile.mkdtemp(prefix="nado_land_rocket_", dir=os.environ["HOME"])
     world = S.World(data, str(ex.make_url("")).rstrip("/"), "b" * 32)
     world.http = ClientSession()
+    await world.start_oracle()                                          # the ascent is flown by land-planet.js through it (#174)
     a, b = A["address"], Bk["address"]
     RK, I = S.RULES["rocket"], S.RULES["items"]
 
@@ -95,11 +97,13 @@ async def main():
     added, _, refused = await world.boxes(a, PA, parts1 + [chest1], [])
     check("a pad, an engine, one tank, a satellite and a chest are built", len(added) == len(parts1) + 1 and not refused, refused)
     await world.chest(a, PA, chest1, {"propellant": 100}, {})
-    n = world.launch_numbers(PA, pad1)
+    n = await world.launch_numbers(PA, pad1)
     dry, wet, dv, loss, net = expect(1, 100)
     check(f"its numbers are the rocket equation's from its own masses: Δv {n['dv']} m/s less {n['loss']} lost to gravity = {n['net']}",
           abs(n["dry_kg"] - dry) < 0.2 and abs(n["dv"] - dv) < 0.2 and abs(n["loss"] - loss) < 0.2 and n["need"] == 1096, (n, dry, dv, loss))
     check("…one full tank is not enough for orbit, and it says so", not n["ok"] and "not enough" in n["why"], n)
+    check(f"…the ascent, flown with the air and gravity at every height, runs out short of the orbit: {n['flown']['why']}",
+          n["flown"] and not n["flown"]["ok"] and "propellant" in n["flown"]["why"], n["flown"] and {k: v for k, v in n["flown"].items() if k != "path"})
     _, _, err = await world.launch(b, PA, pad1)
     check("a stranger cannot launch from another's plot", err and "not your plot" in err, err)
     num, gone, err = await world.launch(a, PA, pad1)
@@ -111,9 +115,12 @@ async def main():
     pad2, parts2, chest2 = rocket(700, 2)
     added, _, refused = await world.boxes(a, PA, parts2 + [chest2], [])
     await world.chest(a, PA, chest2, {"propellant": 200}, {})
-    n = world.launch_numbers(PA, pad2)
+    n = await world.launch_numbers(PA, pad2)
     dry, wet, dv, loss, net = expect(2, 200)
-    check(f"two full tanks: Δv {n['dv']} less {n['loss']} = {n['net']} m/s, enough for the orbit's 1,096", n["ok"] and abs(n["net"] - net) < 0.3 and net >= 1096, n)
+    check(f"two full tanks: Δv {n['dv']} less {n['loss']} = {n['net']} m/s, enough for the orbit's 1,096", n["ok"] and abs(n["net"] - net) < 0.3 and net >= 1096, {k: v for k, v in n.items() if k != "flown"})
+    fl = n["flown"]
+    check(f"…and the ascent, flown, reaches the orbit and circularises there: {(fl['apoR'] - 83443) / 1000:.1f} km up, max {fl['maxQ'] / 1000:.1f} kPa of dynamic pressure, {fl['propLeftKg']:.0f} kg left",
+          fl["ok"] and abs(fl["apoR"] - fl["periR"]) < 1 and fl["apoR"] >= RK["orbit"]["r"] * 0.99 and fl["propLeftKg"] > 0 and len(fl["path"]) > 10, {k: v for k, v in fl.items() if k != "path"})
     num, gone, err = await world.launch(a, PA, pad2)
     check("launched, its satellite is in orbit — the first of the constellation", err is None and len(world.sats) == 1 and world.sats[0]["owner"] == a and world.sats[0]["n"] == 0, world.sats)
     world.flush()
@@ -127,10 +134,11 @@ async def main():
     added, _, refused = await world.boxes(a, PA, parts3 + [ballast, chest3], [])
     check("a rocket with 18.9 t of steel on it is built", len(added) == len(parts3) + 2 and not refused, refused)
     await world.chest(a, PA, chest3, {"propellant": 100}, {})
-    n = world.launch_numbers(PA, pad3)
+    n = await world.launch_numbers(PA, pad3)
     num, gone, err = await world.launch(a, PA, pad3)
     check(f"a rocket whose thrust ({n['thrust_kn']} kN) does not beat its weight ({n['weight_kn']} kN) is refused at the pad, nothing spent",
           n["thrust_kn"] <= n["weight_kn"] and err and "too heavy" in err and not gone and world.plots[PA]["chests"][S.chest_key(chest3)].get("propellant") == 100, (n, err))
+    world.oracle.kill(); await world.oracle.wait()                      # the ascent's node process, gone before the loop is
     await world.http.close(); await ex.close()
 
 

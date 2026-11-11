@@ -20,7 +20,7 @@
 //     already partly inside something (a piece was built through it) makes only moves that take no more of it in, so
 //     it can always fly out and never further in.
 
-import { gravityAt, airAt, FLAT_PLATE_CD } from "./land-planet.js";
+import { gravityAt, airAt, FLAT_PLATE_CD, SEA_LEVEL } from "./land-planet.js";
 
 // THE NAV UNIT (#173, doc/land-navigation.md 1.4): a craft holding one knows where it is by DEAD RECKONING — from a known
 // position (a fix), advanced by its measured motion (Dead reckoning l.7) — as an inertial navigation system does, and with
@@ -130,7 +130,8 @@ export function craftStep(c, input, dt, F, groundAt, hits) {
   else if (lifts && airborne) vh *= Math.exp(-2.5 * dt);              // hovering: the thrusters hold it
   else vh -= gr * dt;                                                  // falling, or resting on the ground
   // the air: ½ρv²c_dA against its velocity, as 1 / (1 + k v dt) — the implicit step, stable however thick the air
-  const k = (0.5 * airAt(c.pose[3]).rho * FLAT_PLATE_CD * (c.area || AREA_DEFAULT)) / (c.mass * 1000), sp0 = Math.hypot(vu, vv, vh);
+  // the air at its height above the sea (the game's heights run from the planet's RADIUS; the sea is at SEA_LEVEL)
+  const k = (0.5 * airAt(c.pose[3] - SEA_LEVEL).rho * FLAT_PLATE_CD * (c.area || AREA_DEFAULT)) / (c.mass * 1000), sp0 = Math.hypot(vu, vv, vh);
   if (k > 0 && sp0 > 0) { const f = 1 / (1 + k * sp0 * dt); vu *= f; vv *= f; vh *= f; }
   // top speed
   const sp = Math.hypot(vu, vv, vh);

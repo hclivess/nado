@@ -2328,6 +2328,11 @@ const PAD_WHY = { "no rocket engine on the pad": ["padWhyEngine", "No rocket eng
   "no satellite to carry": ["padWhySat", "No satellite to carry."], "no propellant in a chest beside the pad": ["padWhyProp", "No propellant in a chest beside the pad."],
   "too heavy to leave the pad: its thrust does not beat its weight": ["padWhyHeavy", "Too heavy to leave the pad: its thrust does not beat its weight."],
   "not enough Δv to reach orbit — more propellant, or less mass": ["padWhyDv", "Not enough Δv to reach orbit — more propellant, or less mass."] };
+// the ascent's own verdicts (land-planet.js ascent), said in the player's language
+const FLOWN_WHY = { "it ran out of propellant below the orbit": ["padRanOut", "it runs out of propellant below the orbit"],
+  "not enough left to circularise": ["padNoCirc", "it reaches the orbit's height without enough left to stay up there"],
+  "it fell back": ["padFellBack", "it falls back"], "it did not reach its highest point": ["padFellBack", "it falls back"] };
+const flownWhy = (w) => (FLOWN_WHY[w] ? T(FLOWN_WHY[w][0], FLOWN_WHY[w][1]) : String(w));
 const padWhy = (w) => (PAD_WHY[w] ? T(PAD_WHY[w][0], PAD_WHY[w][1]) : String(w));
 function renderPad(m) {
   const g = $("padGrid");
@@ -2338,6 +2343,8 @@ function renderPad(m) {
     + row("padMass", "Mass: {dry} kg empty, {wet} kg loaded", { dry: Math.round(n.dry_kg), wet: Math.round(n.wet_kg) })
     + row("padThrust", "Thrust {t} kN against its weight {w} kN", { t: n.thrust_kn, w: n.weight_kn })
     + row("padDv", "Δv {dv} m/s − {loss} m/s lost to gravity = {net} m/s; orbit needs {need} m/s", { dv: n.dv, loss: n.loss, net: n.net, need: n.need })
+    + (n.flown ? row(n.flown.ok ? "padFlownOk" : "padFlownNo", n.flown.ok ? "Flown: it reaches orbit {h} km up, the air pressing hardest at {q} kPa, {kg} kg of propellant left" : "Flown: {why}, its path topping out {h} km up",
+        { h: ((n.flown.apoR - Planet.RADIUS - Planet.SEA_LEVEL) / 1000).toFixed(1), q: (n.flown.maxQ / 1000).toFixed(1), kg: Math.round(n.flown.propLeftKg), why: flownWhy(n.flown.why) }) : "")
     + `<p><b>${esc(n.ok ? T("padOk", "It can reach orbit.") : padWhy(n.why))}</b></p>`
     + (n.engines && n.tanks && n.sats && n.load && n.thrust_kn > n.weight_kn ? `<button id="padGo">${esc(T("padGo", "Launch"))}</button>` : "");
   const go = $("padGo");
