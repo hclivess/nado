@@ -113,6 +113,12 @@
   .srow select{font:inherit;color:var(--txt);background:#0b0f14;border:1px solid var(--border);border-radius:8px;padding:6px 8px;max-width:58%}
   .presets{display:flex;gap:6px;flex-wrap:wrap;margin:0 0 8px}.presets button.on{border-color:var(--accent2);color:var(--accent2)}
   #wardPanel{position:fixed;inset:0;z-index:8;display:grid;place-items:center;background:rgba(0,0,0,.45)}
+  #mapPanel{position:fixed;inset:0;z-index:8;display:grid;place-items:center;background:rgba(0,0,0,.45)}
+  #mapPanel .card{width:min(520px,calc(100vw - 32px));max-height:92vh;overflow:auto;background:var(--elev);border:1px solid var(--border);border-radius:14px;padding:16px;font-size:13px}
+  #mapPanel h2{margin:0 0 10px;font-size:16px;display:flex;align-items:center}#mapPanel h2 button{margin-left:auto}
+  #mapCanvas{width:100%;height:auto;aspect-ratio:1;display:block;border-radius:8px;background:#1b2430}
+  #mapLegend{margin-top:8px;line-height:1.6}#mapLegend b{display:inline-block;width:10px;height:10px;margin:0 4px 0 10px;border-radius:2px;vertical-align:-1px}
+  #mapBtn{pointer-events:auto;margin-top:6px;padding:4px 12px;border-radius:999px;border:1px solid var(--border);background:var(--elev);color:inherit;font:inherit;cursor:pointer}
   #wardPanel .card{max-width:min(560px,calc(100vw - 32px));max-height:80vh;overflow:auto;background:var(--elev);border:1px solid var(--border);border-radius:14px;padding:16px;font-size:13px}
   #wardPanel h2{margin:0 0 10px;font-size:16px;display:flex;align-items:center;gap:6px}#wardPanel h2 button:first-of-type{margin-left:auto}
   #wardPanel h3{margin:10px 0 6px;font-size:12px;color:var(--dim)}
@@ -146,7 +152,7 @@
   <h1>NADO <span class="a" data-i18n="land.name">Land</span></h1>
   <a class="hub" href="https://nadochain.com/apps.html" data-i18n="land.hub">All apps</a>
 </header>
-<div id="hudInfo"><div id="hudPos"></div><div id="hudPlot"></div><div id="hudHp" class="hidden"></div></div>
+<div id="hudInfo"><div id="hudPos"></div><div id="hudPlot"></div><div id="hudHp" class="hidden"></div><button id="mapBtn" class="hidden" data-i18n="land.tMap">Map</button></div>
 <div id="hurtFlash"></div>
 <div id="deathCard" class="hidden" role="dialog"><h2 id="deathBy"></h2><p id="deathWhere" class="dim"></p><button id="deathGo" data-i18n="land.respawn">Wake up</button></div>
 <div id="cross"></div>
@@ -186,6 +192,11 @@
 <div id="setPanel" class="hidden"><div class="card">
   <h2><span data-i18n="land.setTitle">Graphics</span><button id="setClose" class="ghost" data-i18n="land.close">Close</button></h2>
   <div id="setGrid"></div>
+</div></div>
+<div id="mapPanel" class="hidden"><div class="card">
+  <h2><span data-i18n="land.mapTitle">Map</span><button id="mapClose" class="ghost" data-i18n="land.close">Close</button></h2>
+  <canvas id="mapCanvas" width="480" height="480"></canvas>
+  <div id="mapLegend"></div>
 </div></div>
 <div id="wardPanel" class="hidden"><div class="card">
   <h2><span data-i18n="land.wardTitle">Wardrobe</span><button id="wardClose" class="ghost" data-i18n="land.close">Close</button></h2>

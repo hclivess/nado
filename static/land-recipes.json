@@ -434,6 +434,18 @@
   },
   "compass": {
    "name": "Compass"
+  },
+  "tanbark": {
+   "name": "Tanbark"
+  },
+  "ink": {
+   "name": "Ink"
+  },
+  "paper": {
+   "name": "Paper"
+  },
+  "map": {
+   "name": "Map"
   }
  },
  "tools": {
@@ -545,6 +557,11 @@
   "chisel": {
    "name": "Chisel",
    "class": "chisel",
+   "speed": 1
+  },
+  "paper_mould": {
+   "name": "Paper mould",
+   "class": "paper_mould",
    "speed": 1
   }
  },
@@ -3637,6 +3654,138 @@
     ],
     [
      "glass",
+     1
+    ]
+   ],
+   "with": [
+    "workbench"
+   ]
+  },
+  {
+   "id": "tanbark",
+   "makes": [
+    [
+     "tanbark",
+     2
+    ]
+   ],
+   "uses": [
+    [
+     "wood",
+     1
+    ]
+   ],
+   "with": [
+    "knife"
+   ]
+  },
+  {
+   "id": "ink",
+   "makes": [
+    [
+     "ink",
+     4
+    ]
+   ],
+   "uses": [
+    [
+     "iron",
+     1
+    ],
+    [
+     "tanbark",
+     2
+    ],
+    [
+     "water",
+     1
+    ]
+   ],
+   "with": [
+    "campfire"
+   ]
+  },
+  {
+   "id": "paper_mould",
+   "makes": [
+    [
+     "paper_mould",
+     1
+    ]
+   ],
+   "uses": [
+    [
+     "planks",
+     2
+    ],
+    [
+     "wire",
+     2
+    ]
+   ],
+   "with": [
+    "workbench"
+   ]
+  },
+  {
+   "id": "paper",
+   "makes": [
+    [
+     "paper",
+     2
+    ]
+   ],
+   "uses": [
+    [
+     "fiber",
+     4
+    ],
+    [
+     "water",
+     1
+    ]
+   ],
+   "with": [
+    "paper_mould"
+   ]
+  },
+  {
+   "id": "paper_linen",
+   "makes": [
+    [
+     "paper",
+     2
+    ]
+   ],
+   "uses": [
+    [
+     "linen",
+     1
+    ],
+    [
+     "water",
+     1
+    ]
+   ],
+   "with": [
+    "paper_mould"
+   ]
+  },
+  {
+   "id": "map",
+   "makes": [
+    [
+     "map",
+     1
+    ]
+   ],
+   "uses": [
+    [
+     "paper",
+     4
+    ],
+    [
+     "ink",
      1
     ]
    ],

@@ -1307,6 +1307,8 @@ function connect() {
       else if (m.op === "board" && m.craft) startFlying(m.craft);
       else if (m.op === "dock") { notify(T("fDocked", "Set down as pieces.")); }
       else if (m.op === "handover") { const w = String(m.to || ""); conLine(T("fGave", "Given to {w}. It is theirs, and they are at its controls.", { w: w.slice(0, 6) + "…" + w.slice(-5) })); }
+    } else if (m.t === "survey") {
+      drawMap(m);
     } else if (m.t === "mycrafts") {
       if (m.error) return conLine(String(m.error), "err");
       if (!(m.list || []).length) return conLine(T("fCraftsNone", "You own no craft."));
@@ -1759,6 +1761,64 @@ async function builderCheck(plot) {
   } catch (e) {}
 }
 
+// ---- THE MAP (#173, doc/land-navigation.md 1.3) ----------------------------------------------------------------
+// A map shows the land its owner has SURVEYED — the squares they passed through carrying it (land_server.py survey_at) —
+// drawn from the planet's own generator (land-world.js column: its biome, its height), north up, with them, the town
+// hall, their bed and their crafts on it. Land they have not been to stays blank: a map is drawn by going there.
+const MAP_COL = { grass: [106, 154, 74], forest: [63, 107, 53], desert: [216, 196, 138], beach: [226, 210, 156], rock: [138, 138, 134], snow: [238, 242, 244] };
+function mapPanel(open) {
+  $("mapPanel").classList.toggle("hidden", !open);
+  if (!open) return;
+  if (!((inv.items.map || 0) > 0)) { $("mapLegend").textContent = T("mapNone", "You have no map. Paper and ink at the workbench make one."); clearMap(); return; }
+  $("mapLegend").textContent = T("mapLoading", "Unrolling the map…");
+  net.send({ t: "survey", req: ++net.req });
+}
+function clearMap() { const c = $("mapCanvas"), g = c.getContext("2d"); g.fillStyle = "#1b2430"; g.fillRect(0, 0, c.width, c.height); }
+function drawMap(m) {
+  const c = $("mapCanvas"), g = c.getContext("2d"), N = c.width, tile = m.tile || 64, tiles = m.tiles || [];
+  clearMap();
+  if (m.error) { $("mapLegend").textContent = String(m.error); return; }
+  // the window: every surveyed square near, at least 512 m across, centred on me
+  let half = 256;
+  for (const [tu, tv] of tiles) half = Math.max(half, Math.abs((tu + 0.5) * tile - P.u) + tile, Math.abs((tv + 0.5) * tile - P.v) + tile);
+  half = Math.min(half, 4096);
+  const px = N / (2 * half), X = (u) => (u - (P.u - half)) * px, Y = (v) => ((P.v + half) - v) * px;   // north up
+  const step = tile / 2;
+  for (const [tu, tv] of tiles) for (let a = 0; a < 2; a++) for (let b = 0; b < 2; b++) {
+    const u = tu * tile + a * step, v = tv * tile + b * step, col = Wd.column(P.face, Math.floor(u + step / 2), Math.floor(v + step / 2));
+    const sea = col.top < Wd.SEA, k = sea ? 1 : Math.max(0.7, Math.min(1.3, 0.85 + (col.top - Wd.SEA) / 160));
+    const rgb = sea ? [59, 111, 168] : (MAP_COL[col.biome] || MAP_COL.grass).map((x) => Math.min(255, Math.round(x * k)));
+    g.fillStyle = `rgb(${rgb[0]},${rgb[1]},${rgb[2]})`;
+    g.fillRect(X(u), Y(v + step), Math.ceil(step * px) + 1, Math.ceil(step * px) + 1);
+  }
+  const mark = (u, v, fill, shape) => {
+    const x = X(u), y = Y(v);
+    if (x < -8 || y < -8 || x > N + 8 || y > N + 8) return;
+    g.fillStyle = fill; g.strokeStyle = "#000"; g.lineWidth = 1.5; g.beginPath();
+    if (shape === "square") g.rect(x - 6, y - 6, 12, 12); else g.arc(x, y, 5, 0, 2 * Math.PI);
+    g.fill(); g.stroke();
+  };
+  if (m.town && m.town[0] === P.face) mark(m.town[1], m.town[2], "#e8c547", "square");
+  if (m.bed && m.bed[0] === P.face) mark(m.bed[1], m.bed[2], "#c0392b", "square");
+  for (const cr of m.crafts || []) if (cr.pose[0] === P.face) mark(cr.pose[1], cr.pose[2], "#6fd3e8", "dot");
+  // me: an arrow along my heading with a compass, a dot without one (a map alone does not say which way you face)
+  const mx = X(P.u), my = Y(P.v);
+  g.fillStyle = "#fff"; g.strokeStyle = "#000"; g.lineWidth = 1.5; g.beginPath();
+  if ((inv.items.compass || 0) > 0) {
+    const s = Math.sin(P.yaw), co = Math.cos(P.yaw), pt = (f, r) => [mx + s * f + co * r, my - co * f + s * r];
+    const [a1, a2] = pt(10, 0), [b1, b2] = pt(-6, 6), [c1, c2] = pt(-6, -6);
+    g.moveTo(a1, a2); g.lineTo(b1, b2); g.lineTo(c1, c2); g.closePath();
+  } else g.arc(mx, my, 6, 0, 2 * Math.PI);
+  g.fill(); g.stroke();
+  // north, and a scale bar of a round length
+  g.fillStyle = "#fff"; g.font = "bold 14px system-ui"; g.textAlign = "center"; g.fillText(T("cpN", "N") + " ↑", N - 24, 22);
+  const bar = [50, 100, 200, 500, 1000, 2000].find((x) => x * px >= 60) || 2000;
+  g.fillRect(14, N - 18, bar * px, 3); g.textAlign = "left"; g.font = "12px system-ui"; g.fillText(bar >= 1000 ? `${bar / 1000} km` : `${bar} m`, 14, N - 24);
+  const a = tiles.length * tile * tile / 1e6, km2 = a.toFixed(a < 1 ? 3 : 2);
+  const key = (fill, label) => `<b style="background:${fill}"></b>${esc(label)}`;
+  $("mapLegend").innerHTML = (tiles.length ? esc(T("mapArea", "{a} km² surveyed near you", { a: km2 })) : esc(T("mapEmpty", "Nothing surveyed here yet — carry the map and go: it draws the land you pass through.")))
+    + "<br>" + key("#fff", T("mapYou", "you")) + key("#e8c547", T("mapTown", "town hall")) + key("#c0392b", T("mapBed", "your bed")) + key("#6fd3e8", T("mapCraft", "your crafts"));
+}
 // ---- HUD -------------------------------------------------------------------------------------------------------
 // A COMPASS (#173, doc/land-navigation.md 1.2): carried, it says which way you face — the bearing clockwise from north and
 // its point of eight. North is +v on a face (land-world.js frameOf), the grid's north: no declination (a design choice).
@@ -1780,6 +1840,7 @@ function hud() {
       + " · " + T("fEngines", "engines {e} %", { e: Math.round(100 * ((flying.engine && flying.engine.throttle) || 0)) });   // the thrust in use (#171)
   }
   if ((inv.items.compass || 0) > 0) $("hudPos").textContent += " · " + compassSays(P.yaw);   // a compass carried (#173)
+  $("mapBtn").classList.toggle("hidden", !((inv.items.map || 0) > 0));                       // a map carried: its button (#173)
   const st = $("hudPlot");
   // the owner is looked up once the plot's title is KNOWN (titles load after the first frames), once per refresh
   if (t && !mine.has(plot) && !t.asked) { t.asked = true; holderOf(plot).then(hud); }
@@ -2547,7 +2608,7 @@ async function bench() {
 }
 const CMDS = {
   help: () => [["/help", T("cHelp", "this list")], ["/pos", T("cPos", "where you are")], ["/tp spawn | /tp bed", T("cTpTo", "go to the landing, or to your bed")],
-    ["/aim", T("cAim", "what you aim at, and where a block would go")], ["/prof", T("cProf", "the profiler: where each frame's time goes")], ["/dock", T("cDock", "set your landed craft down as pieces")], ["/crafts", T("cCrafts", "where your crafts are: distance, bearing, height")], ["/handover <player>", T("cGive", "give your craft to a player — they take its controls")], ["/fly", T("cFly", "fly or walk")], ["/settings", T("cSettings", "your settings")], ["/bench", T("cBench", "measure this device and pick its graphics")], ["/tilt <yaw> <pitch> <roll>", T("cTilt", "turn the piece in hand, in degrees")], ["/set <name> <value>", T("cSet", "change one (e.g. /set fov 90)")],
+    ["/aim", T("cAim", "what you aim at, and where a block would go")], ["/prof", T("cProf", "the profiler: where each frame's time goes")], ["/dock", T("cDock", "set your landed craft down as pieces")], ["/map", T("cMap", "your map: the land you have surveyed (also M)")], ["/crafts", T("cCrafts", "where your crafts are: distance, bearing, height")], ["/handover <player>", T("cGive", "give your craft to a player — they take its controls")], ["/fly", T("cFly", "fly or walk")], ["/settings", T("cSettings", "your settings")], ["/bench", T("cBench", "measure this device and pick its graphics")], ["/tilt <yaw> <pitch> <roll>", T("cTilt", "turn the piece in hand, in degrees")], ["/set <name> <value>", T("cSet", "change one (e.g. /set fov 90)")],
     ["/clear", T("cClear", "clear this log")], ["…", T("cChat", "anything else is chat to the players around you")]].forEach(([c, d]) => conLine(c + " — " + d)),
   pos: () => conLine(`${T("cFace", "face")} ${P.face} · u ${Math.floor(P.u)} · v ${Math.floor(P.v)} · h ${P.h.toFixed(1)} · ${T("cPlot", "plot")} ${Wd.plotOf(P.face, Math.floor(P.u), Math.floor(P.v))}`),
   // /tp (#167): to the landing or to your own bed — nowhere else; going far is walking, flying, or a craft. Signed in, the
@@ -2587,6 +2648,8 @@ const CMDS = {
     if (flying) leaveCraft();
     net.send({ t: "dock", craft: id, req: ++net.req });
   },
+  // /map: THE SURVEYED MAP (#173) — also M, and the Map button a carried map puts under the HUD
+  map: () => mapPanel(true),
   // /crafts: WHERE YOUR CRAFTS ARE (#171, operator: "i left the x somewhere") — each one's distance, bearing and height
   crafts: () => net.send({ t: "mycrafts", req: ++net.req }),
   // /handover <player>: HAND A CRAFT OVER (#171) — the one you fly, or your parked craft near; to a player by their address, or
@@ -2699,7 +2762,8 @@ function wireInput(canvas) {
     if (e.code === "BracketLeft" || e.code === "BracketRight") { const i = SNAPS.indexOf(piece.snap); piece.snap = SNAPS[Math.max(0, Math.min(SNAPS.length - 1, (i < 0 ? 2 : i) + (e.code === "BracketRight" ? 1 : -1)))]; pieceInfo(); }
     if (e.code === "KeyF") { P.fly = !P.fly; P.vh = 0; notify(P.fly ? T("flyOn", "Flying — Space up, C down, Shift fast") : T("flyOff", "Walking"), 1600); }
     if (e.code === "KeyE") palette($("palette").classList.contains("hidden"));
-    if (e.code === "Escape") { palette(false); settings(false); }
+    if (e.code === "KeyM") mapPanel($("mapPanel").classList.contains("hidden"));
+    if (e.code === "Escape") { palette(false); settings(false); mapPanel(false); }
     if (e.code === "Space" && locked) e.preventDefault();
   });
   document.addEventListener("keyup", (e) => keys.delete(e.code));
@@ -2742,6 +2806,8 @@ function wireInput(canvas) {
   $("wardClose").onclick = () => wardrobe(false);
   $("setOpen").onclick = () => { palette(false); settings(true); };
   $("setClose").onclick = () => settings(false);
+  $("mapClose").onclick = () => mapPanel(false);
+  $("mapBtn").onclick = () => mapPanel(true);
   $("wardOpen").onclick = () => { palette(false); wardrobe(true); };
 }
 

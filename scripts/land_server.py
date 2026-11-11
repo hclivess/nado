@@ -505,6 +505,7 @@ class World:
         for c in self.crafts.values():
             c["eng"] = None
         self.cdirty = False
+        self.survey_sets = {}                              # #173: each surveying player's squares, as a set (survey_at)
         # HUNTING (#156): the animals near players — the world server's own, never saved (they wander off and others come)
         self.animals, self.animal_seq, self.rng = {}, 0, random.Random()
         self.drops, self.drop_seq = {}, 0                 # things lying on the ground to pick up: arrows that missed (#157)
@@ -1275,6 +1276,35 @@ class World:
         self.player(addr)["pos"] = [int(pos[0]), round(float(pos[1]), 2), round(float(pos[2]), 2), round(float(pos[3]), 2), round(float(pos[4]), 3)]
         self.player(addr)["pos_at"] = int(time.time())                # the page compares it with its own save
         self.pdirty.add(addr)
+        self.survey_at(addr, pos)
+
+    # THE SURVEYED MAP (#173, doc/land-navigation.md 1.3): a player carrying a map draws the land as they go, as a surveyor
+    # draws in the field on a plane table (Plane table l.4) — the server keeps the SURVEY_TILE-metre squares they passed
+    # through with one (on foot or flying), and the page draws those, and only those, from the planet's own generator.
+    # The square and the cap are design choices.
+    SURVEY_TILE, SURVEY_MAX = 64, 10000
+
+    def survey_at(self, addr, pos):
+        pl = self.player(addr)
+        if pl["items"].get("map", 0) < 1:
+            return
+        have = self.survey_sets.get(addr)
+        if have is None:
+            have = self.survey_sets[addr] = {tuple(x) for x in pl.get("survey", [])}
+        k = (int(pos[0]), int(pos[1] // self.SURVEY_TILE), int(pos[2] // self.SURVEY_TILE))
+        if k not in have and len(have) < self.SURVEY_MAX:
+            have.add(k); pl.setdefault("survey", []).append(list(k)); self.pdirty.add(addr)
+
+    def survey_of(self, addr, near=4096):
+        """What a player's map shows, from where they stand: the squares they surveyed on this face within `near` m, the
+        town hall, their bed and their crafts. No squares without a map — a map is what remembers them."""
+        pl = self.player(addr)
+        pos = pl.get("pos") or [0, 0, 0, 0, 0]
+        t = self.SURVEY_TILE
+        tiles = [[x[1], x[2]] for x in pl.get("survey", []) if pl["items"].get("map", 0) >= 1 and x[0] == pos[0]
+                 and abs((x[1] + 0.5) * t - pos[1]) <= near and abs((x[2] + 0.5) * t - pos[2]) <= near]
+        return {"tile": t, "face": pos[0], "tiles": tiles, "town": landing(), "bed": pl["bed"][:3] if pl.get("bed") else None,
+                "crafts": [{"id": c["id"], "pose": c["pose"]} for c in self.crafts_of(addr)]}
 
     def look_of(self, addr):
         """What others see of a player: what they wear and their skin and hair."""
@@ -2092,6 +2122,7 @@ class World:
             return "faster than it can fly"
         c["pose"] = [int(pose[0]), round(float(pose[1]), 3), round(float(pose[2]), 3), round(float(pose[3]), 3), round(float(pose[4]), 4)]
         c["at"] = now; self.cdirty = True
+        self.survey_at(who, c["pose"])                              # a pilot carrying a map surveys from the air (#173)
         # THE ENGINES' WORK (#171): [throttle, lift, du, dv] as the pilot's page computes it (land-flight.js engine) —
         # only drawn (exhaust, dust, tremble), so it is kept as the pilot says it, within range
         if (isinstance(eng, list) and len(eng) == 4 and all(isinstance(x, (int, float)) and not isinstance(x, bool) and math.isfinite(x) for x in eng)
@@ -3063,6 +3094,8 @@ def make_app(world, hub, site_origin, wallet_url, secure_cookies=True, shot_page
                         continue
                     cfg, can, err = await world.set_machine(addr, m.get("plot"), m.get("box"), m.get("recipe"))
                     await ws.send_json({"t": "machine", "req": m.get("req"), "plot": m.get("plot"), "box": m.get("box"), "cfg": cfg, "can": can, "error": err})
+                elif t == "survey":                                 # #173: what my map shows
+                    await ws.send_json({"t": "survey", "req": m.get("req"), **(world.survey_of(addr) if addr else {"error": "sign in first"})})
                 elif t == "mycrafts":                               # #171: where are my crafts
                     await ws.send_json({"t": "mycrafts", "req": m.get("req"), "list": world.crafts_of(addr) if addr else [],
                                         **({} if addr else {"error": "sign in first"})})
