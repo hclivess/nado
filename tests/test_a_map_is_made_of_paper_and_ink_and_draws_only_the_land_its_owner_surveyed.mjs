@@ -146,24 +146,26 @@ try {
   const T = await tab();
   await send(T, "Network.setCookie", { name: "land_session", value: token, url: base + "/", httpOnly: true });
   const s = spot(4, 4);
-  // before the map: here, 300 m east — places the map must NOT show
+  // the page once, at home; the other places are walked to through the world server's own move API (what an agent
+  // client does) — a page reload per place took the walk past the push hook's 900 s
+  const move = async (u, v) => (await fetch(base + "/land/api/move", { method: "POST", headers: { "Content-Type": "application/json", Authorization: "Bearer " + token },
+    body: JSON.stringify({ p: [q.face, u, v, Wd.column(q.face, Math.floor(u), Math.floor(v)).top + 1, 0] }) })).json();
   await stand(T, s.u, s.v, s.h, 0, -0.2);
   ok(await evl(T, "document.getElementById('mapBtn').classList.contains('hidden')"), "without a map there is no Map button");
-  await evl(T, "document.getElementById('conIn') && true");
-  const far = { u: s.u + 300, v: s.v, h: Wd.column(q.face, Math.floor(s.u + 300), Math.floor(s.v)).top + 1 };
-  await stand(T, far.u, far.v, far.h, 0, -0.2);
-  await sleep(1500);
-  await stand(T, s.u, s.v, s.h, 0, -0.2);                        // home again BEFORE the map is made: standing there with it would survey it
-  await sleep(1500);
+  // before the map: 300 m east — a place the map must NOT show
+  ok((await move(s.u + 300, s.v)).ok, "walked 300 m east before the map was made");
+  await sleep(500);
+  ok((await move(s.u, s.v)).ok, "…and home again before it is made (standing there with it would survey it)");
   for (const r of ["tanbark", "ink", "paper_mould", "paper", "paper", "map"]) {
     const x = await craft(r);
     if (!x.ok) ok(false, `craft ${r}: ${x.error}`);
   }
   const inv = (await getJ("/fixture/seed?who=owner&items=%7B%7D"));
   ok((inv.items || {}).map === 1, "tanbark, ink, a paper mould, paper and a map are made through the world server: " + JSON.stringify(inv.items));
-  // with the map: back home, and two places 130 m north and south — these it must show
+  // with the map: home, and 130 m north and south — these it must show
   const placesWith = [s, { u: s.u, v: s.v + 130 }, { u: s.u, v: s.v - 130 }];
-  for (const p of placesWith) { const h = Wd.column(q.face, Math.floor(p.u), Math.floor(p.v)).top + 1; await stand(T, p.u, p.v, h, 0, -0.2); await sleep(1500); }
+  for (const p of [...placesWith, s]) { ok((await move(p.u, p.v)).ok, `walked to ${(p.v - s.v).toFixed(0)} m north of home with the map`); await sleep(500); }
+  await until(T, "!document.getElementById('mapBtn').classList.contains('hidden')", 10000);
   ok(!(await evl(T, "document.getElementById('mapBtn').classList.contains('hidden')")), "with a map, the Map button is there");
   await evl(T, "document.getElementById('mapBtn').click(), true");
   ok(await until(T, "/km² surveyed/.test(document.getElementById('mapLegend').textContent)", 15000), "the button opens the map: " + await evl(T, "document.getElementById('mapLegend').textContent"));
