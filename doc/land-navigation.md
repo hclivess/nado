@@ -64,12 +64,29 @@ chain was (`doc/land-tech-to-flight.md`).
 
 ### 1.5 Rockets
 
-* Real: liquid rockets burn one or two propellants (*Liquid-propellant rocket l.16*); typical liquid propellants are
-  0.7–1.4 g/cm³ (*l.47*); cryogenic oxidisers such as liquid oxygen (*l.41*).
-* Game: what it takes to reach orbit round **this** planet: v = √(GM/r) (*Orbital speed l.51*) — 904 m/s at the
-  surface. A rocket is a craft whose thrusters burn propellant made on the planet; its physics extend
-  `land-flight.js` (mass falls as it burns; no vmax cap above the air). Propellant chain: to be written from sources
-  (`Rocket_engine`, `Liquid-propellant_rocket`) before any recipe is fixed.
+Sources: `/root/land-research/rockets/` (INDEX.md).
+
+* **What it takes, round this planet.** Vis-viva (*Vis-viva l.10*) from the surface (R = 83,443 m, GM = 6.823 × 10¹⁰)
+  to the satellites' orbit (r = 135,520 m, 1.6): the transfer ellipse leaves at **1,006 m/s** and arrives at 619 m/s,
+  where the circular speed is 710 m/s — **1,096 m/s** of Δv from the ground, ideally. Thrusting against gravity costs g·t
+  more (*Gravity loss l.11*: the loss is a share g/a of the Δv for an acceleration a) — a rocket that leaves at twice its
+  weight loses half its burn holding itself up, so the launch computes it from the rocket's own thrust and mass.
+* **The engine.** Hydrogen burned in oxygen, as the RS-25: specific impulse **452 s** in vacuum, **366 s** at sea level
+  (*RS-25 l.32-33, l.52*), at an oxidiser-to-fuel mass ratio of **6.03 : 1** (*RS-25 l.43*). The rocket equation
+  Δv = Isp·g₀·ln(m₀/m_f) (*Tsiolkovsky rocket equation l.10*) then asks a mass ratio of only **1.28** for 1,096 m/s —
+  1.33 with a 15 % allowance for gravity loss: a single stage reaches orbit round a planet this small (on Earth it
+  takes stages, *Multistage rocket*). The game engine's thrust is a design choice, scaled to the game's craft.
+* **The propellant, from water.** Electrolysis splits water into twice as much hydrogen as oxygen, by amount (*Electrolysis
+  of water l.25*), and takes at least ΔG = **237.24 kJ** per mole of water (*l.80*; 285.83 kJ with the heat, *l.82*) — so
+  making propellant costs the generators real power. Liquid hydrogen boils at **−252.87 °C** and weighs **70.85 kg/m³**
+  (*Liquid hydrogen l.50, l.108*); liquid oxygen is the oxidiser. Chain (stations: an electrolyser and a liquefier, both
+  machines on a generator's power, as the factory machines run): water → hydrogen + oxygen (gas) → liquid hydrogen +
+  liquid oxygen → a propellant tank's load, mixed 6.03 : 1 by mass.
+* **The parts.** A rocket engine (a unit part), propellant tanks (their dry mass and what they hold), and a payload —
+  built like any craft on a launch pad, its mass the sum of its pieces' (`land-flight.js`).
+* **The launch.** Use on the pad: the world server computes it — the rocket's Δv from its own masses and the engine's Isp,
+  less its gravity loss from its own thrust-to-weight — against the 1,096 m/s the orbit asks. Enough, and the payload is
+  in orbit; not enough, and it falls back: what goes up is spent (the coins and the work are real; nothing is refunded).
 
 ### 1.6 Satellites — the positioning constellation
 
