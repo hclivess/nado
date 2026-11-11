@@ -441,6 +441,8 @@ CRAFT_PAD = 2                     # cm: pieces this close count as touching (one
                                   # 270° and took off again as 228 of its 267 pieces (2026-11-11). land.js craftSeat agrees.
 CRAFT_PIECES = 400                # pieces one craft holds at most
 CRAFT_SLACK = 12.0                # m a pose may run ahead of vmax x the time since the last (a slow network's bunching)
+CHARGE_RISE = 8.0                 # m above or below itself an animal still charges a player — DESIGN CHOICE (#192): a hillside
+                                  # it runs up, never the air; the strike itself stays within 2.5 m (herd)
 
 
 def boxes_touch(a, b):
@@ -857,8 +859,11 @@ class World:
             dmg = Hn["species"][a["kind"]].get("damage", 0)
             if (a.get("angry") or a.get("mad", 0) > now) and dmg and players:
                 # a player on settled land is no foe (#168): it neither charges nor strikes them there
+                # …and only one it can reach on foot (#192): within CHARGE_RISE of its own height — a slope it runs up,
+                # not a pilot in the air or a player on a roof. A craft 500 m up was charged (by ground distance alone),
+                # and the warning that it had turned on them reached a pilot nothing could touch.
                 foe = min(((math.hypot(q[1] - a["u"], q[2] - a["v"]), who, q) for who, q in players
-                           if q and q[0] == a["face"] and not self.tame(q[0], q[1], q[2])), default=None, key=lambda x: x[0])
+                           if q and q[0] == a["face"] and abs(q[3] - a["h"]) < CHARGE_RISE and not self.tame(q[0], q[1], q[2])), default=None, key=lambda x: x[0])
                 if foe and foe[0] < Hn["charge"]:
                     a["yaw"] = math.atan2(foe[2][1] - a["u"], foe[2][2] - a["v"])
                     # THE WARNING (#176): the player is told the moment it turns on them — once per charge — while it
@@ -3387,6 +3392,14 @@ def make_app(world, hub, site_origin, wallet_url, secure_cookies=True, shot_page
                         err = world.fly(addr, m.get("craft"), m.get("pose"), m.get("eng"))
                         if err and m.get("craft") in world.crafts:
                             await ws.send_json({"t": "craft_fix", "craft": m.get("craft"), "pose": world.crafts[m.get("craft")]["pose"], "error": err})
+                        elif not err:
+                            # THE PILOT IS WHERE THE CRAFT IS (#192): the craft's pose, bounded by its top speed, is the
+                            # pilot's place and the anchor their next "pos" is paced from. Their "pos" reports were refused
+                            # as faster than walking, so the server kept the spot they BOARDED at — and a deer charged and
+                            # bit a pilot 500 m up (operator, 2026-11-11: "im getting attacked by a deer 500 meters above
+                            # the ground"), the herd, the market and "where" all reading that ground spot.
+                            c = world.crafts[m.get("craft")]
+                            st["pos"] = list(c["pose"]); st["pace"] = (list(c["pose"]), time.time()); st["pos_t"] = time.time()
                     elif t == "leave":
                         await ws.send_json({"t": "craft_ok", "op": t, "req": m.get("req"), "error": world.leave(addr, m.get("craft"))})
                     elif t == "handover":
