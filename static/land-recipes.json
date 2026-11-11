@@ -455,6 +455,33 @@
     30,
     30
    ]
+  },
+  "electrolyser": {
+   "name": "Electrolyser",
+   "places": 79,
+   "unit": [
+    100,
+    100,
+    120
+   ]
+  },
+  "liquefier": {
+   "name": "Liquefier",
+   "places": 80,
+   "unit": [
+    100,
+    100,
+    120
+   ]
+  },
+  "hydrogen": {
+   "name": "Hydrogen (a canister, 1.12 kg)"
+  },
+  "oxygen": {
+   "name": "Oxygen (a canister, 8.88 kg)"
+  },
+  "propellant": {
+   "name": "Liquid propellant (7.87 kg)"
   }
  },
  "tools": {
@@ -1300,6 +1327,26 @@
    "yields": [
     [
      "nav_unit",
+     1
+    ]
+   ]
+  },
+  "79": {
+   "hard": 2.0,
+   "class": "pick",
+   "yields": [
+    [
+     "electrolyser",
+     1
+    ]
+   ]
+  },
+  "80": {
+   "hard": 2.0,
+   "class": "pick",
+   "yields": [
+    [
+     "liquefier",
      1
     ]
    ]
@@ -3841,6 +3888,112 @@
    "with": [
     "machine_shop"
    ]
+  },
+  {
+   "id": "electrolyser",
+   "makes": [
+    [
+     "electrolyser",
+     1
+    ]
+   ],
+   "uses": [
+    [
+     "steel_plate",
+     2
+    ],
+    [
+     "copper",
+     4
+    ],
+    [
+     "wire",
+     4
+    ],
+    [
+     "circuit",
+     1
+    ]
+   ],
+   "with": [
+    "machine_shop"
+   ]
+  },
+  {
+   "id": "liquefier",
+   "makes": [
+    [
+     "liquefier",
+     1
+    ]
+   ],
+   "uses": [
+    [
+     "steel_plate",
+     4
+    ],
+    [
+     "motor",
+     2
+    ],
+    [
+     "copper",
+     4
+    ],
+    [
+     "circuit",
+     2
+    ]
+   ],
+   "with": [
+    "machine_shop"
+   ]
+  },
+  {
+   "id": "electrolysis",
+   "makes": [
+    [
+     "hydrogen",
+     1
+    ],
+    [
+     "oxygen",
+     1
+    ]
+   ],
+   "uses": [
+    [
+     "water",
+     1
+    ]
+   ],
+   "with": [
+    "electrolyser"
+   ],
+   "mj": 160.7
+  },
+  {
+   "id": "liquefy_propellant",
+   "makes": [
+    [
+     "propellant",
+     1
+    ]
+   ],
+   "uses": [
+    [
+     "hydrogen",
+     1
+    ],
+    [
+     "oxygen",
+     1
+    ]
+   ],
+   "with": [
+    "liquefier"
+   ],
+   "mj": 75.9
   }
  ],
  "wilderness_regrow_s": 900,
@@ -3871,7 +4024,7 @@
   }
  },
  "machines": {
-  "about": "#148 automation: a smelter or an assembler placed on a plot runs one chosen recipe by itself on the world server's clock — what it takes from the chests touching it, what it makes into a chest touching it — while a generator within power_reach metres on the same plot burns coal or charcoal from a chest beside it (fuel: runs a unit gives). A machine stands in for the stations and tools listed in 'does'; it makes items only, never a station or a tool. tick_s: one run per machine per tick.",
+  "about": "#148 automation: a smelter or an assembler placed on a plot runs one chosen recipe by itself on the world server's clock — what it takes from the chests touching it, what it makes into a chest touching it — while a generator within power_reach metres on the same plot burns coal or charcoal from a chest beside it (fuel: runs a unit gives). A machine stands in for the stations and tools listed in 'does'; it makes items only, never a station or a tool. tick_s: one run per machine per tick. ENERGY (#173): a fuel's runs are its electricity at run_mj each — coal 20 x 615 MJ = 12.3 GJ (1 m3 x 1.35 t x 24 MJ/kg x 38 %, land research rockets/ENERGY.md); a recipe with \"mj\" costs mj / run_mj of a run, every other one run.",
   "67": {
    "does": [
     "campfire",
@@ -3899,7 +4052,18 @@
    "charcoal": 10
   },
   "power_reach": 12,
-  "tick_s": 4
+  "tick_s": 4,
+  "79": {
+   "does": [
+    "electrolyser"
+   ]
+  },
+  "80": {
+   "does": [
+    "liquefier"
+   ]
+  },
+  "run_mj": 615
  },
  "farming": {
   "about": "FARMING (#154, doc/land-civilisation.md; operator 2026-11-09: \"farmland, farming, soil types, etc\"). A hoe tills grass or earth with open air over it into farmland (not stony ground); a seed sown on farmland grows into ripe wheat in crop_s x its soil's time x moist when water lies within moist_reach columns at or below the field, and a harvest of it gives its soil's grain and seeds (wild grain gives 1 and 1). Read by the page (what the hoe says) and the world server (the rule).",

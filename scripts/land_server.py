@@ -52,7 +52,7 @@ CHALLENGE_TTL = 300
 SESSION_TTL = 7 * 86400
 sid = lambda token: hashlib.blake2b(token.encode(), digest_size=32).hexdigest()   # a session's name on disk (World.sessions)
 FACE_N, PLOT, W, H = L.FACE_N, L.PLOT, L.FACE_N * L.PLOT, 256
-N_BLOCKS = 79                     # static/land-world.js BLOCKS.length (tests/test_the_land_planet_… checks the two agree)
+N_BLOCKS = 81                     # static/land-world.js BLOCKS.length (tests/test_the_land_planet_… checks the two agree)
 DOOR = 37                         # static/land-world.js B.door: a piece that swings open and shut ("door" op)
 THRUSTER, SEAT = 65, 66           # static/land-world.js B.thruster, B.pilotseat: a craft's working parts (FLIGHT, #147)
 SMELTER, ASSEMBLER, GENERATOR = 67, 68, 69   # static/land-world.js: FACTORIES (#148) — machines and their power
@@ -429,13 +429,22 @@ def turn_pieces(pieces, quarter):
 # needs from the chests touching it, making into a chest touching it — while a generator within power_reach metres on the
 # same plot burns coal or charcoal from a chest beside it. land-recipes.json "machines" holds what each one stands in for.
 MACH = RULES["machines"]
+MACHINES = {int(k) for k, v in MACH.items() if k.isdigit() and isinstance(v, dict) and "does" in v}   # every machine block
+
+
+def run_cost(r):
+    """Runs of power recipe `r` takes: its energy over run_mj when it names one (#173: electrolysis, liquefaction — land
+    research rockets/ENERGY.md), one run otherwise (the smelter's and the assembler's, as before)."""
+    return r["mj"] / MACH["run_mj"] if r.get("mj") else 1
 
 
 def machine_can(blk, r):
     """Machine `blk` can run recipe `r`: every station or tool it asks for is one the machine stands in for, and it makes
     items only (a machine never makes a station or a tool)."""
+    # …and at least one: work done by hand at no station (cordage, thatch, arrows) is no machine's — every machine offered
+    # it, an electrolyser arrows and a smelter thatch (2026-11-11, #173)
     does = MACH.get(str(blk), {}).get("does", [])
-    return all(w in does for w in r.get("with", [])) and all(m in RULES["items"] for m, _ in r["makes"])
+    return bool(r.get("with")) and all(w in does for w in r["with"]) and all(m in RULES["items"] for m, _ in r["makes"])
 
 
 def centre(b):
@@ -1975,7 +1984,7 @@ class World:
         just reads it. Returns (its record, the recipes it can run, error)."""
         rec = self.plots.get(p)
         b = list(b) if isinstance(b, (list, tuple)) else b
-        if not rec or not isinstance(b, list) or b not in rec.get("boxes", []) or b[6] not in (SMELTER, ASSEMBLER, GENERATOR):
+        if not rec or not isinstance(b, list) or b not in rec.get("boxes", []) or b[6] not in MACHINES | {GENERATOR}:
             return None, [], "no machine here"
         if b[6] == GENERATOR:
             return {"charge": (rec.get("gens") or {}).get(chest_key(b), 0)}, [], None
@@ -2002,7 +2011,7 @@ class World:
             if not cfgs:
                 continue
             boxes = rec.get("boxes", [])
-            bykey = {chest_key(b): b for b in boxes if b[6] in (SMELTER, ASSEMBLER)}
+            bykey = {chest_key(b): b for b in boxes if b[6] in MACHINES}
             for key in [k for k in cfgs if k not in bykey]:            # a machine taken down forgets its recipe
                 del cfgs[key]; self.dirty.add(p)
             store = rec.setdefault("chests", {})
@@ -2031,10 +2040,10 @@ class World:
                 reach = MACH["power_reach"] * CM
                 gens = sorted((g for g in boxes if g[6] == GENERATOR and math.dist(centre(g), centre(b)) <= reach), key=lambda g: math.dist(centre(g), centre(b)))
                 charges = rec.setdefault("gens", {})
-                gen = None
+                gen, cost = None, run_cost(r)
                 for g in gens:
                     gk = chest_key(g)
-                    if charges.get(gk, 0) <= 0:
+                    if charges.get(gk, 0) < cost - 1e-9:
                         for fc in (c for c in boxes if c[6] == CHEST and boxes_touch(c, g)):
                             fs = store.get(chest_key(fc), {})
                             fuel = next((f for f in MACH["fuel"] if fs.get(f, 0) > 0), None)
@@ -2044,7 +2053,7 @@ class World:
                                     del fs[fuel]
                                 charges[gk] = charges.get(gk, 0) + MACH["fuel"][fuel]
                                 changed.add(p); break
-                    if charges.get(gk, 0) > 0:
+                    if charges.get(gk, 0) >= cost - 1e-9:
                         gen = gk; break
                 if not gen:
                     status("no power — a generator with coal or charcoal beside it, within %d m" % MACH["power_reach"]); continue
@@ -2061,7 +2070,7 @@ class World:
                 os_ = store.setdefault(chest_key(out), {})
                 for item, n in r["makes"]:
                     os_[item] = os_.get(item, 0) + n
-                charges[gen] -= 1
+                charges[gen] = round(charges[gen] - cost, 6)                # its energy (#173), one run for the rest
                 cfg["made"] = cfg.get("made", 0) + 1
                 status("running")
                 changed.add(p); self.dirty.add(p)

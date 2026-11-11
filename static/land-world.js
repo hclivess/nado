@@ -260,9 +260,14 @@ export const BLOCKS = [
   // the NAV UNIT (#173, doc/land-navigation.md 1.4): an instrument a craft carries — built into it like its seat, it
   // tells the pilot the way to the town hall by dead reckoning (land-flight.js navSays)
   { key: "navunit", solid: true, tex: [56, 56, 56] },
+  // PROPELLANT FROM WATER (#173, doc/land-navigation.md 1.5): an electrolyser splits water into hydrogen and oxygen, a
+  // liquefier cools them to liquid — machines, run on a generator's power like the smelter and the assembler, each run
+  // charged the energy its recipe takes (land-recipes.json "mj"; land research rockets/ENERGY.md)
+  { key: "electrolyser", solid: true, tex: [57, 57, 57] },
+  { key: "liquefier", solid: true, tex: [58, 58, 58] },
 ];
 export const B = Object.fromEntries(BLOCKS.map((b, i) => [b.key, i]));
-export const ATLAS_TILES = 57;              // tiles 0..56 (0 unused; the farm's blocks reuse earth's and leaves')
+export const ATLAS_TILES = 59;              // tiles 0..58 (0 unused; the farm's blocks reuse earth's and leaves')
 export const opaque = (id) => BLOCKS[id].solid && !BLOCKS[id].see;
 
 // ---- terrain ---------------------------------------------------------------------------------------------------

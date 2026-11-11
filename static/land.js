@@ -107,6 +107,7 @@ const PAINT = {
   // writes its linear value, so "#596565" painted as #2c3434 — reviewed side by side with the photos, 2026-11-10.
   54: ["#9fa9a9", 0.12, "magnetite"], 55: ["#535338", 0.1, "lodestone"],
   56: ["#3b3f45", 0.06, "navunit"],
+  57: ["#8a96a3", 0.06, "electrolyser"], 58: ["#d6dde4", 0.05, "liquefier"],
 };
 function paintAtlas() {
   const cv = document.createElement("canvas");
@@ -155,6 +156,8 @@ function paintAtlas() {
       if (kind === "smelter" && y > 8 && y < 13 && x > 4 && x < 11) col = new THREE.Color("#ff7a2a").multiplyScalar(k * 1.2);   // its mouth, glowing
       if (kind === "assembler" && (x === 7 || y === 7)) col = new THREE.Color("#e8c547").multiplyScalar(k);                   // a hazard cross
       if (kind === "generator" && Math.hypot(x - 7.5, y - 7.5) < 3) col = new THREE.Color("#6fe39a").multiplyScalar(k * 1.1);  // a green lamp
+      if (kind === "electrolyser" && (x === 4 || x === 11) && y > 2 && y < 13) col = new THREE.Color("#c87533").multiplyScalar(k);   // two copper electrodes
+      if (kind === "liquefier" && (y === 4 || y === 8 || y === 12) && x > 1 && x < 14) col = new THREE.Color("#7fb8e0").multiplyScalar(k);   // frosted coils
       if (kind === "navunit" && x > 2 && x < 13 && y > 3 && y < 11) col = new THREE.Color(Math.abs(x - 7.5) + Math.abs(y - 7) < 2 ? "#9cf2b4" : "#1f4a32").multiplyScalar(k);   // its display, a mark at its centre
       const a = kind === "glass" && !(x === 0 || y === 0 || x === TILE - 1 || y === TILE - 1) ? 0.25 : t === 6 ? 0.75 : 1;
       g.fillStyle = `rgba(${Math.min(255, col.r * 255) | 0},${Math.min(255, col.g * 255) | 0},${Math.min(255, col.b * 255) | 0},${a})`;
@@ -2189,7 +2192,7 @@ function useDoor() {
   if (a && a.box && CRAFT_SKIN.has(a.box.b[6])) { const st = craftSeat(a.box.plot, a.box.b); if (st) return board({ plot: a.box.plot, box: st }); }
   { const n = npcAimed(); if (n) return openNpc(n); }                          // Use on a person: talk to them (#165)
   if (a && !a.box && a.hit && net.me && tillAt(a.hit)) return;                 // Use on the ground with a hoe: till it
-  if (!(a && a.box && [B.door, B.chest, B.smelter, B.assembler, B.generator, B.well, B.bed].includes(a.box.b[6]))) { const mine = nearMyCraft(); if (mine) return board({ craft: mine }); }
+  if (!(a && a.box && ([B.door, B.chest, B.generator, B.well, B.bed].includes(a.box.b[6]) || isMachine(a.box.b[6])))) { const mine = nearMyCraft(); if (mine) return board({ craft: mine }); }
   if (a && a.box && a.box.b[6] === B.chest) return openChest(a.box);           // Q uses what you aim at: a door or a chest
   if (a && a.box && a.box.b[6] === B.bed) {                                    // a bed: wake here after a death (#162)
     if (!net.online || !net.me) return notify(T("signInFirst", "Sign in first."));
@@ -2200,7 +2203,7 @@ function useDoor() {
     if (!hasClass("bucket")) return notify(T("wellBucket", "A well is drawn with a bucket — make one at a workbench."));
     return net.send({ t: "well", plot: a.box.plot, box: a.box.b, req: ++net.req });
   }
-  if (a && a.box && [B.smelter, B.assembler, B.generator].includes(a.box.b[6])) return openMachine(a.box);   // a machine
+  if (a && a.box && (a.box.b[6] === B.generator || isMachine(a.box.b[6]))) return openMachine(a.box);   // a machine
   if (!a || !a.box || a.box.b[6] !== B.door) return notify(T("noUse", "Aim at a door or a chest to use it."));
   if (!net.online || !net.me) return notify(T("signInFirst", "Sign in first."));
   net.send({ t: "door", plot: a.box.plot, box: a.box.b, req: ++net.req });
@@ -2228,12 +2231,15 @@ function machineStatus(st) {
   if (st.startsWith("no power")) return T("mNoPower", "No power — a generator with coal or charcoal beside it, within {m} m.", { m: RULES.machines.power_reach });
   return st;
 }
+/** A machine block: every one land-recipes.json "machines" lists (the smelter, the assembler, and the electrolyser and the
+ *  liquefier that make propellant, #173) — not a hard-coded pair. */
+const isMachine = (b) => !!(RULES && RULES.machines[String(b)] && RULES.machines[String(b)].does);
 function renderMachine(m) {
   const box = $("machGrid");
   if (m.error) notify(m.error, 5000);
   if (!m.cfg) { box.textContent = m.error || ""; return; }
   if (machine.box[6] === B.generator) {
-    box.innerHTML = `<p>${esc(T("mGen", "{n} runs of power left. Put coal (20 runs) or charcoal (10) in a chest beside it.", { n: m.cfg.charge || 0 }))}</p>`;
+    box.innerHTML = `<p>${esc(T("mGen", "{n} runs of power left. Put coal (20 runs) or charcoal (10) in a chest beside it.", { n: Math.floor(10 * (m.cfg.charge || 0)) / 10 }))}</p>`;
     return;
   }
   const recipeLine = (id) => { const r = RULES.recipes.find((x) => x.id === id); return r ? r.makes.map(([i, n]) => `${n} ${nameOf(i)}`).join(", ") + " ← " + r.uses.map(([i, n]) => `${n} ${nameOf(i)}`).join(" + ") : id; };
