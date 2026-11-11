@@ -360,7 +360,10 @@ class BoxIndex:
 # relative to the seat, a pose [face, u, v, h, yaw] — that the pilot's page flies; the server bounds the pilot's claims by
 # the craft's own top speed, keeps it across restarts, shows it to everyone near, and docks it back onto a plot as pieces.
 FLIGHT = RULES["flight"]
-CRAFT_PAD = 1                     # cm: pieces this close count as touching (one craft)
+CRAFT_PAD = 2                     # cm: pieces this close count as touching (one craft). Not 1: docking turns a craft by
+                                  # quarter turns and a tilted piece's centre rounds to a whole cm (turn_pieces), so two
+                                  # flush wing plates of odd width came out a centimetre apart — the X fighter docked at
+                                  # 270° and took off again as 228 of its 267 pieces (2026-11-11). land.js craftSeat agrees.
 CRAFT_PIECES = 400                # pieces one craft holds at most
 CRAFT_SLACK = 12.0                # m a pose may run ahead of vmax x the time since the last (a slow network's bunching)
 

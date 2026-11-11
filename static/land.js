@@ -557,11 +557,11 @@ function craftsBearing(list) {
   }).sort((a, b) => (a.d === null) - (b.d === null) || a.d - b.d);
 }
 /** The pilot seat among the pieces touching piece b on its plot (and those touching them…, as the world server joins a
- *  craft: land_server.py connected, CRAFT_PAD 1 cm), or null. */
+ *  craft: land_server.py connected, CRAFT_PAD 2 cm), or null. */
 function craftSeat(plot, b) {
   const rec = plotBoxes.get(plot);
   if (!rec) return null;
-  const grow = (p) => [p[0] - 1, p[1] - 1, p[2] - 1, p[3] + 2, p[4] + 2, p[5] + 2, ...p.slice(6)];
+  const grow = (p) => [p[0] - 2, p[1] - 2, p[2] - 2, p[3] + 4, p[4] + 4, p[5] + 4, ...p.slice(6)];   // CRAFT_PAD 2 cm, as the server (a docked craft's rounding)
   const seen = new Set([b]), todo = [b];
   while (todo.length && seen.size <= 400) {
     const cur = todo.pop();

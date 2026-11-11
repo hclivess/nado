@@ -133,6 +133,11 @@ async def main():
     check("…turned a quarter: the 4 m hull now runs north-south", hullp[3] == 150 and hullp[4] == 400, hullp)
     check("turn_pieces at +90° sends (x, z) to (z, -x)", S.turn_pieces([[10, 20, 0, 30, 40, 5, 9]], 1) == [[20, -40, 0, 40, 30, 5, 9]])
     check("…a slope rising east rises south", S.turn_pieces([[0, 0, 0, 10, 10, 10, 9, 1]], 1)[0][7] == 4)
+    # two tilted wing plates of the X fighter, flush (odd widths): turned by any quarter — docking — they still touch; at
+    # a 1 cm pad quarter 3 parted them and the fighter took off again as 228 of its 267 pieces (2026-11-11)
+    pair = [[16.0, 346.0, 71, 12, 59, 4, 64, 0, 104, 22, -1197], [22.0, 287.0, 70, 19, 59, 4, 64, 0, 71, -19, -1217]]
+    check("two flush tilted pieces of odd width still touch when the craft is docked at any quarter turn",
+          S.boxes_touch(*pair) and all(S.boxes_touch(*S.turn_pieces(pair, q)) for q in range(4)), [S.boxes_touch(*S.turn_pieces(pair, q)) for q in range(4)])
 
     # 6. players near are sent it
     c2, _, err = await world.board(a, PA, next(x for x in add if x[6] == SEAT))
