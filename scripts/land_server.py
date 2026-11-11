@@ -328,8 +328,8 @@ def boxes_overlap(a, b):
             c = [u[1] * v[2] - u[2] * v[1], u[2] * v[0] - u[0] * v[2], u[0] * v[1] - u[1] * v[0]]
             if math.hypot(*c) > 1e-9:
                 tests.append(c)
-    for L in tests:
-        n = math.hypot(*L); l = [L[0] / n, L[1] / n, L[2] / n]
+    for ax in tests:                                          # (never `L`: that is the land contract's module here)
+        n = math.hypot(*ax); l = [ax[0] / n, ax[1] / n, ax[2] / n]
         ra = sum(ha[i] * abs(dot(A[i], l)) for i in range(3)); rb = sum(hb[i] * abs(dot(Bx[i], l)) for i in range(3))
         if abs(dot(T, l)) >= ra + rb - 1e-3:
             return False
@@ -1182,7 +1182,6 @@ class World:
                     return dict(res, flight=round(t, 2), end=[face, round(p[0], 2), round(p[1], 2), round(p[2], 2)]), None
             g = ground[min(len(ground) - 1, int(t * 10))]
             if p[2] <= g:                                     # it lands: some arrows can be picked up where they fell
-                end = [face, p[0], p[1], g]
                 if self.rng.random() < B["recover"]:
                     self.drop_seq += 1
                     self.drops[self.drop_seq] = {"id": self.drop_seq, "face": face, "u": p[0], "v": p[1], "h": g, "item": "arrow", "n": 1, "until": now + B["drop_s"]}
@@ -2223,8 +2222,7 @@ class World:
         flown = None
         if engines and tanks and sats and load and thrust > weight:
             xs = [b[0] for b in rocket] + [b[0] + b[3] for b in rocket]; zs = [b[1] for b in rocket] + [b[1] + b[4] for b in rocket]
-            ys = [b[2] for b in rocket] + [b[2] + b[5] for b in rocket]
-            w_, d_, h_ = (max(xs) - min(xs)) / 100, (max(zs) - min(zs)) / 100, (max(ys) - min(ys)) / 100
+            w_, d_ = (max(xs) - min(xs)) / 100, (max(zs) - min(zs)) / 100
             flown = await self.fly_ascent({"dryKg": dry, "propKg": load * RK["canister_kg"], "thrustSeaN": thrust * 1000,
                                            "ispSea": RK["engine"]["isp_sl"], "ispVac": RK["engine"]["isp_vac"],
                                            # a rocket climbs along its long axis: what meets the air is its cross-section

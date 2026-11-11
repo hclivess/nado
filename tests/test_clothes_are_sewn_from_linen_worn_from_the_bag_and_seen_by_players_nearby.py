@@ -112,7 +112,11 @@ J = json.loads(r.stdout.strip().splitlines()[-1]) if r.stdout.strip() else {}
 check("the page's palettes are the server's", J.get("skin") == S.LOOK_SKIN and J.get("hair") == S.LOOK_HAIR
       and J.get("bodies") == S.LOOK_BODY and J.get("faces") == S.LOOK_FACE, (J, r.stderr[-300:]))
 # not blocks ("rework characters to not be fucking blocks", operator 2026-11-09): the body is round — capsules and spheres
-av = page[page.index("function avatar("):page.index("function faceCanvas(")]
+# (the avatar's OWN body: up to the next function. The slice once ran on to faceCanvas and, when the animals and the
+# arrow were written between the two, judged an arrow's box fletching as a player's body — #189.)
+_a0 = page.index("function avatar(")
+av = page[_a0:page.index("\nfunction ", _a0 + 1)]
+check("the avatar's own body is what is judged", 400 < len(av) < 12000 and "function animal" not in av, len(av))
 check("a player is a rounded figure, not boxes: capsule limbs and body, a sphere head, no box at all",
       "new THREE.CapsuleGeometry(" in av and "new THREE.SphereGeometry(" in av and "BoxGeometry" not in av)
 check("the page draws the body type and the face, and the wardrobe chooses them",

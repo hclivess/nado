@@ -10,6 +10,9 @@ Run: python3 tests/test_block_producer_is_a_collector.py
 import os, re, sys, json, glob
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 GAME_CONTENT = {"pets.tradeMiner", "pets.bagNote"}          # a pet's trade and a pet that digs — not block production
+# …and BITCOIN's own blocks: the cross-chain book warns that a bitcoin spend "has not been mined yet" (#103) — Bitcoin
+# has miners, and calling them anything else would be wrong about the chain the user is spending on.
+GAME_CONTENT |= {"dex.btcUnconfBody"}
 bad = []
 for f in sorted(glob.glob(os.path.join(ROOT, "static", "i18n_games", "*.json"))):
     for k, v in (json.load(open(f)).get("en") or {}).items():

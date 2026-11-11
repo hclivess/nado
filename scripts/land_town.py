@@ -7,7 +7,7 @@
 # over a concurrent change): systemctl stop nado-land; HOME=/root python3 scripts/land_town.py; systemctl start.
 #   --repair  levels the town that stands EXACTLY (true_level) and sets its benches and street torches down on the
 #             ground — the first build left roads and a bench hanging in the air (operator, 2026-11-07).
-import asyncio, importlib.util, json, os, subprocess, sys, tempfile, urllib.request
+import asyncio, importlib.util, json, os, subprocess, sys, urllib.request
 REPO = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 sys.path.insert(0, REPO)
 spec = importlib.util.spec_from_file_location("land_server", os.path.join(REPO, "scripts", "land_server.py"))

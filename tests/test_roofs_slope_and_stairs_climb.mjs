@@ -77,7 +77,8 @@ ok(JSON.stringify(piecesFor([1, 2, 3, 4, 5, 6, PLANKS], 0, 0)) === JSON.stringif
 
 // 5
 const land = readFileSync(join(ROOT, "static", "land.js"), "utf8");
-ok(/pieces = shaped\(box, it && it\.unit \? 0 : piece\.shape\)/.test(land) && /const add = pl\.pieces\.map/.test(land) && /KeyG/.test(land),
+// (the line also carries a part's kind and a tilt since the parts and the tilted pieces: the pin is the shaped() call)
+ok(/const pieces = \(part \? [^\n]*: shaped\(box, it && it\.unit \? 0 : piece\.shape\)\)/.test(land) && /const add = pl\.pieces\.map/.test(land) && /KeyG/.test(land),
    "the page places the slope or flight one placement makes (G cycles the shape; a door is never shaped)");
 
 if (fails) { console.log(`${fails} FAILURES`); process.exit(1); }

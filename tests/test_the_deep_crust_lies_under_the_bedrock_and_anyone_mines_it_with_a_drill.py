@@ -1,7 +1,7 @@
 """
 THE DEEP, phase 1 (#129, doc/land-core.md): under the crust's bedrock floor lies the deep crust, down to DEEP_MIN.
 
-  1. the planet (static/land-world.js, the one generator): every deep cell is stone or an ore vein; silver and gold
+  1. the planet (static/land-world.js, the one generator): every deep cell is stone or an ore vein (magnetite among the iron, #173); silver and gold
      only below DEEP_RICH, and there; layer 0 is bedrock, and so is everything under DEEP_MIN; the mesher draws a tunnel
      dug in the deep (its walls), and the world server's terrain oracle answers deep cells as the page does;
   2. the world server: bedrock gives way only to a drill — on an owned plot only to its owner, as any of the plot's
@@ -48,14 +48,17 @@ const tri = (r) => Object.values(r || {}).reduce((n, m) => n + (m && m.pos ? m.p
 const ed = new Map([[0, 1, 2].map((i) => [`0:${u + i}:${v}:${h}`, 0])].flat());
 const dug = M.meshChunk(0, Math.floor(u / 16), Math.floor(v / 16), ch, ed, null, 0);
 const whole = M.meshChunk(0, Math.floor(u / 16), Math.floor(v / 16), ch, new Map(), null, 0);
-console.log(JSON.stringify({ kinds: Object.keys(kinds).map(Number), rich, shallow, same, B: { stone: B.stone, bedrock: B.bedrock, silver: B.silverore, gold: B.goldore, coal: B.coal, iron: B.ironore, copper: B.copperore, tin: B.tinore },
+console.log(JSON.stringify({ kinds: Object.keys(kinds).map(Number), rich, shallow, same, B: { stone: B.stone, bedrock: B.bedrock, silver: B.silverore, gold: B.goldore, coal: B.coal, iron: B.ironore, copper: B.copperore, tin: B.tinore, magnetite: B.magnetite },
   zero: W.terrainBlock(0, u, v, 0), under: W.deepBlock(0, u, v, W.DEEP_MIN - 1), DEEP_MIN: W.DEEP_MIN, n: W.BLOCKS.length,
   dug: tri(dug), whole: tri(whole), keys: Object.keys(dug || {}) }));
 """ % (WORLD, MESHER, U, V, U, V, U, V, U, V)
 r = subprocess.run(["node", "--input-type=module", "-e", js], capture_output=True, text=True, timeout=600)
 J = json.loads(r.stdout.strip().splitlines()[-1]) if r.stdout.strip() else {}
 B = J.get("B", {})
-check("every deep cell is stone or an ore vein", J and set(J["kinds"]) <= {B["stone"], B["coal"], B["iron"], B["copper"], B["tin"], B["silver"], B["gold"]}, (J.get("kinds"), r.stderr[-400:]))
+check("every deep cell is stone or an ore vein", J and set(J["kinds"]) <= {B["stone"], B["coal"], B["iron"], B["copper"], B["tin"], B["silver"], B["gold"], B["magnetite"]}, (J.get("kinds"), r.stderr[-400:]))
+# (magnetite, #173: an iron ore that runs in a quarter of the iron veins' regions — land-world.js isMagnetite. The list
+# here predated it and the check was red from that commit, #189.)
+check("…magnetite being one of them: it runs where the iron does", B.get("magnetite") in J.get("kinds", []) and B.get("iron") in J.get("kinds", []), J.get("kinds"))
 check("silver and gold lie only below DEEP_RICH — and they do lie there",
       str(B.get("silver")) not in J.get("shallow", {}) and str(B.get("gold")) not in J.get("shallow", {})
       and J.get("rich", {}).get(str(B.get("silver"))) and J.get("rich", {}).get(str(B.get("gold"))), (J.get("rich"), J.get("shallow")))

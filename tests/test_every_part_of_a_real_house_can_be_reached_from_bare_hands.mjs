@@ -27,8 +27,13 @@ const known = (id) => id in R.items || id in R.tools || id in R.stations;
 const bad = R.recipes.flatMap((r) => [...r.makes, ...r.uses].map(([id]) => id).filter((id) => !known(id)).map((id) => `${r.id}:${id}`));
 ok(!bad.length, `every ingredient and product is an item, tool or station (${bad.join(", ") || "all"})`);
 const classes = new Set(Object.values(R.tools).map((t) => t.class));
-const badWith = R.recipes.flatMap((r) => (r.with || []).filter((w) => !(w in R.stations || w in R.tools || classes.has(w))).map((w) => `${r.id}:${w}`));
-ok(!badWith.length, `every "with" is a station, a tool or a tool class (${badWith.join(", ") || "all"})`);
+// (a MACHINE too, since rung 4a of the navigation work, bfcf8915: an electrolyser and a liquefier are placed things that
+// run their one recipe on the plot's power — items with a block they place, listed in R.machines under that block. The
+// check knew stations and tools only and was red from that commit, #189.)
+const machine = (w) => w in R.items && R.items[w].places !== undefined && String(R.items[w].places) in R.machines;
+const badWith = R.recipes.flatMap((r) => (r.with || []).filter((w) => !(w in R.stations || w in R.tools || classes.has(w) || machine(w))).map((w) => `${r.id}:${w}`));
+ok(!badWith.length, `every "with" is a station, a tool, a tool class or a machine (${badWith.join(", ") || "all"})`);
+ok(machine("electrolyser") && machine("liquefier") && !machine("coal") && !machine("workbench"), "…a machine being an item that places a block R.machines lists (the electrolyser, the liquefier; not coal, not a station)");
 const badPlace = Object.entries(R.items).filter(([, it]) => "places" in it && !(it.places > 0 && it.places < Wd.BLOCKS.length)).map(([k]) => k);
 ok(!badPlace.length, `every placeable item places a real block (${badPlace.join(", ") || "all"})`);
 const land = readFileSync(join(ROOT, "static", "land.js"), "utf8"), paint = land.slice(land.indexOf("const PAINT = {"), land.indexOf("function paintAtlas"));

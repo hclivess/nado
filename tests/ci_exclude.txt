@@ -16,6 +16,10 @@ test_exec_root_v2                            needs the Rust kernels (native/)
 test_an_account_signs_with_the_scheme_its_address_commits_to   needs the Rust kernels (native/pqsig)
 test_every_signature_scheme_derives_one_key_in_every_stack     needs the Rust kernels (native/pqsig)
 test_every_identity_class_can_renew          needs the Rust kernels (native/attest)
+test_a_multisig_member_and_an_auth_key_sign_with_their_own_scheme            needs the Rust kernels (native/pqsig; red on every push until 2026-11-11, #189)
+test_a_protected_multisig_member_signs_with_its_current_key                  needs the Rust kernels (native/pqsig)
+test_the_wallets_multisig_and_auth_txs_of_every_scheme_validate_in_the_node  needs the Rust kernels (native/pqsig)
+test_the_land_server_lets_only_holders_and_their_builders_change_a_plot      needs the Rust kernels (native/pqsig: the world server checks a login's signature in its account's scheme)
 test_assets                                  proves in Python kernels: over 5 minutes
 test_games_e2e                               proves in Python kernels: over 5 minutes
 test_zk_review_2026_09_24                    proves in Python kernels: over 5 minutes

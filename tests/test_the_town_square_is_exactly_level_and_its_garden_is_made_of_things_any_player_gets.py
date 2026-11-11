@@ -170,7 +170,15 @@ check("…and grass grown back over dug ground is drawn as grass, not bare earth
 q = (TOWN[3] // 8192) % 8192, TOWN[3] % 8192
 check("a newcomer arrives on the street before the town hall's door, facing it; /tp spawn goes there too",
       "const TOWN_HALL_PLOT = 40963440;" in page and "return [q.face, q.u0 + 8.5, q.v0 + 1.5, 0];" in page
-      and "[P.face, P.u, P.v, P.yaw] = townSpawn();" in page and 'if (a[0] === "spawn") { const sp = townSpawn();' in page)
+      and "[P.face, P.u, P.v, P.yaw] = townSpawn();" in page
+      # /tp spawn (rewritten by #167: signed in, the world server moves the player to ITS landing; a visitor's page
+      # goes to townSpawn itself) — the pin had kept the wording of the page before #167 and was red since (#189)
+      and "const sp = townSpawn(); P.face = sp[0]; P.u = sp[1]; P.v = sp[2]; P.yaw = sp[3];" in page
+      and 'if (net.online && net.me) return net.send({ t: "tp", to });' in page)
+_srv_src = open(os.path.join(ROOT, "scripts", "land_server.py"), encoding="utf-8").read()
+check("…and the world server's landing is the same place: the town hall's plot, 8.5 m in, 1.5 m up the street",
+      "TOWN_HALL_PLOT = 40963440" in _srv_src and "return [face, col * PLOT + 8.5, row * PLOT + 1.5]" in _srv_src
+      and "to = landing() + [None]" in _srv_src)
 check("with a bucket, the first water the view crosses is scooped", "if (a.water && hasClass(\"bucket\")) return startBreak(a.water, mouse);" in page)
 tr = json.load(open(os.path.join(ROOT, "static", "i18n_games", "land.json"), encoding="utf-8"))
 keys = ["land.i.poppy", "land.i.cornflower", "land.i.daisy", "land.i.buttercup", "land.i.water", "land.t.bucket"]

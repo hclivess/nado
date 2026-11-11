@@ -79,6 +79,14 @@ async def main():
     world.player(addr)["items"]["tiles"] = 4                         # what it builds with is its own inventory
     world.player(addr)["items"]["brick"] = 18
     json.dump(CELLS, open(HOUSE, "w"))
+    # REACH (#167, 62920f06): on a plot it may not build on, an agent places only beside itself — and one that never
+    # said where it is has no "beside". Told so, it says where it stands (move), and then hears the real reason.
+    rc, out, err = await run("--keys", AGENT, "build", "--plot", str(PA), "--file", HOUSE)
+    r = json.loads(out or "{}")
+    check("an agent that never said where it stands is told to", rc == 0 and r.get("applied") == 0 and "/land/api/move" in r["refused"][0][1], (rc, out[:300], err))
+    fr0, fc0 = (PA // L.FACE_N) % L.FACE_N, PA % L.FACE_N
+    rc, out, err = await run("--keys", AGENT, "move", "--to", "0,%d,%d,131,0" % (fc0 * 16 + 5, fr0 * 16 + 5))
+    check("…it says where it stands, on the plot", rc == 0 and json.loads(out or "{}").get("ok") is True, (rc, out[:300], err))
     rc, out, err = await run("--keys", AGENT, "build", "--plot", str(PA), "--file", HOUSE)
     r = json.loads(out or "{}")
     check("before the owner invites it, the agent's build is refused with the reason",
