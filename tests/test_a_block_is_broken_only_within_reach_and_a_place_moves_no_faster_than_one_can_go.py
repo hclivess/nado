@@ -11,7 +11,8 @@ change. The world server (scripts/land_server.py REACH_M, pace_ok, move, tp):
   * the page's socket: a place reported too far from the last is put back (pos_fix, "pace"); /tp spawn moves the
     player to the landing; /tp bed without a bed is refused ("nobed"), with one it goes there; /tp <u> <v> does nothing;
   * dying, the pace starts again where they wake;
-  * with two pages open, a dig is measured from the page that moved last (not the first one found).
+  * with two pages open, a dig is measured from the page that moved last (not the first one found); a move by the API
+    after them is newer still, and the dig is measured from it.
 
 Run: python3 tests/test_a_block_is_broken_only_within_reach_and_a_place_moves_no_faster_than_one_can_go.py
 """
@@ -142,6 +143,15 @@ async def main():
     r = await dig([[0, u, v + 2, top, 0]])
     check("with two pages open, a dig is measured from the page that moved last (beside it), not the first one found",
           r["applied"] == 1 or "nothing here" in str(r["refused"]), r)
+    # a page left open far off, then the player moves by /land/api/move (an agent): measured from where it moved, the
+    # newer place — the open page's old one refused every dig beside the agent (2026-11-11)
+    await w1.send_json({"t": "pos", "p": [0, u + 300.5, v + 0.5, top + 1, 0]}); await asyncio.sleep(0.3)
+    await w2.send_json({"t": "pos", "p": [0, u + 300.5, v + 0.5, top + 1, 0]}); await asyncio.sleep(1.1)
+    async with c.post("/land/api/move", json={"p": [0, u + 1.5, v + 2.5, top + 1, 0]}, headers={"Authorization": "Bearer " + tok}) as rr:
+        mv = await rr.json()
+    r = await dig([[0, u + 1, v + 2, top, 0]])
+    check("a page left open far off, then a move by the API beside it: the dig is measured from the newer place",
+          mv.get("ok") and (r["applied"] == 1 or "nothing here" in str(r["refused"])), (mv, r))
     await w1.close(); await w2.close()
 
     await c.close(); await ex.close()

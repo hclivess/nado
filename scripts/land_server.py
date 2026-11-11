@@ -1275,6 +1275,7 @@ class World:
         """Remember where a signed-in player stands ([face, u, v, h, yaw]), written with the player at the next flush."""
         self.player(addr)["pos"] = [int(pos[0]), round(float(pos[1]), 2), round(float(pos[2]), 2), round(float(pos[3]), 2), round(float(pos[4]), 3)]
         self.player(addr)["pos_at"] = int(time.time())                # the page compares it with its own save
+        self.player(addr)["pos_t"] = time.time()                      # Hub.where: newer than the page's socket, or not
         self.pdirty.add(addr)
         self.survey_at(addr, pos)
 
@@ -2572,10 +2573,17 @@ class Hub:
         kept for them. The most recent, not the first found: a player with two pages open (a phone and a desktop, or an
         old tab) was measured from whichever socket came first — a dig beside them refused "out of reach" (the page walk
         with two tabs, 2026-11-10, #167)."""
+        # …and the place the world server KEPT when that is newer still: an agent moving by /land/api/move while a tab of
+        # theirs was open (or a socket not yet closed) was measured from the tab's old place — every dig beside the agent
+        # refused "out of reach" (2026-11-11, mining iron ore for the map).
+        if not addr:
+            return None
         mine = [st for st in self.socks.values() if st.get("who") == addr and st.get("pos")]
-        if mine:
-            return max(mine, key=lambda st: st.get("pos_t", 0))["pos"]
-        return world.player(addr).get("pos") if addr else None
+        page = max(mine, key=lambda st: st.get("pos_t", 0)) if mine else None
+        kept = world.player(addr)
+        if page and (not kept.get("pos") or page.get("pos_t", 0) > kept.get("pos_t", 0)):
+            return page["pos"]
+        return kept.get("pos")
 
     async def positions(self, world=None):
         socks = list(self.socks.items())
@@ -3032,6 +3040,8 @@ def make_app(world, hub, site_origin, wallet_url, secure_cookies=True, shot_page
                             st["pace"] = (list(p), time.time())
                         st["pos"] = [int(p[0]), float(p[1]), float(p[2]), float(p[3]), float(p[4])]
                         st["pos_t"] = time.time()                  # which of a player's pages moved last (Hub.where)
+                        if addr:
+                            world.survey_at(addr, st["pos"])       # a map carried draws every square walked (#173), not only those of the saves
                         if time.time() - st.get("offers_at", 0) > 5:      # the market where they stand now (#161)
                             st["offers_at"] = time.time()
                             await ws.send_json({"t": "offers", "offers": world.offers_for(addr, st["pos"])})
