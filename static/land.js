@@ -27,6 +27,7 @@ import { ao } from "three/addons/tsl/display/GTAONode.js";
 import { bloom } from "three/addons/tsl/display/BloomNode.js";
 import { fxaa } from "three/addons/tsl/display/FXAANode.js";
 import * as Wd from "./land-world.js";
+import * as Shapes from "./land-shapes.js";
 import * as Cosmos from "./land-cosmos.js";
 import * as Planet from "./land-planet.js";
 import { walk, trunkAt, TRUNK_R, restorePlace } from "./land-walk.js";
@@ -74,7 +75,7 @@ let mouseHeld = false;
 // any W x D x H in the bag) and lands on a SNAP grid they choose; the ground stays whole cells.
 const PRESETS = [[100, 100, 100], [100, 100, 10], [100, 10, 100], [10, 10, 100], [200, 20, 5], [25, 25, 25], [5, 5, 5], [1, 1, 1]];
 const SNAPS = [1, 5, 10, 25, 50, 100];
-let piece = { w: 100, d: 100, h: 100, snap: 10, shape: 0, rot: 0, tilt: [0, 0, 0] };   // shape: 0 box, 1 slope, 2 stairs (G cycles; T turns); tilt: yaw, pitch, roll in tenths of a degree (#169)
+let piece = { w: 100, d: 100, h: 100, snap: 10, shape: 0, rot: 0, tilt: [0, 0, 0], part: 0 };   // shape: 0 box, 1 slope, 2 stairs (G cycles; T turns); tilt: yaw, pitch, roll in tenths of a degree (#169); part: a land-shapes.js shape byte, 0 for none (#175)
 const plotBoxes = new Map();          // plot -> { list, idx: Map(1 m bucket -> [box]) }
 let pipeline = null;                  // the post-processed render (or null: the plain render on a weak device)
 let renderer, scene, camera, sun, hemi, atlasTex, matSolid, matClear, matGround, matTrees, matPieces, matGlassy, matBark, matLeaves, matWater, matFlame, ghost, farMesh = null, farAt = null;
@@ -442,21 +443,56 @@ function pieceBox(w, h, d) {
 /** A craft as drawn: its pieces in their materials, relative to the seat (x east, z north of a level craft facing north;
  *  local -Z is its nose, so the basis below stays right-handed). */
 function craftMesh(pieces) {
-  const g = new THREE.Group();
+  const g = new THREE.Group(), toCraft = (v) => [v[0], v[2], -v[1]];   // the craft's frame: x east, y up, z south
   for (const b of pieces) {
-    const m = new THREE.Mesh(pieceBox(b[3] / Wd.CM, b[5] / Wd.CM, b[4] / Wd.CM), pieceMaterial(b[6]));
-    m.position.set((b[0] + b[3] / 2) / Wd.CM, (b[2] + b[5] / 2) / Wd.CM, -(b[1] + b[4] / 2) / Wd.CM);
-    if (Wd.isTurned(b)) m.quaternion.copy(turnQuat(b, (v) => [v[0], v[2], -v[1]]));   // the craft's frame: x east, y up, z south
-    g.add(m);
+    const centre = [(b[0] + b[3] / 2) / Wd.CM, (b[2] + b[5] / 2) / Wd.CM, -(b[1] + b[4] / 2) / Wd.CM];
+    // a PART (#175) is its modelled solid, a mesh for each of its tones; anything else the box it is
+    for (const m of Wd.isPart(b) ? partMeshes(b) : [new THREE.Mesh(pieceBox(b[3] / Wd.CM, b[5] / Wd.CM, b[4] / Wd.CM), pieceMaterial(b[6]))]) {
+      m.position.set(centre[0], centre[1], centre[2]);
+      if (Wd.isTurned(b)) m.quaternion.copy(turnQuat(b, toCraft));
+      g.add(m);
+    }
     if (b[6] === B.thruster) {                    // its exhaust (#171): a cone from the thruster's underside, drawn per frame
       const pl = new THREE.Mesh(plumeGeo(), new THREE.MeshBasicMaterial({ color: 0xffb060, transparent: true, opacity: 0, depthWrite: false,
         blending: THREE.AdditiveBlending, side: THREE.DoubleSide }));
-      pl.position.set((b[0] + b[3] / 2) / Wd.CM, b[2] / Wd.CM, -(b[1] + b[4] / 2) / Wd.CM);
+      if (Wd.isEngine(b)) {
+        // an ENGINE's exhaust leaves its nozzle — the back end of its depth — along its own axis, as wide as the nozzle,
+        // wherever the piece is turned (engineFrame keeps it there: a thruster box's plume swings with the thrust instead)
+        const back = toCraft(Wd.turnVec(Wd.rotOf(b), [0, -b[4] / 2, 0])), l = Math.hypot(...back) || 1;
+        pl.position.set(centre[0] + back[0] / Wd.CM, centre[1] + back[1] / Wd.CM, centre[2] + back[2] / Wd.CM);
+        pl.userData.axis = new THREE.Vector3(back[0] / l, back[1] / l, back[2] / l);
+        pl.userData.wide = (0.64 * Math.min(b[3], b[5])) / Wd.CM / 0.84;       // the nozzle's width (land-shapes.js ENGINE_PROFILE: 0.64) over the cone's own
+      } else pl.position.set(centre[0], b[2] / Wd.CM, centre[2]);
       pl.visible = false; g.add(pl); (g.userData.plumes ||= []).push(pl);
     }
   }
   g.matrixAutoUpdate = false;
   return g;
+}
+/** A part (land-shapes.js, #175) as three.js meshes about its piece's centre, one for each tone it has: x across, y up
+ *  and the piece's depth along -z (the craft's frame; a mirror of the part's own, so two corners of every triangle swap).
+ *  The texture is laid per metre onto the side of the box a triangle mostly faces, as the chunk mesher lays it
+ *  (land-mesher.js meshPart), so a craft looks the same flying as it did docked. */
+function partMeshes(b) {
+  const T = Shapes.tris(b[7], b[3], b[4], b[5]), [w, d, h] = [b[3], b[4], b[5]], out = [], pos = T.pos, nor = T.nor;
+  for (const tone of new Set(T.tone)) {
+    const P = [], N = [], U = [];
+    for (let i = 0; i < T.n; i++) {
+      if (T.tone[i] !== tone) continue;
+      const t = i * 9, ux = pos[t + 3] - pos[t], uy = pos[t + 4] - pos[t + 1], uz = pos[t + 5] - pos[t + 2], vx = pos[t + 6] - pos[t], vy = pos[t + 7] - pos[t + 1], vz = pos[t + 8] - pos[t + 2];
+      const fx = Math.abs(uy * vz - uz * vy), fy = Math.abs(uz * vx - ux * vz), fz = Math.abs(ux * vy - uy * vx), side = fx >= fy && fx >= fz ? 0 : fy >= fz ? 1 : 2;
+      for (const k of [0, 2, 1]) {
+        const q = t + k * 3, x = pos[q], y = pos[q + 1], z = pos[q + 2];
+        P.push((x - w / 2) / Wd.CM, (y - h / 2) / Wd.CM, -(z - d / 2) / Wd.CM); N.push(nor[q], nor[q + 1], -nor[q + 2]);
+        U.push((side === 0 ? z : x) / Wd.CM, (side === 1 ? z : y) / Wd.CM);
+      }
+    }
+    const g = new THREE.BufferGeometry();
+    g.setAttribute("position", new THREE.Float32BufferAttribute(P, 3)); g.setAttribute("normal", new THREE.Float32BufferAttribute(N, 3));
+    g.setAttribute("uv", new THREE.Float32BufferAttribute(U, 2)); g.setAttribute("color", new THREE.Float32BufferAttribute(new Array(P.length).fill(1), 3));
+    out.push(new THREE.Mesh(g, pieceMaterial(Wd.toneBlock(b, tone))));
+  }
+  return out;
 }
 /** Degrees (a number or text) to tenths of a degree in -1799..1800, the range a piece's turn is kept in. */
 function tenths(x) {
@@ -495,9 +531,9 @@ function engineFrame(id, c, cam, now) {
     if (!pl.visible) continue;
     const yaw = c.pose[4], fwd = e.dir[0] * Math.sin(yaw) + e.dir[1] * Math.cos(yaw), right = e.dir[0] * Math.cos(yaw) - e.dir[1] * Math.sin(yaw);
     const ex = new THREE.Vector3(-e.push * right, -Math.max(e.lift, 0.05), e.push * fwd).normalize();   // against the thrust, in the craft's frame
-    pl.quaternion.setFromUnitVectors(new THREE.Vector3(0, -1, 0), ex);
-    const flick = 0.9 + 0.2 * Math.random();
-    pl.scale.set(0.7 + 0.5 * thr, (0.3 + 3.2 * thr) * flick, 0.7 + 0.5 * thr);
+    pl.quaternion.setFromUnitVectors(new THREE.Vector3(0, -1, 0), pl.userData.axis || ex);   // an engine part's: out of its nozzle (craftMesh)
+    const flick = 0.9 + 0.2 * Math.random(), wide = pl.userData.wide || 1;
+    pl.scale.set((0.7 + 0.5 * thr) * wide, (0.3 + 3.2 * thr) * flick * wide, (0.7 + 0.5 * thr) * wide);
     // by day a pale column of hot, shimmering air (the photos: no flame), by night the engines' orange glow
     pl.material.color.setRGB(0.85 + 0.15 * torchNight, 0.82 - 0.14 * torchNight, 0.76 - 0.4 * torchNight);
     pl.material.opacity = Math.min(0.85, thr * (0.42 + 0.45 * torchNight) * flick);
@@ -553,7 +589,7 @@ function craftsSeen(list) {
   for (const [id, c] of crafts) if (!seen.has(id) && !(flying && flying.id === id)) { scene.remove(c.mesh); if (c.dust) scene.remove(c.dust); crafts.delete(id); }
 }
 // the materials a craft is made of (land-world.js: steel plate, glass, thruster): Use on one of them may mean "fly this"
-const CRAFT_SKIN = new Set([B.steelplate, B.glass, B.thruster]);
+const CRAFT_SKIN = new Set([B.steelplate, B.glass, B.thruster, B.white, B.red, B.yellow, B.black]);   // …and painted plate (#175)
 /** Where each of my crafts is from where I stand, nearest first (#171): d metres over the ground (null on another face), b
  *  the bearing in whole degrees clockwise from north, h its height over the untouched ground under it. */
 function craftsBearing(list) {
@@ -779,7 +815,8 @@ function pieceInfo() {
   const id = hot[slot], el = $("pieceInfo");
   if (!el) return;
   const [w, d, h] = pieceDims();
-  const shapeName = [T("shapeBox", "box"), T("shapeSlope", "slope"), T("shapeStairs", "stairs")][piece.shape || 0];
+  const part = partFor(id && RULES && RULES.items[id]);
+  const shapeName = part ? partName(part) : [T("shapeBox", "box"), T("shapeSlope", "slope"), T("shapeStairs", "stairs")][piece.shape || 0];
   const tl = piece.tilt || [0, 0, 0], tilted = tl.some((t) => t);
   el.textContent = id && RULES && !NATURAL_ITEMS.has(id) ? T("pieceInfo", "Piece {w} × {d} × {h} cm · snap {s} cm", { w, d, h, s: piece.snap }) + " · " + shapeName
     + (tilted ? " · " + T("tiltInfo", "tilt {y}° {p}° {r}°", { y: tl[0] / 10, p: tl[1] / 10, r: tl[2] / 10 }) : "") : "";
@@ -808,6 +845,7 @@ function load() {
   if (d && Array.isArray(d.hot)) hot = d.hot.filter((x) => typeof x === "string").slice(0, 9);
   if (d && d.piece && [d.piece.w, d.piece.d, d.piece.h].every((x) => Number.isInteger(x) && x >= 1 && x <= Wd.PLOT_CM) && SNAPS.includes(d.piece.snap)) {
     piece = d.piece;
+    if (!Shapes.isPart(piece.part)) piece.part = 0;       // no part, or a byte that is none (#175): a plain piece
     if (!(Array.isArray(piece.tilt) && piece.tilt.length === 3 && piece.tilt.every((t) => Number.isInteger(t) && t > -1800 && t <= 1800))) piece.tilt = [0, 0, 0];
   }
   const at = d && restorePlace(d.p, W, (f, u, v, h) => { const pf = P.face; P.face = f; const c = collides(u, v, h); P.face = pf; return c; },
@@ -2139,6 +2177,11 @@ function renderBag() {
     <div class="tradeform">${[T("shapeBox", "box"), T("shapeSlope", "slope"), T("shapeStairs", "stairs")].map((n, i) =>
       `<button class="chip pl${(piece.shape || 0) === i ? " tool" : ""}" data-shape="${i}" aria-pressed="${(piece.shape || 0) === i}">${esc(n)}</button>`).join("")}
       <button class="chip pl" id="pzTurn">${esc(T("turnPiece", "Turn ↻"))}</button></div>
+    <div class="tradeform"><span>${esc(T("parts", "Parts"))}</span>${Shapes.TYPES.map((n, i) => { const on = !!piece.part && Shapes.decode(piece.part).type === i;
+      return `<button class="chip pl${on ? " tool" : ""}" data-part="${i}" aria-pressed="${on}">${esc(T("part." + n, n))}</button>`; }).join("")}
+      ${piece.part && Shapes.VARIANTS[Shapes.decode(piece.part).type] > 1 ? `<span>${esc(partVarLabel(Shapes.decode(piece.part).type))}</span><select id="pzVar">${Array.from({ length: 10 }, (_, v) =>
+        `<option value="${v}"${Shapes.decode(piece.part).v === v ? " selected" : ""}>${partVarValue(Shapes.decode(piece.part).type, v)}</option>`).join("")}</select>` : ""}</div>
+    ${piece.part ? `<div class="dim">${esc(partHint(piece.part))}</div>` : ""}
     <div class="tradeform"><span>${esc(T("tiltYaw", "Yaw"))}</span><input id="pzYaw" type="number" step="0.1" min="-179.9" max="180" value="${(piece.tilt || [0, 0, 0])[0] / 10}">
       <span>${esc(T("tiltPitch", "Pitch"))}</span><input id="pzPitch" type="number" step="0.1" min="-179.9" max="180" value="${(piece.tilt || [0, 0, 0])[1] / 10}">
       <span>${esc(T("tiltRoll", "Roll"))}</span><input id="pzRoll" type="number" step="0.1" min="-179.9" max="180" value="${(piece.tilt || [0, 0, 0])[2] / 10}"><span>°</span>
@@ -2178,11 +2221,19 @@ function renderBag() {
   g.querySelectorAll("[data-preset]").forEach((b) => { b.onclick = () => { [piece.w, piece.d, piece.h] = PRESETS[Number(b.dataset.preset)]; pieceInfo(); renderBag(); }; });
   // SHAPE AND TURN ON A TOUCH SCREEN: box / slope / stairs and a quarter turn were keys only (G, T), so on a phone every
   // piece was a box facing one way — no roof, no stairs, no door turned (building the town pavilion by hand, 2026-11-08)
-  g.querySelectorAll("[data-shape]").forEach((b) => { b.onclick = () => { piece.shape = Number(b.dataset.shape); pieceInfo(); renderBag(); }; });
+  g.querySelectorAll("[data-shape]").forEach((b) => { b.onclick = () => { piece.shape = Number(b.dataset.shape); piece.part = 0; pieceInfo(); renderBag(); }; });
+  // PARTS (#175): a chip a part type — pressed again, back to a plain piece; the select beside it its variant (a taper,
+  // a nose's droop, a ring's hole). A part keeps the size, the snap and the tilt set above: its box is the piece's.
+  g.querySelectorAll("[data-part]").forEach((b) => { b.onclick = () => {
+    const type = Number(b.dataset.part), was = piece.part ? Shapes.decode(piece.part) : null;
+    piece.part = was && was.type === type ? 0 : Shapes.code(type, PART_DEFAULT[type] || 0);
+    pieceInfo(); renderBag();
+  }; });
+  if ($("pzVar")) $("pzVar").onchange = () => { piece.part = Shapes.code(Shapes.decode(piece.part).type, Number($("pzVar").value)); pieceInfo(); renderBag(); };
   $("pzTurn").onclick = () => { turnPiece(); renderBag(); };
   const size = () => {
     const v = (id, max) => Math.max(1, Math.min(max, Math.round(Number($(id).value) || 1)));
-    piece = { w: v("pzW", Wd.PLOT_CM), d: v("pzD", Wd.PLOT_CM), h: v("pzH", Wd.H_CM), snap: Number($("pzS").value), shape: piece.shape, rot: piece.rot, turned: piece.turned,
+    piece = { w: v("pzW", Wd.PLOT_CM), d: v("pzD", Wd.PLOT_CM), h: v("pzH", Wd.H_CM), snap: Number($("pzS").value), shape: piece.shape, rot: piece.rot, turned: piece.turned, part: piece.part,
       tilt: ["pzYaw", "pzPitch", "pzRoll"].map((id) => tenths($(id).value)) };
     pieceInfo();
   };
@@ -2233,10 +2284,16 @@ function placement(a) {
   const rec = plotBoxes.get(c.plot);
   // TILT (#169): a box or a slope is turned about its centre by the piece's yaw, pitch and roll (never a unit part — a
   // seat, a door, a chest stand square — nor a flight of stairs, which is many pieces); it must still fit the plot
-  const tl = piece.tilt || [0, 0, 0], tilt = !(it && it.unit) && (piece.shape || 0) !== 2 && tl.some((t) => t);
-  const pieces = shaped(box, it && it.unit ? 0 : piece.shape).map((p) => (tilt ? [...p.slice(0, 7), p.length > 7 ? p[7] : 0, ...tl] : p));
-  if (tilt) box = pieces[0];
-  const clash = (me.plot === c.plot && pieces.some((p) => Wd.boxesOverlap(p, body))) || (rec && pieces.some((p) => rec.list.some((o) => Wd.boxesOverlap(p, o))));
+  // A PART (#175, land-shapes.js) is one piece with its shape byte; it tilts like a box
+  const part = partFor(it);
+  const tl = piece.tilt || [0, 0, 0], tilt = (part || (!(it && it.unit) && (piece.shape || 0) !== 2)) && tl.some((t) => t);
+  const pieces = (part ? [[...box.slice(0, 7), part]] : shaped(box, it && it.unit ? 0 : piece.shape)).map((p) => (tilt ? [...p.slice(0, 7), p.length > 7 ? p[7] : 0, ...tl] : p));
+  if (tilt || part) box = pieces[0];
+  // INVARIANT (#175): what refuses a place is piecesClash, not boxesOverlap — a part shares its box with its neighbours
+  // (a wing's box is mostly air, and parts are sunk into one another to close the seams); the world server agrees
+  // (BoxIndex.overlaps). The body: a box may not take any of it; a part only where the part itself is (its outline).
+  const inMe = (p) => (Wd.isPart(p) ? [0.1, 0.5, 0.9].some((f) => Wd.inPiece(p, me.x, me.z, me.y + f * TALL * Wd.CM)) : Wd.boxesOverlap(p, body));
+  const clash = (me.plot === c.plot && pieces.some(inMe)) || (rec && pieces.some((p) => rec.list.some((o) => Wd.piecesClash(p, o) || (o.length === p.length && o.every((x, i) => i === 6 || x === p[i])))));
   return { plot: c.plot, box, pieces, ok: !clash && pieces.every((p) => Wd.boxOk(Wd.normalBox(p.slice(0, 6).concat([p[6] || 1], p.slice(7))))) && box[2] >= 0 && box[2] + h <= Wd.H_CM };
 }
 // ROOFS AND STAIRS ("A REAL HOUSE"): which way a slope or a flight rises — away from the player, the way they face, then
@@ -2488,7 +2545,8 @@ function startTakeDown(bx, mouse) {
   if (rule.needs && !hasClass(rule.needs)) return notify(T("needsTool", "That needs a {t}.", { t: nameOf(rule.needs) }));
   const speed = rule.class ? toolSpeed(rule.class) : 1;
   const unit = unitOf(bx.b[6]);
-  job = { box: bx, need: Math.max(0.05, (rule.hard * (unit ? 1e6 : Wd.boxVolume(bx.b))) / 1e6 / speed * fedWork()), done: 0, mouse };
+  // an engine (#175) is as many thrusters as its size: taking it down is that many units' work (the server: World.boxes)
+  job = { box: bx, need: Math.max(0.05, (rule.hard * (unit ? Math.max(1, Wd.engineCount(bx.b)) * 1e6 : Wd.boxVolume(bx.b))) / 1e6 / speed * fedWork()), done: 0, mouse };
 }
 function breakTick(dt) {
   const bar = $("breakBar");
@@ -2557,14 +2615,39 @@ const unitOf = (m) => { const id = RULES && Object.keys(RULES.items).find((k) =>
 /** A quarter turn (T, or Turn in the bag): the footprint swaps width and depth (a door turns), and a slope or a flight of
  *  stairs rises the next way round. */
 function turnPiece() {
+  // a PART (#175) has a front: a quarter turn swings it round (its yaw), where a box only swaps its width and depth
+  if (partFor(RULES && hot[slot] && RULES.items[hot[slot]])) { const t = piece.tilt || [0, 0, 0]; piece.tilt = [tenths(t[0] / 10 + 90), t[1], t[2]]; return pieceInfo(); }
   [piece.w, piece.d] = [piece.d, piece.w]; piece.turned = !piece.turned;
   if (piece.shape) piece.rot = ((piece.rot || 0) + 1) % 4;
   pieceInfo();
 }
 function pieceDims() {
   const it = RULES && hot[slot] && RULES.items[hot[slot]];
-  if (it && it.unit) return piece.turned ? [it.unit[1], it.unit[0], it.unit[2]] : [it.unit[0], it.unit[1], it.unit[2]];
+  if (it && it.unit && !partFor(it)) return piece.turned ? [it.unit[1], it.unit[0], it.unit[2]] : [it.unit[0], it.unit[1], it.unit[2]];
   return [piece.w, piece.d, piece.h];
+}
+// ---- PARTS (#175, land-shapes.js): the chosen part type and variant ride in piece.part (a shape byte) -------------------
+// what a type starts as when its chip is pressed: a straight tube and body, a hull and a wing narrowing as the X-wing's
+// do, a level nose, a ring with a hole of 0.8 (design choices: a start, the select changes it)
+const PART_DEFAULT = { [Shapes.TUBE]: 9, [Shapes.BODY]: 9, [Shapes.HULL]: 3, [Shapes.WING]: 5, [Shapes.NOSE]: 0, [Shapes.RING]: 6 };
+/** The part the held item would be placed as (a shape byte), or 0 for a plain piece. A unit item — a seat, a door, a
+ *  chest — is never a part; an ENGINE is made of thrusters and of nothing else (land-world.js boxOk, engineCount), so the
+ *  thruster, itself a unit item, is the one that takes a part's shape, and only that shape. */
+function partFor(it) {
+  const p = piece.part ? Shapes.decode(piece.part) : null;
+  if (!p || !it) return 0;
+  if (p.type === Shapes.ENGINE) return it.places === B.thruster ? piece.part : 0;
+  return it.unit ? 0 : piece.part;
+}
+const partName = (s) => { const p = Shapes.decode(s); return T("part." + Shapes.TYPES[p.type], Shapes.TYPES[p.type]) + (Shapes.VARIANTS[p.type] > 1 ? " " + partVarValue(p.type, p.v) : ""); };
+const partVarLabel = (type) => (type === Shapes.NOSE ? T("partDroop", "droop") : type === Shapes.RING ? T("partHole", "hole") : T("partTaper", "taper"));
+const partVarValue = (type, v) => (type === Shapes.NOSE ? String(v) : type === Shapes.RING ? (50 + 5 * v) + " %" : ((v + 1) / 10).toFixed(1));
+/** What the chosen part takes of the size set above, in words: an engine in thrusters, anything else in blocks of the
+ *  material held (a hollow one a tenth of its solid — land-shapes.js SHELL). */
+function partHint(s) {
+  const b = [0, 0, 0, piece.w, piece.d, piece.h, Shapes.decode(s).type === Shapes.ENGINE ? B.thruster : B.steelplate, s];
+  if (Wd.isEngine(b)) return T("partEngine", "An engine is made of thrusters: at this size it takes {n} and pushes {kn} kN. Hold a thruster to place it.", { n: Wd.engineCount(b), kn: Wd.engineCount(b) * (RULES.flight ? RULES.flight.thrust_kn : 0) });
+  return T("partTakes", "At this size it takes {v} of a block of the material you hold. Parts may be sunk into one another.", { v: (Wd.boxVolume(b) / 1e6).toFixed(3) });
 }
 function act(place, mouse) {
   // signed out, a tap says so whatever it points at: it used to say nothing when the view held no target (sky, a gap in
@@ -2598,10 +2681,15 @@ function act(place, mouse) {
     const pl = placement(a);
     if (!pl) return;
     if (!mayBuild(pl.plot)) return explainNoBuild(pl.plot);
+    // an ENGINE (#175) is made of thrusters and nothing else: say so instead of placing a box of whatever is held — and
+    // BEFORE "no room": an engine of another material is no piece at all (boxOk), so the room was never the reason
+    if (piece.part && Shapes.decode(piece.part).type === Shapes.ENGINE && RULES.items[id].places !== B.thruster) return notify(T("engineNeeds", "An engine is made of thrusters — hold a thruster to place one."));
     if (!pl.ok) return notify(T("noRoom", "No room for that piece there."));
     const add = pl.pieces.map((b) => { const x = b.slice(); x[6] = RULES.items[id].places; return x; });
     const vol = add.reduce((a, b) => a + Wd.boxVolume(b), 0);
-    if (RULES.items[id].unit ? !((inv.items[id] || 0) >= 1) : haveCm3(id) < vol) return notify(T("notEnough", "Not enough {i} for a piece that size.", { i: nameOf(id) }));
+    // a unit item is paid whole: one a piece — an engine as many thrusters as its size comes to (land-world.js engineCount)
+    const units = add.reduce((a, b) => a + (Wd.isEngine(b) ? Wd.engineCount(b) : 1), 0);
+    if (RULES.items[id].unit ? !((inv.items[id] || 0) >= units) : haveCm3(id) < vol) return notify(T("notEnough", "Not enough {i} for a piece that size.", { i: nameOf(id) }));
     const cur = plotBoxes.get(pl.plot);
     setPlotBoxes(pl.plot, (cur ? cur.list : []).concat(add));                   // shown at once; put back if refused
     net.send({ t: "boxes", plot: pl.plot, add, req: ++net.req });
@@ -2944,7 +3032,7 @@ function wireInput(canvas) {
     if (e.code === "KeyX") ignite();
     if (e.code === "KeyV") wardrobe($("wardPanel").classList.contains("hidden"));
     if (e.code === "KeyL") startLevel();
-    if (e.code === "KeyG") { piece.shape = ((piece.shape || 0) + 1) % 3; pieceInfo(); }
+    if (e.code === "KeyG") { piece.shape = ((piece.shape || 0) + 1) % 3; piece.part = 0; pieceInfo(); }   // …and back from a part (#175) to a plain piece
     if (e.code === "BracketLeft" || e.code === "BracketRight") { const i = SNAPS.indexOf(piece.snap); piece.snap = SNAPS[Math.max(0, Math.min(SNAPS.length - 1, (i < 0 ? 2 : i) + (e.code === "BracketRight" ? 1 : -1)))]; pieceInfo(); }
     if (e.code === "KeyF") { P.fly = !P.fly; P.vh = 0; notify(P.fly ? T("flyOn", "Flying — Space up, C down, Shift fast") : T("flyOff", "Walking"), 1600); }
     if (e.code === "KeyE") palette($("palette").classList.contains("hidden"));
@@ -3222,6 +3310,9 @@ const PIECE_TEX = {
   // steel (#146): plate in brushed panels; a thruster and a pilot seat in darker steel until flight draws their models
   64: ["steel", 1, 0.38], 65: ["steel", 0.55, 0.45], 66: ["steel", 0.75, 0.5],
   67: ["steel", 0.6, 0.6], 68: ["steel", 0.85, 0.45], 69: ["steel", 0.7, 0.5],
+  // painted plate (#175): steel plate under a coat of paint — the same panels, matt, in the pigment's colour (a tint
+  // given as a colour is the paint's own; land-recipes.json: whitewash, red and yellow ochre, carbon black)
+  28: ["paint", "#d9d5c9", 0.62], 21: ["paint", "#9c2428", 0.6], 23: ["paint", "#cfa42c", 0.6], 27: ["paint", "#26272a", 0.66],
 };
 const pieceMats = new Map();
 function pieceMaterial(blk) {
@@ -3235,10 +3326,12 @@ function pieceMaterial(blk) {
   } else if (spec) {
     const [name, tint, rough] = spec;
     m = new THREE.MeshStandardNodeMaterial({ roughness: rough, metalness: 0 });
-    const uv = TSL.uv(), col = name === "thatch" ? thatchTexture() : name === "steel" ? steelTexture() : loadTex(name + "_col");
-    m.colorNode = TSL.texture(col, uv).rgb.mul(tint).mul(TSL.attribute("color", "vec3"));
+    const uv = TSL.uv(), col = name === "thatch" ? thatchTexture() : name === "steel" ? steelTexture() : name === "paint" ? paintTexture() : loadTex(name + "_col");
+    const hue = typeof tint === "string" ? new THREE.Color(tint) : null;       // a colour (paint) or a plain brightness
+    m.colorNode = TSL.texture(col, uv).rgb.mul(hue ? TSL.vec3(hue.r, hue.g, hue.b) : tint).mul(TSL.attribute("color", "vec3"));
     if (name === "steel") m.metalness = 0.55;                                 // metal: it takes the sky's colour a little
-    if (name !== "thatch" && name !== "steel") { const nor = loadTex(name + "_nor"); nor.colorSpace = THREE.NoColorSpace; m.normalNode = TSL.normalMap(TSL.texture(nor, uv)); }
+    if (name === "paint") m.metalness = 0.12;
+    if (name !== "thatch" && name !== "steel" && name !== "paint") { const nor = loadTex(name + "_nor"); nor.colorSpace = THREE.NoColorSpace; m.normalNode = TSL.normalMap(TSL.texture(nor, uv)); }
   }
   pieceMats.set(blk, m);
   return m;
@@ -3257,6 +3350,21 @@ function steelTexture() {
   g.fillStyle = "#d4dae0"; for (const x of [12, 244]) for (const y of [12, 244]) { g.beginPath(); g.arc(x, y, 4, 0, Math.PI * 2); g.fill(); }
   steelTex = new THREE.CanvasTexture(cv); steelTex.wrapS = steelTex.wrapT = THREE.RepeatWrapping; steelTex.colorSpace = THREE.SRGBColorSpace;
   return steelTex;
+}
+// paint has no scan: a near-white coat over 1 m panels — a thin seam round each, faint streaks of weather running down
+// and a few scuffs — painted once and tinted by the pigment (PIECE_TEX), so every painted plate is the same sheet
+let paintTex = null;
+function paintTexture() {
+  if (paintTex) return paintTex;
+  const cv = document.createElement("canvas"); cv.width = cv.height = 256;
+  const g = cv.getContext("2d");
+  g.fillStyle = "#f4f4f2"; g.fillRect(0, 0, 256, 256);
+  let seed = 53; const R = () => { seed = (seed * 16807) % 2147483647; return seed / 2147483647; };
+  for (let i = 0; i < 260; i++) { const x = R() * 256, y = R() * 256, l = 20 + R() * 90; g.strokeStyle = `rgba(90,90,96,${0.03 + R() * 0.05})`; g.lineWidth = 1 + R() * 2.5; g.beginPath(); g.moveTo(x, y); g.lineTo(x + (R() - 0.5) * 3, y + l); g.stroke(); }
+  for (let i = 0; i < 40; i++) { g.fillStyle = `rgba(60,60,66,${0.04 + R() * 0.06})`; g.fillRect(R() * 256, R() * 256, 2 + R() * 9, 1 + R() * 2); }
+  g.strokeStyle = "rgba(70,72,78,0.5)"; g.lineWidth = 1.5; g.strokeRect(0.75, 0.75, 254.5, 254.5);
+  paintTex = new THREE.CanvasTexture(cv); paintTex.wrapS = paintTex.wrapT = THREE.RepeatWrapping; paintTex.colorSpace = THREE.SRGBColorSpace; paintTex.anisotropy = 8;
+  return paintTex;
 }
 // thatch has no scan: bundles of straw painted in layers, each course overlapping the one below
 let thatchTex = null;

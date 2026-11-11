@@ -12,6 +12,8 @@
 // changes is a sparse list of edits on top (the plot's data, committed on chain by plotCommitment). Noise is sampled on
 // the unit sphere, so the terrain is continuous across the faces' seams.
 
+import * as Shapes from "./land-shapes.js";
+
 export const FACE_N = 8192;                 // plots along a face edge (execnode/games/land.py FACE_N)
 export const PLOT = 16;                     // blocks along a plot edge (land.py PLOT)
 export const W = FACE_N * PLOT;             // 131072 block columns along a face edge
@@ -568,13 +570,14 @@ export const SLOPE_POS_X = 1, SLOPE_NEG_X = 2, SLOPE_POS_Z = 3, SLOPE_NEG_Z = 4;
 // east (+x), then yaw about up (+y), all in the plot's frame. [x, z, y, w, d, h] stays the piece before it turns; the
 // turned piece must lie inside the plot (its bounding box). An unturned piece keeps its 7 or 8 numbers, byte for byte.
 const ROT_MAX = 1800;
-/** Is [x, z, y, w, d, h, m] (or with a shape 1..4 as an 8th number, and yaw, pitch, roll as 9th-11th) a piece inside
- *  the plot? */
+/** Is [x, z, y, w, d, h, m] (or with a shape as an 8th number — 1..4 a slope, from 16 a part of land-shapes.js — and
+ *  yaw, pitch, roll as 9th-11th) a piece inside the plot? */
 export function boxOk(b) {
   if (!Array.isArray(b) || (b.length !== 7 && b.length !== 8 && b.length !== 11) || !b.every(Number.isInteger)) return false;
   const [x, z, y, w, d, h, m] = b;
   if (!(x >= 0 && z >= 0 && y >= 0 && w >= 1 && d >= 1 && h >= 1 && m > 0 && m < BLOCKS.length && !BLOCKS[m].liquid)) return false;
-  if (b.length > 7 && !(b[7] >= 0 && b[7] <= 4) || (b.length === 8 && !b[7])) return false;
+  if (b.length > 7 && !((b[7] >= 0 && b[7] <= 4) || Shapes.isPart(b[7])) || (b.length === 8 && !b[7])) return false;
+  if (b.length > 7 && Shapes.isPart(b[7]) && Shapes.decode(b[7]).type === Shapes.ENGINE && m !== B.thruster) return false;   // an engine is made of thrusters, nothing else (engineCount)
   if (b.length === 11) {
     if (!b.slice(8).every((r) => r > -ROT_MAX && r <= ROT_MAX) || !(b[8] || b[9] || b[10])) return false;
     const a = boxAabb(b);
@@ -633,7 +636,33 @@ export function boxesOverlap(a, b) {
   }
   return true;
 }
-export const boxVolume = (b) => (shapeOf(b) ? Math.floor(b[3] * b[4] * b[5] / 2) : b[3] * b[4] * b[5]);   // cm³; a block is 1,000,000
+// PARTS (#175, land-shapes.js): a shape from 16 is a modelled solid filling the piece's box — a hull, a wing, an engine.
+/** Is the piece a part (land-shapes.js), not a box or a slope? */
+export const isPart = (b) => b.length > 7 && Shapes.isPart(b[7]);
+/** Is the piece an engine: the engine part, in the thruster's material (boxOk allows it no other)? */
+export const isEngine = (b) => b.length > 7 && b[6] === B.thruster && Shapes.isPart(b[7]) && Shapes.decode(b[7]).type === Shapes.ENGINE;
+// the block a part's triangles of each tone (land-shapes.js MATERIAL, DARK, STEEL, GLOW) are drawn as: its own material,
+// black, steel plate, a lamp. scripts/land_server.py needs none of it: a tone is paint, not matter.
+export const toneBlock = (b, tone) => (tone === Shapes.DARK ? B.black : tone === Shapes.STEEL ? B.steelplate : tone === Shapes.GLOW ? B.lamp : b[6]);
+/** cm³ of material in a piece (a block is 1,000,000): a box its box, a slope half of it, a part the share of its box its
+ *  shape fills — a tenth of that for a hollow one (land-shapes.js SHELL) — in whole-number arithmetic, the very sum
+ *  scripts/land_server.py box_vol does (the largest product, 1600 × 1600 × 25600 × 1000, is well inside a double). */
+export function boxVolume(b) {
+  const s = shapeOf(b), box = b[3] * b[4] * b[5];
+  if (!s) return box;
+  if (!Shapes.isPart(s)) return Math.floor(box / 2);
+  return Math.max(1, Math.floor((box * Shapes.fill(s)) / (1000 * (Shapes.hollow(s) ? Shapes.SHELL : 1))));
+}
+// AN ENGINE IS THRUSTERS. The thruster item is a 1.0 × 1.0 × 1.4 m unit (land-recipes.json); an engine part of any size is
+// as many of them as its volume comes to, to the nearest whole one and never fewer than one — what it costs to place,
+// gives back taken down, weighs (flight.unit_mass) and pushes (flight.thrust_kn). The server: engine_count.
+export const THRUSTER_CM3 = 1400000;
+export const engineCount = (b) => (isEngine(b) ? Math.max(1, Math.floor((boxVolume(b) + THRUSTER_CM3 / 2) / THRUSTER_CM3)) : b[6] === B.thruster ? 1 : 0);
+/** May these two pieces not share a place? Boxes and slopes may not overlap; a PART overlaps freely — with a box, with
+ *  another part — because a part does not fill its box (a wing's box is mostly air) and parts are meant to be sunk into
+ *  one another: that is what closes the seams. Only the very same piece twice is refused (the server does: a duplicate).
+ *  boxesOverlap itself stays pure geometry: a body in the way, a fire, a craft's joints all still ask it. */
+export const piecesClash = (a, b) => !isPart(a) && !isPart(b) && boxesOverlap(a, b);
 /** Is the point (x, z, y) in cm inside piece b — for a slope, below its sloped face? */
 export function inPiece(b, x, z, y) {
   if (isTurned(b)) {                                       // into the piece's own frame: about its centre, turned back
@@ -643,6 +672,7 @@ export function inPiece(b, x, z, y) {
   if (!(x >= b[0] && x < b[0] + b[3] && z >= b[1] && z < b[1] + b[4] && y >= b[2] && y < b[2] + b[5])) return false;
   const s = shapeOf(b);
   if (!s) return true;
+  if (Shapes.isPart(s)) return Shapes.inside(s, (x - b[0]) / b[3], (y - b[2]) / b[5], (z - b[1]) / b[4]);   // the part's own outline (z its depth: north before it turns)
   const f = s === 1 ? (x - b[0]) / b[3] : s === 2 ? (b[0] + b[3] - x) / b[3] : s === 3 ? (z - b[1]) / b[4] : (b[1] + b[4] - z) / b[4];
   return y - b[2] <= f * b[5];
 }

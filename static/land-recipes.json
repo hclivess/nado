@@ -1,6 +1,6 @@
 {
  "about": "Land's gathering and crafting web (doc/land.md 'Gathering, tools, crafting'). ONE file read by the page (static/land.js) and the world server (scripts/land_server.py), so both apply the same rules: 'you must gather resources to make tools to make tools to collect more resources' (operator, 2026-11-06). No eras: every recipe names exactly what it needs. Block ids are static/land-world.js BLOCKS.",
- "version": 8,
+ "version": 9,
  "items": {
   "fiber": {
    "name": "Plant fiber"
@@ -291,6 +291,22 @@
   "steel_plate": {
    "name": "Steel plate",
    "places": 64
+  },
+  "white_plate": {
+   "name": "White plate",
+   "places": 28
+  },
+  "red_plate": {
+   "name": "Red plate",
+   "places": 21
+  },
+  "yellow_plate": {
+   "name": "Yellow plate",
+   "places": 23
+  },
+  "black_plate": {
+   "name": "Black plate",
+   "places": 27
   },
   "gear": {
    "name": "Gear"
@@ -1215,6 +1231,50 @@
    "yields": [
     [
      "steel_plate",
+     1
+    ]
+   ],
+   "needs": "pick"
+  },
+  "28": {
+   "hard": 3.0,
+   "class": "pick",
+   "yields": [
+    [
+     "white_plate",
+     1
+    ]
+   ],
+   "needs": "pick"
+  },
+  "21": {
+   "hard": 3.0,
+   "class": "pick",
+   "yields": [
+    [
+     "red_plate",
+     1
+    ]
+   ],
+   "needs": "pick"
+  },
+  "23": {
+   "hard": 3.0,
+   "class": "pick",
+   "yields": [
+    [
+     "yellow_plate",
+     1
+    ]
+   ],
+   "needs": "pick"
+  },
+  "27": {
+   "hard": 3.0,
+   "class": "pick",
+   "yields": [
+    [
+     "black_plate",
      1
     ]
    ],
@@ -2979,6 +3039,98 @@
    ]
   },
   {
+   "id": "white_plate",
+   "makes": [
+    [
+     "white_plate",
+     4
+    ]
+   ],
+   "uses": [
+    [
+     "steel_plate",
+     4
+    ],
+    [
+     "lime",
+     1
+    ]
+   ],
+   "with": [
+    "workbench"
+   ]
+  },
+  {
+   "id": "red_plate",
+   "makes": [
+    [
+     "red_plate",
+     4
+    ]
+   ],
+   "uses": [
+    [
+     "steel_plate",
+     4
+    ],
+    [
+     "ironore",
+     1
+    ]
+   ],
+   "with": [
+    "workbench"
+   ]
+  },
+  {
+   "id": "yellow_plate",
+   "makes": [
+    [
+     "yellow_plate",
+     4
+    ]
+   ],
+   "uses": [
+    [
+     "steel_plate",
+     4
+    ],
+    [
+     "ironore",
+     1
+    ],
+    [
+     "clay",
+     1
+    ]
+   ],
+   "with": [
+    "workbench"
+   ]
+  },
+  {
+   "id": "black_plate",
+   "makes": [
+    [
+     "black_plate",
+     4
+    ]
+   ],
+   "uses": [
+    [
+     "steel_plate",
+     4
+    ],
+    [
+     "charcoal",
+     1
+    ]
+   ],
+   "with": [
+    "workbench"
+   ]
+  },
+  {
    "id": "machine_shop",
    "makes": [
     [
@@ -4182,7 +4334,7 @@
  ],
  "wilderness_regrow_s": 900,
  "flight": {
-  "about": "#147 (doc/land-tech-to-flight.md): a craft is built pieces touching one another, with a pilot seat and at least one thruster. Its mass is each piece's volume x its material's density (t per m3; a unit part by its own mass); it rises only if its thrusters (kN each) beat its weight. Read by the page (it flies the craft) and the world server (it bounds what a pilot may claim).",
+  "about": "#147 (doc/land-tech-to-flight.md): a craft is built pieces touching one another, with a pilot seat and at least one thruster. Its mass is each piece's volume x its material's density (t per m3; a unit part by its own mass); it rises only if its thrusters (kN each) beat its weight. Read by the page (it flies the craft) and the world server (it bounds what a pilot may claim). #175: a PART (static/land-shapes.js) weighs the material actually in it — its shape's share of its box, a tenth of that for a hollow skin (a hull, a nose, a wing, a canopy, a dome) — and an ENGINE part is as many thrusters as its volume comes to, each weighing and pushing as one. PAINTED PLATE (white 28, red 21, yellow 23, black 27) is steel plate (density 1.5) with a pigment worked in at the workbench: white from lime (whitewash is slaked-lime paint), black from charcoal (carbon black: charred wood), red from iron ore (red ochre is hematite, an iron oxide and an ore of iron), yellow from iron ore and clay (ochre is a clay earth pigment of ferric oxide and clay; real yellow ochre is the hydrated oxide, limonite — Land has one iron ore) — land research paint/. One measure of pigment painting four plates is a DESIGN CHOICE.",
   "g": 9.8,
   "thrust_kn": 30,
   "vmax": 60,
@@ -4199,6 +4351,10 @@
    "11": 1.4,
    "13": 1.2,
    "14": 1.0,
+   "28": 1.5,
+   "21": 1.5,
+   "23": 1.5,
+   "27": 1.5,
    "default": 1.0
   },
   "unit_mass": {

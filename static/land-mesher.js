@@ -19,7 +19,8 @@
 // Cells are generated with a one-cell border (wrapped across face seams by land-world.wrap). A surface edge is drawn by
 // the chunk that holds its LOWER cell, so every edge of the world belongs to exactly one chunk (no gaps, no doubles).
 // Positions are metres RELATIVE TO THE CHUNK'S ANCHOR; the page places each mesh at anchor - camera in doubles.
-import { CHUNK, H, R0, W, B, BLOCKS, ATLAS_TILES, NATURAL, CM, DEEP_MIN, TREE_WOOD, TREE_LEAVES, isTree, opaque, dirOf, frameOf, wrap, column, terrainBlock, fieldOf, treeAt, treeCell, LITTER, shapeOf, FLOWERS, saplingTree, soilOf, isTurned, rotOf, turnVec, boxAabb } from "./land-world.js";
+import { CHUNK, H, R0, W, B, BLOCKS, ATLAS_TILES, NATURAL, CM, DEEP_MIN, TREE_WOOD, TREE_LEAVES, isTree, opaque, dirOf, frameOf, wrap, column, terrainBlock, fieldOf, treeAt, treeCell, LITTER, shapeOf, isPart, toneBlock, FLOWERS, saplingTree, soilOf, isTurned, rotOf, turnVec, boxAabb } from "./land-world.js";
+import * as Shapes from "./land-shapes.js";
 import { treeModel, leafCellModel, twigModel, flaxModel, saplingModel, flowerModel, wheatModel, berryBushModel } from "./land-trees.js";
 
 const N = CHUNK + 2;                                     // cells with the border: real index r in -1..16 is r + 1
@@ -111,7 +112,8 @@ const BOX_FACES = [{ ax: 2, s: 1 }, { ax: 2, s: -1 }, { ax: 0, s: 1 }, { ax: 0, 
 function meshBoxes(boxes, u0, v0, h0, place, solid, clear, lod) {
   const lo = h0 * CM, hi = (h0 + CHUNK) * CM;
   // a turned piece (#169) is drawn whole by the chunk its centre is in (its faces are not sliced at a chunk's floor)
-  const mine = boxes.filter((b) => (isTurned(b) ? b[2] + b[5] / 2 >= lo && b[2] + b[5] / 2 < hi : b[2] < hi && b[2] + b[5] > lo)
+  // …and so is a PART (#175): a modelled solid is not cut into slices
+  const mine = boxes.filter((b) => (isTurned(b) || isPart(b) ? b[2] + b[5] / 2 >= lo && b[2] + b[5] / 2 < hi : b[2] < hi && b[2] + b[5] > lo)
     && !(lod >= 2 && Math.max(b[3], b[4], b[5]) < LOD_SKIP_CM));
   if (!mine.length) return;
   // neighbours by 1 m bucket, for the covered-face test
@@ -139,11 +141,21 @@ function meshBoxes(boxes, u0, v0, h0, place, solid, clear, lod) {
   mine.sort((a, b) => a[6] - b[6]);
   let runM = -1, runAt = 0;
   const close = () => { if (runM >= 0 && solid.idx.length > runAt) solid.groups.push([runAt, solid.idx.length - runAt, runM]); };
+  const toned = new Map();                                  // the parts' fixed tones: block -> [piece, its triangles, place, tone]
   for (const b of mine) {
     if (opaque(b[6]) && b[6] !== runM) { close(); runM = b[6]; runAt = solid.idx.length; }
     // a TURNED piece (#169): every corner it would have square goes round its centre before it is placed on the planet;
     // its faces are drawn whole (no chunk slices) and lit by the normal of the turned face (computed from the corners)
     const turned = isTurned(b), at = turned ? turnPlace(b, u0, v0, place) : place, lo1 = turned ? -Infinity : lo, hi1 = turned ? Infinity : hi;
+    if (isPart(b)) {
+      // a PART (#175): its own material's triangles here, in this material's run (a canopy's glass in the glass); the
+      // triangles of its fixed tones — an engine's dark throat, its steel cone, its glowing exit — wait for the end, where
+      // every part's share of one tone is ONE draw group (three groups a part made a craft of fifty parts 150 draws)
+      const T = Shapes.tris(shapeOf(b), b[3], b[4], b[5]);
+      meshPart(b, T, u0, v0, at, Shapes.MATERIAL, !opaque(b[6]) ? clear : solid);
+      for (const tone of new Set(T.tone)) if (tone !== Shapes.MATERIAL) { const blk = toneBlock(b, tone); let l = toned.get(blk); if (!l) toned.set(blk, l = []); l.push([b, T, at, tone]); }
+      continue;
+    }
     if (shapeOf(b)) { meshSlope(b, u0, v0, at, !opaque(b[6]) ? clear : solid, lo1, hi1); continue; }
     if (b[6] === B.window) { meshWindow(b, u0, v0, place, solid, clear, lo, hi); continue; }
     if (MODELS[b[6]]) {
@@ -188,6 +200,45 @@ function meshBoxes(boxes, u0, v0, h0, place, solid, clear, lod) {
     }
   }
   close();
+  for (const blk of [...toned.keys()].sort((a, b) => a - b)) {
+    runM = blk; runAt = solid.idx.length;
+    for (const [b, T, at, tone] of toned.get(blk)) meshPart(b, T, u0, v0, at, tone, solid);
+    close();
+  }
+}
+
+// ---- a part (land-shapes.js, #175): the triangles of ONE tone of a modelled solid, T = Shapes.tris at the piece's own
+// size, in the piece's frame (x across, y up, z along its depth) from its low corner. Every corner is placed on the planet
+// as a box's corner is (so a part meets the box beside it exactly); a normal is the solid's own smooth one carried by the
+// piece's three axes as they lie on the planet; the texture is laid per metre, flat onto the side of the piece's box the
+// triangle mostly faces. The piece's frame against the planet's is asked, not assumed: if it is mirrored (x, y, z a
+// left-handed set there) two corners of every triangle swap, so the faces still look outward.
+function meshPart(b, T, u0, v0, at, tone, buf) {
+  const P = (x, y, z) => at(u0 + (b[0] + x) / CM, v0 + (b[1] + z) / CM, (b[2] + y) / CM);
+  const c = [b[3] / 2, b[5] / 2, b[4] / 2], o = P(c[0], c[1], c[2]);
+  const axis = (dx, dy, dz) => { const q = P(c[0] + dx, c[1] + dy, c[2] + dz), v = [q[0] - o[0], q[1] - o[1], q[2] - o[2]], l = Math.hypot(v[0], v[1], v[2]) || 1; return [v[0] / l, v[1] / l, v[2] / l]; };
+  const X = axis(50, 0, 0), Y = axis(0, 50, 0), Z = axis(0, 0, 50);
+  const hand = (X[1] * Y[2] - X[2] * Y[1]) * Z[0] + (X[2] * Y[0] - X[0] * Y[2]) * Z[1] + (X[0] * Y[1] - X[1] * Y[0]) * Z[2];
+  const order = hand < 0 ? [0, 2, 1] : [0, 1, 2];
+  const info = BLOCKS[toneBlock(b, tone)], tile = info.tex[1], sh = info.glow ? 1.6 : 1, pos = T.pos, nor = T.nor;
+  for (let i = 0; i < T.n; i++) {
+    if (T.tone[i] !== tone) continue;
+    const t = i * 9;
+    // which side of the box the triangle faces: the largest part of its own (flat) normal
+    const ux = pos[t + 3] - pos[t], uy = pos[t + 4] - pos[t + 1], uz = pos[t + 5] - pos[t + 2], vx = pos[t + 6] - pos[t], vy = pos[t + 7] - pos[t + 1], vz = pos[t + 8] - pos[t + 2];
+    const fx = Math.abs(uy * vz - uz * vy), fy = Math.abs(uz * vx - ux * vz), fz = Math.abs(ux * vy - uy * vx);
+    const side = fx >= fy && fx >= fz ? 0 : fy >= fz ? 1 : 2;
+    for (const k of order) {
+      const q = t + k * 3, x = pos[q], y = pos[q + 1], z = pos[q + 2], p = P(x, y, z), nx = nor[q], ny = nor[q + 1], nz = nor[q + 2];
+      buf.pos.push(p[0], p[1], p[2]);
+      buf.nor.push(nx * X[0] + ny * Y[0] + nz * Z[0], nx * X[1] + ny * Y[1] + nz * Z[1], nx * X[2] + ny * Y[2] + nz * Z[2]);
+      buf.uv.push((side === 0 ? z : x) / CM, (side === 1 ? z : y) / CM);
+      buf.tile.push(tile);
+      buf.col.push(sh, sh, sh);
+    }
+    buf.idx.push(buf.n, buf.n + 1, buf.n + 2);
+    buf.n += 3;
+  }
 }
 
 /** `place` for a turned piece: a point of the square piece (plot grid u, v, h) turned about the piece's centre first. */

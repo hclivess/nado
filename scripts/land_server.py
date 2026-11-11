@@ -186,17 +186,71 @@ MAX_BOX_OPS = 1024                                 # pieces added or removed per
 ROT_MAX = 1800                                     # land-world.js ROTATION (#169): yaw, pitch, roll in tenths of a degree
 
 
+# PARTS (#175, static/land-shapes.js — read its header): from 16 a piece's shape byte is a modelled solid filling its own
+# box, 16 + 10 x type + variant. The server draws nothing; it holds what a part IS for the rules: which bytes are parts
+# (box_ok), how much of its box one fills (part_fill, in thousandths, the SAME whole-number sums as land-shapes.js fill —
+# the parts test compares every code across the two), which are hollow skins that take a tenth (PART_SHELL), and that an
+# ENGINE is thrusters (engine_count). INVARIANT: a code's meaning is permanent once a plot holds it — a new part is a
+# new type appended here AND in land-shapes.js TYPES, never a change to an old one's fill.
+PART_FIRST = 16
+P_TUBE, P_BODY, P_HULL, P_WING, P_ENGINE, P_CANNON, P_DOME, P_NOSE, P_CANOPY, P_RING = range(10)
+PART_VARIANTS = [10, 10, 10, 10, 1, 1, 1, 10, 1, 10]
+PART_HOLLOW = {P_HULL, P_NOSE, P_WING, P_CANOPY, P_DOME}
+PART_SHELL = 10                   # a hollow part takes a tenth of its solid (land-shapes.js SHELL: a labelled design choice)
+THRUSTER_CM3 = 1400000            # the thruster item's own 1.0 x 1.0 x 1.4 m: what one thruster of an engine's volume is
+
+
+def part_of(s):
+    """land-shapes.js decode: (type, variant) of a shape byte, or None for a box, a slope and any byte that is no part."""
+    if not isinstance(s, int) or s < PART_FIRST:
+        return None
+    t, v = (s - PART_FIRST) // 10, (s - PART_FIRST) % 10
+    return (t, v) if t < len(PART_VARIANTS) and v < PART_VARIANTS[t] else None
+
+
+def is_part(b):
+    return len(b) > 7 and part_of(b[7]) is not None
+
+
+def is_engine(b):
+    """land-world.js isEngine: the engine part, in the thruster's material (box_ok allows it no other)."""
+    return len(b) > 7 and b[6] == THRUSTER and (part_of(b[7]) or (None,))[0] == P_ENGINE
+
+
+def part_fill(s):
+    """land-shapes.js fill: the thousandths of its box a part fills. Whole numbers only, the same sums in the same order."""
+    t, v = part_of(s)
+    k = v + 1
+    if t == P_TUBE:
+        return 785 * (100 + 10 * k + k * k) // 300
+    if t == P_BODY:
+        return 1000 * (100 + 10 * k + k * k) // 300
+    if t == P_HULL:
+        return 859 * (250 + 25 * k + k * k) // 600
+    if t == P_WING:
+        return 980 * (260 + 22 * k) // 600
+    if t == P_NOSE:
+        return 527
+    if t == P_RING:
+        h = 10 + v
+        return 785 * (400 - h * h) // 400
+    return {P_ENGINE: 415, P_CANNON: 260, P_DOME: 523, P_CANOPY: 510}[t]
+
+
 def box_ok(b):
     """land-world.js boxOk: [x, z, y, w, d, h, m] in whole centimetres inside the plot, positive size, a solid material —
-    with an 8th number a slope's shape 1..4 (land-world.js SHAPES: a roof needs slopes), and with a 9th-11th its yaw,
-    pitch and roll in tenths of a degree (#169: turned about its centre; the turned piece inside the plot)."""
+    with an 8th number a slope's shape 1..4 (land-world.js SHAPES: a roof needs slopes) or a part's code from 16 (#175;
+    an engine only in the thruster's material), and with a 9th-11th its yaw, pitch and roll in tenths of a degree (#169:
+    turned about its centre; the turned piece inside the plot)."""
     if not isinstance(b, (list, tuple)) or len(b) not in (7, 8, 11) or not all(isinstance(v, int) and not isinstance(v, bool) for v in b):
         return False
     x, z, y, w, d, h, m = b[:7]
     if not (x >= 0 and z >= 0 and y >= 0 and w >= 1 and d >= 1 and h >= 1 and 0 < m < N_BLOCKS and m != 5):
         return False
-    if (len(b) > 7 and not 0 <= b[7] <= 4) or (len(b) == 8 and not b[7]):
+    if (len(b) > 7 and not (0 <= b[7] <= 4 or part_of(b[7]))) or (len(b) == 8 and not b[7]):
         return False
+    if len(b) > 7 and (part_of(b[7]) or (None,))[0] == P_ENGINE and m != THRUSTER:
+        return False                                # an engine is made of thrusters, nothing else (engine_count)
     if len(b) == 11:
         if not all(-ROT_MAX < r <= ROT_MAX for r in b[8:]) or not any(b[8:]):
             return False
@@ -310,8 +364,23 @@ def commitment(plot, salt, edits, boxes=()):
 
 
 def box_vol(b):
-    """cm³ a piece costs — a slope (8th number 1..4) half its box (land-world.js boxVolume)."""
-    return b[3] * b[4] * b[5] // 2 if len(b) > 7 and b[7] else b[3] * b[4] * b[5]
+    """cm³ a piece costs (land-world.js boxVolume) — a box its box, a slope (8th number 1..4) half of it, a part (#175) the
+    share of its box its shape fills, a tenth of that for a hollow one; never less than 1."""
+    box = b[3] * b[4] * b[5]
+    if len(b) <= 7 or not b[7]:
+        return box
+    if not is_part(b):
+        return box // 2
+    return max(1, box * part_fill(b[7]) // (1000 * (PART_SHELL if part_of(b[7])[0] in PART_HOLLOW else 1)))
+
+
+def engine_count(b):
+    """land-world.js engineCount: how many thrusters a piece is — an engine part as many as its volume comes to (to the
+    nearest whole one, never fewer than one), a plain thruster one, anything else none. What an engine costs to place,
+    gives back taken down, weighs and pushes."""
+    if is_engine(b):
+        return max(1, (box_vol(b) + THRUSTER_CM3 // 2) // THRUSTER_CM3)
+    return 1 if b[6] == THRUSTER else 0
 
 
 def buckets_of(b):
@@ -346,12 +415,16 @@ class BoxIndex:
                     del self.cells[c]
 
     def overlaps(self, b):
-        seen = set()
+        """May `b` not be put here? land-world.js piecesClash: boxes and slopes may not overlap one another; a PART (#175)
+        overlaps freely — it does not fill its box, and parts are sunk into one another so no seam shows — and only the
+        very same piece twice is refused. INVARIANT: boxes_overlap itself stays pure geometry (a block set into a piece's
+        cell, a craft's joints still ask it); this is the one place the parts rule lives on the server."""
+        seen, part, t = set(), is_part(b), tuple(b)
         for c in buckets_of(b):
             for o in self.cells.get(c, ()):
                 if o not in seen:
                     seen.add(o)
-                    if boxes_overlap(b, o):
+                    if o == t or (not part and not is_part(o) and boxes_overlap(b, o)):
                         return True
         return False
 
@@ -389,14 +462,19 @@ def connected(boxes, seed):
 
 
 def craft_mass(pieces):
-    """Tonnes: a unit part by its own mass, any other piece by its volume x its material's density."""
+    """Tonnes: a unit part by its own mass — an engine (#175) as many thrusters as it is — any other piece by its volume
+    x its material's density; a part by the material actually in it (box_vol: its fill, a tenth of it for a skin)."""
     dens, unit = FLIGHT["density"], FLIGHT["unit_mass"]
-    return sum(unit[str(b[6])] if str(b[6]) in unit else b[3] * b[4] * b[5] / 1e6 * dens.get(str(b[6]), dens["default"]) for b in pieces)
+    def one(b):
+        if str(b[6]) in unit:
+            return unit[str(b[6])] * (engine_count(b) if b[6] == THRUSTER else 1)
+        return (box_vol(b) if is_part(b) else b[3] * b[4] * b[5]) / 1e6 * dens.get(str(b[6]), dens["default"])
+    return sum(one(b) for b in pieces)
 
 
 def craft_thrust(pieces):
-    """kN: every thruster's push."""
-    return sum(FLIGHT["thrust_kn"] for b in pieces if b[6] == THRUSTER)
+    """kN: every thruster's push — an engine part pushes as the thrusters it is made of (engine_count)."""
+    return sum(FLIGHT["thrust_kn"] * engine_count(b) for b in pieces)
 
 
 def turn_pieces(pieces, quarter):
@@ -405,17 +483,22 @@ def turn_pieces(pieces, quarter):
     (land.js craftMesh: forward = sin(yaw)·east + cos(yaw)·north). A slope rises the next way round: +x -> -z -> -x -> +z."""
     out = []
     for b in pieces:
-        if turned(b):
+        if turned(b) or (is_part(b) and quarter % 4):
             # a turned piece (#169) keeps its own size and turns about the craft's yaw axis: its centre goes round with the
             # quarter turns and its yaw takes -90° each (yaw +90° in the page sends the nose east = a turn of -90° about up
             # in the piece's frame: (x, z) -> (z, -x)); its roll and pitch ride along. A centre on a half centimetre
             # rounds to the nearer whole one.
+            # A PART (#175) is turned the same way even when it stood square: its outline has a front and a root, so
+            # swapping its width and depth (what a plain box gets below) would draw a different thing — a wing's chord
+            # across its span. INVARIANT: the result goes through normal_box — a piece whose yaw comes back to 0 with no
+            # pitch or roll is a square piece again, and an 11-number piece with no rotation is refused by box_ok (a
+            # part docked at 270° and then at 90° would never have docked again).
             cx, cz = b[0] + b[3] / 2, b[1] + b[4] / 2
-            yw = b[8]
+            yw, pt, rl = rot_of(b)
             for _ in range(quarter % 4):
                 cx, cz = cz, -cx
                 yw = yw - 900 if yw - 900 > -ROT_MAX else yw + 2700
-            out.append([round(cx - b[3] / 2), round(cz - b[4] / 2)] + list(b[2:8]) + [yw, b[9], b[10]])
+            out.append(normal_box([round(cx - b[3] / 2), round(cz - b[4] / 2)] + list(b[2:7]) + [b[7] if len(b) > 7 else 0, yw, pt, rl]))
             continue
         x, z, y, w, d, h = b[:6]
         shape = b[7] if len(b) > 7 else 0
@@ -1938,13 +2021,14 @@ class World:
                 refused.append([b, "offers are open at this stand — they are withdrawn first"]); continue
             rule = RULES["breaking"].get(str(b[6])) or {"hard": 1.0}
             unit = RULES["items"][places[b[6]]].get("unit")
+            n = engine_count(b) if is_engine(b) else 1              # an engine (#175) is as many thrusters as its size
             speed = self._speed(pl, rule.get("class"))
-            if not self.work(who, max(0.05, rule["hard"] * (1 if unit else box_vol(b) / BLOCK_CM3) / speed * self.fed_work(pl))):
+            if not self.work(who, max(0.05, rule["hard"] * (n if unit else box_vol(b) / BLOCK_CM3) / speed * self.fed_work(pl))):
                 refused.append([b, "too fast — taking a piece down takes time"]); continue
             rec["boxes"].remove(b)
             idx.remove(b)
             if unit:                                                # a door comes back as the door it was
-                pl["items"][places[b[6]]] = pl["items"].get(places[b[6]], 0) + 1
+                pl["items"][places[b[6]]] = pl["items"].get(places[b[6]], 0) + n
             else:
                 self._refund(pl, places[b[6]], box_vol(b))
             removed.append(b)
@@ -1959,11 +2043,15 @@ class World:
             # UNIT ITEMS (a door): made whole, placed whole at their own size (either way round), one per piece
             unit = RULES["items"][places[b[6]]].get("unit")
             if unit:
-                if sorted(b[3:5]) != sorted(unit[:2]) or b[5] != unit[2] or len(b) > 7:
+                # AN ENGINE (#175) is the one unit piece of any size and any turn: the engine part in the thruster's
+                # material, paid as the thrusters its volume comes to (engine_count; taken down it gives them back).
+                # INVARIANT: every other unit piece stays whole, square and at its own size — a door is a door.
+                n = engine_count(b) if is_engine(b) else 1
+                if not is_engine(b) and (sorted(b[3:5]) != sorted(unit[:2]) or b[5] != unit[2] or len(b) > 7):
                     refused.append([b, f"a {RULES['items'][places[b[6]]]['name'].lower()} is {unit[0]} x {unit[1]} x {unit[2]} cm"]); continue
-                if pl["items"].get(places[b[6]], 0) < 1:
-                    refused.append([b, f"you have no {RULES['items'][places[b[6]]]['name'].lower()}"]); continue
-                pl["items"][places[b[6]]] -= 1
+                if pl["items"].get(places[b[6]], 0) < n:
+                    refused.append([b, f"you have no {RULES['items'][places[b[6]]]['name'].lower()}" if n == 1 else f"an engine this size is {n} thrusters — you have {pl['items'].get(places[b[6]], 0)}"]); continue
+                pl["items"][places[b[6]]] -= n
             elif not self._spend(pl, places[b[6]], box_vol(b)):
                 refused.append([b, f"not enough {RULES['items'][places[b[6]]]['name'].lower()} (it takes {box_vol(b) / BLOCK_CM3:.3f} of a block)"]); continue
             rec["boxes"].append(b)
