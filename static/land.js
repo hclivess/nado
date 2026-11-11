@@ -431,13 +431,25 @@ function flyStep(dt, fwd, side) {
     net.send({ t: "fly", craft: c.id, pose: c.pose.map((x, i) => (i ? +x.toFixed(3) : x)), eng: [e.throttle, e.lift, e.dir[0], e.dir[1]].map((x) => +x.toFixed(2)) });
   }
 }
-/** A box geometry whose texture is tiled once per metre on every face (as the mesher tiles a piece) and white vertex
- *  colours (the piece materials multiply by them). w, h, d in metres. */
-function pieceBox(w, h, d) {
+/** The atlas tiles of a box's 24 corners in BoxGeometry's order of faces (+x -x +y -y +z -z): its top's on the top, its
+ *  bottom's underneath, its sides' round it — as the chunk mesher lays a docked piece (land-mesher.js). `tex` = [top, side, bottom]. */
+const boxTiles = (tex) => [1, 1, 0, 2, 1, 1].flatMap((t) => [tex[t], tex[t], tex[t], tex[t]]);
+/** What a craft's piece of block `blk` is drawn in: what the chunks draw it in while it is docked. A see-through block
+ *  (glass, ice) is the glass material, every other its own (pieceMaterial).
+ *  INVARIANT (#188): a craft is drawn as it was built. pieceMaterial alone gave glass the atlas material, and a craft's
+ *  geometry carried no atlas tile, so the X-wing's clear canopy became a solid black wedge the moment it was boarded
+ *  (photographed 2026-11-11) and every material without a scan (the colours, marble, the ores, a nav unit) drew tile 0.
+ *  Every geometry a craft is made of carries its `tile`, and every material it is given comes from here. */
+function craftMaterial(blk) { return Wd.opaque(blk) ? pieceMaterial(blk) : matGlassy; }
+/** A box geometry whose texture is tiled once per metre on every face (as the mesher tiles a piece), white vertex
+ *  colours (the piece materials multiply by them) and the atlas tiles of `blk` (the atlas material reads them: a block
+ *  with no scanned texture). w, h, d in metres. */
+function pieceBox(w, h, d, blk) {
   const g = new THREE.BoxGeometry(w, h, d), uv = g.attributes.uv;
   const size = [[d, h], [d, h], [w, d], [w, d], [w, h], [w, h]];          // BoxGeometry faces: +x -x +y -y +z -z
   for (let f = 0; f < 6; f++) for (let k = 0; k < 4; k++) { const i = f * 4 + k; uv.setXY(i, uv.getX(i) * size[f][0], uv.getY(i) * size[f][1]); }
   g.setAttribute("color", new THREE.Float32BufferAttribute(new Array(g.attributes.position.count * 3).fill(1), 3));
+  g.setAttribute("tile", new THREE.Float32BufferAttribute(boxTiles(Wd.BLOCKS[blk].tex), 1));
   return g;
 }
 /** A craft as drawn: its pieces in their materials, relative to the seat (x east, z north of a level craft facing north;
@@ -447,8 +459,9 @@ function craftMesh(pieces) {
   for (const b of pieces) {
     const centre = [(b[0] + b[3] / 2) / Wd.CM, (b[2] + b[5] / 2) / Wd.CM, -(b[1] + b[4] / 2) / Wd.CM];
     // a PART (#175) is its modelled solid, a mesh for each of its tones; anything else the box it is
-    for (const m of Wd.isPart(b) ? partMeshes(b) : [new THREE.Mesh(pieceBox(b[3] / Wd.CM, b[5] / Wd.CM, b[4] / Wd.CM), pieceMaterial(b[6]))]) {
+    for (const m of Wd.isPart(b) ? partMeshes(b) : [new THREE.Mesh(pieceBox(b[3] / Wd.CM, b[5] / Wd.CM, b[4] / Wd.CM, b[6]), craftMaterial(b[6]))]) {
       m.position.set(centre[0], centre[1], centre[2]);
+      if (m.material === matGlassy) m.renderOrder = 1;          // glass after what is seen through it, as the chunks draw it (#188)
       if (Wd.isTurned(b)) m.quaternion.copy(turnQuat(b, toCraft));
       g.add(m);
     }
@@ -490,7 +503,10 @@ function partMeshes(b) {
     const g = new THREE.BufferGeometry();
     g.setAttribute("position", new THREE.Float32BufferAttribute(P, 3)); g.setAttribute("normal", new THREE.Float32BufferAttribute(N, 3));
     g.setAttribute("uv", new THREE.Float32BufferAttribute(U, 2)); g.setAttribute("color", new THREE.Float32BufferAttribute(new Array(P.length).fill(1), 3));
-    out.push(new THREE.Mesh(g, pieceMaterial(Wd.toneBlock(b, tone))));
+    // a part shows its material's SIDE tile on every face, as the mesher's meshPart gives it docked (#188: see craftMaterial)
+    const blk = Wd.toneBlock(b, tone);
+    g.setAttribute("tile", new THREE.Float32BufferAttribute(new Array(P.length / 3).fill(Wd.BLOCKS[blk].tex[1]), 1));
+    out.push(new THREE.Mesh(g, craftMaterial(blk)));
   }
   return out;
 }
