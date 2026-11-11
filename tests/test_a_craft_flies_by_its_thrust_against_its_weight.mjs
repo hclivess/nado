@@ -17,7 +17,8 @@ import { readFileSync } from "node:fs";
 import { join, dirname } from "node:path";
 import { fileURLToPath } from "node:url";
 const ROOT = join(dirname(fileURLToPath(import.meta.url)), "..");
-const { craftStep, flightOf, craftBody, bodyHits, bodyInside, navSays, NAV_BIAS } = await import(join(ROOT, "static", "land-flight.js"));
+const { craftStep, flightOf, craftBody, bodyHits, bodyInside, navSays, NAV_BIAS, craftArea } = await import(join(ROOT, "static", "land-flight.js"));
+const Pl = await import(join(ROOT, "static", "land-planet.js"));
 const Wd = await import(join(ROOT, "static", "land-world.js"));
 const F = JSON.parse(readFileSync(join(ROOT, "static", "land-recipes.json"), "utf8")).flight;
 let fails = 0;
@@ -56,7 +57,16 @@ ok(f.pose[1] > 600 && Math.abs(f.pose[2] - 500) < 1, `forward pushes along the f
 ok(sp <= F.vmax + 1e-9, `never past the top speed (${sp.toFixed(1)} of ${F.vmax} m/s)`);
 const v0 = Math.hypot(f.vel[0], f.vel[1]);
 run(f, { yaw: Math.PI / 2 }, 3);
-ok(Math.hypot(f.vel[0], f.vel[1]) < v0 * 0.5, "let go, the air slows it");
+// THE AIR (#174): ½ρv²c_dA on a 2 t craft of 4 m² — v(t) = v₀ / (1 + k v₀ t), k = ½ρc_dA/m (quadratic drag, solved)
+const kAir = (0.5 * Pl.airAt(150).rho * Pl.FLAT_PLATE_CD * 4) / 2000, vAir = v0 / (1 + kAir * v0 * 3);
+ok(Math.abs(Math.hypot(f.vel[0], f.vel[1]) - vAir) / vAir < 0.02, `let go, the air slows it as ½ρv²c_dA does: ${v0.toFixed(1)} → ${Math.hypot(f.vel[0], f.vel[1]).toFixed(1)} m/s in 3 s (the solved drag: ${vAir.toFixed(1)})`);
+const hi = craft(2, 4); hi.pose[3] = Pl.ATM_TOP + 500; hi.grounded = false; hi.vel = [40, 0, 0];
+run(hi, {}, 3);
+ok(Math.abs(hi.vel[0] - 40) < 1e-9, "above the air's top nothing slows it");
+const g150 = Pl.gravityAt(150), down = craft(2, 0); down.pose[3] = 20000; down.grounded = false;
+craftStep(down, {}, 0.05, F, flat);
+ok(Math.abs(-down.vel[2] / 0.05 - Pl.gravityAt(20000) * 1) < 0.3 && Pl.gravityAt(20000) < g150, `gravity weakens with height: ${Pl.gravityAt(20000).toFixed(2)} m/s² at 20 km (${g150.toFixed(3)} at 150 m)`);
+ok(Math.abs(craftArea([[0, 0, 0, 400, 200, 100, 64]], (b) => b) - (4 * 2 + 2 * 1 + 1 * 4) / 3) < 1e-9, "a craft's frontal area is the mean of its bounding box's faces");
 
 // 4. the ground
 const d = craft(2, 2); d.pose[3] = 140; d.grounded = false; d.vel = [0, 0, -30];
@@ -74,12 +84,12 @@ ok(e.engine && e.engine.throttle === 0, "resting on the ground, the engines idle
 run(e, { up: true }, 1);
 ok(e.engine.lift === 1 && e.engine.throttle === 1, "climbing, they give all they have (throttle 1)");
 run(e, {}, 2);
-const wShare = 8.8 * F.g / e.thrust;
-ok(!e.grounded && Math.abs(e.engine.throttle - wShare) < 1e-9, `hovering, they hold exactly its weight: ${(e.engine.throttle * 100).toFixed(0)} % (${(8.8 * F.g).toFixed(0)} of ${e.thrust} kN)`);
+const wShare = 8.8 * Pl.gravityAt(e.pose[3]) / e.thrust;                // its weight at its height (#174)
+ok(!e.grounded && Math.abs(e.engine.throttle - wShare) < 1e-4, `hovering, they hold exactly its weight: ${(e.engine.throttle * 100).toFixed(0)} % (${(8.8 * F.g).toFixed(0)} of ${e.thrust} kN)`);
 run(e, { fwd: 1 }, 0.5);
 ok(e.engine.throttle > wShare && e.engine.push > 0 && Math.abs(Math.hypot(...e.engine.dir) - 1) < 1e-9, `pushing forward adds to it (${(e.engine.throttle * 100).toFixed(0)} %), along the facing`);
 run(e, { down: true }, 0.3);
-ok(Math.abs(e.engine.lift - wShare * 0.2) < 1e-9, "sinking, they hold a fifth of its weight");
+ok(Math.abs(e.engine.lift - wShare * 0.2) < 1e-4, "sinking, they hold a fifth of its weight");
 const strain = craft(10, 1);
 run(strain, { up: true }, 0.5);
 ok(strain.grounded && strain.engine.throttle === 1, "a craft too heavy to lift strains at full throttle and stays down");

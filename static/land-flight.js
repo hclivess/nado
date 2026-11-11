@@ -20,6 +20,8 @@
 //     already partly inside something (a piece was built through it) makes only moves that take no more of it in, so
 //     it can always fly out and never further in.
 
+import { gravityAt, airAt, FLAT_PLATE_CD } from "./land-planet.js";
+
 // THE NAV UNIT (#173, doc/land-navigation.md 1.4): a craft holding one knows where it is by DEAD RECKONING — from a known
 // position (a fix), advanced by its measured motion (Dead reckoning l.7) — as an inertial navigation system does, and with
 // its fault: small errors in the measured acceleration integrate into a position error that keeps growing, ½·b·t² for an
@@ -37,11 +39,26 @@ export function navSays(pose, t, dir, dest, b = NAV_BIAS) {
   return { est: [u, v], err, dist, bearing, turn };
 }
 
-/** The flight numbers a craft flies by, from the recipes' "flight" block. */
-export function flightOf(F, mass, thrust) {
+/** The flight numbers a craft flies by, from the recipes' "flight" block — weighed against the gravity at its height
+ *  (land-planet.js gravityAt: g (R/r)²; the surface's when no height is given). */
+export function flightOf(F, mass, thrust, g = F.g) {
   const acc = mass > 0 ? thrust / mass : 0;
-  return { acc, lifts: acc > F.g, weight: mass * F.g };
+  return { acc, lifts: acc > g, weight: mass * g };
 }
+
+// THE AIR A CRAFT FLIES THROUGH (#174, doc/land-planet.md): drag ½ρv²c_dA (Drag equation l.6) from the air's density at its
+// height (land-planet.js airAt — none above the air's top), with the craft's frontal area A and c_d of a flat face square
+// to the flow (1.28, Drag coefficient) — a boxy craft's honest upper figure. It replaced a fixed damping (0.35 a second)
+// that slowed a craft the same at 10 m as it would have at 50 km.
+/** A craft's frontal area (m²), from its pieces (cm, boxAabb): the mean of its bounding box's three face areas — the
+ *  same whichever way it moves (an approximation, a design choice). */
+export function craftArea(pieces, boxAabb) {
+  let lo = [Infinity, Infinity, Infinity], hi = [-Infinity, -Infinity, -Infinity];
+  for (const b of pieces) { const a = boxAabb(b); for (let i = 0; i < 3; i++) { lo[i] = Math.min(lo[i], a[i]); hi[i] = Math.max(hi[i], a[i] + a[i + 3]); } }
+  const [x, y, z] = [0, 1, 2].map((i) => (hi[i] - lo[i]) / 100);
+  return (x * y + y * z + z * x) / 3;
+}
+const AREA_DEFAULT = 4;                       // m²: a craft that has not been measured (tests' bare craft objects)
 
 const BODY_STEP = 1.0, BODY_INSET = 0.12, BODY_FLOOR = 0.3, SWEEP = 0.15;   // m: points no farther apart than this; kept this far inside
 // each piece (and this far above its bottom), so a craft resting on the ground, or a piece touching another, is not "in" it
@@ -91,7 +108,8 @@ export function bodyInside(body, pose, solid) {
  * Returns c.
  */
 export function craftStep(c, input, dt, F, groundAt, hits) {
-  const { acc, lifts } = flightOf(F, c.mass, c.thrust);
+  const gr = gravityAt(c.pose[3]);                                     // gravity at its height (#174): g (R/r)²
+  const { acc, lifts } = flightOf(F, c.mass, c.thrust, gr);
   const [face, u0, v0, h0] = c.pose;
   let [vu, vv, vh] = c.vel;
   const yaw = input.yaw ?? c.pose[4];
@@ -105,13 +123,15 @@ export function craftStep(c, input, dt, F, groundAt, hits) {
     vu += (su * fwd + cu * side) * push * dt;
     vv += (cu * fwd - su * side) * push * dt;
   }
-  const drag = Math.exp(-(c.grounded ? 4 : 0.35) * dt);
-  vu *= drag; vv *= drag;
+  if (c.grounded) { const f = Math.exp(-4 * dt); vu *= f; vv *= f; }   // on the ground: it slides to a stop (friction, not air)
   // vertical
-  if (input.up && lifts) vh += (acc - F.g) * dt;
-  else if (input.down) vh -= F.g * 0.8 * dt;
+  if (input.up && lifts) vh += (acc - gr) * dt;
+  else if (input.down) vh -= gr * 0.8 * dt;
   else if (lifts && airborne) vh *= Math.exp(-2.5 * dt);              // hovering: the thrusters hold it
-  else vh -= F.g * dt;                                                 // falling, or resting on the ground
+  else vh -= gr * dt;                                                  // falling, or resting on the ground
+  // the air: ½ρv²c_dA against its velocity, as 1 / (1 + k v dt) — the implicit step, stable however thick the air
+  const k = (0.5 * airAt(c.pose[3]).rho * FLAT_PLATE_CD * (c.area || AREA_DEFAULT)) / (c.mass * 1000), sp0 = Math.hypot(vu, vv, vh);
+  if (k > 0 && sp0 > 0) { const f = 1 / (1 + k * sp0 * dt); vu *= f; vv *= f; vh *= f; }
   // top speed
   const sp = Math.hypot(vu, vv, vh);
   if (sp > F.vmax) { const k = F.vmax / sp; vu *= k; vv *= k; vh *= k; }
@@ -160,7 +180,7 @@ export function craftStep(c, input, dt, F, groundAt, hits) {
   c.pose = [face, u, v, h, turned];
   c.vel = [vu, vv, vh];
   // the engines' work this step, as shares of full thrust (acc is thrust / mass; g / acc is the weight's share)
-  const wShare = acc > 0 ? Math.min(1, F.g / acc) : 0;
+  const wShare = acc > 0 ? Math.min(1, gr / acc) : 0;
   let lift = 0;
   if (input.up) lift = 1;                                              // climbing — or straining at a load it cannot lift
   else if (c.grounded) lift = 0;                                       // resting: the engines idle

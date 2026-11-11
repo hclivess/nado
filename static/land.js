@@ -33,7 +33,7 @@ import { walk, trunkAt, TRUNK_R, restorePlace } from "./land-walk.js";
 import { snapBox, piecesFor, restOnGround } from "./land-snap.js";
 import { levelOps, earthNeeded, trunkIn, siteLayer, topFirst } from "./land-level.js";
 import { groundWeights } from "./land-mesher.js";
-import { craftStep, flightOf, craftBody, bodyInside, navSays } from "./land-flight.js";
+import { craftStep, flightOf, craftBody, bodyInside, navSays, craftArea } from "./land-flight.js";
 import { GFX_PRESETS, BENCH_ORDER, benchTarget, frameStats, holds, pickPreset, LADDER, governor, govStep } from "./land-gfx.js";
 import { NadoDapp, wireWallet, renderWallet, alertBar, notify, uiConfirm, uiPrompt, isAddress, esc, base, disp, rawToNado, nadoToRaw, randId, $ } from "./nadodapp.js";
 
@@ -612,7 +612,8 @@ function leaveCraft() {
 function startFlying(c) {
   const bottom = Math.min(0, ...c.pieces.map((b) => Wd.boxAabb(b)[2])) / Wd.CM;   // a turned piece: its lowest reach
   flying = { id: c.id, pose: c.pose.slice(), vel: [0, 0, 0], mass: c.mass, thrust: c.thrust, bottom, grounded: true,
-    body: craftBody(c.pieces, Wd.boxAabb) };                              // what of it meets the world (#171)
+    body: craftBody(c.pieces, Wd.boxAabb),                                // what of it meets the world (#171)
+    area: craftArea(c.pieces, Wd.boxAabb) };                              // what the air pushes on (#174)
   flying.bodyLow = Math.min(0, ...flying.body.map((p) => p[2]));
   // a NAV UNIT among its pieces (#173): dead reckoning from here, the place it took off from — its fix — with an error
   // that grows along a direction fixed at the fix (land-flight.js navSays)
@@ -1934,7 +1935,7 @@ function hud() {
     + ((plotBoxes.get(plot) || { list: [] }).list.length ? " · " + T("pieces", "{n} {n|one:piece|other:pieces}", { n: plotBoxes.get(plot).list.length }) : "");
   if (flying) {                                             // at the controls: speed, height over the ground, what lifts it
     const sp = Math.hypot(...flying.vel), up = flying.pose[3] + flying.bottom - groundAt(flying.pose[0], flying.pose[1], flying.pose[2]);
-    $("hudPos").textContent = T("fHud", "Flying · {s} m/s · {a} m up · thrust {t} kN, weight {w} kN", { s: sp.toFixed(1), a: Math.max(0, up).toFixed(1), t: Math.round(flying.thrust), w: Math.round(flightOf(FLIGHT(), flying.mass, flying.thrust).weight) })
+    $("hudPos").textContent = T("fHud", "Flying · {s} m/s · {a} m up · thrust {t} kN, weight {w} kN", { s: sp.toFixed(1), a: Math.max(0, up).toFixed(1), t: Math.round(flying.thrust), w: Math.round(flightOf(FLIGHT(), flying.mass, flying.thrust, Planet.gravityAt(flying.pose[3])).weight) })
       + " · " + T("fEngines", "engines {e} %", { e: Math.round(100 * ((flying.engine && flying.engine.throttle) || 0)) });   // the thrust in use (#171)
     if (flying.nav) $("hudPos").textContent += "\n" + navLine(flying);
   }
