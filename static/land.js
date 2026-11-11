@@ -35,6 +35,7 @@ import { snapBox, piecesFor, restOnGround } from "./land-snap.js";
 import { levelOps, earthNeeded, trunkIn, siteLayer, topFirst } from "./land-level.js";
 import { groundWeights } from "./land-mesher.js";
 import * as Forest from "./land-forest.js";
+import * as Clouds from "./land-clouds.js";
 import { treeModel } from "./land-trees.js";
 import { craftStep, flightOf, craftBody, bodyInside, navSays, craftArea } from "./land-flight.js";
 import { GFX_PRESETS, BENCH_ORDER, benchTarget, frameStats, holds, pickPreset, LADDER, governor, govStep } from "./land-gfx.js";
@@ -2862,9 +2863,9 @@ function act(place, mouse) {
 // closes it. A line without a slash is chat to the players around you (the world server relays it to whoever watches
 // the plots you watch). SETTINGS are this viewer's own, remembered in this browser — a convenience, nothing shared.
 const LS_SET = "nado_land_settings";
-const SET_DEF = { fov: 72, sens: 1, invert: 0, grass: 1, shadows: 2, effects: 1, borders: 1, stats: 0, res: 100, view: 6, fps: 0, auto: 1 };
+const SET_DEF = { fov: 72, sens: 1, invert: 0, grass: 1, shadows: 2, effects: 1, borders: 1, stats: 0, res: 100, view: 6, fps: 0, auto: 1, clouds: 1 };
 const SET_RANGE = { fov: [50, 110], sens: [0.2, 4], invert: [0, 1], grass: [0, 1], shadows: [0, 3], effects: [0, 1], borders: [0, 1], stats: [0, 1],
-  res: [50, 100], view: [2, 10], fps: [0, 60], auto: [0, 1] };
+  res: [50, 100], view: [2, 10], fps: [0, 60], auto: [0, 1], clouds: [0, 1] };
 // GRAPHICS (#166, operator 2026-11-10: "make graphical settings more configurable (resolution, shadows, etc)"): res is the
 // render resolution in % of the screen's pixels, shadows off / low / medium / high (the sun's shadow map size and reach),
 // view the chunks drawn around you, fps a frame-rate cap (0: none). A phone starts on what it can carry — no shadows,
@@ -2960,6 +2961,7 @@ function renderSettings() {
     + sel("view", T("gView", "View distance"), [2, 3, 4, 5, 6, 7, 8, 9, 10].map((v) => [v, T("gViewN", "{n} {n|one:chunk|other:chunks} · {m} m", { n: v, m: v * CHUNK })]))
     + sel("fps", T("gFps", "Frame-rate cap"), [[0, T("gFpsNone", "None")], [30, "30"], [60, "60"]])
     + sel("grass", T("gGrass", "Grass"), onOff)
+    + sel("clouds", T("gClouds", "Clouds"), onOff)
     + sel("effects", T("gEffects", "Effects (bloom, ambient light)"), onOff)
     + sel("auto", T("gAuto", "Adjust automatically (presets only)"), onOff)
     + sel("fov", T("gFov", "Field of view"), [60, 66, 72, 80, 90, 100, 110].concat([SET.fov]).filter((v, i, a) => a.indexOf(v) === i).sort((a, b) => a - b).map((v) => [v, v + "°"]))
@@ -3671,6 +3673,7 @@ function sky(fr) {
   const zen = SKY.nightZ.clone().lerp(SKY.zenith, day).lerp(SKY.duskZ, dusk * 0.5);
   const hor = SKY.nightH.clone().lerp(SKY.horizon, day).lerp(SKY.dusk, dusk * 0.6);
   scene.fog.color.copy(hor); waterSky.copy(hor);
+  cloudLit = { sd, hor, zen, sun: [sun.color.r * sun.intensity, sun.color.g * sun.intensity, sun.color.b * sun.intensity] };   // (the clouds, latched each sky map)
   scene.background = hor;
   dome.quaternion.setFromUnitVectors(new THREE.Vector3(0, 1, 0), up);
   sunDisc.position.copy(sd).multiplyScalar(SKY_R);
@@ -3703,6 +3706,139 @@ function sky(fr) {
     Cc.setXYZ(i, c.r, c.g, c.b);
   }
   Cc.needsUpdate = true;
+}
+// ---- THE CLOUDS (#183 step 2; operator 2026-11-11 beside a concept picture of a meadow under scattered fair-weather
+// cumulus: "compared to this our game looks like from 1996" — the sky had not one cloud). land-clouds.js defines them as
+// a density in this planet's air (cited numbers, labelled choices, and the JS reference a test measures); here the GPU
+// marches rays through that density into a SKY MAP — every direction around the eye, its rows bent to spend more of
+// them near the horizon (Clouds.mapV) — a TILE a frame, so a full march of the sky costs a frame no more than 1/32 of
+// it. The finished map is drawn over the dome as one sphere; the next is marched behind it and swapped in whole.
+// INVARIANTS — each one a way this goes wrong:
+//  * the march and the map's reader use the SAME latched frame (eye, up, east, north): a map read in today's frame
+//    but marched in last cycle's turns the sky by the player's turn on the planet since — copied at the swap only;
+//  * the ray/shell sums are made in doubles in JS (cloudC: r² − R² for each shell) and only differences go to the GPU:
+//    r² is 7·10⁹ m², and a 32-bit float of it is ±400 m² off — the base would wobble metres from pixel to pixel;
+//  * the drift angle is reduced in doubles (Clouds.drift) before it is a uniform, for the same reason;
+//  * the overlay is drawn after the sun, its glow and the stars (renderOrder −0.5 > −1) and before anything else
+//    transparent: a cloud hides the sun, and water or glass in front of a cloud is drawn over it;
+//  * above the cloud tops the overlay comes in front of the ground (renderOrder 10, a radius under the clouds' depth) —
+//    looking down on the clouds from a craft, the land is under them, not over them.
+const CLOUD_MAP = PHONE ? [1024, 512] : [2048, 1024], CLOUD_TILES = [8, 4];   // texels (a design choice), tiles a cycle
+let cloudSky = null, cloudRT = [], cloudFront = 0, cloudTileI = 0, cloudTile = null, cloudScene = null, cloudCam = null;
+let cloudU = null, cloudO = null, cloudTex = null, cloudLit = null, cloudMaps = 0, cloudLatch = null;
+function buildClouds() {
+  const { Fn, vec2, vec3, vec4, float, uniform, Loop, If, Break, dot, sqrt, max, min, clamp, exp, pow, sin, cos, asin, atan, smoothstep, select } = TSL;
+  const K = Clouds.K, S = Clouds.SIZE, vol = new THREE.Data3DTexture(Clouds.noiseVolume(), S, S, S);
+  vol.format = THREE.RGFormat; vol.type = THREE.UnsignedByteType; vol.minFilter = vol.magFilter = THREE.LinearFilter;
+  vol.wrapS = vol.wrapT = vol.wrapR = THREE.RepeatWrapping; vol.unpackAlignment = 1; vol.generateMipmaps = false; vol.needsUpdate = true;
+  const [mw, mh] = CLOUD_MAP;
+  for (let i = 0; i < 2; i++) cloudRT.push(new THREE.RenderTarget(mw, mh, { type: THREE.HalfFloatType, depthBuffer: false, generateMipmaps: false,
+    minFilter: THREE.LinearFilter, magFilter: THREE.LinearFilter, wrapS: THREE.RepeatWrapping, wrapT: THREE.ClampToEdgeWrapping }));
+  const v3u = () => uniform(new THREE.Vector3());
+  // the march's uniforms (latched at a cycle's first tile) and the overlay's (copied from them at the swap)
+  cloudU = { eye: v3u(), eyeN: v3u(), r: uniform(0), c: v3u(), kase: uniform(0), up: v3u(), east: v3u(), north: v3u(),
+    dr: uniform(new THREE.Vector2(1, 0)), sunU: v3u(), sunDir: v3u(), sun: v3u(), hi: v3u(), lo: v3u(), haze: v3u() };
+  cloudO = { up: v3u(), east: v3u(), north: v3u() };
+  const U = cloudU, row = (m, i) => vec3(m[i * 3], m[i * 3 + 1], m[i * 3 + 2]);
+  const rot = (m, x, per) => vec3(dot(row(m, 0), x), dot(row(m, 1), x), dot(row(m, 2), x)).div(per);
+  const vol3 = (q) => TSL.texture3D(vol, q).level(0);
+  const undrift = (p) => vec3(p.x.mul(U.dr.x).sub(p.z.mul(U.dr.y)), p.y, p.x.mul(U.dr.y).add(p.z.mul(U.dr.x)));
+  // land-clouds.js heapTop / body / density, line for line
+  const heapTop = (p) => {
+    const x = p.mul(float(Clouds.RB).div(p.length()));
+    const a = vol3(rot(Clouds.M1, x, Clouds.HEAP)).r, b = vol3(rot(Clouds.M2, x, Clouds.FIELD)).r;
+    return pow(clamp(a.mul(K.heapW).add(b.mul(1 - K.heapW)).sub(K.thr).div(K.rise), 0, 1), K.dome);
+  };
+  const body = (p) => { const hN = p.length().sub(Clouds.RB).div(Clouds.THICK); return clamp(heapTop(p).sub(hN).div(K.soft), 0, 1).mul(smoothstep(0, K.foot, hN)); };
+  const density = (p, fine) => {
+    const e = float(1).sub(vol3(p.div(Clouds.BILLOW)).g).mul(K.erode * 1).mul(fine);
+    return clamp(body(p).sub(e).div(float(1).sub(e)), 0, 1);
+  };
+  const march = Fn(([dir, jit]) => {
+    // Clouds.span: the stretch of the ray in the layer, for an eye below (kase 0), inside (1) or above (2) it
+    const mu = dot(U.eyeN, dir), b = U.r.mul(mu), bb = b.mul(b);
+    const Db = bb.sub(U.c.x), Dt = bb.sub(U.c.y), Dg = bb.sub(U.c.z), sDb = sqrt(max(Db, 0)), sDt = sqrt(max(Dt, 0));
+    const below = U.kase.equal(0), down = mu.lessThan(0);
+    const t0 = select(below, b.negate().add(sDb), select(U.kase.equal(1), float(0), b.negate().sub(sDt)));
+    const t1a = select(below, b.negate().add(sDt), select(down.and(Db.greaterThan(0)), b.negate().sub(sDb), b.negate().add(sDt)));
+    const t1 = min(t1a, t0.add(K.path));
+    const ok = select(below, down.and(Dg.greaterThan(0)).not(), select(U.kase.equal(1), TSL.bool(true), down.and(Dt.greaterThan(0)))).and(t1.greaterThan(t0));
+    const T = float(1).toVar(), C = vec3(0).toVar();
+    If(ok, () => {
+      const dt = t1.sub(t0).div(K.steps), t = t0.add(dt.mul(jit)).toVar();
+      const toward = pow(max(dot(dir, U.sunDir), 0), 8).mul(K.silver);
+      Loop(K.steps, () => {
+        If(T.lessThan(0.01), () => { Break(); });
+        const p = undrift(U.eye.add(dir.mul(t))), far = exp(t.negate().div(K.haze)), d = density(p, far);
+        If(d.greaterThan(0.001), () => {
+          let tau = float(0), last = 0;
+          for (const s of K.sun) { tau = tau.add(body(p.add(U.sunU.mul(s))).mul((s - last) * K.deep)); last = s; }
+          tau = tau.mul(K.sigma);
+          const lit = exp(tau.negate()).mul(toward.add(0.65)).add(exp(tau.mul(-0.25)).mul(0.35));
+          const hN = clamp(p.length().sub(Clouds.RB).div(Clouds.THICK), 0, 1), a = float(1).sub(exp(d.mul(K.sigma).mul(dt).negate()));
+          const own = U.sun.mul(lit).add(U.lo).add(U.hi.sub(U.lo).mul(hN));
+          C.addAssign(U.haze.add(own.sub(U.haze).mul(far)).mul(a).mul(T));
+          T.mulAssign(float(1).sub(a));
+        });
+        t.addAssign(dt);
+      });
+    });
+    return vec4(C, float(1).sub(T));
+  });
+  // a map texel's direction: u the azimuth from north toward east, v the bent elevation (Clouds.mapEl)
+  const dirOf = (uv, B) => {
+    const s = uv.y.mul(2).sub(1), el = s.mul(TSL.abs(s).mul(1 - Clouds.BEND).add(Clouds.BEND)).mul(Math.PI / 2), az = uv.x.sub(0.5).mul(2 * Math.PI);
+    return B.up.mul(sin(el)).add(B.east.mul(sin(az)).add(B.north.mul(cos(az))).mul(cos(el)));
+  };
+  const tm = new THREE.MeshBasicNodeMaterial({ depthTest: false, depthWrite: false, blending: THREE.NoBlending });
+  // a texel's map uv is three's own screenUV in the target, NOT the tile's position: three samples a render target's
+  // texture flipped on one backend and not the other, and screenUV is the coordinate its own passes write and read by —
+  // marched at the tile's world y, the map was read upside down on WebGL2 and the sky stayed clear (2026-11-11)
+  tm.fragmentNode = march(dirOf(TSL.screenUV, U), TSL.interleavedGradientNoise(TSL.screenCoordinate.xy));
+  cloudTile = new THREE.Mesh(new THREE.PlaneGeometry(1 / CLOUD_TILES[0], 1 / CLOUD_TILES[1]), tm); cloudTile.frustumCulled = false;
+  cloudScene = new THREE.Scene(); cloudScene.add(cloudTile);
+  cloudCam = new THREE.OrthographicCamera(0, 1, 1, 0, -1, 1);
+  // the overlay: the front map, read by direction in the frame it was marched in
+  const om = new THREE.MeshBasicNodeMaterial({ transparent: true, depthWrite: false, fog: false, side: THREE.BackSide });
+  const d = TSL.positionWorld.normalize(), el = asin(clamp(dot(d, cloudO.up), -1, 1)).div(Math.PI / 2);
+  const B = Clouds.BEND, sv = sqrt(TSL.abs(el).mul(4 * (1 - B)).add(B * B)).sub(B).div(2 * (1 - B));
+  const uv = vec2(atan(dot(d, cloudO.east), dot(d, cloudO.north)).div(2 * Math.PI).add(0.5), TSL.sign(el).mul(sv).mul(0.5).add(0.5));
+  cloudTex = TSL.texture(cloudRT[0].texture, uv);
+  om.colorNode = cloudTex.rgb.div(max(cloudTex.a, 1e-4)); om.opacityNode = cloudTex.a;
+  cloudSky = new THREE.Mesh(new THREE.SphereGeometry(1, 48, 24), om); cloudSky.frustumCulled = false; cloudSky.visible = false;
+  scene.add(cloudSky);
+}
+/** One frame of the clouds: march the next tile of the back map; at the last, swap it in. */
+function cloudsFrame(cam, fr) {
+  if (!cloudSky || !cloudLit) return;
+  if (!SET.clouds) { cloudSky.visible = false; return; }
+  const rr = Math.hypot(cam[0], cam[1], cam[2]);
+  if (cloudTileI === 0) {                                   // a new cycle: latch the eye, its frame, the time and the light
+    const U = cloudU, sq = (R) => rr * rr - R * R, dr = Clouds.drift(), L = Clouds.light(cloudLit.sd.toArray(), cloudLit.sun, cloudLit.hor.toArray(), cloudLit.zen.toArray());
+    U.eye.value.set(cam[0], cam[1], cam[2]); U.eyeN.value.set(cam[0] / rr, cam[1] / rr, cam[2] / rr); U.r.value = rr;
+    U.c.value.set(sq(Clouds.RB), sq(Clouds.RT), rr > Clouds.RG ? sq(Clouds.RG) : 1e30);   // (under the sea no ray meets the ground)
+    U.kase.value = rr < Clouds.RB ? 0 : rr <= Clouds.RT ? 1 : 2;
+    U.up.value.set(...fr.up); U.east.value.set(...fr.east); U.north.value.set(...fr.north);
+    U.dr.value.set(dr[0], dr[1]); U.sunU.value.set(...Clouds.undrift(L.sunDir, dr)); U.sunDir.value.set(...L.sunDir);
+    U.sun.value.set(...L.sun); U.hi.value.set(...L.hi); U.lo.value.set(...L.lo); U.haze.value.set(...L.haze);
+    cloudLatch = { up: fr.up.slice(), east: fr.east.slice(), north: fr.north.slice() };
+  }
+  const [tx, ty] = CLOUD_TILES, back = cloudRT[1 - cloudFront];
+  cloudTile.position.set(((cloudTileI % tx) + 0.5) / tx, (Math.floor(cloudTileI / tx) + 0.5) / ty, 0);
+  const was = renderer.getRenderTarget(), ac = renderer.autoClear;
+  renderer.autoClear = false;                               // the other tiles of the back map stay as they were marched
+  renderer.setRenderTarget(back); renderer.render(cloudScene, cloudCam); renderer.setRenderTarget(was);
+  renderer.autoClear = ac;
+  if (++cloudTileI === tx * ty) {                           // the back map is whole: it is the sky now
+    cloudTileI = 0; cloudFront = 1 - cloudFront; cloudMaps++;
+    cloudTex.value = cloudRT[cloudFront].texture;
+    cloudO.up.value.set(...cloudLatch.up); cloudO.east.value.set(...cloudLatch.east); cloudO.north.value.set(...cloudLatch.north);
+  }
+  cloudSky.visible = cloudMaps > 0;
+  // below or in the layer: behind everything on the ground; above its top: over the ground, under what is near
+  const above = rr - Clouds.RT;
+  cloudSky.scale.setScalar(above > 0 ? Math.max(20, Math.min(SKY_R * 1.056, above * 0.9)) : SKY_R * 1.056);
+  cloudSky.renderOrder = above > 0 ? 10 : -0.5;
 }
 // the torches nearest the player, re-chosen twice a second from the loaded plots' pieces; [x, y, z] world metres
 const TORCH_LIGHTS = PHONE ? 2 : 6, torchLights = [];
@@ -3756,7 +3892,7 @@ function statsTick(now) {
   const gpu = renderer.backend && renderer.backend.isWebGPUBackend ? "WebGPU" : "WebGL2";
   if (!SET.stats) { $("hudGpu").textContent = gpu; return; }
   const r = renderer.info.render;
-  $("hudGpu").textContent = `${gpu} · ${fps} fps · ${Math.round(r.triangles / 1000)}k tris · ${r.drawCalls ?? r.calls} calls · ${chunks.size} chunks · ${forestTrees} far trees`;
+  $("hudGpu").textContent = `${gpu} · ${fps} fps · ${Math.round(r.triangles / 1000)}k tris · ${r.drawCalls ?? r.calls} calls · ${chunks.size} chunks · ${forestTrees} far trees · ${cloudMaps} sky maps${cloudTileI ? ` +${cloudTileI}/${CLOUD_TILES[0] * CLOUD_TILES[1]}` : ""}`;
 }
 // ---- THE PROFILER (` the key left of 1, ?prof=1, or /prof; "work on performance, take a hint from true wind", operator
 // 2026-11-09 — True Wind's js/profiler.js, "measure performance; don't guess"): where the frame's time goes, live — the
@@ -3840,7 +3976,7 @@ function frame(now) {
     const fx = Math.sin(yaw) * ofr.east[0] + Math.cos(yaw) * ofr.north[0], fy = Math.sin(yaw) * ofr.east[1] + Math.cos(yaw) * ofr.north[1], fz = Math.sin(yaw) * ofr.east[2] + Math.cos(yaw) * ofr.north[2];
     r.mesh.lookAt(r.mesh.position.x + fx, r.mesh.position.y + fy, r.mesh.position.z + fz);
   }
-  pt("sky", () => { sky(fr); torchTick(now, cam); });
+  pt("sky", () => { sky(fr); torchTick(now, cam); cloudsFrame(cam, fr); });
   // the aimed block's outline
   const a = pt("aim", () => aim());
   // a cell's outline, or the piece's own box; and where the chosen piece would go (green: it fits, red: it does not)
@@ -4048,6 +4184,7 @@ async function start() {
   // recompile every material); unused ones sit at intensity 0
   for (let i = 0; i < TORCH_LIGHTS; i++) { const l = new THREE.PointLight(0xffa04a, 0, 9, 2); torchLights.push(l); scene.add(l); }
   buildSky();
+  try { buildClouds(); } catch (e) { console.error("clouds", e); }   // (#183: without them the sky is as it was)
   const atlas = paintAtlas();
   atlasTex = new THREE.CanvasTexture(atlas);
   atlasTex.magFilter = THREE.NearestFilter; atlasTex.minFilter = THREE.NearestFilter; atlasTex.colorSpace = THREE.SRGBColorSpace;

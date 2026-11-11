@@ -43,7 +43,7 @@ export const EQUATOR_SPIN = (2 * Math.PI * RADIUS) / DAY_S;
 // standard takes it, M₀ = 0.0289644 kg/mol, g₀' = 9.80665 m/s²). Ground: 288.15 K, 101,325 Pa, 1.225 kg/m³.
 const ISA = [[0, -0.0065, 288.15, 101325], [11000, 0, 216.65, 22632], [20000, 0.001, 216.65, 5474.9], [32000, 0.0028, 228.65, 868.02],
   [47000, 0, 270.65, 110.91], [51000, -0.0028, 270.65, 66.939], [71000, -0.002, 214.65, 3.9564]];
-const ISA_TOP = 86000;                         // m geopotential: the table's last layer (Mesopause) — where its profile ends
+export const ISA_TOP = 86000;                        // m geopotential: the table's last layer (Mesopause) — where its profile ends
 const RSTAR = 8.31432, M0 = 0.0289644, G0P = 9.80665;
 export const ATM_TOP = 30000;                  // m: the air's top here — DESIGN CHOICE (the one non-physical number; the
                                                // positioning satellites, 52,077 m up, are well above it)

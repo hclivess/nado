@@ -63,12 +63,16 @@ NATIVE_ONLY=""      # tests FATAL under NADO_ALLOW_PYTHON_KERNELS (certify the s
 # THE SLOW LIST — the fallback when this machine has no measurement of a test (a fresh clone, CI, a new host): every
 # test measured at 60 s or more, with its seconds. Measured 2026-10-10 (/tmp/nado-tests.Y1P3TF, 12 cores, 2 jobs)
 # unless noted. Keep a test here when it is slow anywhere; a measurement on this machine always wins.
+#   The two Land page tests render the page in a software-rendered browser (SwiftShader): the far trees arrive in
+#   ~2 min, a sky map finishes in 2–7 min — measured 2026-11-11 on this host under load, not slow anywhere else.
 #   test_wide_pool_depth 748 s ran within a minute or three of the old 900 s cap. (The Goldilocks settle-proof tests that
 #   once topped this list, up to 2 h 28 min each, were retired with that prover in G9, and the pool tests — wide, field,
 #   join-split, shielded-contract — with their pools in G9 slice 5; the Goldilocks STARK's own tests, test_recursive_row
 #   605 s down to test_proof_query_full 63 s, with execnode/stark in G9 slice 4, which also took the proving out of
 #   test_zk_review_2026_09_24 and test_review_round2.)
 SLOW="
+test_the_clouds_stand_in_the_pages_sky_where_the_reference_puts_them 420
+test_far_trees_stand_on_the_page_beyond_the_view_distance 116
 test_hexholm_engine_conserves_resources 137
 test_msg_ratchet 122
 test_fork_resolution_pruned 105
