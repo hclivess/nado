@@ -21,6 +21,7 @@
 // Positions are metres RELATIVE TO THE CHUNK'S ANCHOR; the page places each mesh at anchor - camera in doubles.
 import { CHUNK, H, R0, W, B, BLOCKS, ATLAS_TILES, NATURAL, CM, DEEP_MIN, TREE_WOOD, TREE_LEAVES, isTree, opaque, dirOf, frameOf, wrap, column, terrainBlock, fieldOf, treeAt, treeCell, LITTER, shapeOf, isPart, toneBlock, FLOWERS, saplingTree, soilOf, isTurned, rotOf, turnVec, boxAabb } from "./land-world.js";
 import * as Shapes from "./land-shapes.js";
+import { forestTile, hash3, treeTurn, treeSize } from "./land-forest.js";
 import { treeModel, leafCellModel, twigModel, flaxModel, saplingModel, flowerModel, wheatModel, berryBushModel } from "./land-trees.js";
 
 const N = CHUNK + 2;                                     // cells with the border: real index r in -1..16 is r + 1
@@ -44,7 +45,7 @@ const DIRS = [
 // renderer, and sRGB values read as linear came out washed pale (the first smooth render, 2026-11-06)
 const C = { bark: [0.36, 0.25, 0.15], birch: [0.88, 0.86, 0.80] };
 for (const k in C) C[k] = C[k].map((x) => Math.pow(x, 2.2));
-function hash3(a, b, c) { let h = Math.imul(a, 374761393) ^ Math.imul(b, 668265263) ^ Math.imul(c, 2147483647); h = Math.imul(h ^ (h >>> 13), 1274126177); return ((h ^ (h >>> 16)) >>> 0) / 4294967296; }
+// (hash3 — the place hash — is land-forest.js's: the far forest reads a tree's turn and size from the same numbers, #183)
 // THE GROUND'S MATERIALS ("Realistic (PBR)", operator 2026-11-06): each ground vertex carries blend weights for six real
 // textures (static/vendor/textures: grass, earth, rock, sand, snow, gravel) from its material and its slope — grass on
 // the flat gives way to earth and then rock as it steepens, snow slides off cliffs — and static/land.js's ground node
@@ -760,7 +761,9 @@ function placeTree(t, face, gu, gv, ground, lod, place, bark, foliage, gone) {
   const key = t.kind + ":" + t.height + ":" + variant + ":" + far;
   let m = models.get(key);
   if (!m) { m = treeModel(t.kind, t.height, (variant + 1) * 7919 + t.height * 131 + t.kind.length, far); models.set(key, m); }
-  placeModel(m, face, gu + 0.5, gv + 0.5, ground, hash3(gv, face, gu) * Math.PI * 2, 0.9 + 0.1 * hash3(gu + 3, gv, face),
+  // INVARIANT (#183): the turn and size are land-forest's treeTurn / treeSize — the far tree's card is cut to them, and a
+  // tree that turned or grew differently here would jump as the player walks up to it.
+  placeModel(m, face, gu + 0.5, gv + 0.5, ground, treeTurn(face, gu, gv), treeSize(face, gu, gv),
              hash3(gu, gv + 5, face) * 6.283, place, bark, foliage, gone);
 }
 /** Place model `m` (local x along u, y along v, z up) at grid (cu, cv, base), turned by `rot` and scaled by `sc`, in GRID
@@ -846,6 +849,10 @@ if (typeof self !== "undefined" && typeof window === "undefined" && typeof self.
   self.onmessage = (e) => {
     const m = e.data;
     let res;
+    if (m.forest) {                                         // a tile of the forest beyond the chunks (#183, land-forest.js)
+      try { res = forestTile(m.face, m.tu, m.tv); } catch (err) { res = { n: 0, error: String(err && err.message || err) }; }
+      return self.postMessage(Object.assign({ id: m.id }, res), res.n ? [res.pos, res.off, res.nor, res.uv, res.root, res.col, res.idx].map((a) => a.buffer) : []);
+    }
     try { res = meshChunk(m.face, m.cu, m.cv, m.ch, m.edits && m.edits.length ? new Map(m.edits) : null, m.boxes, m.lod, m.grass !== false); }
     catch (err) { res = { error: String(err && err.message || err) }; }
     const tr = [];

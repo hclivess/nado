@@ -352,6 +352,13 @@ export function saplingTree(face, u, v, col) {
   const cold = col.temp < -0.12 || col.top > SEA + 60, cool = col.temp < 0.05;
   return cold ? { kind: "conifer", height: 6 } : cool && hash32(face + 7, u, v) % 2 ? { kind: "birch", height: 5 } : { kind: "broadleaf", height: 4 };
 }
+// INVARIANT (#183, treeRoots below): a TREE (not a bush) needs roll < TREE_ROLL_MAX, or — a palm — hh % 60 === 0.
+// treeRoots skips every other column without building it; raise a tree's odds past TREE_ROLL_MAX here and the forest
+// beyond the chunks silently loses those trees (tests/test_the_forest_stands_beyond_the_chunks_as_pictures_of_its_own_trees.mjs
+// asks treeAt of every biome at its densest and fails on a tree treeChance rules out).
+export const TREE_ROLL_MAX = 0.09;
+/** Whether column (face, u, v)'s hash leaves a TREE possible at all (whatever its biome turns out to be). */
+export function treeChance(face, u, v) { const hh = hash32(face, u, v); return (hh % 100003) / 100003 < TREE_ROLL_MAX || hh % 60 === 0; }
 export function treeAt(face, u, v, col) {
   const lu = u % PLOT, lv = v % PLOT;
   if (lu < 2 || lu > PLOT - 3 || lv < 2 || lv > PLOT - 3 || col.top <= SEA) return null;
@@ -382,6 +389,21 @@ export function treeAt(face, u, v, col) {
       return roll > 0.996 ? { kind: "bush", height: 1 } : null;
   }
   return null;
+}
+/** Every TREE (bushes left out) rooted in the size x size square of columns from (u0, v0) of `face` — columns past a face
+ *  edge are the neighbouring face's (wrap) — as [{ u, v, face, wu, wv, col, tree }], (u, v) in `face`'s own frame and
+ *  (face, wu, wv) the column that owns the root. Exactly the trees treeAt names, found without building the nine columns
+ *  in ten whose hash already rules a tree out (treeAt's INVARIANT) — the far forest asks this of a million columns. */
+export function treeRoots(face, u0, v0, size) {
+  const out = [];
+  for (let v = v0; v < v0 + size; v++) for (let u = u0; u < u0 + size; u++) {
+    const w = wrap(face, u, v), lu = w.u % PLOT, lv = w.v % PLOT;
+    if (lu < 2 || lu > PLOT - 3 || lv < 2 || lv > PLOT - 3) continue;
+    if (!treeChance(w.face, w.u, w.v)) continue;
+    const col = column(w.face, w.u, w.v), tree = treeAt(w.face, w.u, w.v, col);
+    if (tree && tree.kind !== "bush") out.push({ u, v, face: w.face, wu: w.u, wv: w.v, col, tree });
+  }
+  return out;
 }
 /** What tree `t` rooted at (du, dv) from this column puts at `dh` layers above its root's ground (or air). The mesher
  *  reads it too: a tree whose cells are all untouched is drawn as a model (land-trees.js) in their place. */

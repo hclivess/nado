@@ -15,8 +15,8 @@
 // carries a coordinate larger than the view distance however far the planet's centre is (R0 ~83 km).
 // ONE COPY OF THREE: the core is imported by its import-map NAME, exactly as the add-ons below import it, and the map
 // names two shims (land-three-*.js) whose absolute imports the node stamps like three's own relative ones. The node stamps
-// every "/static/…" and "./…" import with ?v=<hash> and leaves bare names alone: a path here became three.webgpu.js?v=…
-// while the add-ons' "three/webgpu" stayed three.webgpu.js — two URLs, two module instances, two TSL node stacks, and
+// every "/static/…" and "./…" import with the file's version and leaves bare names alone: a path here became a
+// versioned three.webgpu.js while the add-ons' "three/webgpu" stayed three.webgpu.js — two URLs, two module instances, two TSL node stacks, and
 // the page drew nothing ("pitch black", 2026-11-06; THREE.TSL "Cannot read properties of null (reading 'If')").
 // tests/test_the_land_page_loads_one_copy_of_three.py serves the page through the real stamper and pins this.
 import * as THREE from "three/webgpu";
@@ -34,6 +34,8 @@ import { walk, trunkAt, TRUNK_R, restorePlace } from "./land-walk.js";
 import { snapBox, piecesFor, restOnGround } from "./land-snap.js";
 import { levelOps, earthNeeded, trunkIn, siteLayer, topFirst } from "./land-level.js";
 import { groundWeights } from "./land-mesher.js";
+import * as Forest from "./land-forest.js";
+import { treeModel } from "./land-trees.js";
 import { craftStep, flightOf, craftBody, bodyInside, navSays, craftArea } from "./land-flight.js";
 import { GFX_PRESETS, BENCH_ORDER, benchTarget, frameStats, holds, pickPreset, LADDER, governor, govStep } from "./land-gfx.js";
 import { NadoDapp, wireWallet, renderWallet, alertBar, notify, uiConfirm, uiPrompt, isAddress, esc, base, disp, rawToNado, nadoToRaw, randId, $ } from "./nadodapp.js";
@@ -919,13 +921,26 @@ function request(k) {
   queue.push({ id: ++reqId, k, face, cu, cv, ch, edits: editsFor(face, cu, cv), boxes: pb ? pb.list : null, lod: c.lod, grass: !!SET.grass });   // no blades with grass off (a phone's default, #166)
   pump();
 }
+/** Which mesher job goes first: the smallest rank. A chunk's is its distance from the player in chunks (+3 on another
+ *  face). A forest tile's (#183) is 3 + a thirty-second of its centre's distance, so the whole tree line is built after
+ *  the ground underfoot and before the chunks eight away — a design choice (81 tiles cost ~3 s of worker time in all;
+ *  a far chunk's trees are the same trees, and until it is meshed the forest's cards stand in for them).
+ *  A page hands out one job a worker a FRAME (a result is taken between frames), so a slow page is slow at this too:
+ *  measured under a software renderer at 0.4 frames a second, 1.6 jobs a second.
+ *  INVARIANT: a forest tile never ranks behind every chunk. It did (+12), and on a page whose chunk queue never empties —
+ *  measured at view 8 under a software renderer: still meshing after 8 minutes — the far forest never arrived at all:
+ *  "0 far trees" on the readout, and the bare horizon the forest was written to end. */
+function jobRank(q, pcu, pcv, face) {
+  const d = Math.abs(q.cu - pcu) + Math.abs(q.cv - pcv);
+  return q.forest ? 3 + d / 32 : d + (q.face === face ? 0 : 3);
+}
 function pump() {
   for (const w of workers) {
     if (w.busy || !queue.length) continue;
     // nearest first: the player sees the ground under them before the far hills
     let bi = 0, bd = Infinity;
     const pcu = Math.floor(P.u / CHUNK), pcv = Math.floor(P.v / CHUNK);
-    for (let i = 0; i < queue.length; i++) { const q = queue[i], d = Math.abs(q.cu - pcu) + Math.abs(q.cv - pcv) + (q.face === P.face ? 0 : 3); if (d < bd) { bd = d; bi = i; } }
+    for (let i = 0; i < queue.length; i++) { const q = queue[i], d = jobRank(q, pcu, pcv, P.face); if (d < bd) { bd = d; bi = i; } }
     const m = queue.splice(bi, 1)[0];
     inflight.set(m.id, m.k);
     w.busy = true;
@@ -950,9 +965,10 @@ function geom(part) {
 }
 function done(m) {
   const k = inflight.get(m.id); inflight.delete(m.id);
+  if (k && k[0] === "F") return forestDone(k.slice(2), m);  // a tile of the forest beyond the chunks (#183)
   const c = chunks.get(k);
   if (!c) return;
-  c.busy = false;
+  c.busy = false; c.ready = true;                           // (ready: meshed once — updateForest hides the far trees it now draws)
   for (const me of c.meshes) { scene.remove(me); me.geometry.dispose(); }
   c.meshes = [];
   if (!m.empty && !m.error) {
@@ -1025,7 +1041,129 @@ function updateChunks() {
     for (const me of c.meshes) { scene.remove(me); me.geometry.dispose(); }
     chunks.delete(k);
   }
-  for (let i = queue.length - 1; i >= 0; i--) if (!want.has(queue[i].k)) { const c = chunks.get(queue[i].k); if (c) c.busy = false; queue.splice(i, 1); }
+  // (a forest tile's job is not a chunk's: updateForest drops it — pruned here, the far forest never arrived, #183)
+  for (let i = queue.length - 1; i >= 0; i--) if (!queue[i].forest && !want.has(queue[i].k)) { const c = chunks.get(queue[i].k); if (c) c.busy = false; queue.splice(i, 1); }
+}
+
+// ---- THE FOREST BEYOND THE CHUNKS (#183; operator 2026-11-11, beside a concept picture: "compared to this our game looks
+// like from 1996"). Measured at Ultra from a meadow with a wood 144 m ahead: not one tree was drawn past the chunks — the
+// land beyond was bare ground to the horizon. land-forest.js builds, a TILE at a time in the mesher workers, every tree
+// the world grows as two crossed cards carrying a PICTURE OF ITS OWN MODEL (bakeForest), out to FOREST_RANGE.
+// INVARIANTS — each one a way this shipped wrong or would:
+//  * a far tree is hidden exactly where its chunk's own meshes are in the scene (forestSeen, a map of meshed chunk
+//    columns the material reads in the vertex stage), never by distance alone: a chunk still in the mesher's queue
+//    would show a ring of bare ground at the view's edge with every step forward;
+//  * the atlas is read BACK from the GPU and laid out by a marker the bake draws: a render target's rows run top-down
+//    on WebGPU and bottom-up on WebGL2, and a forest standing on its crowns in one of the two is not a thing a
+//    headless (WebGL2) test can catch;
+//  * the cards are indexed from both sides and drawn front-face only: a double-sided material flips the normal of a
+//    back face, and a crown seen from behind went dark.
+const forest = new Map();                      // "face:tu:tv" -> { mesh, busy, n }
+const FOREST_RANGE = PHONE ? 640 : 1152;       // m of far trees around the player — a design choice: 81 tiles, ~60 000 trees, ~36 ms a tile in a worker
+const SEEN = 64;                               // the meshed-chunk map's edge, in chunks (the view disc is 17 across at most)
+let matForest = null, forestNear = null, forestSeen = null, forestSeenTex = null, forestTrees = 0;
+/** The far trees' pictures: every (species, height) of land-forest SLOTS, its own land-trees model seen from the side
+ *  under an even sky, drawn once into a render target and read back into the atlas texture. */
+async function bakeForest() {
+  const { cols, rows, wide, tall, foot } = Forest.ATLAS, pw = PHONE ? 768 : 1536, ph = Math.round(pw * rows * tall / (cols * wide));   // (a width whose rows need no padding: 4·pw is a multiple of 256)
+  const rt = new THREE.RenderTarget(pw, ph), sc = new THREE.Scene(), cam = new THREE.OrthographicCamera(0, cols * wide, rows * tall, 0, 1, 100);
+  cam.position.set(0, 0, 50);
+  sc.add(new THREE.HemisphereLight(0xffffff, 0x8c8c84, 2.6));
+  // bark in its texture's own mean colour (measured, linear: bark_col 0.126 0.104 0.063, birch_col 0.056 0.037 0.025) —
+  // the scans load after this runs, and a far trunk is a few pixels wide
+  const flat = new THREE.MeshStandardNodeMaterial({ roughness: 0.92, metalness: 0 });
+  flat.colorNode = TSL.mix(TSL.vec3(0.126, 0.104, 0.063), TSL.vec3(0.056, 0.037, 0.025), TSL.attribute("tile", "float")).mul(TSL.attribute("color", "vec3"));
+  const made = [];
+  Forest.SLOTS.forEach(([kind, height], i) => {
+    const m = treeModel(kind, height, 7919 + height * 131 + kind.length, 2);      // the mesher's far model, variant 0 (placeTree)
+    for (const [src, mat] of [[m.bark, flat], [m.leaves, matLeaves]]) {
+      if (!src.n) continue;
+      const g = new THREE.BufferGeometry(), pos = new Float32Array(src.n * 3), nor = new Float32Array(src.n * 3);
+      for (let k = 0; k < src.n; k++) {                    // the model's (x, y, z up) seen along its y: x across, z up
+        pos[k * 3] = src.pos[k * 3]; pos[k * 3 + 1] = src.pos[k * 3 + 2]; pos[k * 3 + 2] = -src.pos[k * 3 + 1];
+        nor[k * 3] = src.nor[k * 3]; nor[k * 3 + 1] = src.nor[k * 3 + 2]; nor[k * 3 + 2] = -src.nor[k * 3 + 1];
+      }
+      g.setAttribute("position", new THREE.BufferAttribute(pos, 3)); g.setAttribute("normal", new THREE.BufferAttribute(nor, 3));
+      g.setAttribute("uv", new THREE.Float32BufferAttribute(src.uv, 2)); g.setAttribute("tile", new THREE.Float32BufferAttribute(src.tile, 1));
+      g.setAttribute("color", new THREE.Float32BufferAttribute(src.col, 3)); g.setAttribute("wind", new THREE.BufferAttribute(new Float32Array(src.n * 4), 4));   // (no wind: a still picture)
+      g.setIndex(src.idx);
+      const me = new THREE.Mesh(g, mat); me.position.set((i % cols + 0.5) * wide, Math.floor(i / cols) * tall + foot, 0); me.frustumCulled = false;
+      sc.add(me); made.push(g);
+    }
+  });
+  // the marker: the last slot (no tree's) filled magenta — where it lands in the read-back rows says which way they run
+  const mk = new THREE.Mesh(new THREE.PlaneGeometry(wide, tall), new THREE.MeshBasicMaterial({ color: 0xff00ff, fog: false }));
+  mk.position.set((cols - 0.5) * wide, (rows - 0.5) * tall, 0); sc.add(mk); made.push(mk.geometry);
+  const was = new THREE.Color(); renderer.getClearColor(was); const wasA = renderer.getClearAlpha();
+  renderer.setClearColor(0x1c2a10, 0);                     // (leaf-dark, clear: what the edges of a crown blend toward in the small mips)
+  renderer.setRenderTarget(rt); renderer.render(sc, cam); renderer.setRenderTarget(null);
+  renderer.setClearColor(was, wasA);
+  const raw = await renderer.readRenderTargetPixelsAsync(rt, 0, 0, pw, ph), px = new Uint8Array(pw * ph * 4);
+  const mag = (row) => { const o = (row * pw + Math.round(pw * (cols - 0.5) / cols)) * 4; return raw[o] > 200 && raw[o + 1] < 60 && raw[o + 2] > 200; };
+  const topRow = Math.round(ph * 0.25), flip = mag(topRow) && !mag(ph - 1 - topRow);     // the marker is in the TOP row of slots: found early = rows run top-down
+  for (let y = 0; y < ph; y++) px.set(raw.subarray((flip ? ph - 1 - y : y) * pw * 4, ((flip ? ph - 1 - y : y) + 1) * pw * 4), y * pw * 4);
+  const x0 = Math.floor(pw * (cols - 1) / cols), y0 = Math.floor(ph * (rows - 1) / rows);
+  for (let y = y0; y < ph; y++) px.fill(0, (y * pw + x0) * 4, (y + 1) * pw * 4);       // the marker's slot back to clear
+  for (const g of made) g.dispose(); rt.dispose(); flat.dispose();
+  const tex = new THREE.DataTexture(px, pw, ph, THREE.RGBAFormat, THREE.UnsignedByteType);
+  tex.colorSpace = THREE.NoColorSpace; tex.magFilter = THREE.LinearFilter; tex.minFilter = THREE.LinearMipmapLinearFilter; tex.generateMipmaps = true; tex.needsUpdate = true;
+  forestSeen = new Uint8Array(SEEN * SEEN);
+  forestSeenTex = new THREE.DataTexture(forestSeen, SEEN, SEEN, THREE.RedFormat, THREE.UnsignedByteType);
+  forestSeenTex.wrapS = forestSeenTex.wrapT = THREE.RepeatWrapping; forestSeenTex.magFilter = forestSeenTex.minFilter = THREE.NearestFilter; forestSeenTex.needsUpdate = true;
+  const m = new THREE.MeshStandardNodeMaterial({ roughness: 0.85, metalness: 0, alphaTest: 0.4 }), s = TSL.texture(tex, TSL.uv());
+  const root = TSL.attribute("root", "vec2"), d = root.sub(TSL.vec2(0, 0).add((forestNear = TSL.uniform(new THREE.Vector3(0, 0, -1))).xy));
+  // hidden = its chunk is inside the view disc AND that chunk's meshes are in the scene (the invariant above)
+  const meshed = TSL.texture(forestSeenTex, root.add(0.5).div(SEEN)).level(0).r;
+  const show = TSL.select(d.dot(d).lessThanEqual(forestNear.z).and(meshed.greaterThan(0.5)), 0, 1);
+  m.positionNode = TSL.positionLocal.add(TSL.attribute("off", "vec3").mul(show));
+  m.colorNode = s.rgb.mul(TSL.attribute("color", "vec3"));
+  m.opacityNode = s.a;
+  matForest = m;
+}
+function forestDone(k, m) {
+  const f = forest.get(k);
+  if (!f) return;
+  f.busy = false;
+  if (!m.n) return;
+  const g = new THREE.BufferGeometry();
+  g.setAttribute("position", new THREE.BufferAttribute(m.pos, 3)); g.setAttribute("off", new THREE.BufferAttribute(m.off, 3));
+  g.setAttribute("normal", new THREE.BufferAttribute(m.nor, 3)); g.setAttribute("uv", new THREE.BufferAttribute(m.uv, 2));
+  g.setAttribute("root", new THREE.BufferAttribute(m.root, 2)); g.setAttribute("color", new THREE.BufferAttribute(m.col, 3));
+  g.setIndex(new THREE.BufferAttribute(m.idx, 1));
+  g.computeBoundingSphere(); g.boundingSphere.radius += 16;   // (position is each tree's ROOT: the cards reach up and out from it)
+  f.mesh = new THREE.Mesh(g, matForest); f.mesh.userData.anchor = m.anchor; f.n = m.n; forestTrees += m.n;
+  scene.add(f.mesh);
+}
+/** The forest tiles around the player, and which chunk columns the scene has meshed (their far trees hide). */
+function updateForest() {
+  if (!matForest) return;
+  const T = Forest.TILE, face = P.face, pcu = Math.floor(P.u / CHUNK), pcv = Math.floor(P.v / CHUNK), want = new Set();
+  for (let tv = Math.floor((P.v - FOREST_RANGE) / T); tv <= Math.floor((P.v + FOREST_RANGE) / T); tv++)
+    for (let tu = Math.floor((P.u - FOREST_RANGE) / T); tu <= Math.floor((P.u + FOREST_RANGE) / T); tu++) {
+      const du = Math.max(tu * T - P.u, 0, P.u - (tu + 1) * T), dv = Math.max(tv * T - P.v, 0, P.v - (tv + 1) * T);
+      if (du * du + dv * dv > FOREST_RANGE * FOREST_RANGE) continue;
+      const k = face + ":" + tu + ":" + tv; want.add(k);
+      if (!forest.has(k)) { forest.set(k, { mesh: null, busy: true, n: 0 }); queue.push({ id: ++reqId, k: "F:" + k, forest: 1, face, tu, tv, cu: tu * 16 + 8, cv: tv * 16 + 8 }); }
+    }
+  pump();
+  for (const [k, f] of forest) if (!want.has(k) && !f.busy) {
+    if (f.mesh) { scene.remove(f.mesh); f.mesh.geometry.dispose(); forestTrees -= f.n; }
+    forest.delete(k);
+  }
+  const ready = new Map();
+  for (const [k, c] of chunks) { const ck = k.slice(0, k.lastIndexOf(":")); ready.set(ck, ready.get(ck) !== false && !!c.ready); }
+  let changed = false;
+  const mark = (i, v) => { if (forestSeen[i] !== v) { forestSeen[i] = v; changed = true; } };
+  const now = new Uint8Array(SEEN * SEEN);
+  for (let dx = -viewDist; dx <= viewDist; dx++) for (let dy = -viewDist; dy <= viewDist; dy++) {
+    if (dx * dx + dy * dy > viewDist * viewDist + 1) continue;
+    let f2 = face, cu = pcu + dx, cv = pcv + dy;              // (the chunk's own key, past a face edge: as updateChunks names it)
+    if (cu < 0 || cv < 0 || cu >= W / CHUNK || cv >= W / CHUNK) { const w = Wd.wrap(face, cu * CHUNK + 8, cv * CHUNK + 8); f2 = w.face; cu = Math.floor(w.u / CHUNK); cv = Math.floor(w.v / CHUNK); }
+    if (ready.get(f2 + ":" + cu + ":" + cv)) now[(((pcv + dy) % SEEN + SEEN) % SEEN) * SEEN + ((pcu + dx) % SEEN + SEEN) % SEEN] = 255;
+  }
+  for (let i = 0; i < now.length; i++) mark(i, now[i]);
+  if (changed) forestSeenTex.needsUpdate = true;
+  forestNear.value.set(pcu, pcv, viewDist * viewDist + 1);
 }
 
 // ---- the far land: a coarse ring of the planet beyond the chunks, out to the horizon -------------------------------
@@ -3618,7 +3756,7 @@ function statsTick(now) {
   const gpu = renderer.backend && renderer.backend.isWebGPUBackend ? "WebGPU" : "WebGL2";
   if (!SET.stats) { $("hudGpu").textContent = gpu; return; }
   const r = renderer.info.render;
-  $("hudGpu").textContent = `${gpu} · ${fps} fps · ${Math.round(r.triangles / 1000)}k tris · ${r.drawCalls ?? r.calls} calls · ${chunks.size} chunks`;
+  $("hudGpu").textContent = `${gpu} · ${fps} fps · ${Math.round(r.triangles / 1000)}k tris · ${r.drawCalls ?? r.calls} calls · ${chunks.size} chunks · ${forestTrees} far trees`;
 }
 // ---- THE PROFILER (` the key left of 1, ?prof=1, or /prof; "work on performance, take a hint from true wind", operator
 // 2026-11-09 — True Wind's js/profiler.js, "measure performance; don't guess"): where the frame's time goes, live — the
@@ -3689,6 +3827,7 @@ function frame(now) {
   hemi.position.set(fr.up[0], fr.up[1], fr.up[2]);     // "up" is radial on a planet: three's hemisphere light assumes +Y
   for (const c of chunks.values()) if (c.anchor) for (const me of c.meshes) me.position.set(c.anchor[0] - cam[0], c.anchor[1] - cam[1], c.anchor[2] - cam[2]);
   for (const m of [farMesh, farSea, borderMesh]) if (m) { const a = m.userData.anchor; m.position.set(a[0] - cam[0], a[1] - cam[1], a[2] - cam[2]); }
+  for (const f of forest.values()) if (f.mesh) { const a = f.mesh.userData.anchor; f.mesh.position.set(a[0] - cam[0], a[1] - cam[1], a[2] - cam[2]); }
   for (const [id, c] of crafts) if (c.pose) { craftPlace(c.mesh, c.pose, cam); engineFrame(id, c, cam, now); }
   animalsFrame(Math.min(0.1, (now - (frame.lastAnimals || now)) / 1000), cam); frame.lastAnimals = now;
   hitDirFrame(now);
@@ -3837,6 +3976,7 @@ function updateBorders() {
 }
 function slow() {
   pt("chunks", updateChunks);
+  pt("forest", updateForest);
   pt("borders", updateBorders);
   pt("net", netTick);
   if (!farAt || farAt.face !== P.face || Math.abs(farAt.u - P.u) > 400 || Math.abs(farAt.v - P.v) > 400) pt("far", buildFar);
@@ -3917,6 +4057,7 @@ async function start() {
   matGround = groundMaterial();
   matTrees = new THREE.MeshStandardMaterial({ vertexColors: true, roughness: 0.9, metalness: 0 });
   [matBark, matLeaves] = treeMaterials();
+  bakeForest().catch((e) => console.error("far forest", e));   // (#183: without its atlas there is no far forest, and the world is as it was)
   matWater = waterMaterial();
   // pieces: the material's atlas tile, repeated once per METRE of the piece (uv is in metres; fract() keeps it inside
   // the tile, half a texel in from its edge), so any size shows its material at true scale
