@@ -3,8 +3,10 @@
  * xwing … not your shitty jet full of fucking disconnect metal plates", "there are gaps between every fucking part",
  * operator 2026-11-11), walked in the real page against the real world server (tests/_land_live_fixture.py) as a player
  * on a phone, with taps only:
- *   1. a craft of parts — a hull, a wing sunk into it, an engine in its side, a seat under a glass canopy — is drawn,
- *      boarded by Use, shows the engine's two thrusters as its thrust, climbs with its exhaust lit and /dock sets every
+ *   1. a craft of parts — a hull, a wing sunk into it, an engine standing in its side (pitched up: it pushes up, a
+ *      lifting engine), a seat under a glass canopy — is drawn, boarded by Use, is an aircraft (#191: it has a wing)
+ *      whose HUD reads the throttle and the angle of attack, the world server holds the engine's two thrusters as its
+ *      thrust, Jump works the lifting engine and it climbs with its exhaust lit, Down lands it, and /dock sets every
  *      part down again as the part it was;
  *   2. the bag has the ten parts; hull chosen, its taper is a select and the piece in hand is named "hull 0.4"; Place
  *      puts that hull on the plot (the world server holds its shape byte);
@@ -160,7 +162,7 @@ try {
   ok(!!site, "a flat site for the craft");
   const X = site.du * 100, Z = site.dv * 100, Y = (site.top + 1) * 100;
   const hull = [X, Z, Y, 200, 300, 120, 64, Sh.code(Sh.HULL, 6)], wing = [X + 150, Z + 60, Y + 50, 300, 200, 20, 64, Sh.code(Sh.WING, 5)];
-  const engine = [X - 100, Z - 50, Y + 10, 130, 440, 130, 65, Sh.code(Sh.ENGINE)], seat = [X + 60, Z + 100, Y + 120, 80, 90, 110, 66];
+  const engine = [X - 100, Z - 50, Y + 165, 130, 440, 130, 65, Sh.code(Sh.ENGINE), 0, 900, 0], seat = [X + 60, Z + 100, Y + 120, 80, 90, 110, 66];   // pitched 90° about its centre: a lifting engine standing from Y + 10 to Y + 450 (#191)
   const canopy = [X + 30, Z + 70, Y + 100, 140, 200, 140, 12, Sh.code(Sh.CANOPY)];
   ok(Wd.boxesOverlap(hull, wing) && Wd.boxesOverlap(hull, engine) && Wd.boxesOverlap(canopy, seat), "(the wing and the engine are sunk into the hull, the seat stands in the canopy's box)");
   const built = await post("/land/api/boxes", { plot: PAid, add: [hull, wing, engine, seat, canopy] });
@@ -178,15 +180,15 @@ try {
   ok(/Aiming at (Glass|Steel plate|Pilot seat)/.test(aimed), "the player aims at the craft's own parts: " + aimed.slice(-120));
   await evl(B, "document.getElementById('tUse').click(), true");
   ok(await until(B, "/Flying/.test(document.getElementById('hudPos').textContent)", 15000), "Use on a part of it takes the controls: " + await hudText(B));
-  ok(/thrust 60 kN/.test(await evl(B, "document.getElementById('hudPos').textContent")), "…the HUD shows the engine's thrust (two thrusters, 60 kN)");
+  ok(/throttle 0 %/.test(await evl(B, "document.getElementById('hudPos').textContent")) && /attack/.test(await evl(B, "document.getElementById('hudPos').textContent")), "…an aircraft's HUD (#191: it has a wing): the throttle shut, the angle of attack");
   const crafts = (await getJ(`/land/api/crafts?face=${q.face}&u=${su}&v=${sv}`)).crafts;
   ok(crafts.length === 1 && crafts[0].pieces.length === 5 && crafts[0].pieces.filter((p) => Wd.isPart(p)).length === 4 && crafts[0].thrust === 60,
      "the world server holds one craft of five pieces, four of them parts, pushing 60 kN: " + JSON.stringify(crafts.map((c) => [c.pieces.length, c.thrust, c.mass])));
   const h0 = crafts[0] ? crafts[0].pose[3] : 0;
   await evl(B, "document.getElementById('tJump').dispatchEvent(new Event('touchstart', { cancelable: true })), true");
   await sleep(2500);
-  await until(B, "/engines 100 %/.test(document.getElementById('hudPos').textContent)", 10000);
-  ok(/engines 100 %/.test(await evl(B, "document.getElementById('hudPos').textContent")), "holding Jump, the engine works at full");
+  await until(B, "/ [1-9]\\d*\\.\\d m up/.test(document.getElementById('hudPos').textContent)", 10000);
+  ok(/ [1-9]\d*\.\d m up/.test(await evl(B, "document.getElementById('hudPos').textContent")), "holding Jump, the lifting engine takes it up: " + await hudText(B));
   await shot(B, "parts-flying");
   await evl(B, "document.getElementById('tJump').dispatchEvent(new Event('touchend', { cancelable: true })), true");
   let h1 = h0;

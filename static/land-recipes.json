@@ -4337,7 +4337,12 @@
   "about": "#147 (doc/land-tech-to-flight.md): a craft is built pieces touching one another, with a pilot seat and at least one thruster. Its mass is each piece's volume x its material's density (t per m3; a unit part by its own mass); it rises only if its thrusters (kN each) beat its weight. Read by the page (it flies the craft) and the world server (it bounds what a pilot may claim). #175: a PART (static/land-shapes.js) weighs the material actually in it — its shape's share of its box, a tenth of that for a hollow skin (a hull, a nose, a wing, a canopy, a dome) — and an ENGINE part is as many thrusters as its volume comes to, each weighing and pushing as one. PAINTED PLATE (white 28, red 21, yellow 23, black 27) is steel plate (density 1.5) with a pigment worked in at the workbench: white from lime (whitewash is slaked-lime paint), black from charcoal (carbon black: charred wood), red from iron ore (red ochre is hematite, an iron oxide and an ore of iron), yellow from iron ore and clay (ochre is a clay earth pigment of ferric oxide and clay; real yellow ochre is the hydrated oxide, limonite — Land has one iron ore) — land research paint/. One measure of pigment painting four plates is a DESIGN CHOICE.",
   "g": 9.8,
   "thrust_kn": 30,
-  "vmax": 60,
+  "vmax": 292,
+  "vmax_about": "m/s: 1,050 km/h, the X-wing's stated maximum atmospheric speed (land research xwing/wikipedia-X-wing_fighter l.42); was 60 before #191 — the server bounds a pilot's reports by it",
+  "aero": {
+    "about": "#191: how a winged craft flies (land-flight.js aircraftStep). CITED: cd0 0.021 = the F-4 Phantom's subsonic zero-lift drag coefficient (planet/wikipedia-Drag_coefficient l.115, with the wing area as the reference area l.109); e 0.8 within the 0.7–0.85 of a conventional wing (flight/wikipedia-Oswald_efficiency_number l.25); stall_deg 15 within the sources' range (flight/wikipedia-Stall l.27: 17.5° in its example, 'varies from airfoil to airfoil'). DESIGN CHOICES: n_max 9 (a fighter's load limit — the limiter holds the angle of attack there, Angle of attack l.26), v_ctrl 40 m/s (the airspeed at which the control surfaces have their full effect), the full-authority rates roll 150 / pitch 40 / yaw 20 °/s, stab 1.5 /s (how fast the nose weathervanes toward the velocity), gear_brake 3 m/s² with the throttle shut, gear_roll 0.6 rad/s of ground steering.",
+    "cd0": 0.021, "e": 0.8, "stall_deg": 15, "n_max": 9, "v_ctrl": 40, "roll_dps": 150, "pitch_dps": 40, "yaw_dps": 20, "stab": 1.5, "gear_brake": 3.0, "gear_roll": 0.6
+  },
   "turn": 1.2,
   "density": {
    "9": 0.5,

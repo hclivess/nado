@@ -37,7 +37,7 @@ import { groundWeights } from "./land-mesher.js";
 import * as Forest from "./land-forest.js";
 import * as Clouds from "./land-clouds.js";
 import { treeModel } from "./land-trees.js";
-import { craftStep, flightOf, craftBody, bodyInside, navSays, craftArea } from "./land-flight.js";
+import { craftStep, flightOf, craftBody, bodyInside, navSays, craftArea, aeroOf, axesOf, stallSpeed, stepOffSpot } from "./land-flight.js";
 import { GFX_PRESETS, BENCH_ORDER, benchTarget, frameStats, holds, pickPreset, LADDER, governor, govStep } from "./land-gfx.js";
 import { NadoDapp, wireWallet, renderWallet, alertBar, notify, uiConfirm, uiPrompt, isAddress, esc, base, disp, rawToNado, nadoToRaw, randId, $ } from "./nadodapp.js";
 
@@ -54,6 +54,21 @@ const T = (k, en, v) => window.t("land." + k, en, v);
 
 const { CHUNK, PLOT, W, H, B, BLOCKS } = Wd;
 const EYE = 1.62, HALF = 0.3, TALL = 1.8, REACH = 7, STEP = 0.65;
+// THE EVENT TRACE (#194; operator 2026-11-12: "i hope there is tracing so you can trace these events back to the root
+// cause. if not, add them"): what happened to this player and why — boarding and leaving a craft with both poses,
+// every move of the body the player did not make (pos_fix, craft_fix, waking), hurt and death, the socket going,
+// every page error — the last TRACE_MAX kept here (/trace prints them) and sent to the world server, which keeps a
+// bounded file a player (scripts/land_trace.py <address>). Nothing goes unlogged (True Wind's rule).
+const TRACE = { ring: [], pending: [], max: 500, sentAt: 0 };
+function trace(kind, data) {
+  const e = { t: Date.now(), k: kind, ...(data || {}) };
+  TRACE.ring.push(e); if (TRACE.ring.length > TRACE.max) TRACE.ring.shift();
+  TRACE.pending.push(e); if (TRACE.pending.length > 200) TRACE.pending.shift();
+  return e;
+}
+const tracePose = (p) => (p ? p.slice(0, 7).map((x, i) => (i ? +Number(x).toFixed(2) : x)) : null);
+window.addEventListener("error", (e) => trace("error", { msg: String(e.message || e).slice(0, 300), src: String(e.filename || "").slice(-60), line: e.lineno }));
+window.addEventListener("unhandledrejection", (e) => trace("error", { msg: String(e.reason && e.reason.message || e.reason).slice(0, 300) }));
 const GRAV = 26, JUMP = 8.4, WALK = 4.6, RUN = 7.5, FLY = 14, FLY_FAST = 60;
 
 // ---- state ------------------------------------------------------------------------------------------------------
@@ -314,8 +329,8 @@ function eyePos() {
   if (!flying) return e;
   // THE CHASE VIEW: flying, the camera hangs behind and above the craft, looking where the pilot looks — from the seat
   // the craft was under the camera and never seen (the first flight, 2026-11-09)
-  const { fr, fw } = look();
-  return [0, 1, 2].map((i) => e[i] - fw[i] * CHASE_BACK + fr.up[i] * CHASE_UP);
+  const { fr, fw } = look(), up = craftUp || fr.up;
+  return [0, 1, 2].map((i) => e[i] - fw[i] * CHASE_BACK + up[i] * CHASE_UP);
 }
 const CHASE_BACK = 9, CHASE_UP = 2.5;
 const LITTER_H = 0.45, LITTER_R = 0.42;                // m: how high and how far round its middle litter catches the look                    // m behind (along the look) and above the pilot's eye
@@ -417,10 +432,32 @@ const crafts = new Map();               // id -> { pieces, pose, owner, pilot, m
 let flying = null;                      // the craft this player flies: { id, pose, vel, mass, thrust, bottom, grounded }
 let flySent = 0, lastCraft = null;
 const PILOT_SIT = 0.6;                  // m the pilot's feet sit below the seat's bottom, so the eye is ~1 m over it
+// THE STICK (#191): flying an aircraft, the mouse (or the touch look-drag) is a stick, not a view — moving it deflects
+// the stick, which centres itself again (STICK_PX pixels = full deflection; it relaxes in about a third of a second —
+// DESIGN CHOICES); W / S open and shut the throttle, A / D are the rudder; Space / C work only the vertical thrusters.
+// The camera then looks along the nose (P.yaw, P.pitch follow the craft) and rolls with it (craftUp).
+const stick = { x: 0, y: 0 }, STICK_PX = 160, STICK_RELAX = 3;
+let craftUp = null;                      // the flown aircraft's up in the planet frame, for the camera; null: the ground's
 function flyStep(dt, fwd, side) {
   const c = flying, F = FLIGHT();
-  craftStep(c, { fwd, side, yaw: P.yaw, up: keys.has("Space") || !!(touch && touch.up), down: keys.has("KeyC") || keys.has("ControlLeft") || !!(touch && touch.down) },
-    dt, F, (u, v) => craftGround(c.pose[0], u, v) - 0.05, (pose) => craftHits(c, pose));
+  const upK = keys.has("Space") || !!(touch && touch.up), downK = keys.has("KeyC") || keys.has("ControlLeft") || !!(touch && touch.down);
+  let input;
+  if (c.aero && c.aero.winged) {
+    // the throttle: W opens it, S shuts it, half a throttle a second. On a phone Jump / Down are the vertical thrusters
+    // when the craft has any, else the throttle (one pair of buttons; the stick's forward/back is the throttle too)
+    const vert = c.aero.T[2] > 0, tUp = !!(touch && touch.up), tDown = !!(touch && touch.down);
+    const open = (keys.has("KeyW") || keys.has("ArrowUp") || (touch && touch.my > 0.5) || (tUp && !vert)), shut = (keys.has("KeyS") || keys.has("ArrowDown") || (touch && touch.my < -0.5) || (tDown && !vert));
+    c.throttle = Math.max(0, Math.min(1, (c.throttle || 0) + (open ? 0.5 : shut ? -0.5 : 0) * dt));
+    input = { pitch: Math.max(-1, Math.min(1, stick.y)), roll: Math.max(-1, Math.min(1, stick.x)), yaw: side, throttle: c.throttle,
+      up: vert && (upK || tUp), down: vert && (downK || tDown) };
+    const k = Math.exp(-STICK_RELAX * dt); stick.x *= k; stick.y *= k;
+  } else input = { fwd, side, yaw: P.yaw, up: upK, down: downK };
+  craftStep(c, input, dt, F, (u, v) => craftGround(c.pose[0], u, v) - 0.05, (pose) => craftHits(c, pose));
+  if (c.aero && c.aero.winged) {
+    P.yaw = c.pose[4]; P.pitch = c.pose[5] || 0;             // the camera looks along the nose
+    const fr = Wd.frameOf(c.pose[0], c.pose[1], c.pose[2]), ax = axesOf(c.pose[4], c.pose[5] || 0, c.pose[6] || 0);
+    craftUp = [0, 1, 2].map((i) => fr.east[i] * ax.up[0] + fr.north[i] * ax.up[1] + fr.up[i] * ax.up[2]);
+  } else craftUp = null;
   // the craft stays on its face of the planet (crossing an edge flying is for later)
   c.pose[1] = Math.max(1, Math.min(W - 1, c.pose[1])); c.pose[2] = Math.max(1, Math.min(W - 1, c.pose[2]));
   P.face = c.pose[0]; P.u = c.pose[1]; P.v = c.pose[2]; P.h = c.pose[3] - PILOT_SIT; P.vu = P.vv = P.vh = 0; P.ground = true;
@@ -589,11 +626,9 @@ function turnQuat(b, toFrame) {
 }
 function craftPlace(mesh, pose, cam) {
   const [f, u, v, h, yaw] = pose, q = Wd.posOf(f, u, v, h), fr = Wd.frameOf(f, u, v);
-  const V = (a) => new THREE.Vector3(a[0], a[1], a[2]);
-  const E = V(fr.east), N = V(fr.north), U = V(fr.up);
-  const fwd = N.clone().multiplyScalar(Math.cos(yaw)).add(E.clone().multiplyScalar(Math.sin(yaw)));
-  const right = E.clone().multiplyScalar(Math.cos(yaw)).sub(N.clone().multiplyScalar(Math.sin(yaw)));
-  mesh.matrix.makeBasis(right, U, fwd.negate()).setPosition(q[0] - cam[0], q[1] - cam[1], q[2] - cam[2]);
+  // an aircraft's pose carries pitch and roll (#191): the craft is drawn in its attitude, as its pilot sees it
+  const ax = axesOf(yaw, pose[5] || 0, pose[6] || 0), W3 = (a) => new THREE.Vector3(...[0, 1, 2].map((i) => fr.east[i] * a[0] + fr.north[i] * a[1] + fr.up[i] * a[2]));
+  mesh.matrix.makeBasis(W3(ax.right), W3(ax.up), W3(ax.nose).negate()).setPosition(q[0] - cam[0], q[1] - cam[1], q[2] - cam[2]);
   mesh.matrixWorldNeedsUpdate = true;
 }
 function craftsSeen(list) {
@@ -655,12 +690,20 @@ function nearMyCraft() {
 }
 function leaveCraft() {
   if (!flying) return;
-  const c = flying; flying = null; lastCraft = c.id;
+  const c = flying;
+  // STEPPING OFF (#194: "i exited the xfighter and fell into the townhall wall"): onto the first free spot round the
+  // seat (land-flight.js stepOffSpot — the body clear of every piece and cell at the ground's height there), and only
+  // from a craft on or near the ground: from one hovering high the pilot stays in the seat and is told to land
+  const under = craftGround(c.pose[0], c.pose[1], c.pose[2]), hover = c.pose[3] + c.bottom - under;
+  if (hover > 2.5) { notify(T("fTooHigh", "Too high to step off — land first ({h} m up).", { h: hover.toFixed(1) })); trace("leave_refused", { craft: c.id, why: "high", hover: +hover.toFixed(2), pose: tracePose(c.pose) }); return; }
+  const spot = stepOffSpot(c.pose[1], c.pose[2], c.pose[4], (u, v) => !collides(u, v, groundAt(P.face, u, v)));
+  if (!spot) { notify(T("fNoSpot", "Nowhere to step off here — move the craft first.")); trace("leave_refused", { craft: c.id, why: "no_spot", pose: tracePose(c.pose) }); return; }
+  flying = null; lastCraft = c.id; craftUp = null; P.pitch = 0;
   net.send({ t: "fly", craft: c.id, pose: c.pose });
   net.send({ t: "leave", craft: c.id, req: ++net.req });
   const own = crafts.get(c.id); if (own) { own.pilot = null; own.pose = c.pose; }
-  // step off beside the seat, onto the ground
-  P.u = c.pose[1] + Math.cos(c.pose[4]) * 1.5; P.v = c.pose[2] - Math.sin(c.pose[4]) * 1.5; P.h = groundAt(P.face, P.u, P.v); P.vh = 0; P.eyeH = P.h;
+  P.u = spot.u; P.v = spot.v; P.h = groundAt(P.face, P.u, P.v); P.vh = 0; P.eyeH = P.h;
+  trace("leave", { craft: c.id, from: tracePose(c.pose), to: tracePose([P.face, P.u, P.v, P.h, P.yaw]), tried: spot.tried });
   notify(T("fParked", "Parked. Use it again to fly; /dock sets it down here as pieces."));
   hud();
 }
@@ -668,18 +711,26 @@ function startFlying(c) {
   const bottom = Math.min(0, ...c.pieces.map((b) => Wd.boxAabb(b)[2])) / Wd.CM;   // a turned piece: its lowest reach
   flying = { id: c.id, pose: c.pose.slice(), vel: [0, 0, 0], mass: c.mass, thrust: c.thrust, bottom, grounded: true,
     body: craftBody(c.pieces, Wd.boxAabb),                                // what of it meets the world (#171)
-    area: craftArea(c.pieces, Wd.boxAabb) };                              // what the air pushes on (#174)
+    area: craftArea(c.pieces, Wd.boxAabb),                                // what the air pushes on (#174)
+    aero: aeroOf(c.pieces, Wd.boxAabb, (b) => (b[6] === B.thruster ? Wd.engineCount(b) * FLIGHT().thrust_kn : 0)),   // wings and engines (#191)
+    throttle: 0 };
+  stick.x = stick.y = 0;
   flying.bodyLow = Math.min(0, ...flying.body.map((p) => p[2]));
   // a NAV UNIT among its pieces (#173): dead reckoning from here, the place it took off from — its fix — with an error
   // that grows along a direction fixed at the fix (land-flight.js navSays)
   if (c.pieces.some((b) => b[6] === B.navunit)) { const a = Math.random() * 2 * Math.PI; flying.nav = { t0: performance.now(), dir: [Math.sin(a), Math.cos(a)] }; }
   flying.bodyR = Math.max(1, ...flying.body.map((p) => Math.hypot(p[0], p[1])));
+  trace("board", { craft: c.id, pose: tracePose(c.pose), winged: !!flying.aero.winged, from: tracePose([P.face, P.u, P.v, P.h, P.yaw]) });
   P.yaw = c.pose[4]; P.fly = false;
   const k = crafts.get(c.id) || { pieces: c.pieces, mesh: craftMesh(c.pieces) };
   if (!crafts.has(c.id)) { scene.add(k.mesh); crafts.set(c.id, k); }
   Object.assign(k, { owner: c.owner, pilot: c.pilot, mass: c.mass, thrust: c.thrust, pose: flying.pose });
   const f = flightOf(FLIGHT(), c.mass, c.thrust);
-  notify(f.lifts ? T("fBoard", "At the controls — look to steer, stick/W A S D to push, Jump to climb, Down to sink, Use to leave.")
+  if (flying.aero.winged) {
+    P.pitch = flying.pose[5] || 0;
+    const vs = stallSpeed(flying, FLIGHT());
+    notify(T("fBoardWing", "At the controls of an aircraft — mouse: pitch and roll · A D: rudder · W S: throttle · Use: leave. Its wings carry it from about {v} m/s: throttle up, roll, then pull.", { v: Math.round(isFinite(vs) ? vs : 0) }), 9000);
+  } else notify(f.lifts ? T("fBoard", "At the controls — look to steer, stick/W A S D to push, Jump to climb, Down to sink, Use to leave.")
     : T("fHeavy", "Too heavy to lift: {t} kN of thrust against {w} kN of weight — add thrusters or make it lighter.", { t: Math.round(c.thrust), w: Math.round(f.weight) }), 6000);
 }
 
@@ -1478,6 +1529,7 @@ function connect() {
       else if (m.op === "accept") notify(T("qTaken", "Quest taken — see it in your bag."));
       if (talkingTo && m.op !== "drop") net.send({ t: "talk", npc: talkingTo, req: ++net.req });
     } else if (m.t === "hurt") {
+      trace("hurt", { by: m.by, hp: m.hp, at: tracePose([P.face, P.u, P.v, P.h, P.yaw]) });
       // struck (#162): the hearts drop and the screen flashes red
       showHp(m.hp); const f = $("hurtFlash"); f.classList.add("on"); setTimeout(() => f.classList.remove("on"), 120);
       hitFrom(m.at, null, false);
@@ -1486,8 +1538,10 @@ function connect() {
       notify(T("charging", "A {a} is charging you!", { a: animalName(m.by) }), 3000);
       hitFrom(m.at, m.id, true);
     } else if (m.t === "died") {
+      trace("died", { by: m.by, at: tracePose([P.face, P.u, P.v, P.h, P.yaw]), bed: m.bed || null });
       died(m.by, m.bed);
     } else if (m.t === "pos_fix") {
+      trace("pos_fix", { why: m.why, from: tracePose([P.face, P.u, P.v, P.h, P.yaw]), to: tracePose(m.p) });
       // TRAVEL (#167): the world server puts the player where it says — after /tp (the landing, or their bed), or back
       // where it last saw them when the page moved faster than anyone can go
       if (m.why === "nobed") { conLine(T("tpNoBed", "You have no bed yet — Use on a bed you built, and /tp bed takes you there."), "err"); return; }
@@ -1543,11 +1597,13 @@ function connect() {
       notify(T("fGiven", "{w} gave you a craft — you are at its controls.", { w: w.slice(0, 6) + "…" + w.slice(-5) }), 6000);
       if (!flying) board({ craft: m.craft });
     } else if (m.t === "craft_fix") {
+      trace("craft_fix", { craft: m.craft, error: m.error, from: tracePose(flying && flying.pose), to: tracePose(m.pose) });
       // the server held the craft somewhere else (a claim faster than it flies): back to where it holds it
       if (flying && flying.id === m.craft) { flying.pose = m.pose.slice(); flying.vel = [0, 0, 0]; }
     }
   };
   ws.onclose = () => {
+    trace("net_close", { at: tracePose([P.face, P.u, P.v, P.h, P.yaw]) });
     const was = net.online;
     net.online = false; net.ws = null;
     for (const r of others.values()) scene.remove(r.mesh);
@@ -2003,6 +2059,10 @@ function netTick() {
   const sig = ids.join(",");
   if (sig !== net.lastWatch) { net.lastWatch = sig; net.send({ t: "watch", plots: ids }); }
   net.send({ t: "pos", p: [P.face, P.u, P.v, P.h, P.yaw] });
+  // the trace goes up in batches: ten seconds apart, or at once past twenty events (signed in: the file is theirs)
+  if (net.me && TRACE.pending.length && (TRACE.pending.length >= 20 || performance.now() - TRACE.sentAt > 10000)) {
+    TRACE.sentAt = performance.now(); net.send({ t: "trace", events: TRACE.pending.splice(0, 50) });
+  }
 }
 async function builderCheck(plot) {
   if (!net.online || !net.me || mine.has(plot) || !titles.has(plot)) return;
@@ -2165,7 +2225,12 @@ function hud() {
   $("hudPos").textContent = T("where", "Plot {p} · height {h} m", { p: plotLabel(plot), h: Math.round(P.h - Wd.SEA) })
     + (changed ? " · " + T("changed", "{n} {n|one:changed block|other:changed blocks}", { n: changed }) : "")
     + ((plotBoxes.get(plot) || { list: [] }).list.length ? " · " + T("pieces", "{n} {n|one:piece|other:pieces}", { n: plotBoxes.get(plot).list.length }) : "");
-  if (flying) {                                             // at the controls: speed, height over the ground, what lifts it
+  if (flying && flying.aero && flying.aero.winged) {       // an aircraft (#191): airspeed, height, throttle, angle of attack, load
+    const sp = Math.hypot(...flying.vel), up = flying.pose[3] + flying.bottom - groundAt(flying.pose[0], flying.pose[1], flying.pose[2]), air = flying.air || {};
+    $("hudPos").textContent = T("fHudWing", "Flying · {s} m/s · {a} m up · throttle {t} % · attack {aoa}° · {n} g", { s: sp.toFixed(1), a: Math.max(0, up).toFixed(1), t: Math.round(100 * (flying.throttle || 0)), aoa: ((air.alpha || 0) * 180 / Math.PI).toFixed(0), n: (air.n || 0).toFixed(1) })
+      + (air.stalled ? " · " + T("fStall", "STALL — nose down, throttle up") : "");
+    if (flying.nav) $("hudPos").textContent += "\n" + navLine(flying);
+  } else if (flying) {                                      // at the controls: speed, height over the ground, what lifts it
     const sp = Math.hypot(...flying.vel), up = flying.pose[3] + flying.bottom - groundAt(flying.pose[0], flying.pose[1], flying.pose[2]);
     $("hudPos").textContent = T("fHud", "Flying · {s} m/s · {a} m up · thrust {t} kN, weight {w} kN", { s: sp.toFixed(1), a: Math.max(0, up).toFixed(1), t: Math.round(flying.thrust), w: Math.round(flightOf(FLIGHT(), flying.mass, flying.thrust, Planet.gravityAt(flying.pose[3])).weight) })
       + " · " + T("fEngines", "engines {e} %", { e: Math.round(100 * ((flying.engine && flying.engine.throttle) || 0)) });   // the thrust in use (#171)
@@ -3036,7 +3101,7 @@ async function bench() {
 }
 const CMDS = {
   help: () => [["/help", T("cHelp", "this list")], ["/pos", T("cPos", "where you are")], ["/tp spawn | /tp bed", T("cTpTo", "go to the landing, or to your bed")],
-    ["/aim", T("cAim", "what you aim at, and where a block would go")], ["/prof", T("cProf", "the profiler: where each frame's time goes")], ["/dock", T("cDock", "set your landed craft down as pieces")], ["/planet", T("cPlanet", "the planet: its size, gravity, mass, orbits and air")], ["/map", T("cMap", "your map: the land you have surveyed (also M)")], ["/crafts", T("cCrafts", "where your crafts are: distance, bearing, height")], ["/handover <player>", T("cGive", "give your craft to a player — they take its controls")], ["/fly", T("cFly", "fly or walk")], ["/settings", T("cSettings", "your settings")], ["/bench", T("cBench", "measure this device and pick its graphics")], ["/tilt <yaw> <pitch> <roll>", T("cTilt", "turn the piece in hand, in degrees")], ["/set <name> <value>", T("cSet", "change one (e.g. /set fov 90)")],
+    ["/aim", T("cAim", "what you aim at, and where a block would go")], ["/prof", T("cProf", "the profiler: where each frame's time goes")], ["/trace", T("cTrace", "the last events: boarding, leaving, every teleport, hurt, errors")], ["/dock", T("cDock", "set your landed craft down as pieces")], ["/planet", T("cPlanet", "the planet: its size, gravity, mass, orbits and air")], ["/map", T("cMap", "your map: the land you have surveyed (also M)")], ["/crafts", T("cCrafts", "where your crafts are: distance, bearing, height")], ["/handover <player>", T("cGive", "give your craft to a player — they take its controls")], ["/fly", T("cFly", "fly or walk")], ["/settings", T("cSettings", "your settings")], ["/bench", T("cBench", "measure this device and pick its graphics")], ["/tilt <yaw> <pitch> <roll>", T("cTilt", "turn the piece in hand, in degrees")], ["/set <name> <value>", T("cSet", "change one (e.g. /set fov 90)")],
     ["/clear", T("cClear", "clear this log")], ["…", T("cChat", "anything else is chat to the players around you")]].forEach(([c, d]) => conLine(c + " — " + d)),
   pos: () => conLine(`${T("cFace", "face")} ${P.face} · u ${Math.floor(P.u)} · v ${Math.floor(P.v)} · h ${P.h.toFixed(1)} · ${T("cPlot", "plot")} ${Wd.plotOf(P.face, Math.floor(P.u), Math.floor(P.v))}`),
   // /tp (#167): to the landing or to your own bed — nowhere else; going far is walking, flying, or a craft. Signed in, the
@@ -3113,6 +3178,11 @@ const CMDS = {
     piece.tilt = a.map(tenths); pieceInfo(); if (bagOpen()) renderBag();
     conLine(T("tiltInfo", "tilt {y}° {p}° {r}°", { y: piece.tilt[0] / 10, p: piece.tilt[1] / 10, r: piece.tilt[2] / 10 }));
   },
+  trace: () => {
+    const last = TRACE.ring.slice(-25);
+    if (!last.length) return conLine(T("cTraceNone", "No events yet."));
+    for (const e of last) conLine(new Date(e.t).toISOString().slice(11, 19) + " " + e.k + " " + JSON.stringify({ ...e, t: undefined, k: undefined }).slice(0, 160));
+  },
   prof: () => { profToggle(); conLine(PROF.on ? T("cProfOn", "Profiler on — ` (the key left of 1) or /prof closes it.") : T("cProfOff", "Profiler off.")); },
 };
 function conRun(line) {
@@ -3169,6 +3239,10 @@ function wireInput(canvas) {
   document.addEventListener("pointerlockchange", () => { locked = document.pointerLockElement === canvas; if (locked) away(); });
   document.addEventListener("mousemove", (e) => {
     if (!locked) return;
+    if (flying && flying.aero && flying.aero.winged) {       // the stick (#191): right rolls right, back (mouse down) pulls up
+      stick.x += e.movementX * SET.sens / STICK_PX; stick.y += e.movementY * SET.sens * (SET.invert ? -1 : 1) / STICK_PX;
+      return;
+    }
     P.yaw += e.movementX * 0.0024 * SET.sens; P.pitch = Math.max(-1.55, Math.min(1.55, P.pitch - e.movementY * 0.0024 * SET.sens * (SET.invert ? -1 : 1)));
   });
   document.addEventListener("mousedown", (e) => { if (!locked) return; if (e.button === 0) { mouseHeld = true; act(false, true); } else if (e.button === 2) act(true); });
@@ -3213,7 +3287,11 @@ function wireInput(canvas) {
     canvas.addEventListener("touchmove", (e) => {
       for (const t of e.changedTouches) {
         if (t.identifier === stickId) { touch.mx = Math.max(-1, Math.min(1, (t.clientX - sx) / 50)); touch.my = Math.max(-1, Math.min(1, -(t.clientY - sy) / 50)); }
-        if (t.identifier === lookId) { P.yaw += (t.clientX - lx) * 0.006; P.pitch = Math.max(-1.55, Math.min(1.55, P.pitch - (t.clientY - ly) * 0.006)); lx = t.clientX; ly = t.clientY; }
+        if (t.identifier === lookId) {
+          if (flying && flying.aero && flying.aero.winged) { stick.x += (t.clientX - lx) * 2.5 / STICK_PX; stick.y += (t.clientY - ly) * 2.5 / STICK_PX; }   // the stick (#191)
+          else { P.yaw += (t.clientX - lx) * 0.006; P.pitch = Math.max(-1.55, Math.min(1.55, P.pitch - (t.clientY - ly) * 0.006)); }
+          lx = t.clientX; ly = t.clientY;
+        }
       }
       e.preventDefault();
     }, { passive: false });
@@ -3958,7 +4036,8 @@ function frame(now) {
   pt("step", () => { for (let left = dt; left > 1e-6; left -= STEP_DT) step(Math.min(STEP_DT, left)); });
   pt("break", () => { breakTick(dt); levelTick(now); });
   const cam = eyePos(), { fr, fw } = look();
-  camera.up.set(fr.up[0], fr.up[1], fr.up[2]);
+  const cu = craftUp || fr.up;                              // flying an aircraft the camera rolls with it (#191)
+  camera.up.set(cu[0], cu[1], cu[2]);
   camera.lookAt(fw[0], fw[1], fw[2]);
   hemi.position.set(fr.up[0], fr.up[1], fr.up[2]);     // "up" is radial on a planet: three's hemisphere light assumes +Y
   for (const c of chunks.values()) if (c.anchor) for (const me of c.meshes) me.position.set(c.anchor[0] - cam[0], c.anchor[1] - cam[1], c.anchor[2] - cam[2]);

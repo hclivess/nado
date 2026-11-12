@@ -145,7 +145,7 @@ async def main():
         # the flight: pose reports within the craft's top speed, up to 500 m — one every 0.2 s as the page sends them
         h = cp[3]
         for _ in range(12):
-            h += min(RULES["flight"]["vmax"] * 0.2 * 0.9, 500)
+            h += min(RULES["flight"]["vmax"] * 0.2 * 0.9, 25)            # (25 m a report: well under the top speed and the world's ceiling)
             await ws.send_json({"t": "fly", "craft": craft, "pose": [cp[0], cp[1], cp[2], h, 0.0]})
             await asyncio.sleep(0.2)
         st = next(s for s in hub.socks.values() if s.get("who") == me)
@@ -162,6 +162,48 @@ async def main():
         fixes = [m for m in got if m.get("t") == "pos_fix"]
         st = next(s for s in hub.socks.values() if s.get("who") == me)
         check("a pos report beside the craft is not refused as a journey from the boarding spot", not fixes and abs(st["pos"][3] - h) < 0.01, (fixes, st["pos"]))
+        # an AIRCRAFT's pose (#191) carries pitch and roll: seven numbers, kept; angles past a full turn are refused
+        err = world.fly(me, craft, [cp[0], cp[1], cp[2], h, 0.3, -0.2, 0.9])
+        check("a seven-number pose (yaw, pitch, roll) is taken and kept whole", err is None and len(world.crafts[craft]["pose"]) == 7 and world.crafts[craft]["pose"][6] == 0.9, (err, world.crafts[craft]["pose"]))
+        err = world.fly(me, craft, [cp[0], cp[1], cp[2], h, 0.3, 9.0, 0.0])
+        check("…a pitch past a half turn is not a place", err == "not a place", err)
+        err = world.fly(me, craft, [cp[0], cp[1], cp[2], h, -14.647, 0.1, 0.0])
+        check("…but a yaw of many turns is (the X-wing's parked yaw was -14.647: the page counts turns)", err is None, err)
+        # an aircraft lands and is set down as pieces with its seven-number pose (dock unpacked five, and an aircraft could
+        # never be docked, 2026-11-12)
+        while h > cp[3] + 1:                                        # back down, 25 m a report (the top speed bounds a report)
+            h = max(cp[3], h - 25); err = world.fly(me, craft, [cp[0], cp[1], cp[2], h, 0.0, 0.0, 0.0])
+            check("…a report on the way down is taken", err is None, err) if err else None
+        world.crafts[craft]["pilot"] = me
+        dp, dadd, derr = await world.dock(me, craft)
+        check("a craft with a seven-number pose is set down as pieces by /dock", err is None and derr is None and dp == PA and len(dadd) == 3, (err, derr, dp, dadd))
+        cobj, parts, err = await world.board(me, PA, [b for b in dadd if b[6] == SEAT][0])
+        check("…and boarded again", err is None and cobj, err)
+        craft = cobj["id"]; cp = world.crafts[craft]["pose"]; h = cp[3]
+        for _ in range(4):
+            h += 25; err = world.fly(me, craft, [cp[0], cp[1], cp[2], h, 0.3, 0.0, 0.0])
+        check("…flown up again", err is None, err)
+        # the crafts API (GET /land/api/crafts near a place) lists the flying craft at its CURRENT pose (#191: a page test
+        # found it missing after a short roll)
+        near = await (await c.get(f"/land/api/crafts?face={cp[0]}&u={cp[1]}&v={cp[2]}")).json()
+        check("the crafts API lists the flying craft at its current pose", any(x["id"] == craft and abs(x["pose"][3] - h) < 0.01 for x in near.get("crafts", [])), near)
+        far = await (await c.get(f"/land/api/crafts?face={cp[0]}&u={cp[1] + 150}&v={cp[2] + 150}")).json()
+        check("…and from 212 m away too (within its 192 m square)", any(x["id"] == craft for x in far.get("crafts", [])), far)
+        # THE EVENT TRACE (#194): the page's events land in the player's bounded trace file, with the server's time
+        await ws.send_json({"t": "trace", "events": [{"t": 1700000000000, "k": "leave", "craft": craft, "from": [0, 1, 2, 3, 0], "to": [0, 2, 2, 3, 0], "tried": 2}, {"k": 5}, "junk"]})
+        await asyncio.sleep(0.4)
+        tp = os.path.join(data, "trace", me + ".jsonl")
+        lines = open(tp).read().splitlines() if os.path.exists(tp) else []
+        check("a trace batch is kept, one line an event, the malformed ones dropped, the server's time added", len(lines) == 1 and json.loads(lines[0])["k"] == "leave" and "srv" in json.loads(lines[0]), lines)
+        big = [{"t": 1, "k": "x", "pad": "p" * 1000} for _ in range(50)]
+        for _ in range(30):
+            world.trace_append(me, big)
+        size = os.path.getsize(tp)
+        check("…and the file stays bounded (cut to its newest half megabyte)", world.TRACE_KEEP // 2 < size <= 2 * world.TRACE_KEEP + 2000, size)
+        check("…every kept line whole", all(json.loads(l)["k"] == "x" for l in open(tp).read().splitlines()[1:]))
+        check("a visitor's trace is not kept", world.trace_append(None, big) == 0 and world.trace_append("", big) == 0)
+        err = world.fly(me, craft, [cp[0], cp[1], cp[2], h, 0.3, 0.0])
+        check("…and six numbers are no pose", err == "not a place", err)
     finally:
         await ws.close()
     await c.close(); await ex.close(); await world.http.close()

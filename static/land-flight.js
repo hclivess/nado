@@ -21,6 +21,227 @@
 //     it can always fly out and never further in.
 
 import { gravityAt, airAt, FLAT_PLATE_CD, SEA_LEVEL } from "./land-planet.js";
+import * as Shapes from "./land-shapes.js";
+
+// ---- A WINGED CRAFT FLIES AS AN AIRCRAFT (#191; operator 2026-11-11, after the X-wing's first flight: "it does not react
+// to turning at all, there is absolutely no aerodynamic system", "vertical movement is laughable and only works on
+// rockets with bottom engine", "gravity does not affect the x fighter at all"). Until then every craft was the hovering
+// point below (craftStep's rocket branch): yaw snapped to the mouse, the velocity ignored the nose, nothing depended on
+// airspeed. Now a craft's PARTS say how it flies (aeroOf):
+//   * every ENGINE part pushes along its own length, from its exhaust toward its intake (land-shapes ENGINE_PROFILE: the
+//     glow at z 0, the throat at z 1); a unit thruster block pushes up (a rocket's bottom engine). Their sum is the
+//     craft's thrust vector in its own frame — the X-wing's four engines push along its nose and give it NO lift;
+//   * every WING part is lifting area S (its planform: span × chord × (1 + taper) / 2) and the wings' reach is the span b;
+//   * with S > 0 or a nose-ward thrust the craft is an aircraft (c.aero.winged): it has an attitude (pose[5] pitch,
+//     pose[6] roll), gravity always pulls, and the forces are the textbook ones, each cited to the research mirror
+//     (/root/land-research/flight/, INDEX.md): lift L = ½ρv²SC_L (Lift (force) l.202), C_L = 2πα for a thin aerofoil
+//     (Lift coefficient l.56) reduced for the finite wing by AR/(AR + 2) [a textbook (lifting-line) approximation — NOT
+//     in the mirror, labelled as such], a stall past the critical angle (Stall l.6-8: "a sudden reduction in lift";
+//     l.27: 17.5° in the example, "varies from airfoil to airfoil"), drag C_D = C_D0 + C_L²/(π·AR·e) (Lift-induced drag
+//     l.39, AR = b²/S l.42; C_D0 0.021 = the F-4 Phantom subsonic, Drag coefficient l.115; e 0.7–0.85, Oswald efficiency
+//     number l.25), a bank that turns the path with the lift's horizontal part and needs n = 1/cos φ of it (Banked turn
+//     l.118, l.130), and a limiter that holds the angle of attack where the structure's load factor allows (Angle of
+//     attack l.26: fly-by-wire aircraft limit the angle of attack regardless of pilot input).
+//   * the pilot's stick PITCHES and ROLLS it, the rudder yaws it (Flight control surfaces l.8: aileron, rudder, elevator
+//     control roll, yaw, pitch) — with an AUTHORITY that grows with airspeed, as a control surface only works in a
+//     flow (l.4): at a standstill nothing turns, at V_CTRL everything does; and the nose weathervanes toward the
+//     velocity (static stability), so a stalled craft drops its nose into its fall by itself;
+//   * on the ground it rolls along its nose on its gear, steers with the rudder, brakes with the throttle shut, and
+//     rotates only once its wings can carry it — it leaves the ground when lift beats weight, never on a key.
+// The numbers the sources do not give are DESIGN CHOICES in land-recipes.json "flight".aero, each labelled there.
+// NOT yet: wind, ground effect, the wings' own tilt (the X-wing's are rolled ±18° — all their area counts as level),
+// collision with pitch and roll (bodyHits turns the body by yaw alone), damage.
+const DEG = Math.PI / 180;
+/** The aero defaults — the recipes' "flight".aero overrides any of them (every one labelled there). */
+export const AERO_DEF = { cd0: 0.021, e: 0.8, stall_deg: 15, n_max: 9, v_ctrl: 40, roll_dps: 150, pitch_dps: 40, yaw_dps: 20, stab: 1.5, roll_damp: 2.0, gear_brake: 3.0, gear_roll: 0.6, side_cd: FLAT_PLATE_CD };
+/** A piece's tilt (land-world rotOf: yaw, pitch, roll in tenths of a degree) applied to a direction in the piece's own
+ *  frame (x east, y north, z up): yaw about z (from north toward east), then pitch about x (nose up), then roll about y. */
+export function tiltDir(b, d) {
+  const r = b.length > 8 ? [b[8] || 0, b[9] || 0, b[10] || 0] : [0, 0, 0];
+  let [x, y, z] = d;
+  const [ya, pa, ra] = r.map((t) => (t / 10) * DEG);
+  // yaw: a vector along north turns toward east
+  [x, y] = [x * Math.cos(ya) + y * Math.sin(ya), -x * Math.sin(ya) + y * Math.cos(ya)];
+  // pitch: north rises toward up
+  [y, z] = [y * Math.cos(pa) - z * Math.sin(pa), y * Math.sin(pa) + z * Math.cos(pa)];
+  // roll: east dips toward -up
+  [x, z] = [x * Math.cos(ra) - z * Math.sin(ra), x * Math.sin(ra) + z * Math.cos(ra)];
+  return [x, y, z];
+}
+/** What a craft's parts make of it in the air: { winged, S (m² of wing), b (m span), AR, T: [right, nose, up] kN of thrust
+ *  by direction in the craft's frame, side (m² the body shows the side wind), len (m nose to tail) }. `thrustOf(b)` gives a
+ *  piece's thrust in kN (land.js: the thruster count × thrust_kn; a test passes its own). */
+export function aeroOf(pieces, boxAabb, thrustOf) {
+  let S = 0, lo = Infinity, hi = -Infinity, T = [0, 0, 0], ylo = Infinity, yhi = -Infinity, zlo = Infinity, zhi = -Infinity;
+  for (const b of pieces) {
+    const a = boxAabb(b), part = b.length > 7 ? Shapes.decode(b[7]) : null;
+    ylo = Math.min(ylo, a[1]); yhi = Math.max(yhi, a[1] + a[4]); zlo = Math.min(zlo, a[2]); zhi = Math.max(zhi, a[2] + a[5]);
+    if (part && part.type === Shapes.WING) {
+      const t = (part.v + 1) / 10;                                 // Shapes.tapered: variant = taper × 10 − 1
+      S += (b[3] / 100) * (b[4] / 100) * (1 + t) / 2;
+      lo = Math.min(lo, a[0]); hi = Math.max(hi, a[0] + a[3]);
+    }
+    const kn = thrustOf(b);
+    if (kn > 0) {
+      const d = part && part.type === Shapes.ENGINE ? tiltDir(b, [0, 1, 0]) : [0, 0, 1];   // an engine along its length; a thruster block up
+      T[0] += kn * d[0]; T[1] += kn * d[1]; T[2] += kn * d[2];
+    }
+  }
+  const b = S > 0 ? (hi - lo) / 100 : 0, len = isFinite(yhi) ? (yhi - ylo) / 100 : 0, tall = isFinite(zhi) ? (zhi - zlo) / 100 : 0;
+  return { winged: S > 0 || Math.abs(T[1]) > 1e-9, S, b, AR: S > 0 ? (b * b) / S : 0, T, side: len * tall, len };
+}
+/** The craft's axes in the local frame (east, north, up) for yaw ψ (from north toward east), pitch θ (nose up), roll φ
+ *  (right wing down): { nose, right, up } as [e, n, u] unit vectors. */
+export function axesOf(yaw, pitch, roll) {
+  const n0 = [Math.sin(yaw), Math.cos(yaw), 0], r0 = [Math.cos(yaw), -Math.sin(yaw), 0], u0 = [0, 0, 1];
+  const cp = Math.cos(pitch), sp = Math.sin(pitch), cr = Math.cos(roll), sr = Math.sin(roll);
+  const nose = [n0[0] * cp, n0[1] * cp, sp], upP = [-n0[0] * sp, -n0[1] * sp, cp];
+  // positive roll: the right wing DOWN (the right axis dips below the pitched-up plane), the up axis leans to the right
+  const right = [r0[0] * cr - upP[0] * sr, r0[1] * cr - upP[1] * sr, r0[2] * cr - upP[2] * sr];
+  const up = [upP[0] * cr + r0[0] * sr, upP[1] * cr + r0[1] * sr, upP[2] * cr + r0[2] * sr];
+  return { nose, right, up };
+}
+/** yaw, pitch, roll back from the axes (the inverse of axesOf). */
+export function anglesOf({ nose, right }) {
+  const yaw = Math.atan2(nose[0], nose[1]), pitch = Math.asin(Math.max(-1, Math.min(1, nose[2])));
+  const r0 = [Math.cos(yaw), -Math.sin(yaw), 0], n0 = [Math.sin(yaw), Math.cos(yaw), 0], sp = Math.sin(pitch), cp = Math.cos(pitch);
+  const upP = [-n0[0] * sp, -n0[1] * sp, cp];
+  return [yaw, pitch, Math.atan2(-dot(right, upP), dot(right, r0))];
+}
+const dot = (a, b) => a[0] * b[0] + a[1] * b[1] + a[2] * b[2];
+const cross = (a, b) => [a[1] * b[2] - a[2] * b[1], a[2] * b[0] - a[0] * b[2], a[0] * b[1] - a[1] * b[0]];
+const norm = (a) => { const l = Math.hypot(a[0], a[1], a[2]); return l > 0 ? [a[0] / l, a[1] / l, a[2] / l] : [0, 0, 0]; };
+const add = (a, b, k = 1) => [a[0] + b[0] * k, a[1] + b[1] * k, a[2] + b[2] * k];
+/** The lift coefficient at angle of attack α (rad) for aspect ratio AR: 2πα (thin aerofoil) × AR / (AR + 2) up to the
+ *  critical angle, then the sudden fall of a stall to a third of the peak over the next ten degrees, and from there
+ *  down to NOTHING at 60° and beyond (a plate broadside to the flow lifts nothing; a craft rising straight up on a
+ *  lifting engine met its wings at −90° and was flung sideways by a third of their lift, 2026-11-12). */
+export function liftCoef(alpha, AR, stallDeg) {
+  const slope = 2 * Math.PI * (AR > 0 ? AR / (AR + 2) : 0), as = stallDeg * DEG, a = Math.abs(alpha), sg = Math.sign(alpha);
+  if (a <= as) return slope * alpha;
+  const post = slope * as * Math.max(0.33, 1 - (a - as) / (10 * DEG) * 0.67);
+  return sg * post * Math.max(0, Math.min(1, (60 * DEG - a) / (60 * DEG - as - 10 * DEG)));
+}
+/** The wing's drag coefficient past the stall: a plate's form drag grows with the square of the sine of its angle to
+ *  the flow, to a flat plate's broadside value at 90° (Drag coefficient: 1.28 for a flat plate square to the flow). */
+export const stallDrag = (alpha) => FLAT_PLATE_CD * Math.sin(alpha) * Math.sin(alpha);
+/** The speed (m/s) at which the wings carry the weight at the critical angle in the air at height h: the lowest it flies. */
+export function stallSpeed(c, F, h = c.pose[3]) {
+  const A = { ...AERO_DEF, ...(F.aero || {}) }, rho = airAt(h - SEA_LEVEL).rho, clmax = liftCoef(A.stall_deg * DEG, c.aero.AR, A.stall_deg);
+  return rho > 0 && c.aero.S > 0 && clmax > 0 ? Math.sqrt((2 * c.mass * 1000 * gravityAt(h)) / (rho * c.aero.S * clmax)) : Infinity;
+}
+/**
+ * One step of an aircraft (c.aero.winged): input = { pitch (-1..1, pull +), roll (-1..1, right +), yaw (rudder, right +),
+ * throttle (0..1), up/down (the vertical thrusters, if any) }. Pose [face, u, v, h, yaw, pitch, roll]; vel [east, north, up].
+ */
+export function aircraftStep(c, input, dt, F, groundAt, hits) {
+  const A = { ...AERO_DEF, ...(F.aero || {}) }, ae = c.aero;
+  const gr = gravityAt(c.pose[3]), [face, u0, v0, h0] = c.pose;
+  let yaw = c.pose[4], pitch = c.pose[5] || 0, roll = c.pose[6] || 0;
+  let v = c.vel.slice();
+  const V = Math.hypot(v[0], v[1], v[2]), rho = airAt(h0 - SEA_LEVEL).rho, q = 0.5 * rho * V * V;
+  const m = c.mass * 1000, W = m * gr, auth = Math.min(1, V / A.v_ctrl);
+  let ax = axesOf(yaw, pitch, roll);
+  c.throttle = Math.max(0, Math.min(1, input.throttle ?? c.throttle ?? 0));
+  // ---- the attitude: the pilot's rates (in the flow), the weathervane toward the velocity, the gear on the ground
+  const vhat = V > 0.5 ? norm(v) : null;
+  let w = [0, 0, 0];                                                    // angular velocity (rad/s) in the local frame
+  const cmd = (k, axis, rate) => { w = add(w, axis, k * rate * DEG * auth); };
+  if (!c.grounded) {
+    cmd(Math.max(-1, Math.min(1, input.roll || 0)), ax.nose, A.roll_dps);
+    cmd(Math.max(-1, Math.min(1, input.pitch || 0)), ax.right, A.pitch_dps);
+    cmd(Math.max(-1, Math.min(1, input.yaw || 0)), ax.up, -A.yaw_dps);     // rudder right: the nose turns toward the right wing
+    // static stability: the nose follows the flow — the tail's doing, which works while the flow is near the nose's
+    // line and not at all broadside (a craft rising straight up on a lifting engine weathervaned its nose into its own
+    // climb, tilted its thrust back and was flung off at 75 m/s, 2026-11-12): full under 20° off the nose, none at 60°
+    if (vhat) {
+      const off = Math.acos(Math.max(-1, Math.min(1, dot(vhat, ax.nose)))), weather = Math.max(0, 1 - Math.max(0, off - 20 * DEG) / (40 * DEG));
+      w = add(w, cross(ax.nose, vhat), A.stab * auth * weather);
+    }
+    if (!input.roll) w = add(w, ax.nose, 0);                              // (no self-levelling: a bank is the pilot's to hold)
+  } else {
+    // on its gear: level, the rudder steers, and the nose comes up only when the wings nearly carry it
+    const vs = stallSpeed(c, F, h0);
+    w = add(w, ax.up, -(input.yaw || 0) * A.gear_roll * Math.min(1, V / 5));
+    const wantPitch = V >= 0.7 * vs && (input.pitch || 0) > 0 ? 12 * DEG * input.pitch : 0;
+    pitch += (wantPitch - pitch) * Math.min(1, 4 * dt);
+    roll += (0 - roll) * Math.min(1, 4 * dt);
+    ax = axesOf(yaw, pitch, roll);
+  }
+  if (w[0] || w[1] || w[2]) {
+    const rot = (p) => norm(add(p, cross(w, p), dt));
+    ax = { nose: rot(ax.nose), right: rot(ax.right), up: rot(ax.up) };
+    // re-squared after the small turns: right stays square to the nose, up = right × nose (nose × right points DOWN —
+    // the first run flew with its lift inverted on that one sign, 2026-11-11)
+    ax.right = norm(add(ax.right, ax.nose, -dot(ax.right, ax.nose))); ax.up = cross(ax.right, ax.nose);
+    [yaw, pitch, roll] = anglesOf(ax);
+  }
+  // ---- the forces (N), in the local frame
+  let Fv = [0, 0, -W];                                                   // gravity always pulls (the operator's third point)
+  const Tn = ae.T[1] * 1000 * c.throttle, Tr = ae.T[0] * 1000 * c.throttle;
+  const Tu = ae.T[2] * 1000 * (input.up ? 1 : input.down ? 0 : (c.grounded ? 0 : Math.min(1, W / Math.max(1, ae.T[2] * 1000))));
+  Fv = add(Fv, ax.nose, Tn); Fv = add(Fv, ax.right, Tr); Fv = add(Fv, ax.up, Tu);
+  let alpha = 0, beta = 0, CL = 0, n = 0, stalled = false;
+  if (vhat && rho > 0) {
+    alpha = Math.atan2(-dot(vhat, ax.up), dot(vhat, ax.nose));
+    beta = Math.asin(Math.max(-1, Math.min(1, dot(vhat, ax.right))));
+    CL = liftCoef(alpha, ae.AR, A.stall_deg);
+    stalled = Math.abs(alpha) > A.stall_deg * DEG;
+    // the load limiter: no more lift than the structure's n_max weights (Angle of attack l.26)
+    const Lmax = A.n_max * W;
+    if (Math.abs(q * ae.S * CL) > Lmax) CL = Math.sign(CL) * Lmax / (q * ae.S);
+    const L = q * ae.S * CL, lhat = norm(add(ax.up, vhat, -dot(ax.up, vhat)));
+    const CD = A.cd0 + (ae.AR > 0 ? (CL * CL) / (Math.PI * ae.AR * A.e) : 0) + (stalled ? stallDrag(alpha) : 0), D = q * ae.S * CD;
+    const Y = -q * ae.side * A.side_cd * Math.sin(beta);
+    Fv = add(Fv, lhat, L); Fv = add(Fv, vhat, -D); Fv = add(Fv, ax.right, Y);
+    n = L / W;
+  }
+  v = add(v, Fv, dt / m);
+  // ---- the gear: on the ground it rolls along its nose OVER THE GROUND, brakes with the throttle shut; it rises only
+  // when the forces on it point up (lift and the thrust's upward part over its weight) — never by the nose's angle alone:
+  // projecting the velocity onto a pitched nose bounced it off the strip every other step and ate the thrust (the first
+  // run froze at 46 m/s, 2026-11-11)
+  if (c.grounded) {
+    const nh = norm([ax.nose[0], ax.nose[1], 0]), along = dot(v, nh), fr = (c.throttle > 0.05 ? 0.3 : A.gear_brake) * dt;
+    const kept = Math.sign(along) * Math.max(0, Math.abs(along) - fr);
+    v = [nh[0] * kept, nh[1] * kept, Fv[2] > 0 ? v[2] : 0];
+  }
+  const sp = Math.hypot(v[0], v[1], v[2]);
+  if (sp > F.vmax) { const k = F.vmax / sp; v = [v[0] * k, v[1] * k, v[2] * k]; }
+  let u = u0 + v[0] * dt, vv = v0 + v[1] * dt, h = h0 + v[2] * dt;
+  const g = groundAt(u, vv);
+  if (h + c.bottom <= g) { h = g - c.bottom; if (v[2] < 0) v[2] = 0; if (!c.grounded) { pitch = Math.max(0, pitch); } c.grounded = true; }
+  else c.grounded = false;
+  // its body against the world: as craftStep (turned by yaw alone — a known limit)
+  c.bumped = false;
+  if (hits) {
+    let base = new Set(hits([face, u0, v0, h0, c.pose[4]]));
+    const into = (pose) => { const ins = hits(pose); if (ins.some((i) => !base.has(i))) return true; base = new Set(ins); return false; };
+    const du = u - u0, dv = vv - v0, dh = h - h0, N = Math.max(1, Math.ceil(Math.hypot(du, dv, dh) / SWEEP)), keep = [1, 1, 1];
+    let pu = u0, pv = v0, ph = h0;
+    for (let k = 0; k < N; k++) {
+      const tu = pu + keep[0] * du / N, tv = pv + keep[1] * dv / N, th = ph + keep[2] * dh / N;
+      if (!into([face, tu, tv, th, yaw])) { pu = tu; pv = tv; ph = th; continue; }
+      c.bumped = true;
+      const tries = [[1, 1, 0], [1, 0, 1], [0, 1, 1], [1, 0, 0], [0, 1, 0], [0, 0, 1]];
+      const t = tries.find(([a, b, d]) => !into([face, a ? tu : pu, b ? tv : pv, d ? th : ph, yaw])) || [0, 0, 0];
+      for (let i = 0; i < 3; i++) if (!t[i]) keep[i] = 0;
+      if (t[0]) pu = tu; if (t[1]) pv = tv; if (t[2]) ph = th;
+      if (!keep[0] && !keep[1] && !keep[2]) break;
+    }
+    if (!keep[0]) v[0] = 0; if (!keep[1]) v[1] = 0; if (!keep[2]) v[2] = 0;
+    if (!keep[2] && dh < 0) c.grounded = true;
+    u = pu; vv = pv; h = ph;
+  }
+  c.pose = [face, u, vv, h, yaw, pitch, roll];
+  c.vel = v;
+  c.air = { V, alpha, beta, n, stalled, auth, q };
+  // the engines' work, for the exhaust everyone sees (#171): the throttle, and the thrust's direction in the ground plane
+  const dir = Math.hypot(ax.nose[0], ax.nose[1]) > 1e-6 ? norm([ax.nose[0], ax.nose[1], 0]) : [0, 0, 0];
+  const lift = ae.T[2] > 0 ? Tu / (ae.T[2] * 1000) : 0, push = Math.abs(ae.T[1]) > 0 ? c.throttle : 0;
+  c.engine = { lift, push, throttle: Math.min(1, lift + push), dir: [dir[0], dir[1]] };
+  return c;
+}
 
 // THE NAV UNIT (#173, doc/land-navigation.md 1.4): a craft holding one knows where it is by DEAD RECKONING — from a known
 // position (a fix), advanced by its measured motion (Dead reckoning l.7) — as an inertial navigation system does, and with
@@ -100,6 +321,21 @@ export function bodyInside(body, pose, solid) {
   return out;
 }
 
+/** STEPPING OFF (#194; operator 2026-11-12: "i exited the xfighter and fell into the townhall wall"): the pilot left the
+ *  seat 1.5 m to the craft's right at the ground's height — whatever stood there. Now the spots around the seat are
+ *  tried in order (right, left, behind, ahead, then wider) and the first FREE one is taken: `free(u, v)` says whether a
+ *  player's body stands clear there (land.js collides at the ground's height). None free: null — the pilot stays put.
+ *  Returns { u, v, tried } (tried: how many spots were looked at, for the trace). */
+export function stepOffSpot(u, v, yaw, free) {
+  const r = [Math.cos(yaw), -Math.sin(yaw)], f = [Math.sin(yaw), Math.cos(yaw)];
+  const spots = [[r, 1.5], [r, -1.5], [f, -2.0], [f, 2.5], [r, 3.0], [r, -3.0], [f, -3.5], [f, 4.0], [r, 4.5], [r, -4.5]];
+  for (let i = 0; i < spots.length; i++) {
+    const [d, k] = spots[i], su = u + d[0] * k, sv = v + d[1] * k;
+    if (free(su, sv)) return { u: su, v: sv, tried: i + 1 };
+  }
+  return null;
+}
+
 /**
  * Advance craft c by dt seconds. c = { pose: [face, u, v, h, yaw], vel: [vu, vv, vh], mass, thrust, bottom (m: its
  * lowest piece below the seat, ≤ 0), grounded }. input = { fwd: -1..1, side: -1..1, up: bool, down: bool, yaw }.
@@ -108,6 +344,7 @@ export function bodyInside(body, pose, solid) {
  * Returns c.
  */
 export function craftStep(c, input, dt, F, groundAt, hits) {
+  if (c.aero && c.aero.winged) return aircraftStep(c, input, dt, F, groundAt, hits);   // an aircraft (#191): see above
   const gr = gravityAt(c.pose[3]);                                     // gravity at its height (#174): g (R/r)²
   const { acc, lifts } = flightOf(F, c.mass, c.thrust, gr);
   const [face, u0, v0, h0] = c.pose;

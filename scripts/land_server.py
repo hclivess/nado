@@ -441,6 +441,7 @@ CRAFT_PAD = 2                     # cm: pieces this close count as touching (one
                                   # 270° and took off again as 228 of its 267 pieces (2026-11-11). land.js craftSeat agrees.
 CRAFT_PIECES = 400                # pieces one craft holds at most
 CRAFT_SLACK = 12.0                # m a pose may run ahead of vmax x the time since the last (a slow network's bunching)
+FAR_R = 2600.0                    # m: the farthest a page may ask for the built land's far view (#193; the page asks 2 km)
 CHARGE_RISE = 8.0                 # m above or below itself an animal still charges a player — DESIGN CHOICE (#192): a hillside
                                   # it runs up, never the air; the strike itself stays within 2.5 m (herd)
 
@@ -2330,14 +2331,16 @@ class World:
         c = self.crafts.get(cid)
         if not c or c["pilot"] != who:
             return "you are not flying that"
-        if not (isinstance(pose, list) and len(pose) == 5 and all(isinstance(x, (int, float)) and not isinstance(x, bool) for x in pose)
-                and pose[0] == c["pose"][0] and 0 <= pose[1] < W and 0 <= pose[2] < W and DEEP_MIN <= pose[3] < H + 400):
+        # a pose is [face, u, v, h, yaw] or, for an aircraft (#191), [face, u, v, h, yaw, pitch, roll] in radians
+        if not (isinstance(pose, list) and len(pose) in (5, 7) and all(isinstance(x, (int, float)) and not isinstance(x, bool) and math.isfinite(x) for x in pose)
+                and pose[0] == c["pose"][0] and 0 <= pose[1] < W and 0 <= pose[2] < W and DEEP_MIN <= pose[3] < H + 400
+                and all(abs(x) <= math.pi for x in pose[5:])):           # (pitch and roll within a half turn; the yaw is the page's own count of turns, unbounded)
             return "not a place"
         now = time.time()
         far = math.dist(pose[1:4], c["pose"][1:4])
         if far > FLIGHT["vmax"] * max(0.05, now - c["at"]) + CRAFT_SLACK:
             return "faster than it can fly"
-        c["pose"] = [int(pose[0]), round(float(pose[1]), 3), round(float(pose[2]), 3), round(float(pose[3]), 3), round(float(pose[4]), 4)]
+        c["pose"] = [int(pose[0]), round(float(pose[1]), 3), round(float(pose[2]), 3), round(float(pose[3]), 3)] + [round(float(x), 4) for x in pose[4:]]
         c["at"] = now; self.cdirty = True
         self.survey_at(who, c["pose"])                              # a pilot carrying a map surveys from the air (#173)
         # THE ENGINES' WORK (#171): [throttle, lift, du, dv] as the pilot's page computes it (land-flight.js engine) —
@@ -2385,7 +2388,7 @@ class World:
             return None, [], "not your craft"
         if c["pilot"] and c["pilot"] != who:
             return None, [], "someone is flying it"
-        face, u, v, h, yaw = c["pose"]
+        face, u, v, h, yaw = c["pose"][:5]                              # (an aircraft's pose carries pitch and roll too, #191)
         p = plot_of(face, int(u), int(v))
         if (await self.holder(p)) is not None and not await self.may_build(p, who):
             return None, [], "not your plot — land where you may build to set it down"
@@ -2407,6 +2410,58 @@ class World:
         del self.crafts[cid]
         self.dirty.add(p); self.cdirty = True
         return p, add, None
+
+    # THE EVENT TRACE (#194): what a page saw happen to its player — boarding, leaving, every move of the body the player
+    # did not make, hurt, death, errors — appended to trace/<address>.jsonl, the newest TRACE_KEEP bytes kept (the file
+    # is cut to its last lines when it grows past twice that), one line an event with the server's time added.
+    # scripts/land_trace.py <address> reads it. Nothing goes unlogged (the operator, 2026-11-12).
+    TRACE_KEEP = 512 * 1024
+    def trace_append(self, who, events):
+        if not who or not isinstance(events, list):
+            return 0
+        d = os.path.join(self.dir, "trace"); os.makedirs(d, exist_ok=True)
+        path, now, n = os.path.join(d, who + ".jsonl"), round(time.time(), 3), 0
+        with open(path, "a") as f:
+            for e in events[:50]:
+                if not isinstance(e, dict) or not isinstance(e.get("k"), str):
+                    continue
+                line = json.dumps(dict(e, srv=now), separators=(",", ":"))
+                if len(line) > 2000:
+                    continue
+                f.write(line + "\n"); n += 1
+        if os.path.getsize(path) > 2 * self.TRACE_KEEP:
+            with open(path, "rb") as f:
+                f.seek(-self.TRACE_KEEP, 2); tail = f.read()
+            tail = tail[tail.find(b"\n") + 1:]
+            tmp = path + ".tmp"
+            with open(tmp, "wb") as f:
+                f.write(tail)
+            os.replace(tmp, path)
+        return n
+
+    # THE FAR VIEW OF THE BUILT LAND (#193; operator 2026-11-12: "the village is only visible from like 50 meters away,
+    # this means that large cities will be completely invisible - we must fix this, and efficiently so"): every plot
+    # with pieces within `r` metres of a place, each piece reduced to its bounding box and its block (what a page draws
+    # at a kilometre: a box of the block's colour), with the plot's version so a page refetches only what changed.
+    def far_view(self, face, u, v, r, since=None):
+        out = []
+        for p, rec in self.plots.items():
+            boxes = rec.get("boxes") or []
+            if not boxes:
+                continue
+            pf, prow, pcol = plot_coords(p)
+            u0, v0 = pcol * PLOT, prow * PLOT
+            if pf != face or max(u0 - u, 0, u - u0 - PLOT) > r or max(v0 - v, 0, v - v0 - PLOT) > r:
+                continue
+            if since is not None and since.get(str(p)) == rec["ver"]:
+                out.append({"plot": p, "ver": rec["ver"]})               # unchanged: the page keeps what it has
+                continue
+            far = []
+            for b in boxes:
+                a = box_aabb(b)
+                far.append([int(a[0]), int(a[1]), int(a[2]), int(a[3]), int(a[4]), int(a[5]), int(b[6])])
+            out.append({"plot": p, "ver": rec["ver"], "boxes": far})
+        return out
 
     def crafts_near(self, pos, near):
         return [c for c in self.crafts.values() if c["pose"][0] == pos[0] and abs(c["pose"][1] - pos[1]) < near and abs(c["pose"][2] - pos[2]) < near]
@@ -3046,6 +3101,20 @@ def make_app(world, hub, site_origin, wallet_url, secure_cookies=True, shot_page
             raise web.HTTPBadRequest(text="no such plot")
         return p
 
+    async def far_api(request):
+        """GET /land/api/far?face=&u=&v=&r= -> {plots: [{plot, ver, boxes: [[x, z, y, w, d, h, block]…]}]}: the pieces of
+        every built plot within r metres (at most FAR_R), each as its bounding box in cm of its plot, for the page's far
+        buildings (#193). `since` = JSON {plot: ver} the page holds: those plots come back without boxes when unchanged."""
+        try:
+            f, u, v = int(request.query.get("face", 0)), float(request.query["u"]), float(request.query["v"])
+            r = min(FAR_R, max(0.0, float(request.query.get("r", FAR_R))))
+            since = json.loads(request.query["since"]) if request.query.get("since") else None
+            if since is not None and not isinstance(since, dict):
+                raise ValueError("since")
+        except (KeyError, ValueError):
+            raise web.HTTPBadRequest(text="face, u, v, r and since (a JSON object)")
+        return web.json_response({"plots": world.far_view(f, u, v, r, since)})
+
     async def crafts_api(request):
         """GET /land/api/crafts?face=&u=&v= -> {crafts: [...]}: the crafts within 192 m, flying or parked (FLIGHT, #147) —
         what a page near them is sent, read-only, for agents and tests."""
@@ -3376,6 +3445,8 @@ def make_app(world, hub, site_origin, wallet_url, secure_cookies=True, shot_page
                 elif t == "mycrafts":                               # #171: where are my crafts
                     await ws.send_json({"t": "mycrafts", "req": m.get("req"), "list": world.crafts_of(addr) if addr else [],
                                         **({} if addr else {"error": "sign in first"})})
+                elif t == "trace":                                        # the page's event trace (#194), a signed-in player's own file
+                    world.trace_append(addr, m.get("events"))
                 elif t in ("board", "fly", "leave", "dock", "handover"):   # not "give": that is a gift of items
                     # FLIGHT (#147): take the seat, say where the craft is, leave it parked, set it down as pieces
                     if not addr:
@@ -3521,6 +3592,7 @@ def make_app(world, hub, site_origin, wallet_url, secure_cookies=True, shot_page
         web.get("/land/api/region", region),
         web.get("/land/api/card", card),
         web.get("/land/api/crafts", crafts_api),
+        web.get("/land/api/far", far_api),
         web.get("/land/api/sats", lambda request: web.json_response({"sats": world.sats, "orbit": RULES["rocket"]["orbit"]})),
         web.get("/land/api/shot", shot),
         web.post("/land/api/set", set_cells),

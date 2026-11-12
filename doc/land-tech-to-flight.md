@@ -39,9 +39,19 @@ like iron.
   mass is the sum of its pieces' volume × their material's density; its thrust is the thrusters' count × THRUST.
 * **Taking off.** A player who may build there sits in the seat (Q on it); the server lifts the connected pieces off the
   plot into a vehicle record (pieces relative to an origin, pose, velocity) — they are no longer the plot's pieces.
-* **Flying.** Gravity always; thrust along the craft's nose (W), lift (Space), yaw (A/D), pitch (mouse). Too heavy
-  for its thrust, it does not leave the ground. The pilot's page simulates; the server bounds speed and acceleration by the
-  craft's own thrust/mass (no teleporting) and relays the pose to every player near it, who draw it moving.
+* **Flying.** Two kinds of craft, told apart by their parts (static/land-flight.js aeroOf, #191):
+  * a **rocket** — thruster blocks, which push up — hovers on its thrust: Space climbs, Down sinks, W A S D push along the
+    facing, the mouse looks. Too heavy for its thrust, it does not leave the ground.
+  * an **aircraft** — engine parts, which push along their own length, and wing parts, which are lifting area — flies by
+    the textbook forces, every number cited in /root/land-research/flight (INDEX.md) or labelled a design choice in
+    land-recipes.json "flight".aero: lift ½ρv²SC_L from the wings' area and the angle of attack (2πα for a thin aerofoil,
+    reduced for the finite wing), induced + zero-lift drag, a stall past 15°, a bank that turns the path (n = 1/cos φ), a
+    load limiter at 9 g, controls whose authority grows with airspeed (nothing turns at a standstill), a nose that
+    weathervanes toward the velocity. The mouse is the stick (pitch and roll, self-centring), A D the rudder, W S the
+    throttle; Space / C work vertical thrusters only. On the ground it rolls on its gear and leaves it when the wings carry
+    it — never on a key. Gravity always pulls. The pose carries pitch and roll ([face, u, v, h, yaw, pitch, roll]).
+  The pilot's page simulates; the server bounds a pose by the craft's top speed (the X-wing's stated 1,050 km/h) and
+  relays it to every player near it, who draw it in its attitude.
 * **Landing.** On the ground it stops; leaving the seat parks it. Parked over a plot where the pilot may build, it can be
   set back down as that plot's pieces; anywhere else it stays a parked vehicle (its owner's), drawn where it stands.
 * **Hitting things.** The hull is sampled against the ground and built pieces; a hit stops it (no damage in v1).
