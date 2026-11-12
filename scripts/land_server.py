@@ -1622,6 +1622,18 @@ class World:
                         if not titled:
                             rec.setdefault("exp", {})[fk] = time.time() + RULES["wilderness_regrow_s"]
                         applied.setdefault(p, []).append([ff, fu, fv, fh, 0])
+                # LITTER ON THE DUG CELL (#177, playtest 2026-11-11: a pebble kept floating over the hole its turf left):
+                # what stood on the cell — a pebble, twigs, flax, a flower, a berry bush, wild grain (SWEPT, the things a
+                # placed block takes the place of) — goes with it, unpaid (it was not gathered, it fell), shown to every
+                # page as a cell of its own. A sapling is a tree to be: it stays (the ecology replants it, not the dig).
+                above = (face, u, v, h + 1)
+                if h + 1 < H and (await self.blocks_at([list(above)]))[above] in SWEPT:
+                    ak = (k[0], k[1], h + 1)
+                    rec["edits"][ak] = 0
+                    (rec.get("grow") or {}).pop(ak, None)
+                    if not titled and h + 1 >= 0:
+                        rec.setdefault("exp", {})[ak] = time.time() + RULES["wilderness_regrow_s"]
+                    applied.setdefault(p, []).append([face, u, v, h + 1, 0])
             else:                                                   # ---- place: spend one item
                 # "you can build anywhere unless it is owned" (operator, 2026-11-06): unowned land is open to everyone
                 if titled and not may:
