@@ -129,7 +129,9 @@ check("every setting reaches what it names",
       and "e.movementX * 0.0024 * SET.sens" in js and "(SET.invert ? -1 : 1)" in js
       and "grass: !!SET.grass" in js and "sun.castShadow = elev > 0.12 && !!SET.shadows" in js
       and "if (!SET.effects ||" in js and "pipeline = buildPipeline();                             // the post-processing" in js
-      and 'if (k === "res") renderer.setPixelRatio(basePR() * SET.res / 100);' in js and "viewDist = SET.view;" in js)
+      # (res: the stars' point size follows the resolution too since 3d7b3ea8, #181 item 9 — the line became a block)
+      and 'if (k === "res") { renderer.setPixelRatio(basePR() * SET.res / 100);' in js and "viewDist = SET.view;" in js
+      and "const sound = new Sound(() => !!SET.sound);" in js)    # sound (#113): the cues read the switch
 check("…range-checked and remembered in this browser",
       "v >= SET_RANGE[k][0] && v <= SET_RANGE[k][1]" in js and "localStorage.setItem(LS_SET, JSON.stringify({ ...SET, sv: SET_VER }))" in js
       and "s[k] >= SET_RANGE[k][0] && s[k] <= SET_RANGE[k][1]" in js)
