@@ -51,7 +51,7 @@ hall_top = max(b[2] + b[5] for b in hall) - G
 # 2. inside the plot, no overlaps
 check("every tower piece lies inside the plot (the server's own box_ok)", all(S.box_ok(b) for b in adds), [b for b in adds if not S.box_ok(b)][:2])
 kept = [b for b in hall if b not in removes]
-check("the wall the tower takes out is a piece the hall has", all(r in hall for r in removes) and len(removes) == 1, removes)
+check("what the tower takes out — the back wall's middle and the chest in front of it — are pieces the hall has", all(r in hall for r in removes) and len(removes) == 2 and sorted(r[6] for r in removes) == [T.PS, T.CHEST], removes)
 streets = [[0, 0, G - 25, 200, 1600, 30, T.SB], [200, 0, G - 25, 1400, 200, 30, T.SB], [200, 200, G - 25, 10, 1400, 35, T.COB], [210, 200, G - 25, 1390, 10, 35, T.COB]]
 pairs = [(a, k) for a in adds for k in kept + streets if ov(a, k)]
 check("no tower piece overlaps the hall (less that wall) or the quarter's streets and kerbs", not pairs, pairs[:2])
@@ -77,6 +77,10 @@ gx0 = door[0][0] if door else 0
 north_ground = [b for b in adds if b[6] == T.SB and b[1] == Z0 and b[2] == G + 45 and b[4] == T.TOWER["T"]]
 gap_clear = not any(b[0] < gx0 + 90 and b[0] + b[3] > gx0 for b in north_ground)
 check("…and the tower's ground-floor north wall leaves the door's gap", gap_clear and len(north_ground) == 2, north_ground)
+# the approach: nothing stands in front of the door inside the hall (the agent climbed onto the hall's chest there and
+# could not open the door from its top) — the chest is moved along the back wall, clear of the door by more than a body
+front = [b for b in kept + adds if b[6] != T.DOOR and b[0] < gx0 + 90 + 40 and b[0] + b[3] > gx0 - 40 and b[1] + b[4] > bz - 150 and b[1] < bz and b[2] < G + 45 + 200 and b[2] + b[5] > G + 45]   # (not the floor and footing under it)
+check("nothing stands within 1.5 m in front of the back door inside the hall (the chest moved aside)", not front and any(b[6] == T.CHEST and b[0] + b[3] <= gx0 - 100 for b in adds), front[:2])
 check("the tower stands behind the hall, clear of both streets", X0 > 210 and Z0 > T.HALL["Z0"] + T.HALL["D"] and X0 + Sz < 1600 and Z0 + Sz <= 1600, (X0, Z0))
 ys = sorted(b[2] for b in ladder)
 check("the ladder is the game's ladder pieces (50 x 8 x 300, kind 53), among the tower's pieces", ladder and all(b[6] == T.LADDER and sorted(b[3:5]) == [8, 50] and b[5] == 300 and b in adds for b in ladder), ladder[:2])
@@ -135,12 +139,13 @@ async def rehearse():
     await T.untower(world, pl)
     check("--untower takes it down and makes the hall's wall good: the hall as it was", sorted(map(tuple, world.plots[p]["boxes"])) == sorted(map(tuple, hall)) and not any(b == 53 for b in world.plots[p]["edits"].values()), len(world.plots[p]["boxes"]))
     # the live case first: the tower as the first --tower built it — every piece but the ladder, and the block column
-    await world.boxes(T.WHO, p, [], removes); await world.boxes(T.WHO, p, [b for b in adds if b not in ladder], [])
+    await world.boxes(T.WHO, p, [], [r for r in removes if r[6] != T.CHEST]); await world.boxes(T.WHO, p, [b for b in adds if b not in ladder and b[6] != T.CHEST], [])
     await world.apply(T.WHO, [[0, col * S.PLOT + du, row * S.PLOT + dv, h, 53] for du, dv, h in cells])
     check("the rehearsal holds a standing tower with the old block column", T.tower_present(world.plots[p]["boxes"]) and any(b == 53 for b in world.plots[p]["edits"].values()))
     await T.build_tower(world, pl)
     boxes = world.plots[p]["boxes"]
     check("build_tower on a standing tower clears the block column and sets the ladder pieces", all(a in boxes for a in ladder) and not any(b == 53 for b in world.plots[p]["edits"].values()), (len(boxes), len(ladder)))
+    check("…and moves the hall's chest out of the doorway", not any(r[6] == T.CHEST and r in boxes for r in removes) and any(a[6] == T.CHEST and a in boxes for a in adds))
     check("…and every other tower piece is there, the wall out", all(a in boxes for a in adds) and not any(r in boxes for r in removes), (len(boxes), len(adds)))
     n0 = len(boxes)
     await T.build_tower(world, pl)

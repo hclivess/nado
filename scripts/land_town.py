@@ -236,6 +236,12 @@ def tower_pieces(G, P=None):
     if door == "north":
         adds.append([X0 - 20, Z0 - 20, G - 25, S + 40, S + 20, 65, SB])                      # footing, to the plot's south edge
         gx0, gx1 = X0 + S // 2 - 45, X0 + S // 2 + 45                                        # the door's x (90 wide), in the tower's middle
+        # THE HALL'S CHEST STOOD IN THE DOORWAY (#195, walked as the agent 2026-11-12): hall_pieces puts it at the back
+        # wall's middle, x 805..895, and the back door's x is 855..945 — the agent climbed onto the chest, its eye over
+        # the door's top, and Q aimed at the wall. The chest moves west along the back wall, clear of the door by 1.35 m.
+        chest_was = [hx + hw // 2 - 45, hz + hd - 70, F, 90, 50, 55, CHEST]
+        chest_now = [hx + 280, hz + hd - 70, F, 90, 50, 55, CHEST]
+        removes.append(chest_was); adds.append(chest_now)
     else:
         adds.append([X0 - 20, Z0 - 20, G - 25, S + 20, S + 40, 65, SB])                      # (v1: to the hall's own footing)
         gz0, gz1 = hz + 120, hz + 210
@@ -344,13 +350,20 @@ async def build_tower(world, pl):
     _, row, col = S.plot_coords(p)
     cells = [[0, col * S.PLOT + du, row * S.PLOT + dv, h, 0] for du, dv, h in ladder_cells(G)]
     if tower_present(boxes):
-        want = [b for b in ladder if b not in boxes]
+        # made good on a standing tower: the ladder pieces it lacks, and the hall's chest out of the doorway (an empty
+        # chest only — the world server refuses to take a chest with something in it, and so does this)
+        chest_old = [r for r in removes if r[6] == CHEST and r in boxes]
+        held = [S.chest_key(b) for b in chest_old if (world.plots[p].get("chests") or {}).get(S.chest_key(b))]
+        if held:
+            sys.exit(f"plot {p}: the chest in the doorway holds items ({held}) — empty it first")
+        want = [b for b in adds if (b[6] == LADDER or b[6] == CHEST) and b not in boxes]
         if DRY:
-            print(f"plot {p}: the tower stands; would clear {len(cells)} block cells of the old ladder and set {len(want)} ladder pieces"); return
+            print(f"plot {p}: the tower stands; would clear {len(cells)} block cells of the old ladder, take out {len(chest_old)} chest and set {len(want)} pieces"); return
         _, ref3, _ = await world.apply(WHO, cells)
+        _, gone, ref1 = await world.boxes(WHO, p, [], chest_old)
         added, _, ref2 = await world.boxes(WHO, p, want, [])
-        print(f"plot {p}: the tower stands already; {len(cells) - len(ref3)} old ladder cells cleared, {len(added)} ladder pieces set"
-              + (f"; refused: {ref2[:4]}" if ref2 else "")); return
+        print(f"plot {p}: the tower stands already; {len(cells) - len(ref3)} old ladder cells cleared, {len(gone)} chest out of the doorway, {len(added)} pieces set"
+              + (f"; refused: {(ref1 + ref2)[:4]}" if ref1 or ref2 else "")); return
     missing = [b for b in removes if b not in boxes]
     if missing:
         sys.exit(f"plot {p}: the hall wall to take out is not there: {missing}")
