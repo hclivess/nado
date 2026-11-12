@@ -1987,6 +1987,37 @@ function npcsFrame(cam, dt, now) {
     if (human) human.place(figOf(r), [r.mesh.position.x, r.mesh.position.y, r.mesh.position.z], ofr, yaw, 0, dt || 1 / 60, (now || 0) / 1000, near ? [0, 0, 0] : null);
   }
 }
+/** A block or a piece kind by the item that places it, or the item of its own name (ores, clay, flax), or its own name
+ *  (land.b.*) — the /aim command's and the aim line's one naming. */
+function blockLabel(b) {
+  if (b === B.wheatyoung) return T("b.wheatyoung", "Young wheat");     // a growing crop, not the seed it was sown as
+  const k = BLOCKS[b].key, id = RULES && Object.keys(RULES.items).find((i) => RULES.items[i].places === b);
+  return id ? nameOf(id) : RULES && RULES.items[k] ? nameOf(k) : T("b." + k, k);
+}
+// THE AIM LINE (#177, playtest 2026-11-11: "nothing says what you are aiming at or which key acts on it" — talking was
+// on Q with no prompt, a pebble and a boulder looked alike, a refused plot said so only after the whole hold): one line
+// under the crosshair naming the thing aimed at and what acts on it — "Maren — Q talk", "Door — Q open", "Pebble — hold
+// left click to gather", "Timber beam · Owned by … — not yours to gather here". On a phone the key is the button's name.
+let aimLineAt = 0;
+function aimText(a) {
+  if (!RULES) return "";
+  const k = touch ? T("tUse", "Use") : "Q", b = touch ? T("tBreak", "Break") : T("kLeft", "left click");
+  const n = npcAimed();
+  if (n) { const r = npcs.get(n); return T("aimFmt", "{what} — {k} {v}", { what: r ? r.name : n, k, v: T("v.talk", "talk") }); }
+  const an = animalAimed(8);
+  if (an) { const r = animals.get(an); return T("aimFmt2", "{what} — {v}", { what: animalName(r ? r.kind : "deer"), v: T("v.hunt", "a weapon hunts it") }); }
+  if (!a) return "";
+  const notYours = (what, plot) => { const t = titles.get(plot); return T("aimFmt2", "{what} — {v}", { what: what + " · " + (t && t.sale ? T("forSale", "For sale · {p} NADO", { p: rawToNado(t.sale.price.toString()) }) : T("owned", "Owned by {o}", { o: disp(t && t.holder || "") })), v: T("v.notYours", "not yours to gather here") }); };
+  if (a.box) {
+    const kind = a.box.b[6], what = blockLabel(kind);
+    const verb = kind === B.door || kind === B.chest ? T("v.open", "open") : kind === B.bed ? T("v.sleep", "sleep here") : kind === B.well ? T("v.draw", "draw water (a bucket)")
+      : kind === B.pilotseat || CRAFT_SKIN.has(kind) ? T("v.board", "board") : kind === B.generator || kind === B.launchpad || isMachine(kind) ? T("v.use", "use") : null;
+    if (verb) return T("aimFmt", "{what} — {k} {v}", { what, k, v: verb });
+    return mayBuild(a.box.plot) ? T("aimFmt2", "{what} — {v}", { what, v: T("v.take", "hold {b} to take down", { b }) }) : notYours(what, a.box.plot);
+  }
+  const [u, v, h] = a.hit, what = blockLabel(blockAt(P.face, u, v, h)), plot = Wd.plotOf(P.face, u, v);
+  return mayBuild(plot) ? T("aimFmt2", "{what} — {v}", { what, v: T("v.gather", "hold {b} to gather", { b }) }) : notYours(what, plot);
+}
 /** The NPC under the crosshair within talking reach: its id, or null. */
 function npcAimed() {
   if (!npcs.size) return null;
@@ -2991,6 +3022,7 @@ function act(place, mouse) {
   // signed out, a tap says so whatever it points at: it used to say nothing when the view held no target (sky, a gap in
   // a crown) — a visitor tapping in a forest got silence (the live two-player walk, 2026-11-07)
   if (!net.me) return notify(T("signInBuild2", "Sign in to gather and build."));
+  { const n = npcAimed(); if (n) return openNpc(n); }                           // a click on a person talks, as Q does (#177)
   if (!place) { const an = animalAimed(RULES && RULES.hunting ? RULES.hunting.weapons.bow.reach : 30); if (an && huntAt(an)) return; }   // game first (#156)
   const a = aim();
   // nothing within reach to break, a bow in the bag: Break looses an arrow along the look — aimed above a far animal, or
@@ -3237,12 +3269,7 @@ const CMDS = {
   aim: () => {
     const a = aim();
     if (!a) return conLine(T("cAimNone", "Nothing within reach."));
-    // a block by the item that places it, or the item of its own name (ores, clay, flax), or its own name (land.b.*)
-    const named = (b) => {
-      if (b === B.wheatyoung) return T("b.wheatyoung", "Young wheat");     // a growing crop, not the seed it was sown as
-      const k = BLOCKS[b].key, id = RULES && Object.keys(RULES.items).find((i) => RULES.items[i].places === b);
-      return id ? nameOf(id) : RULES && RULES.items[k] ? nameOf(k) : T("b." + k, k);
-    };
+    const named = blockLabel;
     const at = a.box ? [Wd.plotCoords(a.box.plot).u0 + Math.floor(a.box.b[0] / Wd.CM), Wd.plotCoords(a.box.plot).v0 + Math.floor(a.box.b[1] / Wd.CM), Math.floor(a.box.b[2] / Wd.CM)] : a.hit;
     conLine(T("cAimAt", "Aiming at {b} — u {u} · v {v} · h {h}.", { b: named(a.box ? a.box.b[6] : blockAt(P.face, at[0], at[1], at[2])), u: at[0], v: at[1], h: at[2] }));
     if (a.prev) conLine(T("cAimPut", "A block goes to u {u} · v {v} · h {h}.", { u: a.prev[0], v: a.prev[1], h: a.prev[2] }));
@@ -4269,6 +4296,7 @@ function frame(now) {
   pt("sky", () => { sky(fr); torchTick(now, cam); cloudsFrame(cam, fr); farBuildTick(now); });
   // the aimed block's outline
   const a = pt("aim", () => aim());
+  if (now - aimLineAt > 150) { aimLineAt = now; const s = aimText(a), el = $("aimLine"); if (el && el.textContent !== s) el.textContent = s; }   // (#177, ~6×/s)
   // a cell's outline, or the piece's own box; and where the chosen piece would go (green: it fits, red: it does not)
   const frameBox = (obj, plot, b) => {
     const q = Wd.plotCoords(plot), cx = q.u0 + (b[0] + b[3] / 2) / Wd.CM, cz = q.v0 + (b[1] + b[4] / 2) / Wd.CM, cy = (b[2] + b[5] / 2) / Wd.CM;
