@@ -101,7 +101,15 @@ _INERT_PREFIXES = ("doc/",
                    # translation regenerates — without a restart. scripts/land_* run only as the nado-land service, which
                    # this updater never restarted. tests/ is run by people and the pre-push hook, never by the node.
                    "static/land.", "static/land-", "static/vendor/three/", "static/vendor/textures/",
-                   "static/i18n_games/land.json", "scripts/land_", "tests/")
+                   "static/i18n_games/land.json", "scripts/land_", "tests/",
+                   # …and the people's data (static/human: the body, hair and clothes binaries and textures, #172) and the
+                   # offline converters under tools/ — four pushes of 2026-11-12 (66aa92ea, 2aca010e, ad1bc57f and the
+                   # updater's own e7920488) restarted the fleet for hair and clothes files because these two were not
+                   # here; the operator: "I ALREADY TOLD YOU TO EXCLUDE THIS GAME FROM THE FLEET RESTARTS". Measured:
+                   # nothing under nado.py / ops / loops / execnode reads static/human or tools/ (the only mentions of
+                   # tools/ are in comments); static/human is served through StaticVersions like land.js, re-statted
+                   # within its TTL, so a running node serves a new wear.bin without a restart.
+                   "static/human/", "tools/")
 _INERT_FILES = ("README.md", "LICENSE", "CHANGELOG.md", "static/i18n.js")
 
 

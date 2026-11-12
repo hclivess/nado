@@ -31,6 +31,11 @@ def test_documentation_only_does_not_restart():
 def test_anything_executable_restarts():
     # the whole point: one code path among many doc paths still restarts
     assert not _only_inert(["doc/nado-key.md", "protocol.py"])
+    # the people's data and the offline converters (2026-11-12: four pushes restarted the fleet for hair and clothes
+    # files; the operator had excluded the game on the 6th) — inert; the wallet's own static files still restart
+    assert _only_inert(["static/human/wear.bin", "static/human/hair_bob02.png"])
+    assert _only_inert(["tools/human/build_wear.py", "static/land-human.js", "tests/test_x.mjs"])
+    assert not _only_inert(["static/human/wear.bin", "ops/static_versions.py"])
     assert not _only_inert(["ops/self_update.py"])
     assert not _only_inert(["nado.py"])
     assert not _only_inert(["loops/core_loop.py"])
