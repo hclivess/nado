@@ -144,5 +144,20 @@ ok(beta0 > 15 * DEG && Math.abs(c.air.beta) < 0.5 * beta0 && c.pose[4] > yaw0 + 
   ok(Math.abs(turned.u - 1000) < 1e-9 && Math.abs(turned.v - 998.5) < 1e-9, `facing east, the right side is south (${turned.u}, ${turned.v})`);
 }
 
+
+// STEPPING OFF ONTO WHAT THE CRAFT RESTS ON (operator 2026-11-12: stuck on the town hall's roof, "too high to step
+// off" against the ground 5 m under the tiles): surfaceBelow scans down from the craft's bottom and names the first
+// solid thing — a roof counts; nothing solid, the terrain — and leaveCraft measures its height and the step-off spot's
+// height with it
+{
+  const roof = (h) => h <= 10 && h > 9.7, nothing = () => false;
+  ok(Math.abs(Fl.surfaceBelow(roof, 10.8, 5) - 10) < 0.11, "a roof at 10 m under a craft resting on it is the surface, not the ground at 5 m");
+  ok(Fl.surfaceBelow(nothing, 10.8, 5) === 5, "nothing solid under the craft: the terrain's height");
+  ok(Fl.surfaceBelow(roof, 9.5, 5) === 5, "the scan starts at the craft's bottom: a roof above it does not count");
+  const landJs = readFileSync(join(ROOT, "static", "land.js"), "utf8"), lc = landJs.slice(landJs.indexOf("function leaveCraft()"), landJs.indexOf("function leaveCraft()") + 2500);
+  ok(/const under = surfaceBelow\(\(h\) => solidAt\(P\.face, c\.pose\[1\], c\.pose\[2\], h\), bottom - 0\.05, floorAt\(c\.pose\[1\], c\.pose\[2\]\)\), hover = bottom - under;/.test(lc), "leaveCraft measures the craft's height to the surface it rests on");
+  ok(/const spotH = \(u, v\) => surfaceBelow\(/.test(lc) && /P\.h = spotH\(P\.u, P\.v\);/.test(lc) && /\(u, v\) => !collides\(u, v, spotH\(u, v\)\)/.test(lc), "…and puts the pilot on the surface beside the seat, not through it");
+}
+
 console.log(fails ? `${fails} FAILED` : "all passed");
 process.exit(fails ? 1 : 0);

@@ -326,6 +326,14 @@ export function bodyInside(body, pose, solid) {
  *  tried in order (right, left, behind, ahead, then wider) and the first FREE one is taken: `free(u, v)` says whether a
  *  player's body stands clear there (land.js collides at the ground's height). None free: null — the pilot stays put.
  *  Returns { u, v, tried } (tried: how many spots were looked at, for the trace). */
+/** The surface under a point: the height of the first solid thing met scanning down from `top` by `step`, `floor` when
+ *  nothing is met (the terrain's height) — a roof, a deck, a built floor counts, not only the ground (a pilot whose
+ *  craft came to rest on the town hall's roof was "too high to step off" measured against the ground 5 m under the
+ *  roof, and could neither leave nor land — operator, 2026-11-12). `solid(h)` says whether (u, v, h) is inside something. */
+export function surfaceBelow(solid, top, floor, step = 0.1) {
+  for (let h = top; h > floor; h -= step) if (solid(h)) return Math.min(top, h + step);
+  return floor;
+}
 export function stepOffSpot(u, v, yaw, free) {
   const r = [Math.cos(yaw), -Math.sin(yaw)], f = [Math.sin(yaw), Math.cos(yaw)];
   const spots = [[r, 1.5], [r, -1.5], [f, -2.0], [f, 2.5], [r, 3.0], [r, -3.0], [f, -3.5], [f, 4.0], [r, 4.5], [r, -4.5]];

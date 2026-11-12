@@ -37,7 +37,7 @@ import { groundWeights } from "./land-mesher.js";
 import * as Forest from "./land-forest.js";
 import * as Clouds from "./land-clouds.js";
 import { treeModel } from "./land-trees.js";
-import { craftStep, flightOf, craftBody, bodyInside, navSays, craftArea, aeroOf, axesOf, stallSpeed, stepOffSpot } from "./land-flight.js";
+import { craftStep, flightOf, craftBody, bodyInside, navSays, craftArea, aeroOf, axesOf, stallSpeed, stepOffSpot, surfaceBelow} from "./land-flight.js";
 import { HumanView } from "./land-human.js";
 import { Sound } from "./land-sound.js";
 import { GFX_PRESETS, BENCH_ORDER, benchTarget, frameStats, holds, pickPreset, LADDER, governor, govStep } from "./land-gfx.js";
@@ -699,15 +699,22 @@ function leaveCraft() {
   // STEPPING OFF (#194: "i exited the xfighter and fell into the townhall wall"): onto the first free spot round the
   // seat (land-flight.js stepOffSpot — the body clear of every piece and cell at the ground's height there), and only
   // from a craft on or near the ground: from one hovering high the pilot stays in the seat and is told to land
-  const under = craftGround(c.pose[0], c.pose[1], c.pose[2]), hover = c.pose[3] + c.bottom - under;
+  // the height is measured to what the craft actually rests on — a roof, a deck, a built floor (land-flight.js
+  // surfaceBelow) — not to the ground under it: on the town hall's roof the pilot was "too high to step off" against
+  // the ground 5 m below the tiles and could neither leave nor land (operator, 2026-11-12)
+  const bottom = c.pose[3] + c.bottom, floorAt = (u, v) => groundAt(P.face, u, v);
+  const under = surfaceBelow((h) => solidAt(P.face, c.pose[1], c.pose[2], h), bottom - 0.05, floorAt(c.pose[1], c.pose[2])), hover = bottom - under;
   if (hover > 2.5) { notify(T("fTooHigh", "Too high to step off — land first ({h} m up).", { h: hover.toFixed(1) })); trace("leave_refused", { craft: c.id, why: "high", hover: +hover.toFixed(2), pose: tracePose(c.pose) }); return; }
-  const spot = stepOffSpot(c.pose[1], c.pose[2], c.pose[4], (u, v) => !collides(u, v, groundAt(P.face, u, v)));
+  // the spot's height is the surface under it too (the roof beside the seat), so the pilot steps onto the roof, not
+  // through it to the ground inside the building
+  const spotH = (u, v) => surfaceBelow((h) => solidAt(P.face, u, v, h), bottom + 0.5, floorAt(u, v));
+  const spot = stepOffSpot(c.pose[1], c.pose[2], c.pose[4], (u, v) => !collides(u, v, spotH(u, v)));
   if (!spot) { notify(T("fNoSpot", "Nowhere to step off here — move the craft first.")); trace("leave_refused", { craft: c.id, why: "no_spot", pose: tracePose(c.pose) }); return; }
   flying = null; lastCraft = c.id; craftUp = null; P.pitch = 0;
   net.send({ t: "fly", craft: c.id, pose: c.pose });
   net.send({ t: "leave", craft: c.id, req: ++net.req });
   const own = crafts.get(c.id); if (own) { own.pilot = null; own.pose = c.pose; }
-  P.u = spot.u; P.v = spot.v; P.h = groundAt(P.face, P.u, P.v); P.vh = 0; P.eyeH = P.h;
+  P.u = spot.u; P.v = spot.v; P.h = spotH(P.u, P.v); P.vh = 0; P.eyeH = P.h;
   trace("leave", { craft: c.id, from: tracePose(c.pose), to: tracePose([P.face, P.u, P.v, P.h, P.yaw]), tried: spot.tried });
   notify(T("fParked", "Parked. Use it again to fly; /dock sets it down here as pieces."));
   hud();
