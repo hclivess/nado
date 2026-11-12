@@ -58,6 +58,7 @@
   #cross:before,#cross:after{content:"";position:absolute;background:rgba(255,255,255,.85);box-shadow:0 0 2px #000}
   #cross:before{left:8px;top:0;width:2px;height:18px}#cross:after{top:8px;left:0;height:2px;width:18px}
   #hotwrap{position:fixed;left:50%;bottom:14px;transform:translateX(-50%);z-index:4;text-align:center}
+  #goal{font-size:12px;color:#ffe9a8;text-shadow:0 1px 2px #000;margin-bottom:4px;min-height:14px}
   #hotName{font-size:12px;font-weight:700;text-shadow:0 1px 2px #000;margin-bottom:4px;min-height:16px}
   #pieceInfo{font-size:11px;color:#dfe7ee;text-shadow:0 1px 2px #000;margin-bottom:4px;min-height:14px}
   #hotbar{display:flex;gap:4px;padding:4px;background:rgba(11,15,20,.6);border:1px solid var(--border);border-radius:10px}
@@ -171,7 +172,7 @@
 <div id="cross"></div>
 <div id="breakBar" class="hidden"><i></i></div>
 <div id="pickup" aria-live="polite"></div>
-<div id="hotwrap"><div id="hotName"></div><div id="pieceInfo"></div><div id="hotbar"></div></div>
+<div id="hotwrap"><div id="goal"></div><div id="hotName"></div><div id="pieceInfo"></div><div id="hotbar"></div></div>
 <div id="hudGpu"></div>
 <div id="console"><div id="conLog" aria-live="polite"></div><input id="conIn" maxlength="200" autocomplete="off" spellcheck="false" aria-label="Command or chat" data-i18n-ph="land.cPlaceholder" placeholder="/help — or say something"></div>
 <div id="help"><div class="card">

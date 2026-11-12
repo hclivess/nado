@@ -2338,7 +2338,9 @@ function hud() {
   else if (mine.has(plot)) html = `<span class="pill ok">${esc(T("yours", "Your plot"))}</span> <button id="btnAnchor" class="ghost">${esc(T("anchorBtn", "Anchor build"))}</button> <button id="btnInvite" class="ghost">${esc(T("inviteBtn", "Invite a builder"))}</button> <button id="btnSell" class="ghost">${esc(T("sellBtn", "Sell"))}</button>`;
   // your own listing: the market holds the title (so it is not in `mine`), and only its seller may reprice or withdraw it
   else if (t.sale && t.sale.seller && t.sale.seller === (net.me || dapp.me)) html = `<span class="pill ok">${esc(T("yourSale", "Your plot · for sale at {p} NADO", { p: rawToNado(t.sale.price.toString()) }))}</span> <button id="btnReprice" class="ghost">${esc(T("repriceBtn", "Change price"))}</button> <button id="btnUnlist" class="ghost">${esc(T("unlistBtn", "Take off sale"))}</button> <a class="btn" target="_blank" rel="noopener" href="${NFT_URL}#token/${esc(t.aid)}">${esc(T("seeListing", "See the listing"))}</a>`;
-  else if (t.sale) html = `<span class="pill">${esc(T("forSale", "For sale · {p} NADO", { p: rawToNado(t.sale.price.toString()) }))}</span> <a class="btn" target="_blank" rel="noopener" href="${NFT_URL}#token/${esc(t.aid)}">${esc(T("buyMarket", "Buy on the market"))}</a>${signIn}`;
+  // (how NADO is come by goes with the price: the playtest's newcomer had 0 NADO and nothing in the game said where it
+  // comes from, #178)
+  else if (t.sale) html = `<span class="pill">${esc(T("forSale", "For sale · {p} NADO", { p: rawToNado(t.sale.price.toString()) }))}</span> <span class="dim">${esc(T("nadoHow", "NADO is this chain's coin: get it on the exchange at dex.nadochain.com, or earn it by running a node."))}</span> <a class="btn" target="_blank" rel="noopener" href="${NFT_URL}#token/${esc(t.aid)}">${esc(T("buyMarket", "Buy on the market"))}</a>${signIn}`;
   else html = `<span class="pill">${esc(t.holder ? T("owned", "Owned by {o}", { o: disp(t.holder) }) : T("titled", "Titled"))}</span> <a class="btn" target="_blank" rel="noopener" href="${NFT_URL}#token/${esc(t.aid)}">${esc(T("market", "View on the market"))}</a>${signIn}`;
   if (st.dataset.html !== html) {
     st.innerHTML = html; st.dataset.html = html;
@@ -2382,7 +2384,25 @@ function tileIcon(cv, id, px) {
   g.imageSmoothingEnabled = false;
   g.drawImage(atlasTex.image, (tile % TCOLS) * TILE, Math.floor(tile / TCOLS) * TILE, TILE, TILE, 0, 0, px, px);
 }
+// THE FIRST OBJECTIVE (#178): one line over the bar that says the next thing to do, instead of the welcome card's wall
+// of keys — sign in; then talk to the elder (there is work); then the work itself, and that it is done. Refreshed with
+// the bar: every inventory message and sign-in change comes through hotbar().
+function goalLine() {
+  const g = $("goal");
+  if (!g || !RULES) return;
+  let text = "";
+  if (!net.me) text = T("signInBuild2", "Sign in to gather and build.");
+  else if ((inv.quests || []).length) {
+    const q = inv.quests[0];
+    text = q.ready ? T("goalReady", "Done — hand it in: {q} (Q at the one who gave it)", { q: questText(q) }) : T("goalQuest", "Your work: {q}", { q: questText(q) });
+  } else {
+    const elder = (RULES.quests && RULES.quests.npcs || []).find((n) => n.role === "elder");
+    if (elder) text = T("goalTalk", "First: talk to {who} — walk up and press Q. There is work.", { who: `${elder.name} (${roleName(elder.role)})` });
+  }
+  if (g.textContent !== text) g.textContent = text;
+}
 function hotbar() {
+  goalLine();
   const bar = $("hotbar");
   if (!RULES || !hot.length) {
     // the bar holds what can be placed; a bag of berries, sticks and fibre fills none of it, and "gather something"

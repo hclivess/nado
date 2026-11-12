@@ -7,7 +7,10 @@
  *   2. the empty bar names the bag: with things in the bag that cannot be placed, the bar's text is land.bagHeld with
  *      the count, not "gather something"; signed out it still says to sign in;
  *   3. land.bagHeld is in every one of the 17 languages with the count in it, and the languages that bend a noun by
- *      its number (cs, pl, ru, ar) carry their plural forms.
+ *      its number (cs, pl, ru, ar) carry their plural forms;
+ *   4. one line says the next thing to do (goalLine, over the bar, refreshed with it): signed out — sign in; no work —
+ *      talk to the elder (Q); work taken — the work; done — hand it in; and the plot card's price says how NADO is come
+ *      by; the four strings in all 17 languages with their placeholders.
  * Run: node tests/test_a_new_player_lands_facing_a_townsperson_and_the_bar_says_what_the_bag_holds.mjs
  */
 import { readFileSync } from "node:fs";
@@ -46,6 +49,16 @@ ok(langs.length === 17 && langs.every((l) => typeof I[l]["land.bagHeld"] === "st
 const forms = (l) => (/\{n\|([^}]*)\}/.exec(I[l]["land.bagHeld"] || "") || ["", ""])[1].split("|").map((f) => f.split(":")[0]);
 ok(["cs", "pl", "ru"].every((l) => ["one", "few", "many", "other"].every((f) => forms(l).includes(f))) && ["zero", "one", "two", "few", "many", "other"].every((f) => forms("ar").includes(f)),
    "cs, pl and ru carry one/few/many/other, ar all six forms");
+
+// 4. the first objective and the NADO sentence
+const gl = land.slice(land.indexOf("function goalLine()"), land.indexOf("function hotbar()"));
+ok(gl.length > 100 && /if \(!net\.me\) text = T\("signInBuild2"/.test(gl) && /q\.ready \? T\("goalReady", "[^"]*\{q\}[^"]*", \{ q: questText\(q\) \}\) : T\("goalQuest", "[^"]*\{q\}[^"]*", \{ q: questText\(q\) \}\)/.test(gl)
+   && /n\.role === "elder"/.test(gl) && /T\("goalTalk", "[^"]*\{who\}[^"]*", \{ who:/.test(gl) && /^function hotbar\(\) \{\n  goalLine\(\);/m.test(land),
+   "goalLine says sign in / talk to the elder / the work / hand it in, and runs with every hotbar refresh");
+ok(/id="goal"/.test(readFileSync(join(ROOT, "static", "land.html"), "utf8")), "the page has the goal line over the bar");
+ok(/t\.sale\) html = `[^`]*T\("nadoHow", "[^"]*dex\.nadochain\.com[^"]*"\)/.test(land), "the for-sale plot card says how NADO is come by");
+const need = { "land.goalTalk": "{who}", "land.goalQuest": "{q}", "land.goalReady": "{q}", "land.nadoHow": "dex.nadochain.com" };
+ok(Object.entries(need).every(([k, ph]) => langs.every((l) => typeof I[l][k] === "string" && I[l][k].includes(ph))), "goalTalk/goalQuest/goalReady/nadoHow are in all 17 languages with their placeholders");
 
 console.log(fails ? `${fails} FAILED` : "all passed");
 process.exit(fails ? 1 : 0);
