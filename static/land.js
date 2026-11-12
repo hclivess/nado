@@ -1693,7 +1693,7 @@ function connect() {
     } else if (m.t === "launched") {
       if (m.error) { notify(padWhy(m.error), 6000); if (pad) net.send({ t: "pad", plot: pad.plot, box: pad.box, req: ++net.req }); return; }
       notify(m.num && m.num.ok ? T("padOrbit", "In orbit! Satellites in the constellation: {n}.", { n: m.num.in_orbit }) : T("padSpent", "It did not reach orbit — the rocket is spent."), 8000);
-      $("padPanel").classList.add("hidden"); pad = null;
+      hidePanel("padPanel");
     } else if (m.t === "survey") {
       drawMap(m);
     } else if (m.t === "mycrafts") {
@@ -1885,11 +1885,15 @@ function animalAimed(reach) {
 // ---- HEALTH, DEATH AND RESPAWN (#162): the world server keeps a player's health; the page shows it as hearts, flashes
 // when struck, and on a death shows what killed them, then wakes them at their bed (Use on a bed) or at the landing.
 // The bag is kept.
-let hpMax = 20;
+let hpMax = 20, lastHp = null;
+// A LANGUAGE CHANGE re-renders what T() wrote into the HUD by hand (#179: the hotbar label stayed "Earth" after a switch
+// to Čeština, the health line's "Level"): i18n.js announces it on window
+window.addEventListener("nado-lang", () => { hotbar(); pieceInfo(); if (lastHp != null) showHp(lastHp); const st = $("hudPlot"); if (st) st.dataset.html = ""; });
 function showHp(hp, max) {
   if (max) hpMax = max;
   const el = $("hudHp");
   if (!el || hp == null) return;
+  lastHp = hp;
   el.classList.toggle("hidden", !net.me);
   const full = Math.max(0, Math.ceil(hp / 2)), all = Math.ceil(hpMax / 2);
   el.textContent = "♥".repeat(full) + "♡".repeat(Math.max(0, all - full)) + ` ${hp}/${hpMax}` + (inv.level ? " · " + T("level", "Level {n}", { n: inv.level }) : "");
@@ -1914,10 +1918,31 @@ function hitDirFrame(now) {
   el.style.transform = `rotate(${(Math.atan2(at[0] - P.u, at[1] - P.v) - P.yaw).toFixed(3)}rad)`;   // yaw 0 faces +v, +u to the right
 }
 /** Every panel shut and what it showed let go (death; nothing may stay open under the card, #176). */
+// ONE PANEL AT A TIME (#179, playtest 2026-11-11): opening a panel closes the others and frees the mouse (the Map opened
+// with the mouse still captured — nothing on it could be clicked until Escape; E opened the Bag under an open
+// townsperson); closing the last one gives the mouse back to the game (a close used to need one more click on the
+// world); the death card closes them all (died → closePanels, which never recaptures: the card is about to show).
+const PANELS = ["palette", "setPanel", "mapPanel", "wardPanel", "planetPanel", "chestPanel", "machPanel", "npcPanel", "padPanel"];
+const anyPanelOpen = () => PANELS.some((id) => { const el = $(id); return el && !el.classList.contains("hidden"); });
+function hidePanel(id) {
+  const el = $(id);
+  if (!el || el.classList.contains("hidden")) return;
+  el.classList.add("hidden");
+  if (id === "chestPanel") chest = null; else if (id === "machPanel") machine = null; else if (id === "npcPanel") talkingTo = null; else if (id === "padPanel") pad = null;
+}
+function showPanel(id, open) {
+  if (open) {
+    for (const o of PANELS) if (o !== id) hidePanel(o);
+    const el = $(id); if (el) el.classList.remove("hidden");
+    if (document.pointerLockElement) document.exitPointerLock();
+  } else {
+    hidePanel(id);
+    if (!anyPanelOpen() && !conOpen && !touch && $("deathCard").classList.contains("hidden")) lockPointer();
+  }
+}
 function closePanels() {
-  palette(false); settings(false); mapPanel(false); wardrobe(false); conShow(false);
-  for (const id of ["chestPanel", "machPanel", "npcPanel", "padPanel", "planetPanel"]) { const el = $(id); if (el) el.classList.add("hidden"); }
-  chest = null; machine = null; talkingTo = null; pad = null;
+  for (const id of PANELS) hidePanel(id);
+  conShow(false);
 }
 let wakeAt = null;
 /** The body at the place it wakes: the bed, else the landing. */
@@ -2047,7 +2072,7 @@ function openNpc(id) {
   $("npcTitle").textContent = r ? `${r.name} · ${roleName(r.role)}` : id;
   $("npcGrid").textContent = "…";
   if (document.pointerLockElement) document.exitPointerLock();
-  $("npcPanel").classList.remove("hidden");
+  showPanel("npcPanel", true);
   net.send({ t: "talk", npc: id, req: ++net.req });
 }
 function questText(q) {
@@ -2213,7 +2238,7 @@ async function builderCheck(plot) {
 // hall, their bed and their crafts on it. Land they have not been to stays blank: a map is drawn by going there.
 const MAP_COL = { grass: [106, 154, 74], forest: [63, 107, 53], desert: [216, 196, 138], beach: [226, 210, 156], rock: [138, 138, 134], snow: [238, 242, 244] };
 function mapPanel(open) {
-  $("mapPanel").classList.toggle("hidden", !open);
+  showPanel("mapPanel", open);
   if (!open) return;
   if (flying && flying.nav && flying.nav.fix) return drawPlanet();          // the nav unit with a fix: the whole planet
   if (flying && flying.nav && !((inv.items.map || 0) > 0)) {                 // …without one, it says what it lacks
@@ -2275,7 +2300,7 @@ function drawMap(m) {
 // THE PLANET'S FACTS (operator 2026-11-11: "we need proper planetary physical properties like in Kerbal space"): what the
 // planet is as a body, every figure computed in land-planet.js from its radius, its gravity and cited constants
 function planetPanel(open) {
-  $("planetPanel").classList.toggle("hidden", !open);
+  showPanel("planetPanel", open);
   if (!open) return;
   if (document.pointerLockElement) document.exitPointerLock();
   const f = Planet.facts(), km = (m) => (m / 1000).toLocaleString(undefined, { maximumFractionDigits: 1 }), n0 = (x) => Math.round(x).toLocaleString();
@@ -2469,7 +2494,7 @@ function hotbar() {
 // ---- the bag: what you have, what you can make, and trade ---------------------------------------------------------
 const bagOpen = () => !$("palette").classList.contains("hidden");
 function palette(open) {
-  $("palette").classList.toggle("hidden", !open);
+  showPanel("palette", open);
   if (!open) return;
   if (document.pointerLockElement) document.exitPointerLock();
   renderBag();
@@ -2774,7 +2799,7 @@ function openMachine(bx) {
   if (document.pointerLockElement) document.exitPointerLock();
   $("machTitle").textContent = nameOf(Object.keys(RULES.items).find((k) => RULES.items[k].places === bx.b[6]));
   $("machGrid").textContent = "…";
-  $("machPanel").classList.remove("hidden");
+  showPanel("machPanel", true);
 }
 /** The world server's status, in the player's language (it says it in English: land_server.py factory_tick). */
 function machineStatus(st) {
@@ -2796,7 +2821,7 @@ function openPad(bx) {
   pad = { plot: bx.plot, box: bx.b };
   if (document.pointerLockElement) document.exitPointerLock();
   $("padGrid").textContent = "…";
-  $("padPanel").classList.remove("hidden");
+  showPanel("padPanel", true);
   net.send({ t: "pad", plot: pad.plot, box: pad.box, req: ++net.req });
 }
 const PAD_WHY = { "no rocket engine on the pad": ["padWhyEngine", "No rocket engine on the pad."], "no propellant tank": ["padWhyTank", "No propellant tank."],
@@ -2853,7 +2878,7 @@ function openChest(bx) {
   chest = { plot: bx.plot, box: bx.b, items: null };
   chestSend({}, {});
   if (document.pointerLockElement) document.exitPointerLock();
-  $("chestPanel").classList.remove("hidden");
+  showPanel("chestPanel", true);
   renderChest();
 }
 function chestSend(put, take) { net.send({ t: "chest", plot: chest.plot, box: chest.box, put, take, req: ++net.req }); }
@@ -2874,9 +2899,9 @@ function renderChest() {
 // ---- the wardrobe (#111): what you wear, and your skin and hair — V, or from the bag. Garments are sewn in the bag with a
 // needle; putting one on takes it out of the bag (the world server's "wear"), and everyone near you sees it.
 function wardrobe(open) {
-  $("wardPanel").classList.toggle("hidden", !open);
+  showPanel("wardPanel", open);
   if (!open) return;
-  if (!net.online || !net.me) { $("wardPanel").classList.add("hidden"); return notify(T("signInFirst", "Sign in first.")); }
+  if (!net.online || !net.me) { showPanel("wardPanel", false); return notify(T("signInFirst", "Sign in first.")); }
   if (document.pointerLockElement) document.exitPointerLock();
   renderWard();
 }
@@ -3160,7 +3185,7 @@ function shadowQuality() {
 // ---- the graphics panel (#166): presets and each setting, applied at once and kept in this browser ------------------------
 const settingsOpen = () => !$("setPanel").classList.contains("hidden");
 function settings(open) {
-  $("setPanel").classList.toggle("hidden", !open);
+  showPanel("setPanel", open);
   if (!open) return;
   if (document.pointerLockElement) document.exitPointerLock();
   renderSettings();
@@ -3423,7 +3448,7 @@ function wireInput(canvas) {
     if (e.code === "KeyF") { P.fly = !P.fly; P.vh = 0; notify(P.fly ? T("flyOn", "Flying — Space up, C down, Shift fast") : T("flyOff", "Walking"), 1600); }
     if (e.code === "KeyE") palette($("palette").classList.contains("hidden"));
     if (e.code === "KeyM") mapPanel($("mapPanel").classList.contains("hidden"));
-    if (e.code === "Escape") { palette(false); settings(false); mapPanel(false); }
+    if (e.code === "Escape" && anyPanelOpen()) { closePanels(); if (!touch && $("deathCard").classList.contains("hidden")) lockPointer(); }   // (a panel open: close them all, mouse back; none: the browser frees the mouse)
     if (e.code === "Space" && locked) e.preventDefault();
   });
   document.addEventListener("keyup", (e) => keys.delete(e.code));
@@ -3463,17 +3488,17 @@ function wireInput(canvas) {
     $("tUse").onclick = () => useDoor();                // Q on a keyboard: a door, a chest, a pilot seat; leave a craft
   }
   $("palClose").onclick = () => palette(false);
-  $("chestClose").onclick = () => { $("chestPanel").classList.add("hidden"); chest = null; };
-  $("machClose").onclick = () => { $("machPanel").classList.add("hidden"); machine = null; };
+  $("chestClose").onclick = () => showPanel("chestPanel", false);
+  $("machClose").onclick = () => showPanel("machPanel", false);
   $("deathGo").onclick = () => wakeUp();                // the death card (#162)
-  $("npcClose").onclick = () => { $("npcPanel").classList.add("hidden"); talkingTo = null; };
+  $("npcClose").onclick = () => showPanel("npcPanel", false);
   $("wardClose").onclick = () => wardrobe(false);
   $("setOpen").onclick = () => { palette(false); settings(true); };
   $("setClose").onclick = () => settings(false);
   $("mapClose").onclick = () => mapPanel(false);
   $("mapPlanet").onclick = () => { mapPanel(false); planetPanel(true); };
   $("planetClose").onclick = () => planetPanel(false);
-  $("padClose").onclick = () => { $("padPanel").classList.add("hidden"); pad = null; };
+  $("padClose").onclick = () => showPanel("padPanel", false);
   $("mapBtn").onclick = () => mapPanel(true);
   $("wardOpen").onclick = () => { palette(false); wardrobe(true); };
 }
