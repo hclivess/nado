@@ -947,6 +947,12 @@ function load() {
   P.h = groundAt(P.face, P.u, P.v);
 }
 
+/** A chunk's level of detail by its distance in chunks: 0 near (full tree models, grass), 1 the middle band (the trees'
+ *  middle model, a third of the grass), 2 far (far trees, small pieces skipped). A phone never takes 0; nor does LOW
+ *  (view ≤ 3 chunks, #150: measured 2026-11-12 at the landing on Low, bark was the frame's top item at 79k triangles
+ *  — every near tree the full model on the preset meant for weak devices). The chunk request and the re-check as the
+ *  player moves both read this, so a chunk is never meshed at one level and kept at another. */
+const chunkLod = (dist) => (PHONE ? (dist <= 1 ? 1 : 2) : SET.view <= 3 ? (dist <= 2 ? 1 : 2) : dist <= 2 ? 0 : dist <= 3 ? 1 : 2);
 // ---- chunks: a pool of mesher workers ---------------------------------------------------------------------------
 const chunks = new Map();                      // "face:cu:cv:ch" -> { meshes: [], anchor, busy, dirty }
 let pendingPlace = null, localPlace = 0;                       // a saved place underground, until its plot's edits arrive (load)
@@ -984,7 +990,7 @@ function request(k) {
   const [face, cu, cv, ch] = k.split(":").map(Number);
   const pb = plotBoxes.get(Wd.plotId(face, cv, cu));        // a chunk column IS a plot (CHUNK == PLOT)
   const dist = Math.max(Math.abs(cu - Math.floor(P.u / CHUNK)), Math.abs(cv - Math.floor(P.v / CHUNK)));
-  c.lod = PHONE ? (dist <= 1 ? 1 : 2) : dist <= 2 ? 0 : dist <= 3 ? 1 : 2;   // 0: grass too (not on a phone); 2: far trees, small pieces skipped
+  c.lod = chunkLod(dist);                                   // 0: grass too (not on a phone); 2: far trees, small pieces skipped
   queue.push({ id: ++reqId, k, face, cu, cv, ch, edits: editsFor(face, cu, cv), boxes: pb ? pb.list : null, lod: c.lod, grass: !!SET.grass });   // no blades with grass off (a phone's default, #166)
   pump();
 }
@@ -1108,7 +1114,7 @@ function updateChunks() {
     if (Math.abs(dx) <= 2 && Math.abs(dy) <= 2) { lo = Math.min(lo, Math.max(Wd.DEEP_MIN / CHUNK, Math.floor(P.h / CHUNK) - 1)); hi = Math.max(hi, Math.min(H / CHUNK - 1, Math.floor(P.h / CHUNK) + 1)); }
     const pb = plotBoxes.get(Wd.plotId(face, cv, cu));
     if (pb && pb.list.length) for (const b of pb.list) { lo = Math.min(lo, Math.floor(b[2] / (CHUNK * Wd.CM))); hi = Math.max(hi, Math.min(H / CHUNK - 1, Math.floor((b[2] + b[5] - 1) / (CHUNK * Wd.CM)))); }
-    const dd = Math.max(Math.abs(dx), Math.abs(dy)), lodNow = PHONE ? (dd <= 1 ? 1 : 2) : dd <= 2 ? 0 : dd <= 3 ? 1 : 2;
+    const dd = Math.max(Math.abs(dx), Math.abs(dy)), lodNow = chunkLod(dd);
     for (let ch = lo; ch <= hi; ch++) {
       const k = face + ":" + cu + ":" + cv + ":" + ch, c = chunks.get(k);
       want.add(k);

@@ -30,7 +30,7 @@ ok(page.includes("const SET_PHONE = { shadows: 0, grass: 0, effects: 0, view: 4 
   "…sees 4 chunks of full view (the far land still to the horizon) unless the settings say more");
 ok(page.includes("const TORCH_LIGHTS = PHONE ? 2 : 8"), "…lights two point lights (eight on a desktop, #181)");
 ok(page.includes("const o = { ...SET_DEF, ...(PHONE ? SET_PHONE : {}) };"), "…casts no shadows, and draws no grass or effects, unless asked (the graphics panel)");
-ok(page.includes("c.lod = PHONE ? (dist <= 1 ? 1 : 2)") && page.includes("lodNow = PHONE ? (dd <= 1 ? 1 : 2)"), "…and draws full tree models in the nearest ring only");
+ok(page.includes("const chunkLod = (dist) => (PHONE ? (dist <= 1 ? 1 : 2) : SET.view <= 3 ? (dist <= 2 ? 1 : 2) : dist <= 2 ? 0 : dist <= 3 ? 1 : 2);") && page.includes("c.lod = chunkLod(dist);") && page.includes("lodNow = chunkLod(dd);"), "…and (one rule for the request and the re-check; Low takes no level 0 either, #150) draws full tree models in the nearest ring only");
 
 // 2. the meadow's small things
 const flower = Math.max(...[0, 1, 2, 3].map((k) => { const m = T.flowerModel(5, k); return (m.bark.idx.length + m.leaves.idx.length) / 3; }));
