@@ -200,7 +200,7 @@ ok(/Wd\.fieldOf\(colAt\(/.test(land) && /fieldOf/.test(readFileSync(join(ROOT, "
     let flat = true, grey = true;
     for (let t = 0; t + 2 < st.n; t += 3) {
       for (let k = 1; k < 3; k++) for (let a = 0; a < 3; a++) if (Math.abs(st.nor[t * 3 + a] - st.nor[(t + k) * 3 + a]) > 1e-9) flat = false;
-      const r = st.col[t * 3], g = st.col[t * 3 + 1], b = st.col[t * 3 + 2]; if (!(r < g && g < b)) grey = false;
+      const r = st.col[t * 3], g = st.col[t * 3 + 1], b = st.col[t * 3 + 2]; if (!(r < g && g < b && b >= 1.25 * r)) grey = false;   // (blue at least a quarter over red: a light tint left them brown, 2523261a)
     }
     ok(own, `every stone triangle owns its three corners (${st.n} vertices, ${st.idx.length} indices)`);
     ok(flat, "the three corners of a facet carry the facet's one normal (flat shading: angular, not a smooth lump)");

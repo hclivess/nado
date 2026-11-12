@@ -752,7 +752,7 @@ function pebble(out, face, cu, cv, base, r, seed, rot, place) {
       const p = place(g[i][0], g[i][1], g[i][2]);
       out.pos.push(p[0], p[1], p[2]);
       out.nor.push(nx * fr.east[0] + ny * fr.north[0] + nz * fr.up[0], nx * fr.east[1] + ny * fr.north[1] + nz * fr.up[1], nx * fr.east[2] + ny * fr.north[2] + nz * fr.up[2]);
-      out.col.push(j * 0.86, j * 0.88, j * 0.94);                        // cool grey
+      out.col.push(j * 0.58, j * 0.64, j * 0.76);                        // cool grey — the rock texture is a warm brown, so the tint leans hard to blue (photographed brown still at 0.86/0.88/0.94, 2026-11-12)
       out.uvw.push(((g[i][0] % 4096) + 4096) % 4096, ((g[i][1] % 4096) + 4096) % 4096, g[i][2]);
       out.gn.push(nx, ny, nz);
       out.w1.push(0, 0, 1, 0); out.w2.push(0, 0);                      // all rock
