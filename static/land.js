@@ -2066,10 +2066,17 @@ function npcAimed() {
   const d = [fr.east, fr.north, fr.up].map((ax) => fw[0] * ax[0] + fw[1] * ax[1] + fw[2] * ax[2]);
   const o = [P.u, P.v, P.h + EYE], reach = RULES && RULES.quests ? RULES.quests.talk : 4;
   let best = null;
+  // THE WHOLE BODY CATCHES THE LOOK (#177, measured on the live page 2026-11-12): one point a metre over the feet, 0.55 m
+  // round it, missed a player 0.6 m from Tobin with the crosshair on his chest — the aim line stayed empty and Use said
+  // "Aim at a door or a chest". The figure is a standing segment: the look's closest approach to its feet-to-head line,
+  // sampled at the shins, the belly and the chest, within 0.45 m.
   for (const [id, r] of npcs) {
-    const c = [r.at[1], r.at[2], (r.gh ?? P.h) + 1.0], w = [c[0] - o[0], c[1] - o[1], c[2] - o[2]], t = w[0] * d[0] + w[1] * d[1] + w[2] * d[2];
-    if (t < 0 || t > reach + 0.5) continue;
-    if (Math.hypot(w[0] - d[0] * t, w[1] - d[1] * t, w[2] - d[2] * t) < 0.55 && (!best || t < best.t)) best = { id, t };
+    const feet = (r.gh ?? P.h);
+    for (const up of [0.3, 0.9, 1.5]) {
+      const c = [r.at[1], r.at[2], feet + up], w = [c[0] - o[0], c[1] - o[1], c[2] - o[2]], t = w[0] * d[0] + w[1] * d[1] + w[2] * d[2];
+      if (t < 0 || t > reach + 0.5) continue;
+      if (Math.hypot(w[0] - d[0] * t, w[1] - d[1] * t, w[2] - d[2] * t) < 0.45 && (!best || t < best.t)) best = { id, t };
+    }
   }
   return best && best.id;
 }

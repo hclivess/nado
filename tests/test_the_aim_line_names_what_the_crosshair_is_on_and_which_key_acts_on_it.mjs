@@ -44,6 +44,10 @@ ok(/const \[u, v, h\] = a\.hit, what = blockLabel\(blockAt\(P\.face, u, v, h\)\)
 ok(/const notYours = \(what, plot\) => \{ const t = titles\.get\(plot\); return T\("aimFmt2"[\s\S]*t && t\.sale \? T\("forSale"[\s\S]*t && t\.holder \? T\("owned", "Owned by \{o\}"[\s\S]*: T\("titled", "Titled"\)[\s\S]*v: T\("v\.notYours", "not yours to gather here"\)/.test(at), "…and 'not yours' carries the plot's state: for sale at its price, whose it is, or just titled (never 'Owned by —')");
 ok(/^function blockLabel\(b\) \{/m.test(land) && /const named = blockLabel;/.test(land), "the /aim command and the line share one naming of blocks and pieces");
 
+// 2b. the whole body catches the look (measured live: one point a metre up missed a chest-high crosshair at 0.6 m)
+const na = land.slice(land.indexOf("function npcAimed()"), land.indexOf("function npcAimed()") + 1400);
+ok(/for \(const up of \[0\.3, 0\.9, 1\.5\]\) \{/.test(na) && /feet \+ up\]/.test(na) && /< 0\.45 && \(!best \|\| t < best\.t\)\) best = \{ id, t \};/.test(na) && !/\+ 1\.0\]/.test(na), "a townsperson is caught at the shins, the belly or the chest — a standing segment, not one point a metre up");
+
 // 3. a click talks
 const act = land.slice(land.indexOf("function act(place, mouse)"), land.indexOf("function act(place, mouse)") + 900);
 const iTalk = act.indexOf('{ const n = npcAimed(); if (n) return openNpc(n); }'), iAnimal = act.indexOf("animalAimed(RULES"), iSign = act.indexOf('if (!net.me) return notify(T("signInBuild2"');
