@@ -2076,8 +2076,18 @@ function openNpc(id) {
   showPanel("npcPanel", true);
   net.send({ t: "talk", npc: id, req: ++net.req });
 }
+/** Where a bring quest's item is gathered by hand: the first breaking rule that yields it with no tool (its block's name),
+ *  or nothing — "no offer says where berries are found" (#165, playtest 2026-11-11). */
+function gatheredFrom(item) {
+  if (!RULES || !RULES.breaking) return "";
+  for (const [b, r] of Object.entries(RULES.breaking)) {
+    if (!r || typeof r !== "object" || r.needs || r.class || !Array.isArray(r.yields)) continue;
+    if (r.yields.some((y) => Array.isArray(y) && y[0] === item) && BLOCKS[Number(b)]) return blockLabel(Number(b));
+  }
+  return "";
+}
 function questText(q) {
-  if (q.kind === "bring") return T("qBring", "Bring {n} × {i}", { n: q.n, i: nameOf(q.item) });
+  if (q.kind === "bring") { const from = gatheredFrom(q.item); return from ? T("qBringFrom", "Bring {n} × {i} — found as {b}", { n: q.n, i: nameOf(q.item), b: from }) : T("qBring", "Bring {n} × {i}", { n: q.n, i: nameOf(q.item) }); }
   if (q.kind === "hunt") return T("qHunt", "Hunt {n} × {a}", { n: q.n, a: animalName(q.what) }) + (q.got !== undefined && q.got > 0 ? ` (${q.got}/${q.n})` : "");
   const to = RULES.quests.npcs.find((n) => n.id === q.to);
   return T("qDeliver", "Carry a parcel to {who}", { who: to ? `${to.name} (${roleName(to.role)})` : q.to });

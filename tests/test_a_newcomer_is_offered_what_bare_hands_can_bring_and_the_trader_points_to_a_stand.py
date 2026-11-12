@@ -7,7 +7,9 @@ and nothing else — no trade, no pointer to the stands"). The world server's ow
   * a level-1 player's offers are all from that list and none is a hunt; from level 2 the whole book is open;
   * the trader's word: with a trading stand within the market's reach, talk() says how far and on what bearing
     (0° north, 90° east); with none, that none is built yet; the elder says neither;
-  * the page shows the trader's word over his greeting (static/land.js renderNpc), in all 17 languages.
+  * the page shows the trader's word over his greeting (static/land.js renderNpc), in all 17 languages;
+  * a bring quest's line says where the item is found by hand — the first no-tool breaking rule's block ("Bring 6 ×
+    Berries — found as Berry bush"), and every hand item has such a block.
 Run: python3 tests/test_a_newcomer_is_offered_what_bare_hands_can_bring_and_the_trader_points_to_a_stand.py
 """
 import os, tempfile  # ISOLATION FIRST (CLAUDE.md rule 4)
@@ -80,4 +82,8 @@ page = open(os.path.join(ROOT, "static", "land.js"), encoding="utf-8").read()
 check("the page puts the trader's word over his greeting", 'm.stand === undefined ? ""' in page and 'T("traderStand"' in page and 'T("traderNoStand"' in page)
 I = json.load(open(os.path.join(ROOT, "static", "i18n_games", "land.json"), encoding="utf-8"))
 check("both lines are in all 17 languages with their placeholders", len(I) == 17 and all("{m}" in I[l]["land.traderStand"] and "{b}" in I[l]["land.traderStand"] and len(I[l]["land.traderNoStand"]) > 10 for l in I))
+check("a bring line names where the item is found by hand (gatheredFrom: the first no-tool, no-class rule's block)",
+      "function gatheredFrom(item)" in page and 'T("qBringFrom", "Bring {n} × {i} — found as {b}"' in page and "r.needs || r.class" in page)
+check("…and every hand item has such a block", all(any(isinstance(r, dict) and not r.get("needs") and not r.get("class") and any(isinstance(y, list) and y[0] == i for y in r.get("yields", [])) for r in B.values()) for i in names), sorted(names))
+check("the bring-from line is in all 17 languages with its three placeholders", all(all(ph in I[l]["land.qBringFrom"] for ph in ("{n}", "{i}", "{b}")) for l in I))
 _report.done()
