@@ -49,8 +49,11 @@ _MAP_REF = re.compile(rb'"(/static/[A-Za-z0-9_./-]+?\.m?js)(?:\?v=[A-Za-z0-9_.-]
 # quoted relative path first (fast), then kept only when `from` / `import` / `import(` precedes it.
 JS_IMPORT_RE = re.compile(rb'(["\'])(\.\.?/[A-Za-z0-9_./-]+?\.m?js)(?:\?v=[A-Za-z0-9_.-]*)?(["\'])')
 _IMPORT_CTX = re.compile(rb'(?:\bfrom|\bimport)\s*\(?\s*$')
-# Absolute asset literals in JS ("/static/theme.css"). Only code/style/image types — never data.
-JS_ASSET_RE = re.compile(rb'(["\'])(/static/[A-Za-z0-9_./-]+?\.(?:m?js|css|svg|png|jpe?g|webp|gif|ico|woff2?|wasm))'
+# Absolute asset literals in JS ("/static/theme.css"). Code/style/image types and .bin — the people's binary data
+# (static/human/crew.bin, wear.bin): a fetch of a data file under a fixed URL kept the OLD bytes (2026-11-12: wear.bin
+# fetched force-cache held the hair build's file and no garment showed on a page that had seen it; Cloudflare's edge
+# holds an unstamped file for hours besides). JSON stays out: land-recipes.json is fetched no-store on purpose.
+JS_ASSET_RE = re.compile(rb'(["\'])(/static/[A-Za-z0-9_./-]+?\.(?:m?js|css|svg|png|jpe?g|webp|gif|ico|woff2?|wasm|bin))'
                          rb'(?:\?v=[A-Za-z0-9_.-]*)?(["\'])')
 
 

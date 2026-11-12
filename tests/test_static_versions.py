@@ -27,7 +27,7 @@ ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 # ops/static_versions.py is pure, but the rule is one shape for every test that imports from ops/ (CLAUDE.md rule 4)
 os.environ["HOME"] = tempfile.mkdtemp(prefix="nado-static-test-")
 sys.path.insert(0, ROOT)
-from ops.static_versions import StaticVersions, cache_control  # noqa: E402
+from ops.static_versions import StaticVersions, cache_control, scan_refs  # noqa: E402
 
 STATIC = os.path.join(ROOT, "static")
 fails = 0
@@ -108,6 +108,15 @@ check("every module under static/ serves its existing relative imports versioned
 
 # ---- 3. propagation, isolation, swallowing, cycles (a throwaway static/) ----------------------------------------
 T = tempfile.mkdtemp(prefix="nado-static-")
+
+
+# the people's binary data (#172): the fetch literals in land-human.js are versioned like code, so a new crew.bin or
+# wear.bin is a new URL — and the fetch never says force-cache (which ignores the server's no-cache and kept the hair
+# build's wear.bin in every browser that had seen it, 2026-11-12)
+hum = open(os.path.join(ROOT, "static", "land-human.js"), "rb").read()
+refs = {m[3].decode() for m in scan_refs(hum, "js")}
+check("land-human.js's crew.bin and wear.bin fetches are version-stamped references", {"/static/human/crew.bin", "/static/human/wear.bin"} <= refs, sorted(refs))
+check("...and no human data fetch is force-cache", b"force-cache" not in hum)
 
 
 def w(rel, text):

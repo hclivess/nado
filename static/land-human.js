@@ -235,10 +235,15 @@ export class HumanView {
     this.tex = new THREE.DataTexture(this.data, ROW_TEXELS, MAXF, THREE.RGBAFormat, THREE.FloatType);
     this.tex.minFilter = this.tex.magFilter = THREE.NearestFilter; this.tex.generateMipmaps = false; this.tex.needsUpdate = true;
     for (let i = MAXF - 1; i >= 0; i--) this.free.push(i);
-    this.load = fetch(url, { cache: "force-cache" }).then((r) => { if (!r.ok) throw new Error("crew.bin " + r.status); return r.arrayBuffer(); })
+    // the URLs are version-stamped by the server (ops/static_versions.py: a .bin literal gets the file's hash as its
+    // v= query, immutable for a year, and a new file is a new URL) — never a forced cache read here: that kept the
+    // hair build's wear.bin in every browser that had seen it, and the garments of the next build never showed
+    // (2026-11-12; tests/test_static_versions.py pins both)
+    this.stamp = new URL(wearUrl, "http://x/").searchParams.get("v") || "";
+    this.load = fetch(url).then((r) => { if (!r.ok) throw new Error("crew.bin " + r.status); return r.arrayBuffer(); })
       .then((b) => this.build(parseHuman(b))).catch((e) => { console.error("human", e); throw e; });
     // the hair follows on its own: a figure without it is a figure, not a wait (the file is 1.5 MB beside the body's)
-    this.loadWear = fetch(wearUrl, { cache: "force-cache" }).then((r) => { if (!r.ok) throw new Error("wear.bin " + r.status); return r.arrayBuffer(); })
+    this.loadWear = fetch(wearUrl).then((r) => { if (!r.ok) throw new Error("wear.bin " + r.status); return r.arrayBuffer(); })
       .then((b) => this.buildWear(parseWear(b))).catch((e) => { console.error("human wear", e); });
   }
   build(D) {
@@ -261,7 +266,10 @@ export class HumanView {
       const clothes = it.kind === "clothes";
       const attrs = interleave(it.nV, [["position", it.pos[0], 3], ["normal", it.nrm[0], 3], ["p1", it.pos[1], 3], ["n1", it.nrm[1], 3], ["p2", it.pos[2], 3], ["n2", it.nrm[2], 3],
         ["aBoneI", it.skinI, 4], ["aBoneW", it.skinW, 4], ["uv", it.uv, 2], ...(clothes ? [["aPart", it.part, 1]] : [])]);
-      const map = loader.load("/static/human/" + it.tex); map.colorSpace = THREE.SRGBColorSpace; map.anisotropy = 4;
+      // (a texture's URL carries wear.bin's stamp: not its own version — the server revalidates such a URL against the
+      // file's ETag — but a new wear.bin is a new URL for its textures too, past any edge cache)
+      const tu = new URL("/static/human/" + it.tex, "http://x/"); if (this.stamp) tu.searchParams.set("v", this.stamp);
+      const map = loader.load(tu.pathname + tu.search); map.colorSpace = THREE.SRGBColorSpace; map.anisotropy = 4;
       const m = new THREE.Mesh(instanced(attrs, it.idx), wearMaterial(this.tex, map, it.lum, it.kind === "eyebrows" ? 0.55 : 1, clothes, it.lums));   // (brows a shade darker than the hair)
       m.frustumCulled = false; m.castShadow = it.kind !== "eyebrows"; m.receiveShadow = true; m.matrixAutoUpdate = false; m.visible = false;
       this.scene.add(m); return { it, mesh: m };
