@@ -77,5 +77,13 @@ for (const kind of ["broadleaf", "birch", "conifer"]) {                 // (a bu
   ok(zmin < 0 && base >= 1.3 * plain && base <= 3 * plain, `${kind}: the trunk's first ring is under the ground (${zmin.toFixed(2)} m) and flared — ${base.toFixed(2)} m wide against the recipe's ${plain.toFixed(2)} m trunk`);
 }
 
+
+// A MIDDLE LEVEL OF DETAIL (#150): a tree at LOD1 (a chunk 48–64 m off) is lighter than the near model and heavier than
+// the far one, in bark and in leaves alike — every trunked kind, the same seed
+for (const kind of ["broadleaf", "birch", "conifer"]) {
+  const v = [0, 1, 2].map((lod) => { const m = T.treeModel(kind, 12, 7, lod); return [m.bark.n, m.leaves.n]; });
+  ok(v[0][0] > v[1][0] && v[1][0] > v[2][0] && v[0][1] > v[1][1] && v[1][1] > v[2][1], `${kind}: LOD1 sits between LOD0 and LOD2 (bark ${v.map((x) => x[0]).join(" > ")}, leaves ${v.map((x) => x[1]).join(" > ")})`);
+}
+
 console.log(fails ? `${fails} FAILED` : "ALL PASS");
 process.exit(fails ? 1 : 0);

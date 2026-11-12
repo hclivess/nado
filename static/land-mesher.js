@@ -767,7 +767,7 @@ const models = new Map();
 /** Copy tree `t`'s model into `bark` / `foliage`, its root at grid (gu + .5, gv + .5) on the ground at `ground`, leaving
  *  out every part that stood in a cell `gone(u, v, h)` says was taken. */
 function placeTree(t, face, gu, gv, ground, lod, place, bark, foliage, gone) {
-  const far = lod >= 2 ? 2 : 0, variant = Math.floor(hash3(gu, gv, face * 7 + 1) * VARIANTS);
+  const far = lod >= 2 ? 2 : lod === 1 ? 1 : 0, variant = Math.floor(hash3(gu, gv, face * 7 + 1) * VARIANTS);   // (three levels since #150's middle LOD)
   const key = t.kind + ":" + t.height + ":" + variant + ":" + far;
   let m = models.get(key);
   if (!m) { m = treeModel(t.kind, t.height, (variant + 1) * 7919 + t.height * 131 + t.kind.length, far); models.set(key, m); }

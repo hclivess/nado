@@ -104,14 +104,17 @@ const tintOf = (R, base, spread) => { const j = 1 - spread / 2 + R() * spread; r
  *  finest twigs carried by their leaves alone; far away the trunk and limbs only), its leaves as alpha cards along its
  *  outermost shoots — a needle spray along each conifer shoot — to the level of detail's budget. */
 function grownModel(kind, H0, R, lod) {
-  const bark = part(), leaves = part(), A = ADAPT[kind], far = lod >= 2, top = A.top(H0), brown = [1, 1, 1];
+  // THREE LEVELS (#150, measured 2026-11-12 at the landing on Low: bark 70k triangles, the single biggest item — every
+  // tree within 64 m was the full near model, a chunk at LOD1 (48–64 m) got no middle): lod 1 keeps the near stems and
+  // limbs but a five-sided trunk, three-quarters of the cards grown a little, and no second needle card
+  const bark = part(), leaves = part(), A = ADAPT[kind], far = lod >= 2, mid = lod === 1, top = A.top(H0), brown = [1, 1, 1];
   const { stems, leafy, centre } = growPlant(kind, H0, R, lod);
   const barkTile = kind === "birch" ? 1 : 0;
   for (const s of stems) {
     // the finest stems are carried by their leaves alone (a twig thinner than a pencil is not seen as wood), and a
     // stem's sides follow its girth — a trunk is round, a branch three-sided
     if (s.depth > A.wood[far ? 1 : 0] || (s.depth === 2 && s.radii[0] < 0.012)) continue;
-    const sides = s.depth === 0 ? (far ? 5 : 7) : s.depth === 1 && s.radii[0] >= 0.05 && !far ? 5 : 3;
+    const sides = s.depth === 0 ? (far || mid ? 5 : 7) : s.depth === 1 && s.radii[0] >= 0.05 && !far && !mid ? 5 : 3;
     const last = s.pts.length - 1;
     // A ROOT FLARE (#181, playtest 2026-11-11: "tree trunks end in a flat faceted cut standing on the grass — no root
     // flare, so trees look placed, not grown"): the trunk's girth swells toward the ground — half as wide again at the
@@ -122,7 +125,8 @@ function grownModel(kind, H0, R, lod) {
     tube(bark, pts.map(clampR), radii, sides, (i) => 0.02 * (s.pts[i][2] / top) ** 2 + 0.035 * s.depth * (i / last), barkTile, brown);
   }
   // the tree's leaf cards shared out over its outermost shoots by their length
-  const total = leafy.reduce((n, i) => n + stems[i].len, 0) || 1, budget = A.cards[far ? 2 : 0], grow = far ? 1.35 : 1;
+  const total = leafy.reduce((n, i) => n + stems[i].len, 0) || 1;
+  const budget = far ? A.cards[2] : mid ? (A.cards[1] ?? Math.round((A.cards[0] + A.cards[2]) / 2)) : A.cards[0], grow = far ? 1.35 : mid ? 1.15 : 1;
   const longest = Math.max(...leafy.map((i) => stems[i].len), 1e-6);
   for (const i of leafy) {
     const s = stems[i], count = Math.max(1, Math.round((budget * s.len) / total));
@@ -137,7 +141,7 @@ function grownModel(kind, H0, R, lod) {
         const wide = size * (0.3 + 0.7 * s.len / longest);
         const side = norm(cross(d, [0, 0, 1])), along = mul(d, (s.len / count) * 0.62), out = add(sub(p, centre), [0, 0, 0.2]);
         card(leaves, p, mul(side, wide), along, A.tile, out, sway, tint);
-        if (!far) card(leaves, add(p, [0, 0, 0.04]), mul(norm(add(mul(side, 0.5), [0, 0, 0.85])), wide * 0.8), along, A.tile, out, sway, tint);
+        if (!far && !mid) card(leaves, add(p, [0, 0, 0.04]), mul(norm(add(mul(side, 0.5), [0, 0, 0.85])), wide * 0.8), along, A.tile, out, sway, tint);
       } else {
         const hang = kind === "birch" ? [0, 0, -0.12 - R() * 0.2] : [0, 0, 0];   // a birch's leaves hang from its twigs
         cluster(leaves, R, add(p, add(hang, [(R() - 0.5) * 0.3, (R() - 0.5) * 0.3, (R() - 0.5) * 0.25])), size, A.tile, centre, sway, tint);
