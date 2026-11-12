@@ -10,7 +10,10 @@
  *   3. a click on a person talks (act() opens them before anything else, left or right button);
  *   4. the twelve strings are in all 17 languages with their placeholders;
  *   5. a plot you may not touch says so BEFORE the hold: startBreak and startTakeDown check mayBuild first and
- *      explainNoBuild names the plot's real state — for sale at its price, or whose it is (two more strings, 17 languages).
+ *      explainNoBuild names the plot's real state — for sale at its price, or whose it is (two more strings, 17 languages);
+ *   6. the outline is dark by day and light by night (from the sky's own day value), and on litter it is the litter's
+ *      catch box, not the whole cell;
+ *   7. R, G and T with nothing placeable held say what they are for (one string, 17 languages).
  * Run: node tests/test_the_aim_line_names_what_the_crosshair_is_on_and_which_key_acts_on_it.mjs
  */
 import { readFileSync } from "node:fs";
@@ -59,6 +62,15 @@ ok(/^function startTakeDown\(bx, mouse\) \{\n  if \(!mayBuild\(bx\.plot\)\) retu
 const en = land.slice(land.indexOf("function explainNoBuild(plot)"), land.indexOf("function explainNoBuild(plot)") + 900);
 ok(/t && t\.sale\) notify\(T\("notYoursSale", "[^"]*\{p\}[^"]*\{n\}[^"]*"/.test(en) && /t && t\.holder\) notify\(T\("notYoursOwned", "[^"]*\{p\}[^"]*\{o\}[^"]*"/.test(en) && /T\("notYours", /.test(en), "explainNoBuild says for sale at the price, or whose it is, else the old line");
 ok(langs.every((l) => /\{p\}/.test(I[l]["land.notYoursSale"] || "") && /\{n\}/.test(I[l]["land.notYoursSale"] || "") && /\{p\}/.test(I[l]["land.notYoursOwned"] || "") && /\{o\}/.test(I[l]["land.notYoursOwned"] || "")), "the two refusals are in all 17 languages with their placeholders");
+
+// 6. the outline
+ok(/dayNow = day;/.test(land) && /highlight\.material\.color\.setScalar\(0\.07 \+ 0\.85 \* \(1 - dayNow\)\);/.test(fr), "the outline's colour follows the sky's day value: dark by day, light by night");
+ok(/if \(Wd\.LITTER\.has\(blockAt\(P\.face, a\.hit\[0\], a\.hit\[1\], a\.hit\[2\]\)\)\)\n      frameBox\(highlight, hp, \[\(a\.hit\[0\] - q\.u0 \+ 0\.5 - LITTER_R\) \* Wd\.CM, \(a\.hit\[1\] - q\.v0 \+ 0\.5 - LITTER_R\) \* Wd\.CM, a\.hit\[2\] \* Wd\.CM, 2 \* LITTER_R \* Wd\.CM, 2 \* LITTER_R \* Wd\.CM, LITTER_H \* Wd\.CM\]\);/.test(fr), "on litter the outline is the litter's own catch box (LITTER_R round its middle, LITTER_H high)");
+
+// 7. R, G and T confirm the press
+ok(/function pieceInfo\(pressed\) \{[\s\S]*?if \(pressed && !\(id && RULES && !NATURAL_ITEMS\.has\(id\)\)\) notify\(T\("pieceNoItem"/.test(land), "pieceInfo(pressed) says what R/G/T are for when nothing placeable is held");
+ok(/if \(e\.code === "KeyR"\)[^\n]*pieceInfo\(true\);/.test(land) && /if \(e\.code === "KeyG"\)[^\n]*pieceInfo\(true\);/.test(land) && /function turnPiece\(\) \{[\s\S]*?pieceInfo\(true\);/.test(land), "…and R, G and T all pass that they were pressed");
+ok(langs.every((l) => typeof I[l]["land.pieceNoItem"] === "string" && I[l]["land.pieceNoItem"].length > 10), "the string is in all 17 languages");
 
 console.log(fails ? `${fails} FAILED` : "all passed");
 process.exit(fails ? 1 : 0);

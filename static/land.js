@@ -887,9 +887,11 @@ function save() {
   try { localStorage.setItem(LS, JSON.stringify({ p: [P.face, P.u, P.v, P.h, P.yaw, P.pitch], at: Math.floor(Date.now() / 1000), hot, piece })); } catch (e) {}
 }
 /** The chosen piece size and snap, under the hotbar. */
-function pieceInfo() {
+function pieceInfo(pressed) {
   const id = hot[slot], el = $("pieceInfo");
   if (!el) return;
+  // R, G and T with nothing placeable on the bar changed something invisible (#177): say what they are for
+  if (pressed && !(id && RULES && !NATURAL_ITEMS.has(id))) notify(T("pieceNoItem", "Piece size, shape and turn apply to a block or piece on the bar — hold one (1–9)."));
   const [w, d, h] = pieceDims();
   const part = partFor(id && RULES && RULES.items[id]);
   const shapeName = part ? partName(part) : [T("shapeBox", "box"), T("shapeSlope", "slope"), T("shapeStairs", "stairs")][piece.shape || 0];
@@ -2003,7 +2005,7 @@ function blockLabel(b) {
 // on Q with no prompt, a pebble and a boulder looked alike, a refused plot said so only after the whole hold): one line
 // under the crosshair naming the thing aimed at and what acts on it — "Maren — Q talk", "Door — Q open", "Pebble — hold
 // left click to gather", "Timber beam · Owned by … — not yours to gather here". On a phone the key is the button's name.
-let aimLineAt = 0;
+let aimLineAt = 0, dayNow = 1;
 function aimText(a) {
   if (!RULES) return "";
   const k = touch ? T("tUse", "Use") : "Q", b = touch ? T("tBreak", "Break") : T("kLeft", "left click");
@@ -2994,7 +2996,7 @@ const unitOf = (m) => { const id = RULES && Object.keys(RULES.items).find((k) =>
  *  stairs rises the next way round. */
 function turnPiece() {
   // a PART (#175) has a front: a quarter turn swings it round (its yaw), where a box only swaps its width and depth
-  if (partFor(RULES && hot[slot] && RULES.items[hot[slot]])) { const t = piece.tilt || [0, 0, 0]; piece.tilt = [tenths(t[0] / 10 + 90), t[1], t[2]]; return pieceInfo(); }
+  if (partFor(RULES && hot[slot] && RULES.items[hot[slot]])) { const t = piece.tilt || [0, 0, 0]; piece.tilt = [tenths(t[0] / 10 + 90), t[1], t[2]]; return pieceInfo(true); }
   [piece.w, piece.d] = [piece.d, piece.w]; piece.turned = !piece.turned;
   if (piece.shape) piece.rot = ((piece.rot || 0) + 1) % 4;
   pieceInfo();
@@ -3409,14 +3411,14 @@ function wireInput(canvas) {
     if (!conOpen && (e.code === "Enter" || e.code === "NumpadEnter") && $("palette").classList.contains("hidden")) { e.preventDefault(); keys.clear(); return conShow(true, ""); }
     keys.add(e.code);
     if (/^Digit[1-9]$/.test(e.code) && Number(e.code.slice(5)) <= hot.length) { slot = Number(e.code.slice(5)) - 1; hotbar(); }
-    if (e.code === "KeyR") { const i = PRESETS.findIndex((x) => x[0] === piece.w && x[1] === piece.d && x[2] === piece.h); [piece.w, piece.d, piece.h] = PRESETS[(i + 1) % PRESETS.length]; pieceInfo(); }
+    if (e.code === "KeyR") { const i = PRESETS.findIndex((x) => x[0] === piece.w && x[1] === piece.d && x[2] === piece.h); [piece.w, piece.d, piece.h] = PRESETS[(i + 1) % PRESETS.length]; pieceInfo(true); }
     if (e.code === "KeyT") turnPiece();
     if (e.code === "KeyQ") useDoor();
     if (e.code === "Backquote") profToggle();                     // the profiler (True Wind's key)
     if (e.code === "KeyX") ignite();
     if (e.code === "KeyV") wardrobe($("wardPanel").classList.contains("hidden"));
     if (e.code === "KeyL") startLevel();
-    if (e.code === "KeyG") { piece.shape = ((piece.shape || 0) + 1) % 3; piece.part = 0; pieceInfo(); }   // …and back from a part (#175) to a plain piece
+    if (e.code === "KeyG") { piece.shape = ((piece.shape || 0) + 1) % 3; piece.part = 0; pieceInfo(true); }   // …and back from a part (#175) to a plain piece
     if (e.code === "BracketLeft" || e.code === "BracketRight") { const i = SNAPS.indexOf(piece.snap); piece.snap = SNAPS[Math.max(0, Math.min(SNAPS.length - 1, (i < 0 ? 2 : i) + (e.code === "BracketRight" ? 1 : -1)))]; pieceInfo(); }
     if (e.code === "KeyF") { P.fly = !P.fly; P.vh = 0; notify(P.fly ? T("flyOn", "Flying — Space up, C down, Shift fast") : T("flyOff", "Walking"), 1600); }
     if (e.code === "KeyE") palette($("palette").classList.contains("hidden"));
@@ -3961,6 +3963,7 @@ function sky(fr) {
   const star = Cosmos.sunFrom(Wd.PLANET), sd = new THREE.Vector3(...star.dir), up = new THREE.Vector3(fr.up[0], fr.up[1], fr.up[2]);
   const elev = sd.dot(up);                                  // the sun's height over this player's horizon (-1..1)
   const day = smooth01(-0.08, 0.22, elev), dusk = Math.max(0, 1 - Math.abs(elev) / 0.22);
+  dayNow = day;                                             // (the aim outline reads it: dark by day, light by night, #177)
   torchNight = 1 - day;
   sun.position.copy(sd).multiplyScalar(150);
   sun.color.setRGB(1, 0.62 + 0.35 * smooth01(0, 0.4, elev), 0.38 + 0.55 * smooth01(0, 0.5, elev));
@@ -4319,10 +4322,15 @@ function frame(now) {
     obj.visible = true;
   };
   highlight.visible = ghost.visible = false;
+  // the outline is dark by day and light by night (a thin black wire was invisible after dark, #177), and on litter it
+  // is the litter's own catch box — low in its cell, round its middle — not the whole metre cell
+  highlight.material.color.setScalar(0.07 + 0.85 * (1 - dayNow));
   if (a && a.box) frameBox(highlight, a.box.plot, a.box.b);
   else if (a && a.hit) {
     const hp = Wd.plotOf(P.face, a.hit[0], a.hit[1]), q = Wd.plotCoords(hp);
-    frameBox(highlight, hp, [(a.hit[0] - q.u0) * Wd.CM, (a.hit[1] - q.v0) * Wd.CM, a.hit[2] * Wd.CM, Wd.CM, Wd.CM, Wd.CM]);
+    if (Wd.LITTER.has(blockAt(P.face, a.hit[0], a.hit[1], a.hit[2])))
+      frameBox(highlight, hp, [(a.hit[0] - q.u0 + 0.5 - LITTER_R) * Wd.CM, (a.hit[1] - q.v0 + 0.5 - LITTER_R) * Wd.CM, a.hit[2] * Wd.CM, 2 * LITTER_R * Wd.CM, 2 * LITTER_R * Wd.CM, LITTER_H * Wd.CM]);
+    else frameBox(highlight, hp, [(a.hit[0] - q.u0) * Wd.CM, (a.hit[1] - q.v0) * Wd.CM, a.hit[2] * Wd.CM, Wd.CM, Wd.CM, Wd.CM]);
   }
   const id = hot[slot];
   if (a && id && !NATURAL_ITEMS.has(id) && net.me) {
