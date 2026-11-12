@@ -156,6 +156,9 @@
   #tBreak{right:150px;bottom:96px}#tPlace{right:84px;bottom:162px}#tPal{right:150px;bottom:162px}
   /* Use (Q on a keyboard): a door, a chest, a pilot seat — and leaving a craft. A phone had no way to open a door at all */
   #tUse{right:216px;bottom:96px}
+  /* the left cluster (#139, playtest 2026-11-11: a phone had no chat or console — so no /tp, /help — no run, no piece
+     turn, no fire, no wardrobe): the thumb that walks reaches them beside the stick */
+  #tChat{left:18px;bottom:162px}#tRun{left:84px;bottom:162px}#tTurn{left:150px;bottom:162px}#tFire{left:18px;bottom:228px}#tWard{left:84px;bottom:228px}
   body.touch #hotwrap{bottom:8px}
   @media (max-width:620px){header h1{font-size:15px}.hs{width:34px;height:34px}.hs canvas{width:24px;height:24px}}
 </style>
@@ -230,6 +233,8 @@
   <button id="tFly" data-i18n="land.tFly">Fly</button><button id="tBreak" data-i18n="land.tBreak">Break</button>
   <button id="tPlace" data-i18n="land.tPlace">Place</button><button id="tPal" data-i18n="land.tBag">Bag</button>
   <button id="tUse" data-i18n="land.tUse">Use</button>
+  <button id="tChat" data-i18n="land.tChat">Chat</button><button id="tRun" data-i18n="land.tRun">Run</button><button id="tTurn" data-i18n="land.tTurn">Turn</button>
+  <button id="tFire" data-i18n="land.tFire">Fire</button><button id="tWard" data-i18n="land.tWard">Wear</button>
 </div>
 <div id="loading" data-i18n="land.loading">Approaching the planet…</div>
 <script type="importmap">{"imports":{"three/webgpu":"/static/land-three-webgpu.js","three/tsl":"/static/land-three-tsl.js","three/addons/":"/static/vendor/three/addons/"}}</script>

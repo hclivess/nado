@@ -393,7 +393,7 @@ function step(dt) {
   const fwd = (keys.has("KeyW") || keys.has("ArrowUp") ? 1 : 0) - (keys.has("KeyS") || keys.has("ArrowDown") ? 1 : 0) + (touch ? touch.my : 0);
   const side = (keys.has("KeyD") || keys.has("ArrowRight") ? 1 : 0) - (keys.has("KeyA") || keys.has("ArrowLeft") ? 1 : 0) + (touch ? touch.mx : 0);
   if (flying) return flyStep(dt, fwd, side);                // at the controls of a craft: it moves, the pilot rides
-  const fast = keys.has("ShiftLeft") || keys.has("ShiftRight");
+  const fast = keys.has("ShiftLeft") || keys.has("ShiftRight") || !!(touch && touch.run);   // (Run held on a phone, #139)
   const sp = P.fly ? (fast ? FLY_FAST : FLY) : (fast ? RUN : WALK);
   const sy = Math.sin(P.yaw), cy = Math.cos(P.yaw);
   const wu = (sy * fwd + cy * side) * sp, wv = (cy * fwd - sy * side) * sp;
@@ -3488,7 +3488,7 @@ function wireInput(canvas) {
   window.addEventListener("blur", () => keys.clear());
   // touch: the left half steers, the right half looks; buttons jump/fly/break/place
   if ("ontouchstart" in window || navigator.maxTouchPoints > 0) {
-    touch = { mx: 0, my: 0, up: false, down: false };
+    touch = { mx: 0, my: 0, up: false, down: false, run: false };
     document.body.classList.add("touch");
     let stickId = null, lookId = null, sx = 0, sy = 0, lx = 0, ly = 0;
     canvas.addEventListener("touchstart", (e) => {
@@ -3518,6 +3518,12 @@ function wireInput(canvas) {
     $("tBreak").onclick = () => act(false, false);
     $("tPlace").onclick = () => act(true);
     $("tPal").onclick = () => palette(true);
+    // the left cluster (#139): the console (chat and every / command), run while held, the piece turned, fire, the wardrobe
+    $("tChat").onclick = () => conShow(!conOpen);
+    hold("tRun", "run");
+    $("tTurn").onclick = () => turnPiece();
+    $("tFire").onclick = () => ignite();
+    $("tWard").onclick = () => wardrobe(true);
     $("tUse").onclick = () => useDoor();                // Q on a keyboard: a door, a chest, a pilot seat; leave a craft
   }
   $("palClose").onclick = () => palette(false);
