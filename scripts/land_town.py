@@ -216,11 +216,16 @@ def hall_pieces(G):
 # townhall/: the photograph; the tower 102 m, l.6). Entered from inside the hall by a door cut into its back wall and a
 # short covered passage under the roof's overhang; a ladder (the game's own) runs up the shaft through the floors' well
 # to the top. THE TOP IS AN OPEN LOOKOUT, NOT A ROOM WITH WINDOWS (operator 2026-11-12: "there is no outlook on top just
-# fucking windows to sides"): the top storey has no walls — a waist-high stone parapet round its edge, the roof carried
-# on four corner piers, open to the sky on every side between them, as Prague's Old Town Hall tower carries its open
-# gallery under the lantern, Bruges' belfry its open platform, Siena's tower its open crown (the three photographs in
-# land research townhall/). Its floor covers the ladder's well but for a hatch the ladder comes up through — the floors
-# below leave the whole well open, and a lookout with a hole down five storeys in its middle is no place to stand.
+# fucking windows to sides"), AND IT IS WIDER THAN THE SHAFT ("the top of the townhall must be wide", "have you never
+# seen a watchtower?"): a GALLERY a metre proud of the shaft on the west, north and east (a watchtower's overhanging
+# top; Siena's crown and Prague's gallery both stand out past their shafts, land research townhall/), as far as the
+# plot's edge allows on the south (30 cm: the shaft already stands 30 cm from the plot's back edge, and a piece never
+# crosses a plot). The top storey has no walls — a waist-high stone parapet round the gallery's edge, the roof, as wide as
+# the gallery, carried on four piers at its corners, open to the sky on every side between them (Prague's open gallery
+# under the lantern, Bruges' open platform, Siena's open crown). Its floor covers the ladder's well but for a hatch the
+# ladder comes up through — the floors below leave the whole well open, and a lookout with a hole down five storeys in
+# its middle is no place to stand. The gallery's slab sits ON the storey below's walls (y..y+SLAB), so the lookout's
+# floor is SLAB higher than a storey's would be.
 # Plank floors a storey; the game's unit windows (100 x 10 x 120, the server refuses any other size) on the outer faces
 # of the storeys below; a gable roof of tiles like the hall's; a beam spire post; a torch below and one at the lookout. Every number here is a DESIGN CHOICE in the hall's own units (cm);
 # the pieces are the game's blocks, paid from the town's bag.
@@ -232,6 +237,9 @@ TOWER = dict(X0=760, Z0=1290, S=280, T=20, STOREY=320, N=5, SPIRE=500, LADDER_X=
 # the ladder's own face (land.js ladderNear 45 cm, HALF 0.3 m) — the hatch is the only part of the well the top floor leaves open
 PARAPET, PIER, LADDER_REACH, BODY_HALF, LADDER_D = 110, 30, 45, 30, 8
 HATCH = LADDER_REACH + BODY_HALF + LADDER_D
+# the gallery: how far the lookout's floor stands out past the shaft on each side (cm; the south is the plot's edge), and
+# the slab's thickness — stone, so it reads as corbelled out of the wall
+GALLERY, GALLERY_S, SLAB = 100, 30, 12
 TOWER_V2 = dict(TOWER, LADDER_X=900, WELL=100)                                                              # (the second build, live 2026-11-12 until this; its floors and ladder are replaced)
 # the first build's place (in the west street, 2026-11-12): what --untower takes down
 TOWER_V1 = dict(X0=30, Z0=480, S=280, T=20, STOREY=320, N=5, SPIRE=500, LADDER_X=100, door="east")
@@ -284,13 +292,18 @@ def tower_pieces(G, P=None):
             adds.extend([[x, z, y, w, g0 - z, ST, SB], [x, g1, y, w, z + d - g1, ST, SB], [x, g0, y + 200, w, g1 - g0, ST - 200, SB]])
         # the corners belong to the north and south walls; the west and east walls run between them
         if belfry:
-            # THE LOOKOUT: a parapet (PARAPET high — chest height on a 1.8 m body, over a 0.65 m step; a jump clears
-            # it, as a railing is climbed) round the edge, a pier at each corner from the parapet to the roof, nothing
-            # else: open to every side. Not windows (the build until 2026-11-12: four low windows, "no outlook on top").
-            adds += [[X0, Z0, y, S, T, PARAPET, SB], [X0, Z0 + S - T, y, S, T, PARAPET, SB],
-                     [X0, Z0 + T, y, T, S - 2 * T, PARAPET, SB], [X0 + S - T, Z0 + T, y, T, S - 2 * T, PARAPET, SB]]
-            for px, pz in ((X0, Z0), (X0 + S - PIER, Z0), (X0, Z0 + S - PIER), (X0 + S - PIER, Z0 + S - PIER)):
-                adds.append([px, pz, y + PARAPET, PIER, PIER, ST - PARAPET, SB])
+            # THE LOOKOUT, A GALLERY WIDER THAN THE SHAFT: its stone slab (SLAB thick) lies on the storey below's walls
+            # and stands out GALLERY past them west, north and east, GALLERY_S south (the plot's edge); a parapet
+            # (PARAPET high — chest height on a 1.8 m body, over a 0.65 m step; a jump clears it, as a railing is
+            # climbed) round the slab's edge, a pier at each of its corners from the parapet to the roof, nothing else:
+            # open to every side. Not windows (the build until 2026-11-12: four low windows, "no outlook on top"), and
+            # not the shaft's own width (the next build: "the top of the townhall must be wide").
+            GX0, GZ0, GW, GD = X0 - GALLERY, Z0 - GALLERY, S + 2 * GALLERY, S + GALLERY + GALLERY_S
+            ys = y + SLAB                                                                 # the lookout's floor top
+            adds += [[GX0, GZ0, ys, GW, T, PARAPET, SB], [GX0, GZ0 + GD - T, ys, GW, T, PARAPET, SB],
+                     [GX0, GZ0 + T, ys, T, GD - 2 * T, PARAPET, SB], [GX0 + GW - T, GZ0 + T, ys, T, GD - 2 * T, PARAPET, SB]]
+            for px, pz in ((GX0, GZ0), (GX0 + GW - PIER, GZ0), (GX0, GZ0 + GD - PIER), (GX0 + GW - PIER, GZ0 + GD - PIER)):
+                adds.append([px, pz, ys + PARAPET, PIER, PIER, ST - SLAB - PARAPET, SB])
         elif door == "north":
             if k == 0: gapped_x(X0, Z0, S, T, gx0, gx1)                                       # the door gap toward the hall
             else: wall(X0, Z0, S, T)                                                          # blank: it faces the hall
@@ -303,23 +316,29 @@ def tower_pieces(G, P=None):
             wall(X0, Z0 + S - T, S, T)
             if k == 0: gapped_z(X0 + S - T, Z0 + T, T, S - 2 * T, gz0, gz1)
             else: wall(X0 + S - T, Z0 + T, T, S - 2 * T)
-        if k > 0:
+        if k > 0 and not belfry:
             # the storey's floor in two pieces, the ladder's column (LX .. + WELL) left open as its well
             adds.append([X0 + T, Z0 + T, y - 10, LX - (X0 + T), S - 2 * T, 10, PL])
             adds.append([LX + WELL, Z0 + T, y - 10, X0 + S - T - (LX + WELL), S - 2 * T, 10, PL])
         if belfry:
-            # THE LOOKOUT'S FLOOR COVERS THE WELL BUT FOR THE HATCH: the ladder stands against the south wall and the
+            # THE LOOKOUT'S SLAB COVERS THE WELL BUT FOR THE HATCH: the ladder stands against the south wall and the
             # page holds a climber within LADDER_REACH (45 cm, land.js ladderNear) of it, a body HALF (30 cm) wide — the
             # hatch is exactly that reach, so a body over the hatch is always on the ladder and a body off the ladder is
-            # always over the floor; the floors below keep the whole well open (the climb passes through them)
-            adds.append([LX, Z0 + T, y - 10, WELL, S - 2 * T - HATCH, 10, PL])
+            # always over the floor; the floors below keep the whole well open (the climb passes through them). The slab
+            # is one stone from gallery edge to gallery edge, in four pieces round the hatch (west, east, north, south)
+            GX0, GZ0, GW, GD = X0 - GALLERY, Z0 - GALLERY, S + 2 * GALLERY, S + GALLERY + GALLERY_S
+            hz0, hz1 = Z0 + S - T - HATCH, Z0 + S - T                                     # the hatch's z (the ladder's reach)
+            adds += [[GX0, GZ0, y, LX - GX0, GD, SLAB, SB], [LX + WELL, GZ0, y, GX0 + GW - (LX + WELL), GD, SLAB, SB],
+                     [LX, GZ0, y, WELL, hz0 - GZ0, SLAB, SB], [LX, hz1, y, WELL, GZ0 + GD - hz1, SLAB, SB]]
         if k == 0:
             adds.append([X0 + 30, Z0 + 30, F, 10, 10, 120, TORCH])
     # the belfry's roof: a gable of tiles over the top, as the hall's; the spire post from the ridge; a torch at the lookout
-    ry, half = top, S // 2 + 30
-    adds += [[X0 - 20, Z0 - 30, ry, S + 40, half, 150, TI, 3], [X0 - 20, Z0 + S // 2, ry, S + 40, half, 150, TI, 4]]
-    adds.append([X0 + S // 2 - 20, Z0 + S // 2 - 20, ry + 150, 40, 40, SP, BM])                # the spire post
-    adds.append([X0 + PIER + 15, Z0 + PIER + 15, top - ST, 10, 10, 120, TORCH])            # at the lookout, inside its corner pier
+    # the roof covers the gallery, 20 cm proud of it west, north and east, flush with the plot's edge south
+    GX0, GZ0, GW, GD = X0 - GALLERY, Z0 - GALLERY, S + 2 * GALLERY, S + GALLERY + GALLERY_S
+    ry, rz0, rd = top, GZ0 - 20, GD + 20
+    adds += [[GX0 - 20, rz0, ry, GW + 40, rd // 2, 150, TI, 3], [GX0 - 20, rz0 + rd // 2, ry, GW + 40, rd - rd // 2, 150, TI, 4]]
+    adds.append(list(spire_xz(P)) + [ry + 150, 40, 40, SP, BM])                              # the spire post, on the ridge's middle
+    adds.append([GX0 + PIER + 15, GZ0 + PIER + 15, top - ST + SLAB, 10, 10, 120, TORCH])   # at the lookout, inside its corner pier
     # the door from the hall, and a covered passage (plaster walls, a plank floor, under the hall roof's overhang)
     ph = (G + 340) - F                                                                       # (the passage's walls stop under the roof)
     if door == "north":
@@ -354,11 +373,20 @@ def ladder_cells(G, P=None):
     top = F + ST * N
     lu, lv = LX // 100, (Z0 + S // 2) // 100
     return [[lu, lv, h] for h in range(F // 100 + 1, (top - ST) // 100 + 1)]
+def spire_xz(P):
+    """Where the spire post stands (x, z): on the middle of the crown's roof ridge — the roof covers the gallery, 20 cm
+    proud of it west, north and east, flush with the plot's edge south (tower_pieces)."""
+    X0, Z0, S = P["X0"], P["Z0"], P["S"]
+    GX0, GZ0, GW, GD = X0 - GALLERY, Z0 - GALLERY, S + 2 * GALLERY, S + GALLERY + GALLERY_S
+    rz0, rd = GZ0 - 20, GD + 20
+    return GX0 + GW // 2 - 20, rz0 + rd // 2 - 20
 def tower_present(boxes, P=None):
-    """Does the hall's plot already carry the tower? Its spire post, nowhere else in the town."""
+    """Does the hall's plot already carry the tower? Its spire post (this build's place, or the shaft-width roof's of the
+    builds before 2026-11-12's gallery), nowhere else in the town."""
     P = P or TOWER
     X0, Z0, S = P["X0"], P["Z0"], P["S"]
-    return any(b[6] == BM and b[3] == 40 and b[4] == 40 and b[5] == P["SPIRE"] and b[0] == X0 + S // 2 - 20 and b[1] == Z0 + S // 2 - 20 for b in boxes)
+    places = {spire_xz(P), (X0 + S // 2 - 20, Z0 + S // 2 - 20)}
+    return any(b[6] == BM and b[3] == 40 and b[4] == 40 and b[5] == P["SPIRE"] and (b[0], b[1]) in places for b in boxes)
 
 
 async def build_tower(world, pl):
@@ -386,7 +414,12 @@ async def build_tower(world, pl):
         if held:
             sys.exit(f"plot {p}: the chest in the doorway holds items ({held}) — empty it first")
         X0, Z0, Sz = TOWER["X0"], TOWER["Z0"], TOWER["S"]                 # (Sz: S is the world server module here)
-        stale = [b for b in boxes if X0 <= b[0] and b[0] + b[3] <= X0 + Sz and Z0 <= b[1] and b[1] + b[4] <= Z0 + Sz and b[2] >= G + 45 and b not in adds]
+        # …and above the top storey's floor, everything within the crown's wider footprint (the gallery and its roof
+        # stand out past the shaft; an earlier build's roof and spire were the shaft's width) — nothing of the hall
+        # reaches that height
+        by, cx0, cz0, cw, cd = G + 45 + TOWER["STOREY"] * (TOWER["N"] - 1), X0 - GALLERY - 20, Z0 - GALLERY - 20, Sz + 2 * GALLERY + 40, Sz + GALLERY + GALLERY_S + 20
+        stale = [b for b in boxes if b not in adds and ((X0 <= b[0] and b[0] + b[3] <= X0 + Sz and Z0 <= b[1] and b[1] + b[4] <= Z0 + Sz and b[2] >= G + 45)
+                                                          or (cx0 <= b[0] and b[0] + b[3] <= cx0 + cw and cz0 <= b[1] and b[1] + b[4] <= cz0 + cd and b[2] >= by - 10))]
         want = [b for b in adds if b not in boxes]
         if DRY:
             print(f"plot {p}: the tower stands; would clear {len(cells)} block cells of the old ladder, take out {len(chest_old)} chest and {len(stale)} pieces the plan does not name, set {len(want)} pieces"); return
