@@ -59,5 +59,12 @@ for (const it of [male, female]) {
 }
 ok(share(shoes, feet, null) > 0.9, `shoes: the weight is on the feet and shins (${(100 * share(shoes, feet, null)).toFixed(0)} %)`);
 
+// 5. LIFTED OFF THE BODY (the operator's real-GPU screenshot, 2026-11-12): a garment is pushed out along its skinned
+// normal — 2 cm for an outfit, 6 mm for shoes, 4 mm for the brows — so it never loses the depth test to the body under it
+const hv = readFileSync(join(ROOT, "static", "land-human.js"), "utf8");
+ok(/function wearMaterial\(tex, map, lum, dark, clothes, lums, lift = 0\)/.test(hv) && /m\.positionNode = lift \? skinned\(T, false\)\.add\(nrm\.mul\(float\(lift\)\)\) : skinned\(T, false\);/.test(hv), "a worn item's position is its skinned position pushed out along its skinned normal by `lift`");
+ok(/const lift = clothes \? \(it\.name\.startsWith\("shoes"\) \? 0\.006 : 0\.02\) : it\.kind === "eyebrows" \? 0\.004 : 0;/.test(hv), "an outfit is lifted 2 cm, shoes 6 mm, the brows 4 mm, hair not at all");
+ok(/clamp\(dot\(tx\.rgb, vec3\(0\.2126, 0\.7152, 0\.0722\)\)\.div\(float\(Math\.max\(0\.05, lum\)\)\), 0\.25, 1\.6\)/.test(hv), "hair keeps its texture's light and dark: never black, never blown out");
+
 console.log(fails ? `${fails} FAILED` : "all passed");
 process.exit(fails ? 1 : 0);

@@ -117,12 +117,16 @@ function humanMaterial(tex) {
 // the worn items: the same skinning, the item's own painted texture (alpha-tested strands) tinted by the row's hair
 // colour — colour × (texel luminance / the texture's mean), so the strands keep their light and dark while a blond
 // choice is blond on a texture painted dark (build_wear.py writes the mean)
-function wearMaterial(tex, map, lum, dark, clothes, lums) {
+function wearMaterial(tex, map, lum, dark, clothes, lums, lift = 0) {
   const { attribute, texture, int, ivec2, vec3, vec4, float, uv, dot, clamp, select, varying, normalLocal, materialColor } = TSL;
   const m = new THREE.MeshStandardNodeMaterial({ roughness: 0.55, metalness: 0, side: THREE.DoubleSide, alphaTest: 0.5 });
   const T = texture(tex);
-  m.positionNode = skinned(T, false);
   const nrm = skinned(T, true);
+  // LIFTED OFF THE BODY (operator's screenshot on a real GPU, 2026-11-12: "what the fuck have you done" — the shirt was
+  // not there and the trousers were black with the skin showing through in patches): a garment fitted to the body's
+  // own surface loses the depth test to the body it covers; the software renderer never showed it. Each garment is
+  // pushed out along its skinned normal — `lift` metres — so it stands clear of the skin it is drawn over.
+  m.positionNode = lift ? skinned(T, false).add(nrm.mul(float(lift))) : skinned(T, false);
   m.setupPosition = function (builder) { normalLocal.assign(nrm); return Object.getPrototypeOf(this).setupPosition.call(this, builder); };
   const row = int(attribute("aFig", "float").add(0.5));
   let col, shown = float(1.0);
@@ -143,7 +147,7 @@ function wearMaterial(tex, map, lum, dark, clothes, lums) {
     const part = varying(attribute("aPart", "float").add(0.5), "vWearPart");
     const mean = select(part.lessThan(1.0), float(Math.max(0.02, lums[0])), select(part.lessThan(2.0), float(Math.max(0.02, lums[1])), float(Math.max(0.02, lums[2]))));
     L = clamp(dot(tx.rgb, vec3(0.2126, 0.7152, 0.0722)).div(mean), 0.6, 1.4);
-  } else L = clamp(dot(tx.rgb, vec3(0.2126, 0.7152, 0.0722)).div(float(Math.max(0.02, lum))), 0.0, 1.8);
+  } else L = clamp(dot(tx.rgb, vec3(0.2126, 0.7152, 0.0722)).div(float(Math.max(0.05, lum))), 0.25, 1.6);   // (hair: never black, never blown out — a dense cap read as a solid lump on a real GPU, 2026-11-12)
   m.colorNode = vec4(materialColor.rgb.mul(vCol).mul(L).mul(float(dark)), tx.a.mul(vShown));
   m.roughnessNode = vRough;
   return m;
@@ -273,7 +277,8 @@ export class HumanView {
       // file's ETag — but a new wear.bin is a new URL for its textures too, past any edge cache)
       const tu = new URL("/static/human/" + it.tex, "http://x/"); if (this.stamp) tu.searchParams.set("v", this.stamp);
       const map = loader.load(tu.pathname + tu.search); map.colorSpace = THREE.SRGBColorSpace; map.anisotropy = 4;
-      const m = new THREE.Mesh(instanced(attrs, it.idx), wearMaterial(this.tex, map, it.lum, it.kind === "eyebrows" ? 0.55 : 1, clothes, it.lums));   // (brows a shade darker than the hair)
+      const lift = clothes ? (it.name.startsWith("shoes") ? 0.006 : 0.02) : it.kind === "eyebrows" ? 0.004 : 0;   // (a garment clear of the skin, brows clear of the brow)
+      const m = new THREE.Mesh(instanced(attrs, it.idx), wearMaterial(this.tex, map, it.lum, it.kind === "eyebrows" ? 0.55 : 1, clothes, it.lums, lift));   // (brows a shade darker than the hair)
       m.frustumCulled = false; m.castShadow = it.kind !== "eyebrows"; m.receiveShadow = true; m.matrixAutoUpdate = false; m.visible = false;
       this.scene.add(m); return { it, mesh: m };
     });
