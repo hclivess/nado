@@ -3474,7 +3474,7 @@ function grassCardTexture() {
       const t0 = k / segs, t1 = (k + 1) / segs;                     // the blade as a bent, tapering strip: six strips of a gradient
       const xa = x0 + lean * t0 * t0, ya = N - h * t0, xb = x0 + lean * t1 * t1, yb = N - h * t1, wa = w * (1 - t0), wb = w * (1 - t1);
       const L = 0.22 + 0.5 * t1 ** 0.8;                             // dark at the root (0.22) to light at the tip (0.72)
-      g.fillStyle = `rgb(${Math.round(255 * L * 0.72)}, ${Math.round(255 * L)}, ${Math.round(255 * L * 0.3)})`;
+      g.fillStyle = `rgb(${Math.round(255 * L * 0.82)}, ${Math.round(255 * L)}, ${Math.round(255 * L * 0.26)})`;   // a warm, yellowish green (the concept's), not a pure one
       g.beginPath(); g.moveTo(xa - wa / 2, ya); g.lineTo(xa + wa / 2, ya); g.lineTo(xb + wb / 2, yb); g.lineTo(xb - wb / 2, yb); g.closePath(); g.fill();
     }
   }
@@ -3505,7 +3505,7 @@ function bladeClump(blades, flower) {
   let seed = flower ? 7 : 3;
   const rnd = () => { seed = (seed * 16807) % 2147483647; return seed / 2147483647; };
   for (let i = 0; i < blades; i++) {
-    const a = rnd() * Math.PI * 2, r = rnd() * 0.2, h = 0.2 + rnd() * 0.3, w = 0.012 + rnd() * 0.01, lean = 0.08 + rnd() * 0.14;
+    const a = rnd() * Math.PI * 2, r = rnd() * 0.2, h = (flower ? 0.4 : 0.2) + rnd() * 0.3, w = 0.012 + rnd() * 0.01, lean = 0.08 + rnd() * 0.14;   // (a flower clump's stems reach over the cards)
     const bx = Math.cos(a) * r, bz = Math.sin(a) * r, dx = Math.cos(a + 1.3) * w, dz = Math.sin(a + 1.3) * w, lx = Math.cos(a) * lean, lz = Math.sin(a) * lean;
     const base = pos.length / 3;
     pos.push(bx - dx, 0, bz - dz, bx + dx, 0, bz + dz, bx - dx * 0.6 + lx * 0.4, h * 0.55, bz - dz * 0.6 + lz * 0.4,
@@ -3518,8 +3518,8 @@ function bladeClump(blades, flower) {
     idx.push(base, base + 1, base + 3, base, base + 3, base + 2, base + 2, base + 3, base + 4,
              base, base + 3, base + 1, base, base + 2, base + 3, base + 2, base + 4, base + 3);
   }
-  if (flower) for (let i = 0; i < 4; i++) {                        // four small heads, in the instance's colour (head = 1)
-    const a = rnd() * Math.PI * 2, r = rnd() * 0.12, h = 0.42 + rnd() * 0.22, s = 0.035, base = pos.length / 3;
+  if (flower) for (let i = 0; i < 4; i++) {                        // four heads over the cards' tops, in the instance's colour (head = 1)
+    const a = rnd() * Math.PI * 2, r = rnd() * 0.12, h = 0.58 + rnd() * 0.22, s = 0.05, base = pos.length / 3;
     const x = Math.cos(a) * r, z = Math.sin(a) * r;
     pos.push(x - s, h, z - s, x + s, h, z - s, x + s, h, z + s, x - s, h, z + s);
     for (let k = 0; k < 4; k++) { col.push(1, 1, 1); nor.push(0, 1, 0); head.push(1); }
@@ -3573,9 +3573,10 @@ function grassMeshes(gr) {
       const hc = FLOWER_HEADS[Math.floor(((r * 977) % 1) * FLOWER_HEADS.length)];
       flowers.setMatrixAt(fi, m); flowers.setColorAt(fi++, c.setRGB(hc[0], hc[1], hc[2]));
     } else {
-      // the tint: from a cooler, deeper green to a warmer, yellower one, by the clump's own number (never grey, never blue)
-      const t = (r * 389) % 1;
-      grass.setMatrixAt(gi, m); grass.setColorAt(gi++, c.setRGB(0.85 + 0.3 * t, 0.95 + 0.1 * t, 0.9 - 0.25 * t));
+      // the tint, by the clump's own number: from a deeper green to a warm yellow-green, and one clump in six the tan of
+      // grass gone to seed — the concept picture's meadow is many greens with tan through it, never one green
+      const t = (r * 389) % 1, tan = ((r * 613) % 1) < 0.17;
+      grass.setMatrixAt(gi, m); grass.setColorAt(gi++, tan ? c.setRGB(1.05, 0.92, 0.55) : c.setRGB(0.8 + 0.4 * t, 0.95 + 0.08 * t, 0.85 - 0.4 * t));
     }
   }
   flowers.count = fi;
