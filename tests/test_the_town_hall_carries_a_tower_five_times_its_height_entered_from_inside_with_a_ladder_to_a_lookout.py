@@ -7,7 +7,11 @@ build_tower — the tower as the town script plans it, checked against the hall 
   2. every tower piece lies inside the plot and overlaps no other piece — not the hall's (less the wall it takes out)
      and not another of its own (the world server refuses an overlap, and refused is not built);
   3. the tower's spire stands at least four times the hall's ridge over the ground (Siena's Torre del Mangia over its
-     Palazzo Pubblico, land research townhall/); its belfry has an opening on every side (the lookout);
+     Palazzo Pubblico, land research townhall/); its top is an OPEN LOOKOUT (operator 2026-11-12: "there is no outlook
+     on top just fucking windows to sides" — the third build had four low windows): nothing but a waist-high parapet
+     round the edge and a pier at each corner stands on the top floor, so every side is open from the parapet to the
+     roof; the top floor covers the ladder's well but for a hatch exactly the ladder's reach, so a body over the hatch
+     is on the ladder;
   4. it is entered from inside the hall: the hall's back wall gets a door and a covered passage reaches the tower's
      north wall, whose ground floor has the matching gap; the ladder is the game's own ladder PIECES (50 x 8 x 300, what
      land.js ladderNear climbs — the first build stacked block cells, a solid column nobody could climb) run unbroken
@@ -15,7 +19,8 @@ build_tower — the tower as the town script plans it, checked against the hall 
   5. tower_present says no before and yes after; on a rehearsal world (a copy of a built town) build_tower sets every
      piece, ladder pieces among them, and a second run leaves it as it is; the first build (TOWER_V1) comes down whole with
      --untower, the hall's wall made good, before the right one goes up; a standing tower with the old block column gets
-     the column cleared and the ladder pieces set.
+     the column cleared and the ladder pieces set; a standing tower with the third build's windowed top storey has the
+     windows and walls taken out and the lookout set.
 Run: python3 tests/test_the_town_hall_carries_a_tower_five_times_its_height_entered_from_inside_with_a_ladder_to_a_lookout.py
 """
 import os, tempfile  # ISOLATION FIRST (CLAUDE.md rule 4)
@@ -63,9 +68,27 @@ top = max(b[2] + b[5] for b in adds) - G
 check(f"the spire stands {top / 100:.1f} m over the ground, at least four times the hall's ridge ({hall_top / 100:.1f} m)", top >= 4 * hall_top, (top, hall_top))
 X0, Z0, Sz, N, ST = (T.TOWER[k] for k in ("X0", "Z0", "S", "N", "STOREY"))
 by = G + 45 + ST * (N - 1)
-openings = [b for b in adds if b[6] == T.WIN and by <= b[2] < by + ST]
-sides = {("n" if b[1] < Z0 + 10 else "s" if b[1] > Z0 + Sz - 30 else "w" if b[0] < X0 + 10 else "e") for b in openings}
-check("the belfry has a window on every side, set low (the lookout)", sides == {"n", "s", "w", "e"} and all(b[5] == 120 and b[2] == by + 60 for b in openings), (sides, openings))
+# THE LOOKOUT: what stands on the top floor within the shaft — the parapet pieces (PARAPET high, round the edge), the four
+# corner piers (from the parapet's top to the roof), the torch; no window, no wall higher than the parapet anywhere but
+# the piers, so a body standing at the parapet looks out over it on every side
+on_top = [b for b in adds if by <= b[2] < by + ST and X0 <= b[0] and b[0] + b[3] <= X0 + Sz and Z0 <= b[1] and b[1] + b[4] <= Z0 + Sz]
+check("no window on the top storey (the lookout is open, not windowed)", not any(b[6] == T.WIN for b in on_top), [b for b in on_top if b[6] == T.WIN])
+par = [b for b in on_top if b[6] == T.SB and b[2] == by and b[5] == T.PARAPET]
+piers = [b for b in on_top if b[6] == T.SB and b[2] == by + T.PARAPET and b[3] == T.PIER and b[4] == T.PIER and b[2] + b[5] == by + ST]
+check("a parapet of chest height (over a step, under a jump) runs round the whole edge of the top floor", len(par) == 4 and 0.65 * 100 < T.PARAPET < 8.4 ** 2 / 52 * 100
+      and {(b[0], b[1], b[3], b[4]) for b in par} == {(X0, Z0, Sz, T.TOWER["T"]), (X0, Z0 + Sz - T.TOWER["T"], Sz, T.TOWER["T"]), (X0, Z0 + T.TOWER["T"], T.TOWER["T"], Sz - 2 * T.TOWER["T"]), (X0 + Sz - T.TOWER["T"], Z0 + T.TOWER["T"], T.TOWER["T"], Sz - 2 * T.TOWER["T"])}, par)
+check("a pier at each corner carries the roof from the parapet's top", len(piers) == 4 and {(b[0], b[1]) for b in piers} == {(X0, Z0), (X0 + Sz - T.PIER, Z0), (X0, Z0 + Sz - T.PIER), (X0 + Sz - T.PIER, Z0 + Sz - T.PIER)}, piers)
+others = [b for b in on_top if b not in par and b not in piers and b[6] != T.TORCH and b[6] != T.LADDER and not (b[6] == T.PL and b[5] == 10)]
+check("nothing else stands on the top floor: every side is open from the parapet to the roof", not others, others)
+# every side, between its piers, is clear from the parapet's top to the roof: a ray out from the floor's middle at eye
+# height (1.62 m over the floor, land.js EYE) meets no piece on its way out of the shaft on any of the four sides
+eye = by + 162
+def blocked(x, z):                                        # (the ladder's top piece stands 2.2 m over the floor at the south parapet: handholds to climb out by)
+    return [b for b in adds if b[6] != T.LADDER and b[0] <= x < b[0] + b[3] and b[1] <= z < b[1] + b[4] and b[2] <= eye < b[2] + b[5]]
+rays = {"n": [(X0 + Sz // 2, z) for z in range(Z0 - 10, Z0 + Sz // 2, 5)], "s": [(X0 + Sz // 2, z) for z in range(Z0 + Sz // 2, Z0 + Sz + 10, 5)],
+        "w": [(x, Z0 + Sz // 2) for x in range(X0 - 10, X0 + Sz // 2, 5)], "e": [(x, Z0 + Sz // 2) for x in range(X0 + Sz // 2, X0 + Sz + 10, 5)]}
+hit = {side: [blocked(x, z) for x, z in pts if blocked(x, z)] for side, pts in rays.items()}
+check("an eye at the lookout's middle sees straight out on every side, over the parapet, under the roof", not any(hit.values()), {k: v[:1] for k, v in hit.items() if v})
 
 # 4. entered from inside; the ladder
 bz = T.HALL["Z0"] + T.HALL["D"] - 12
@@ -87,8 +110,19 @@ check("the ladder is the game's ladder pieces (50 x 8 x 300, kind 53), among the
 check("it runs unbroken from the floor to the belfry: each piece's foot within the 1.5 m the page reaches under it", ys[0] <= G + 45 and all(ys[i + 1] - ys[i] <= 300 for i in range(len(ys) - 1)) and ys[-1] + 300 >= by - 100, (ys, by))
 lx, well = T.TOWER["LADDER_X"], T.TOWER["WELL"]
 check("…inside the shaft, in the floors' well, clear of the doorway", all(lx <= b[0] and b[0] + b[3] <= lx + well and Z0 + T.TOWER["T"] <= b[1] and b[1] + b[4] <= Z0 + Sz - T.TOWER["T"] and b[1] > Z0 + 100 for b in ladder), ladder[:1])
-floors = [b for b in adds if b[6] == T.PL and b[5] == 10]
-check("the ladder's well is left open in every floor", floors and all(b[0] + b[3] <= lx or b[0] >= lx + well for b in floors), floors[:2])
+floors = [b for b in adds if b[6] == T.PL and b[5] == 10 and b[2] < by - 10]
+check("the ladder's well is left open in every floor below the top", floors and all(b[0] + b[3] <= lx or b[0] >= lx + well for b in floors), floors[:2])
+# THE TOP FLOOR'S HATCH: the top floor covers the well except where the ladder comes up; the open part (the hatch) is
+# exactly the ladder's reach (45 cm, ladderNear) and a half body (30 cm, HALF) from the ladder's face — a body wholly over
+# the hatch has its middle within the reach (it is on the ladder), and a body off the ladder stands over the floor
+top_floor = [b for b in adds if b[6] == T.PL and b[5] == 10 and b[2] == by - 10]
+lad_z = ladder[0][1]
+covered = lambda x, z: any(b[0] <= x < b[0] + b[3] and b[1] <= z < b[1] + b[4] for b in top_floor)
+inner = [(x, z) for x in range(X0 + T.TOWER["T"], X0 + Sz - T.TOWER["T"], 5) for z in range(Z0 + T.TOWER["T"], Z0 + Sz - T.TOWER["T"], 5)]
+hole = [(x, z) for x, z in inner if not covered(x, z)]
+check("the top floor is covered everywhere but the hatch", hole and all(lx <= x < lx + well and z >= lad_z - 45 - 30 for x, z in hole), (len(hole), hole[:2]))
+check("the hatch takes the climbing body: the well's width, from the ladder's reach less a half body to the wall", all(not covered(x, z) for x in range(lx, lx + well, 5) for z in range(lad_z - 45 - 30, Z0 + Sz - T.TOWER["T"], 5)))
+check("the ladder passes up through the hatch, clear of the top floor", not any(ov(b, f) for b in ladder for f in top_floor))
 # a player who walks in straight through the door (its middle, a body 60 cm wide: land.js HALF 0.3) and climbs is inside
 # the well with a hand to spare — the second build's well began 45 cm east of the door's middle and the first floor's
 # west piece stopped the climber's head at 1.3 m
@@ -96,7 +130,7 @@ mid = gx0 + 45
 check("the well takes a body walking in through the door's middle, 15 cm to spare each side", lx <= mid - 30 - 15 and mid + 30 + 15 <= lx + well and all(b[0] <= mid - 25 and b[0] + b[3] >= mid + 25 for b in ladder), (lx, well, mid))
 cells = T.ladder_cells(G)
 check("the first build's block column is named for clearing (the cells the page could not climb, at the first build's x)", cells and all(c[2] * 100 >= G + 45 for c in cells) and cells[0][0] == T.TOWER["CELL_X"] // 100, cells[:2])
-check("the belfry's openings are the game's windows (the unit piece, 100 x 10 x 120)", all(b[3:6] in ([100, 10, 120], [10, 100, 120]) for b in adds if b[6] == T.WIN))
+check("every window in the tower is the game's unit piece (100 x 10 x 120 — the server refuses any other)", any(b[6] == T.WIN for b in adds) and all(b[3:6] in ([100, 10, 120], [10, 100, 120]) for b in adds if b[6] == T.WIN))
 
 # 5. once
 check("tower_present: no before, yes after", not T.tower_present(hall) and T.tower_present(adds))
@@ -159,6 +193,25 @@ async def rehearse():
     n0 = len(boxes)
     await T.build_tower(world, pl)
     check("a second run leaves it as it is", len(world.plots[p]["boxes"]) == n0)
+    # the live case of 2026-11-12: the third build's top storey — four stone walls with a low window each, the well open
+    # through the top floor — made into the lookout: the walls and windows out, the parapet, piers and hatch floor in
+    lookout = [b for b in adds if by <= b[2] < by + ST and b[6] in (T.SB, T.PL) and X0 <= b[0] and b[0] + b[3] <= X0 + Sz and Z0 <= b[1] and b[1] + b[4] <= Z0 + Sz] + [b for b in adds if b[6] == T.PL and b[2] == by - 10 and b[3] == well]
+    y, Tt = by, T.TOWER["T"]
+    old_top = []
+    for x, z, w, d, along in ((X0, Z0, Sz, Tt, True), (X0, Z0 + Sz - Tt, Sz, Tt, True), (X0, Z0 + Tt, Tt, Sz - 2 * Tt, False), (X0 + Sz - Tt, Z0 + Tt, Tt, Sz - 2 * Tt, False)):
+        if along:
+            m = x + w // 2 - 50
+            old_top += [[x, z, y, m - x, d, ST, T.SB], [m + 100, z, y, x + w - m - 100, d, ST, T.SB], [m, z, y, 100, d, 60, T.SB], [m, z, y + 180, 100, d, ST - 180, T.SB], [m, z + 5, y + 60, 100, 10, 120, T.WIN]]
+        else:
+            m = z + d // 2 - 50
+            old_top += [[x, z, y, w, m - z, ST, T.SB], [x, m + 100, y, w, z + d - m - 100, ST, T.SB], [x, m, y, w, 100, 60, T.SB], [x, m, y + 180, w, 100, ST - 180, T.SB], [x + 5, m, y + 60, 10, 100, 120, T.WIN]]
+    await world.boxes(T.WHO, p, [], lookout)
+    _, _, refw = await world.boxes(T.WHO, p, old_top, [])
+    boxes = world.plots[p]["boxes"]
+    check("the rehearsal holds the third build's windowed top", not refw and all(b in boxes for b in old_top) and not any(b in boxes for b in lookout), (refw[:2], len(boxes)))
+    await T.build_tower(world, pl)
+    boxes = world.plots[p]["boxes"]
+    check("build_tower on the windowed top takes its walls and windows out and sets the lookout", not any(b in boxes for b in old_top) and all(b in boxes for b in lookout) and len(boxes) == n0, (len(boxes), n0))
     world.oracle.kill(); await world.oracle.wait()
     await world.http.close(); await ex.close()
 
