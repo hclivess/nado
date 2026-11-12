@@ -81,7 +81,7 @@ ok(G.govStep(g, 6000, 6000, 2) === 2 && g.ms.length === 0, "a 6 s gap (a pause, 
 // 7. the page
 const page = readFileSync(join(ROOT, "static", "land.js"), "utf8");
 ok(page.includes("const at = LADDER.indexOf(gfxPreset());\n  if (at < 0) { gov = null; return; }"), "the page governs only a preset (a player's Custom mix is left alone)");
-ok(/auto: 1 \};/.test(page) && page.includes('sel("auto",'), "…on by default, with an opt-out in the panel");
+ok(/\bauto: 1[,} ]/.test(page.slice(page.indexOf("const SET_DEF ="), page.indexOf("const SET_DEF =") + 300)) && page.includes('sel("auto",'), "…on by default, with an opt-out in the panel");   // (SET_DEF gained keys after auto: the clouds, #183)
 ok(page.includes("!/HeadlessChrome/.test(navigator.userAgent) || new URLSearchParams(location.search).has(\"gov\")"), "…not in a headless browser unless asked (?gov)");
 ok(page.includes("govTick(now, gap);"), "…and decided in every frame, before it is drawn");
 

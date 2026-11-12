@@ -145,7 +145,7 @@ class AssetHistoryStore:
                     elif h <= m[1]:
                         frm = m[0]                     # re-application without a trim: replace what h.. held
                         for t in _NS_TABLES:
-                            db.execute(f"DELETE FROM {t} WHERE ns=? AND cursor>=?", (ns, h))
+                            db.execute(f"DELETE FROM {t} WHERE ns=? AND cursor>=?", (ns, h))  # nosec B608 # t is one of _NS_TABLES (constant names); ns and h are bound
                         if h < frm:
                             frm = h
                     elif h == m[1] + 1:

@@ -38,6 +38,7 @@ import * as Forest from "./land-forest.js";
 import * as Clouds from "./land-clouds.js";
 import { treeModel } from "./land-trees.js";
 import { craftStep, flightOf, craftBody, bodyInside, navSays, craftArea, aeroOf, axesOf, stallSpeed, stepOffSpot } from "./land-flight.js";
+import { HumanView } from "./land-human.js";
 import { GFX_PRESETS, BENCH_ORDER, benchTarget, frameStats, holds, pickPreset, LADDER, governor, govStep } from "./land-gfx.js";
 import { NadoDapp, wireWallet, renderWallet, alertBar, notify, uiConfirm, uiPrompt, isAddress, esc, base, disp, rawToNado, nadoToRaw, randId, $ } from "./nadodapp.js";
 
@@ -1114,6 +1115,21 @@ const forest = new Map();                      // "face:tu:tv" -> { mesh, busy, 
 const FOREST_RANGE = PHONE ? 640 : 1152;       // m of far trees around the player — a design choice: 81 tiles, ~60 000 trees, ~36 ms a tile in a worker
 const SEEN = 64;                               // the meshed-chunk map's edge, in chunks (the view disc is 17 across at most)
 let matForest = null, forestNear = null, forestSeen = null, forestSeenTex = null, forestTrees = 0;
+/** The map of meshed chunk columns the far trees and the far boxes (#193) read: allocated once, by whichever asks first. */
+function ensureSeen() {
+  if (forestSeen) return;
+  forestSeen = new Uint8Array(SEEN * SEEN);
+  forestSeenTex = new THREE.DataTexture(forestSeen, SEEN, SEEN, THREE.RedFormat, THREE.UnsignedByteType);
+  forestSeenTex.wrapS = forestSeenTex.wrapT = THREE.RepeatWrapping; forestSeenTex.magFilter = forestSeenTex.minFilter = THREE.NearestFilter; forestSeenTex.needsUpdate = true;
+  forestNear = TSL.uniform(new THREE.Vector3(0, 0, -1));
+}
+/** 1 where a far thing is drawn, 0 where its chunk (the vertex attribute `root`: cu, cv) is inside the view disc AND that
+ *  chunk's meshes are in the scene — the near thing stands there (the invariant above). */
+function seenShow() {
+  const root = TSL.attribute("root", "vec2"), d = root.sub(forestNear.xy);
+  const meshed = TSL.texture(forestSeenTex, root.add(0.5).div(SEEN)).level(0).r;
+  return TSL.select(d.dot(d).lessThanEqual(forestNear.z).and(meshed.greaterThan(0.5)), 0, 1);
+}
 /** The far trees' pictures: every (species, height) of land-forest SLOTS, its own land-trees model seen from the side
  *  under an even sky, drawn once into a render target and read back into the atlas texture. */
 async function bakeForest() {
@@ -1159,14 +1175,9 @@ async function bakeForest() {
   for (const g of made) g.dispose(); rt.dispose(); flat.dispose();
   const tex = new THREE.DataTexture(px, pw, ph, THREE.RGBAFormat, THREE.UnsignedByteType);
   tex.colorSpace = THREE.NoColorSpace; tex.magFilter = THREE.LinearFilter; tex.minFilter = THREE.LinearMipmapLinearFilter; tex.generateMipmaps = true; tex.needsUpdate = true;
-  forestSeen = new Uint8Array(SEEN * SEEN);
-  forestSeenTex = new THREE.DataTexture(forestSeen, SEEN, SEEN, THREE.RedFormat, THREE.UnsignedByteType);
-  forestSeenTex.wrapS = forestSeenTex.wrapT = THREE.RepeatWrapping; forestSeenTex.magFilter = forestSeenTex.minFilter = THREE.NearestFilter; forestSeenTex.needsUpdate = true;
+  ensureSeen();
   const m = new THREE.MeshStandardNodeMaterial({ roughness: 0.85, metalness: 0, alphaTest: 0.4 }), s = TSL.texture(tex, TSL.uv());
-  const root = TSL.attribute("root", "vec2"), d = root.sub(TSL.vec2(0, 0).add((forestNear = TSL.uniform(new THREE.Vector3(0, 0, -1))).xy));
-  // hidden = its chunk is inside the view disc AND that chunk's meshes are in the scene (the invariant above)
-  const meshed = TSL.texture(forestSeenTex, root.add(0.5).div(SEEN)).level(0).r;
-  const show = TSL.select(d.dot(d).lessThanEqual(forestNear.z).and(meshed.greaterThan(0.5)), 0, 1);
+  const show = seenShow();
   m.positionNode = TSL.positionLocal.add(TSL.attribute("off", "vec3").mul(show));
   m.colorNode = s.rgb.mul(TSL.attribute("color", "vec3"));
   m.opacityNode = s.a;
@@ -1188,9 +1199,9 @@ function forestDone(k, m) {
 }
 /** The forest tiles around the player, and which chunk columns the scene has meshed (their far trees hide). */
 function updateForest() {
-  if (!matForest) return;
+  if (!forestSeen) return;
   const T = Forest.TILE, face = P.face, pcu = Math.floor(P.u / CHUNK), pcv = Math.floor(P.v / CHUNK), want = new Set();
-  for (let tv = Math.floor((P.v - FOREST_RANGE) / T); tv <= Math.floor((P.v + FOREST_RANGE) / T); tv++)
+  if (matForest) for (let tv = Math.floor((P.v - FOREST_RANGE) / T); tv <= Math.floor((P.v + FOREST_RANGE) / T); tv++)   // (no atlas yet: the seen map alone, for the far boxes)
     for (let tu = Math.floor((P.u - FOREST_RANGE) / T); tu <= Math.floor((P.u + FOREST_RANGE) / T); tu++) {
       const du = Math.max(tu * T - P.u, 0, P.u - (tu + 1) * T), dv = Math.max(tv * T - P.v, 0, P.v - (tv + 1) * T);
       if (du * du + dv * dv > FOREST_RANGE * FOREST_RANGE) continue;
@@ -1216,6 +1227,87 @@ function updateForest() {
   for (let i = 0; i < now.length; i++) mark(i, now[i]);
   if (changed) forestSeenTex.needsUpdate = true;
   forestNear.value.set(pcu, pcv, viewDist * viewDist + 1);
+}
+
+
+// ---- THE BUILT LAND SEEN FROM FAR (#193; operator 2026-11-12: "the village is only visible from like 50 meters away,
+// this means that large cities will be completely invisible - we must fix this, and efficiently so"). Pieces exist only
+// in the chunk mesher's disc (48–128 m). Beyond it every built plot's pieces come from the world server's far view
+// (GET /land/api/far: each piece as its box and block) and are drawn as ONE instanced mesh of boxes — a whole city in one
+// draw call — out to FAR_BUILD, each box in its block's atlas colour, lit and fogged like the far ground, and hidden
+// exactly where its chunk's own meshes are in the scene (seenShow, as the far trees). The set is asked for again every
+// FAR_BUILD_S seconds with the versions held (unchanged plots come back bare), so a city costs one small request a cycle.
+const FAR_BUILD = PHONE ? 800 : 2000, FAR_BUILD_S = 15, FAR_BUILD_MAX = 40000;   // m, s, boxes — design choices (measured: see #193)
+const farPlots = new Map();                     // plot -> { ver, boxes }
+let farBoxMesh = null, farBoxes = 0, farBuildAt = 0, farBuildBusy = false, farBuildKey = "";
+function blockColour(blk) {
+  const b = Wd.BLOCKS[blk], t = b && b.tex ? b.tex[1] : 0, pnt = PAINT[t];
+  return new THREE.Color(pnt ? pnt[0] : "#8d8a85");
+}
+async function farBuildTick(now) {
+  if (!scene || farBuildBusy || now - farBuildAt < FAR_BUILD_S * 1000) return;
+  farBuildAt = now; farBuildBusy = true;
+  try {
+    const since = {}; for (const [p, r] of farPlots) since[p] = r.ver;
+    const q = `face=${P.face}&u=${P.u.toFixed(1)}&v=${P.v.toFixed(1)}&r=${FAR_BUILD}&since=${encodeURIComponent(JSON.stringify(since))}`;
+    const res = await fetch("/land/api/far?" + q, { credentials: "same-origin" });
+    if (!res.ok) return;
+    const got = (await res.json()).plots || [], keep = new Set();
+    let changed = false;
+    for (const pl of got) {
+      keep.add(pl.plot);
+      const have = farPlots.get(pl.plot);
+      if (pl.boxes) { farPlots.set(pl.plot, { ver: pl.ver, boxes: pl.boxes }); changed = true; }
+      else if (!have) changed = true;
+    }
+    for (const p of [...farPlots.keys()]) if (!keep.has(p)) { farPlots.delete(p); changed = true; }
+    if (changed || !farBoxMesh) buildFarBoxes();
+  } catch (e) { /* offline: the last set stands */ } finally { farBuildBusy = false; }
+}
+/** The instanced boxes of every far plot held: built around the player's frame now (a box 2 km off leans 1.4° by the
+ *  planet's curve — unseen; its PLACE is exact, posOf). */
+function buildFarBoxes() {
+  ensureSeen();
+  const list = [];
+  for (const [plot, r] of farPlots) {
+    const q = Wd.plotCoords(plot);
+    for (const b of r.boxes) {
+      const blk = Wd.BLOCKS[b[6]];
+      if (!blk || !blk.solid || blk.see) continue;                          // glass, leaves: nothing to see from afar
+      list.push([q, b]);
+      if (list.length >= FAR_BUILD_MAX) break;
+    }
+  }
+  if (farBoxMesh) { scene.remove(farBoxMesh); farBoxMesh.geometry.dispose(); farBoxMesh = null; }
+  farBoxes = list.length;
+  if (!list.length) return;
+  const fr = Wd.frameOf(P.face, P.u, P.v), anchor = Wd.posOf(P.face, P.u, P.v, Wd.SEA);
+  const n = list.length, off = new Float32Array(n * 3), ext = new Float32Array(n * 3), col = new Float32Array(n * 3), root = new Float32Array(n * 2);
+  const c = new THREE.Color();
+  list.forEach(([q, b], i) => {
+    const u = q.u0 + (b[0] + b[3] / 2) / 100, v = q.v0 + (b[1] + b[4] / 2) / 100, h = (b[2] + b[5] / 2) / 100, p = Wd.posOf(q.face, u, v, h);
+    off[i * 3] = p[0] - anchor[0]; off[i * 3 + 1] = p[1] - anchor[1]; off[i * 3 + 2] = p[2] - anchor[2];
+    ext[i * 3] = b[3] / 200; ext[i * 3 + 1] = b[4] / 200; ext[i * 3 + 2] = b[5] / 200;
+    c.copy(blockColour(b[6])); col[i * 3] = c.r; col[i * 3 + 1] = c.g; col[i * 3 + 2] = c.b;
+    root[i * 2] = Math.floor(u / CHUNK); root[i * 2 + 1] = Math.floor(v / CHUNK);
+  });
+  const base = new THREE.BoxGeometry(1, 1, 1), g = new THREE.InstancedBufferGeometry();
+  g.setAttribute("position", base.getAttribute("position")); g.setAttribute("normal", base.getAttribute("normal")); g.setAttribute("uv", base.getAttribute("uv")); g.setIndex(base.getIndex());
+  g.setAttribute("off", new THREE.InstancedBufferAttribute(off, 3)); g.setAttribute("ext", new THREE.InstancedBufferAttribute(ext, 3));
+  g.setAttribute("col", new THREE.InstancedBufferAttribute(col, 3)); g.setAttribute("root", new THREE.InstancedBufferAttribute(root, 2));
+  g.instanceCount = n;
+  const m = new THREE.MeshStandardNodeMaterial({ roughness: 0.9, metalness: 0 });
+  // the unit cube's x, y, z are the plot's east, north, up: scaled to the box, turned into the player's frame, set at
+  // its place — and collapsed to nothing where its chunk is meshed (seenShow)
+  const E = TSL.uniform(new THREE.Vector3(...fr.east)), N = TSL.uniform(new THREE.Vector3(...fr.north)), U = TSL.uniform(new THREE.Vector3(...fr.up));
+  const l = TSL.positionLocal.mul(TSL.attribute("ext", "vec3")).mul(2).mul(seenShow());
+  m.positionNode = E.mul(l.x).add(N.mul(l.y)).add(U.mul(l.z)).add(TSL.attribute("off", "vec3"));
+  const nl = TSL.normalLocal;
+  const nn = E.mul(nl.x).add(N.mul(nl.y)).add(U.mul(nl.z));
+  m.setupPosition = function (builder) { TSL.normalLocal.assign(nn); return Object.getPrototypeOf(this).setupPosition.call(this, builder); };
+  m.colorNode = TSL.attribute("col", "vec3");
+  farBoxMesh = new THREE.Mesh(g, m); farBoxMesh.frustumCulled = false; farBoxMesh.userData.anchor = anchor; farBoxMesh.renderOrder = 0;
+  scene.add(farBoxMesh);
 }
 
 // ---- the far land: a coarse ring of the planet beyond the chunks, out to the horizon -------------------------------
@@ -1512,11 +1604,11 @@ function connect() {
         seen.add(o.id);
         let r = others.get(o.id);
         const sig = JSON.stringify(o.look || null);
-        if (r && r.sig !== sig) { scene.remove(r.mesh); r = null; }      // they changed clothes: dress them again
-        if (!r) { r = { mesh: avatar(o.who || o.id, o.look), who: o.who, sig }; scene.add(r.mesh); others.set(o.id, r); }
+        if (r && r.sig !== sig) { scene.remove(r.mesh); dropFig(r); r = null; }      // they changed clothes: dress them again
+        if (!r) { r = { mesh: avatar(o.who || o.id, o.look, "p:" + o.id), who: o.who, sig }; scene.add(r.mesh); others.set(o.id, r); }
         r.p = o.p;
       }
-      for (const [id, r] of others) if (!seen.has(id)) { scene.remove(r.mesh); others.delete(id); }
+      for (const [id, r] of others) if (!seen.has(id)) { scene.remove(r.mesh); dropFig(r); others.delete(id); }
       craftsSeen(m.crafts);
       animalsSeen(m.animals);
       npcsSeen(m.npcs);
@@ -1606,11 +1698,11 @@ function connect() {
     trace("net_close", { at: tracePose([P.face, P.u, P.v, P.h, P.yaw]) });
     const was = net.online;
     net.online = false; net.ws = null;
-    for (const r of others.values()) scene.remove(r.mesh);
+    for (const r of others.values()) { scene.remove(r.mesh); dropFig(r); }
     others.clear();
     for (const r of animals.values()) scene.remove(r.mesh);
     animals.clear();
-    for (const r of npcs.values()) scene.remove(r.mesh);
+    for (const r of npcs.values()) { scene.remove(r.mesh); dropFig(r); }
     npcs.clear();
     if (was) hud();
     setTimeout(connect, Math.min(30000, 1000 * 2 ** Math.min(5, net.tries++)));   // back off; a page without a server stays local
@@ -1657,42 +1749,22 @@ function lookColours(seed, look) {
 // figure — a big round head with one of FACES drawn kawaii faces on its front (faceCanvas, on a cap of the sphere), a
 // capsule body, rounded arms and legs with hands and shoes. Body type 0: a fringe of short hair; 1: longer hair, pigtails
 // and a skirt. Clothes keep their colours (lookColours): a soft cap, a cloak that drapes behind. ~1.75 m, front +Z.
-function avatar(seed, look) {
-  const c = lookColours(seed, look), g = new THREE.Group(), girl = (look && look.body) === 1;
-  const mat = (col) => new THREE.MeshLambertMaterial({ color: col });
-  const put = (geo, col, x, y, z, rx = 0, rz = 0) => { const m = new THREE.Mesh(geo, typeof col === "number" ? mat(col) : col); m.position.set(x, y, z); m.rotation.set(rx, 0, rz); g.add(m); return m; };
-  const capsule = (r, len) => new THREE.CapsuleGeometry(r, len, 4, 12);
-  const sphere = (r, ...cut) => new THREE.SphereGeometry(r, 24, 16, ...cut);
-  // legs and shoes
-  for (const x of [-0.09, 0.09]) { put(capsule(0.075, 0.42), c.legs, x, 0.33, 0); put(sphere(0.085), 0x3a2e2a, x, 0.06, 0.03).scale.set(1, 0.6, 1.4); }
-  if (girl) put(new THREE.CylinderGeometry(0.16, 0.29, 0.34, 20, 1, true), c.top, 0, 0.62, 0).material.side = THREE.DoubleSide;   // a skirt
-  // the body, a little narrower for body type 1; arms hang slightly out, hands in skin
-  put(capsule(girl ? 0.16 : 0.18, 0.34), c.top, 0, 0.92, 0).scale.set(1, 1, 0.82);
-  for (const s of [-1, 1]) {
-    const x = s * (girl ? 0.21 : 0.24);
-    put(capsule(0.06, 0.34), c.top, x, 0.94, 0, 0, s * 0.12);
-    put(sphere(0.065), c.skin, x + s * 0.03, 0.7, 0.01);
-  }
-  // the head: round and big, its face a cap of the sphere just over the skin (the drawn face is mirrored to read right)
-  const R = 0.25, hy = 1.42;
-  put(sphere(R), c.skin, 0, hy, 0);
-  const tex = faceTexture((look && look.face) || 0);
-  put(sphere(R + 0.003, Math.PI / 2 - 0.8, 1.6, 0.85, 1.25), new THREE.MeshLambertMaterial({ map: tex, transparent: true, depthWrite: false }), 0, hy, 0);
-  // hair: a cap over the top and back, a fringe in front; for body type 1 longer at the back and two pigtails
-  put(sphere(R + 0.03, 0, Math.PI * 2, 0, 1.0), c.hair, 0, hy, 0);                                   // the crown
-  put(sphere(R + 0.03, Math.PI * 1.5 - 1.75, 3.5, 0.9, girl ? 1.75 : 1.15), c.hair, 0, hy, 0);       // sides and back
-  put(sphere(R + 0.035, Math.PI / 2 - 0.85, 1.7, 0.55, 0.42), c.hair, 0, hy, 0);                      // a fringe
-  if (girl) for (const s of [-1, 1]) {                                                                // two pigtails, hanging
-    put(sphere(0.06), c.hair, s * 0.27, hy + 0.02, -0.02);
-    put(capsule(0.065, 0.26), c.hair, s * 0.31, hy - 0.18, -0.03, 0, s * 0.22);
-  }
-  if (c.cap != null) put(sphere(R + 0.045, 0, Math.PI * 2, 0, 1.0), c.cap, 0, hy + 0.03, 0).scale.set(1.05, 0.8, 1.05);   // a soft cap
-  if (c.cloak != null) {                                                                                                 // a cloak drapes behind
-    const cl = put(new THREE.CylinderGeometry(0.24, 0.36, 0.95, 20, 1, true, Math.PI * 0.6, Math.PI * 0.8), c.cloak, 0, 0.78, 0);
-    cl.material.side = THREE.DoubleSide;
-  }
+// THE BODY (#172; operator 2026-11-10: "the characters look total garbage nobody is gonna play this"): a person is the
+// MakeHuman figure of land-human.js, drawn by the HumanView in ONE instanced draw a LOD for everyone, posed by IK every
+// frame — standing, walking in a gait, breathing, looking at a player who comes near. The group returned here carries
+// the figure's place, its name plate and its quest mark; the body itself is the view's, keyed by `id`. The ball-headed
+// capsule figure with a painted face that stood here (#145) is gone: it was a vinyl toy in a world of physical truth.
+let human = null, humanDrawn = 0;
+function avatar(seed, look, id = seed) {
+  const g = new THREE.Group();
+  // the figure is registered with the view when it is first placed, not here: the first "players" message arrives
+  // while the renderer still starts (human is null then), and a figure registered only here was never drawn — the
+  // owner's page saw 0 people for as long as the townspeople stood still (the people page test, 2026-11-12)
+  Object.assign(g.userData, { fig: id, look, col: lookColours(seed, look) });
   return g;
 }
+const figOf = (r) => { const u = r.mesh.userData; if (human && !human.figs.has(u.fig)) human.add(u.fig, u.look, u.col); return u.fig; };
+const dropFig = (r) => { if (human && r && r.mesh) human.remove(r.mesh.userData.fig); };
 // ---- ANIMALS (#156, "hunting", operator 2026-11-09): the world server keeps them near players (land_server.py herd) and
 // sends where each is with the players near; the page draws each kind — a deer, a boar, a rabbit — glides it to where
 // the server says, stands it on the drawn ground, and swings its legs while it moves. Break on one under the crosshair
@@ -1878,9 +1950,9 @@ function npcsSeen(list) {
       r.markSig = n.mark;
     }
   }
-  for (const [id, r] of npcs) if (!seen.has(id)) { scene.remove(r.mesh); npcs.delete(id); }
+  for (const [id, r] of npcs) if (!seen.has(id)) { scene.remove(r.mesh); dropFig(r); npcs.delete(id); }
 }
-function npcsFrame(cam) {
+function npcsFrame(cam, dt, now) {
   for (const r of npcs.values()) {
     if (r.gh === undefined) r.gh = groundAt(r.at[0], r.at[1], r.at[2]);
     const q = Wd.posOf(r.at[0], r.at[1], r.at[2], r.gh), ofr = Wd.frameOf(r.at[0], r.at[1], r.at[2]);
@@ -1890,6 +1962,8 @@ function npcsFrame(cam) {
     const du = P.u - r.at[1], dv = P.v - r.at[2], near = Math.hypot(du, dv) < 8, yaw = near ? Math.atan2(du, dv) : 0;
     const sy = Math.sin(yaw), cy = Math.cos(yaw);
     r.mesh.lookAt(r.mesh.position.x + sy * ofr.east[0] + cy * ofr.north[0], r.mesh.position.y + sy * ofr.east[1] + cy * ofr.north[1], r.mesh.position.z + sy * ofr.east[2] + cy * ofr.north[2]);
+    // the body (#172): standing at its feet, facing as the group does, looking at the player near it (the eye is the origin)
+    if (human) human.place(figOf(r), [r.mesh.position.x, r.mesh.position.y, r.mesh.position.z], ofr, yaw, 0, dt || 1 / 60, (now || 0) / 1000, near ? [0, 0, 0] : null);
   }
 }
 /** The NPC under the crosshair within talking reach: its id, or null. */
@@ -3970,7 +4044,7 @@ function statsTick(now) {
   const gpu = renderer.backend && renderer.backend.isWebGPUBackend ? "WebGPU" : "WebGL2";
   if (!SET.stats) { $("hudGpu").textContent = gpu; return; }
   const r = renderer.info.render;
-  $("hudGpu").textContent = `${gpu} · ${fps} fps · ${Math.round(r.triangles / 1000)}k tris · ${r.drawCalls ?? r.calls} calls · ${chunks.size} chunks · ${forestTrees} far trees · ${cloudMaps} sky maps${cloudTileI ? ` +${cloudTileI}/${CLOUD_TILES[0] * CLOUD_TILES[1]}` : ""}`;
+  $("hudGpu").textContent = `${gpu} · ${fps} fps · ${Math.round(r.triangles / 1000)}k tris · ${r.drawCalls ?? r.calls} calls · ${chunks.size} chunks · ${forestTrees} far trees · ${farBoxes} far boxes · ${humanDrawn} people${human && human.walking ? ` (${human.walking} in a gait)` : ""} · ${cloudMaps} sky maps${cloudTileI ? ` +${cloudTileI}/${CLOUD_TILES[0] * CLOUD_TILES[1]}` : ""}`;
 }
 // ---- THE PROFILER (` the key left of 1, ?prof=1, or /prof; "work on performance, take a hint from true wind", operator
 // 2026-11-09 — True Wind's js/profiler.js, "measure performance; don't guess"): where the frame's time goes, live — the
@@ -4041,12 +4115,12 @@ function frame(now) {
   camera.lookAt(fw[0], fw[1], fw[2]);
   hemi.position.set(fr.up[0], fr.up[1], fr.up[2]);     // "up" is radial on a planet: three's hemisphere light assumes +Y
   for (const c of chunks.values()) if (c.anchor) for (const me of c.meshes) me.position.set(c.anchor[0] - cam[0], c.anchor[1] - cam[1], c.anchor[2] - cam[2]);
-  for (const m of [farMesh, farSea, borderMesh]) if (m) { const a = m.userData.anchor; m.position.set(a[0] - cam[0], a[1] - cam[1], a[2] - cam[2]); }
+  for (const m of [farMesh, farSea, borderMesh, farBoxMesh]) if (m) { const a = m.userData.anchor; m.position.set(a[0] - cam[0], a[1] - cam[1], a[2] - cam[2]); }
   for (const f of forest.values()) if (f.mesh) { const a = f.mesh.userData.anchor; f.mesh.position.set(a[0] - cam[0], a[1] - cam[1], a[2] - cam[2]); }
   for (const [id, c] of crafts) if (c.pose) { craftPlace(c.mesh, c.pose, cam); engineFrame(id, c, cam, now); }
   animalsFrame(Math.min(0.1, (now - (frame.lastAnimals || now)) / 1000), cam); frame.lastAnimals = now;
   hitDirFrame(now);
-  npcsFrame(cam); arrowsFrame(now, cam); dropsFrame(now, cam);
+  npcsFrame(cam, dt, now); arrowsFrame(now, cam); dropsFrame(now, cam);
   for (const r of others.values()) {
     if (!r.p) continue;
     const [f, u, v, h, yaw] = r.p, q = Wd.posOf(f, u, v, h), ofr = Wd.frameOf(f, u, v);
@@ -4054,8 +4128,16 @@ function frame(now) {
     r.mesh.up.set(ofr.up[0], ofr.up[1], ofr.up[2]);
     const fx = Math.sin(yaw) * ofr.east[0] + Math.cos(yaw) * ofr.north[0], fy = Math.sin(yaw) * ofr.east[1] + Math.cos(yaw) * ofr.north[1], fz = Math.sin(yaw) * ofr.east[2] + Math.cos(yaw) * ofr.north[2];
     r.mesh.lookAt(r.mesh.position.x + fx, r.mesh.position.y + fy, r.mesh.position.z + fz);
+    // the body (#172): its speed over the ground from the places reported (five a second), smoothed, drives the gait
+    if (human) {
+      const sp = r.prevQ ? Math.hypot(q[0] - r.prevQ[0], q[1] - r.prevQ[1], q[2] - r.prevQ[2]) / Math.max(0.05, (now - r.prevT) / 1000) : 0;
+      if (!r.prevQ || sp > 0 || now - r.prevT > 400) { r.prevQ = q; r.prevT = now; }
+      r.spd = (r.spd || 0) + (Math.min(sp, 8) - (r.spd || 0)) * Math.min(1, 4 * dt);
+      human.place(figOf(r), [r.mesh.position.x, r.mesh.position.y, r.mesh.position.z], ofr, yaw, r.spd, dt, now / 1000, null);
+    }
   }
-  pt("sky", () => { sky(fr); torchTick(now, cam); cloudsFrame(cam, fr); });
+  humanDrawn = human ? human.flush() : 0;
+  pt("sky", () => { sky(fr); torchTick(now, cam); cloudsFrame(cam, fr); farBuildTick(now); });
   // the aimed block's outline
   const a = pt("aim", () => aim());
   // a cell's outline, or the piece's own box; and where the chosen piece would go (green: it fits, red: it does not)
@@ -4248,6 +4330,7 @@ async function start() {
   $("hudGpu").textContent = renderer.backend && renderer.backend.isWebGPUBackend ? "WebGPU" : "WebGL2";
   $("hudGpu").onclick = () => { SET.stats = SET.stats ? 0 : 1; saveSet(); };
   scene = new THREE.Scene();
+  human = new HumanView(scene);                             // the people (#172): their body data loads beside the page
   scene.fog = new THREE.Fog(0xb7d6ef, viewDist * CHUNK * 0.9, 2900);
   camera = new THREE.PerspectiveCamera(SET.fov, innerWidth / innerHeight, 0.08, 4000);
   camera.position.set(0, 0, 0);

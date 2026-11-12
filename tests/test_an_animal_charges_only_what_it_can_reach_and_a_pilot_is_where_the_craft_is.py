@@ -15,6 +15,7 @@ import os, tempfile  # ISOLATION FIRST (CLAUDE.md rule 4)
 os.environ["HOME"] = tempfile.mkdtemp(prefix="nado-test-land-reach-air-")
 import atexit, shutil; atexit.register(shutil.rmtree, os.environ["HOME"], ignore_errors=True)
 import asyncio, importlib.util, json, math, subprocess, sys
+sys.stdout.reconfigure(line_buffering=True)   # (CI's runner kills a hung test: the checks printed so far must be in its log)
 
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 sys.path.insert(0, ROOT)
