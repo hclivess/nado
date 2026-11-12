@@ -615,7 +615,8 @@
   "land.tWard": "Wear",
   "land.traderStand": "The nearest trading stand is {m} m away, bearing {b}° — stand at it to make an offer.",
   "land.traderNoStand": "No trading stand is built yet — make one at a workbench and set it on your plot.",
-  "land.qBringFrom": "Bring {n} × {i} — found as {b}"
+  "land.qBringFrom": "Bring {n} × {i} — found as {b}",
+  "land.gSound": "Sound (steps, a hit, a charge, a pickup)"
  },
  "cs": {
   "land.notYours": "Pozemek {p} patří někomu jinému. Kupte si pozemek, nebo požádejte jeho vlastníka o pozvání.",
@@ -1233,7 +1234,8 @@
   "land.tWard": "Šatna",
   "land.traderStand": "Nejbližší obchodní stánek je {m} m daleko, azimut {b}° — postav se k němu a nabídni.",
   "land.traderNoStand": "Žádný obchodní stánek zatím nestojí — vyrob ho na ponku a postav na své parcele.",
-  "land.qBringFrom": "Přines {n} × {i} — najdeš jako {b}"
+  "land.qBringFrom": "Přines {n} × {i} — najdeš jako {b}",
+  "land.gSound": "Zvuk (kroky, zásah, útok, sebrání)"
  },
  "es": {
   "land.notYours": "La parcela {p} pertenece a otra persona. Compra una parcela o pide a su dueño que te invite.",
@@ -1851,7 +1853,8 @@
   "land.tWard": "Ropa",
   "land.traderStand": "El puesto de comercio más cercano está a {m} m, rumbo {b}° — ponte junto a él para hacer una oferta.",
   "land.traderNoStand": "Aún no hay ningún puesto de comercio — haz uno en un banco de trabajo y colócalo en tu parcela.",
-  "land.qBringFrom": "Trae {n} × {i} — se encuentra como {b}"
+  "land.qBringFrom": "Trae {n} × {i} — se encuentra como {b}",
+  "land.gSound": "Sonido (pasos, un golpe, una carga, una recogida)"
  },
  "pt": {
   "land.notYours": "O lote {p} pertence a outra pessoa. Compre um lote ou peça ao dono que convide você.",
@@ -2469,7 +2472,8 @@
   "land.tWard": "Roupa",
   "land.traderStand": "A banca de comércio mais próxima fica a {m} m, rumo {b}° — fica junto dela para fazer uma oferta.",
   "land.traderNoStand": "Ainda não há nenhuma banca de comércio — faz uma na bancada e põe-na no teu lote.",
-  "land.qBringFrom": "Traz {n} × {i} — encontra-se como {b}"
+  "land.qBringFrom": "Traz {n} × {i} — encontra-se como {b}",
+  "land.gSound": "Som (passos, um golpe, uma investida, uma recolha)"
  },
  "fr": {
   "land.notYours": "La parcelle {p} appartient à quelqu'un d'autre. Achetez une parcelle ou demandez à son propriétaire de vous inviter.",
@@ -3087,7 +3091,8 @@
   "land.tWard": "Tenue",
   "land.traderStand": "L'étal le plus proche est à {m} m, cap {b}° — place-toi devant pour faire une offre.",
   "land.traderNoStand": "Aucun étal n'est encore bâti — fabrique-en un à l'établi et pose-le sur ta parcelle.",
-  "land.qBringFrom": "Apporte {n} × {i} — se trouve sous forme de {b}"
+  "land.qBringFrom": "Apporte {n} × {i} — se trouve sous forme de {b}",
+  "land.gSound": "Son (pas, un coup, une charge, un ramassage)"
  },
  "de": {
   "land.notYours": "Grundstück {p} gehört jemand anderem. Kauf dir ein Grundstück oder bitte den Besitzer um eine Einladung.",
@@ -3705,7 +3710,8 @@
   "land.tWard": "Kleidung",
   "land.traderStand": "Der nächste Handelsstand ist {m} m entfernt, Peilung {b}° — stell dich daran, um ein Angebot zu machen.",
   "land.traderNoStand": "Noch steht kein Handelsstand — bau einen an der Werkbank und stell ihn auf deine Parzelle.",
-  "land.qBringFrom": "Bring {n} × {i} — zu finden als {b}"
+  "land.qBringFrom": "Bring {n} × {i} — zu finden als {b}",
+  "land.gSound": "Ton (Schritte, ein Treffer, ein Angriff, ein Aufheben)"
  },
  "it": {
   "land.notYours": "Il lotto {p} appartiene a qualcun altro. Compra un lotto o chiedi al proprietario di invitarti.",
@@ -4323,7 +4329,8 @@
   "land.tWard": "Abiti",
   "land.traderStand": "Il banco di scambio più vicino è a {m} m, rotta {b}° — mettiti lì per fare un'offerta.",
   "land.traderNoStand": "Nessun banco di scambio è ancora costruito — fanne uno al banco da lavoro e mettilo sul tuo lotto.",
-  "land.qBringFrom": "Porta {n} × {i} — si trova come {b}"
+  "land.qBringFrom": "Porta {n} × {i} — si trova come {b}",
+  "land.gSound": "Suono (passi, un colpo, una carica, una raccolta)"
  },
  "ru": {
   "land.notYours": "Участок {p} принадлежит другому игроку. Купите участок или попросите владельца пригласить вас.",
@@ -4941,7 +4948,8 @@
   "land.tWard": "Одежда",
   "land.traderStand": "Ближайший торговый прилавок в {m} м, азимут {b}° — встань у него, чтобы сделать предложение.",
   "land.traderNoStand": "Торгового прилавка ещё нет — сделай его на верстаке и поставь на своём участке.",
-  "land.qBringFrom": "Принеси {n} × {i} — встречается как {b}"
+  "land.qBringFrom": "Принеси {n} × {i} — встречается как {b}",
+  "land.gSound": "Звук (шаги, удар, атака, подбор)"
  },
  "zh": {
   "land.notYours": "地块 {p} 属于别人。购买一块地，或请它的所有者邀请你。",
@@ -5559,7 +5567,8 @@
   "land.tWard": "衣装",
   "land.traderStand": "最近的交易摊位在 {m} 米外，方位 {b}° — 站到摊位旁即可出价。",
   "land.traderNoStand": "还没有交易摊位 — 在工作台做一个，放到你的地块上。",
-  "land.qBringFrom": "带来 {n} × {i} — 以 {b} 的形式可以找到"
+  "land.qBringFrom": "带来 {n} × {i} — 以 {b} 的形式可以找到",
+  "land.gSound": "声音（脚步、受击、冲锋、拾取）"
  },
  "ja": {
   "land.notYours": "区画 {p} は他の人のものです。区画を購入するか、所有者に招待してもらいましょう。",
@@ -6177,7 +6186,8 @@
   "land.tWard": "衣装",
   "land.traderStand": "いちばん近い交易台は {m} m 先、方位 {b}° — そこに立てば取引を出せる。",
   "land.traderNoStand": "交易台はまだ無い — 作業台で作って自分の区画に置こう。",
-  "land.qBringFrom": "{i} を {n} 持ってくる — {b} として見つかる"
+  "land.qBringFrom": "{i} を {n} 持ってくる — {b} として見つかる",
+  "land.gSound": "音（足音、被弾、突進、拾得）"
  },
  "ko": {
   "land.notYours": "구역 {p}은(는) 다른 사람의 땅입니다. 구역을 사거나 소유자에게 초대를 요청하세요.",
@@ -6795,7 +6805,8 @@
   "land.tWard": "옷",
   "land.traderStand": "가장 가까운 거래대는 {m} m 거리, 방위 {b}° — 그 앞에 서면 제안할 수 있습니다.",
   "land.traderNoStand": "아직 거래대가 없습니다 — 작업대에서 만들어 당신의 구획에 놓으세요.",
-  "land.qBringFrom": "{i} {n}개 가져오기 — {b}(으)로 찾을 수 있음"
+  "land.qBringFrom": "{i} {n}개 가져오기 — {b}(으)로 찾을 수 있음",
+  "land.gSound": "소리 (발소리, 피격, 돌진, 줍기)"
  },
  "ar": {
   "land.notYours": "القطعة {p} ملك لشخص آخر. اشترِ قطعة، أو اطلب من مالكها أن يدعوك.",
@@ -7413,7 +7424,8 @@
   "land.tWard": "ملابس",
   "land.traderStand": "أقرب منصة تجارة على بعد {m} م، اتجاه {b}° — قف عندها لتقديم عرض.",
   "land.traderNoStand": "لا توجد منصة تجارة بعد — اصنع واحدة على طاولة العمل وضعها في قطعتك.",
-  "land.qBringFrom": "أحضر {n} × {i} — يوجد على هيئة {b}"
+  "land.qBringFrom": "أحضر {n} × {i} — يوجد على هيئة {b}",
+  "land.gSound": "الصوت (خطوات، ضربة، هجوم، التقاط)"
  },
  "hi": {
   "land.notYours": "प्लॉट {p} किसी और का है। कोई प्लॉट खरीदें, या उसके मालिक से आपको आमंत्रित करने को कहें।",
@@ -8031,7 +8043,8 @@
   "land.tWard": "पोशाक",
   "land.traderStand": "सबसे पास की व्यापार दुकान {m} मीटर दूर है, दिशा {b}° — वहाँ खड़े होकर पेशकश करो।",
   "land.traderNoStand": "अभी कोई व्यापार दुकान नहीं है — कार्यपीठ पर एक बनाओ और अपने भूखंड पर रखो।",
-  "land.qBringFrom": "{n} × {i} लाओ — {b} के रूप में मिलता है"
+  "land.qBringFrom": "{n} × {i} लाओ — {b} के रूप में मिलता है",
+  "land.gSound": "आवाज़ (कदम, चोट, हमला, उठाना)"
  },
  "tr": {
   "land.notYours": "{p} arsası başkasına ait. Bir arsa satın al ya da sahibinden seni davet etmesini iste.",
@@ -8649,7 +8662,8 @@
   "land.tWard": "Giysi",
   "land.traderStand": "En yakın ticaret tezgâhı {m} m uzakta, kerteriz {b}° — teklif vermek için yanında dur.",
   "land.traderNoStand": "Henüz ticaret tezgâhı yok — tezgâhta bir tane yap ve parseline koy.",
-  "land.qBringFrom": "{n} × {i} getir — {b} olarak bulunur"
+  "land.qBringFrom": "{n} × {i} getir — {b} olarak bulunur",
+  "land.gSound": "Ses (adımlar, darbe, saldırı, toplama)"
  },
  "id": {
   "land.notYours": "Petak {p} milik orang lain. Beli sebuah petak, atau minta pemiliknya mengundangmu.",
@@ -9267,7 +9281,8 @@
   "land.tWard": "Pakaian",
   "land.traderStand": "Lapak dagang terdekat {m} m jauhnya, arah {b}° — berdirilah di sana untuk menawar.",
   "land.traderNoStand": "Belum ada lapak dagang — buat satu di meja kerja dan pasang di petakmu.",
-  "land.qBringFrom": "Bawa {n} × {i} — ditemukan sebagai {b}"
+  "land.qBringFrom": "Bawa {n} × {i} — ditemukan sebagai {b}",
+  "land.gSound": "Suara (langkah, pukulan, serbuan, pungutan)"
  },
  "vi": {
   "land.notYours": "Mảnh đất {p} thuộc về người khác. Hãy mua một mảnh, hoặc nhờ chủ của nó mời bạn.",
@@ -9885,7 +9900,8 @@
   "land.tWard": "Trang phục",
   "land.traderStand": "Quầy giao dịch gần nhất cách {m} m, hướng {b}° — đứng tại đó để ra giá.",
   "land.traderNoStand": "Chưa có quầy giao dịch nào — làm một cái ở bàn thợ rồi đặt lên lô của bạn.",
-  "land.qBringFrom": "Mang {n} × {i} — tìm thấy dưới dạng {b}"
+  "land.qBringFrom": "Mang {n} × {i} — tìm thấy dưới dạng {b}",
+  "land.gSound": "Âm thanh (bước chân, bị đánh, lao tới, nhặt)"
  },
  "pl": {
   "land.notYours": "Działka {p} należy do kogoś innego. Kup działkę albo poproś jej właściciela o zaproszenie.",
@@ -10503,6 +10519,7 @@
   "land.tWard": "Ubiór",
   "land.traderStand": "Najbliższe stoisko handlowe jest {m} m stąd, azymut {b}° — stań przy nim, by złożyć ofertę.",
   "land.traderNoStand": "Nie ma jeszcze stoiska handlowego — zrób je na warsztacie i postaw na swojej działce.",
-  "land.qBringFrom": "Przynieś {n} × {i} — znajdziesz jako {b}"
+  "land.qBringFrom": "Przynieś {n} × {i} — znajdziesz jako {b}",
+  "land.gSound": "Dźwięk (kroki, cios, szarża, podniesienie)"
  }
 }

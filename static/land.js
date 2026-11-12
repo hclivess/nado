@@ -39,6 +39,7 @@ import * as Clouds from "./land-clouds.js";
 import { treeModel } from "./land-trees.js";
 import { craftStep, flightOf, craftBody, bodyInside, navSays, craftArea, aeroOf, axesOf, stallSpeed, stepOffSpot } from "./land-flight.js";
 import { HumanView } from "./land-human.js";
+import { Sound } from "./land-sound.js";
 import { GFX_PRESETS, BENCH_ORDER, benchTarget, frameStats, holds, pickPreset, LADDER, governor, govStep } from "./land-gfx.js";
 import { NadoDapp, wireWallet, renderWallet, alertBar, notify, uiConfirm, uiPrompt, isAddress, esc, base, disp, rawToNado, nadoToRaw, randId, $ } from "./nadodapp.js";
 
@@ -364,6 +365,7 @@ const rootsIn = ([cu, cv, ch]) => {
 // trunks are solid cylinders (land-walk.js trunkAt); leaves stay walk-through
 const isLog = (cu, cv, ch) => Wd.TREE_WOOD.has(blockAt(P.face, cu, cv, ch));
 const CLIMB = 1.8;                               // m/s up or down a ladder
+let stepDist = 0;                                // m of ground covered since the last footfall cue (#113)
 /** A ladder within reach of the body: its box, grown by 45 cm around and reaching from 1.5 m below its foot to its top. */
 function ladderNear() {
   const c = plotCm(P.face, P.u, P.v, P.h), rec = plotBoxes.get(c.plot);
@@ -409,6 +411,8 @@ function step(dt) {
     P.vh = up ? CLIMB : down && !P.ground ? -CLIMB : 0;
   }
   walk(P, [wu, wv], keys.has("Space") || !!(touch && touch.up), dt, collides, { GRAV, JUMP, STEP });
+  // a footfall every half gait cycle of ground covered (land-human-data WALK_CYCLE 0.7 m), on the ground only
+  if (P.ground && !P.fly) { stepDist += Math.hypot(P.vu || 0, P.vv || 0) * dt; if (stepDist >= 0.35) { stepDist = 0; sound.cue("step", 0.8, 120); } } else stepDist = 0;
   // fell out of the world: only below the deep (#129) — it was "below layer 1", which threw a miner back to the surface
   if (P.h < Wd.DEEP_MIN + 1) { P.h = groundAt(P.face, P.u, P.v); P.vh = 0; }
   if (P.h > H + 400) P.h = H + 400;
@@ -1602,6 +1606,8 @@ function connect() {
       invSeen = true;
       // vol: what is left of blocks a piece was cut from (cm³) — sent all along and never kept, so the page counted only
       // whole blocks and refused a piece the leftover would pay for (2026-11-08)
+      // a count that rose is a pickup (a gather finished, a quest's reward, a trade): one cue a message
+      if (Object.entries(m.items || {}).some(([k, n]) => n > (inv.items[k] || 0))) sound.cue("pickup", 1, 150);
       inv.items = m.items || {}; inv.tools = m.tools || []; inv.stations = m.stations || []; inv.vol = m.vol || {};
       inv.worn = m.worn || {}; inv.look = m.look || { skin: 0, hair: 0 };
       fedUntil = performance.now() + (m.fed || 0) * 1000;                     // a meal's time left (#155)
@@ -1646,8 +1652,10 @@ function connect() {
       trace("hurt", { by: m.by, hp: m.hp, at: tracePose([P.face, P.u, P.v, P.h, P.yaw]) });
       // struck (#162): the hearts drop and the screen flashes red
       showHp(m.hp); const f = $("hurtFlash"); f.classList.add("on"); setTimeout(() => f.classList.remove("on"), 120);
+      sound.cue("hit");
       hitFrom(m.at, null, false);
     } else if (m.t === "charge") {
+      sound.cue("charge", 1, 1500);
       // an animal turned on this player (#176): said in words and shown by side, while it is still metres off
       notify(T("charging", "A {a} is charging you!", { a: animalName(m.by) }), 3000);
       hitFrom(m.at, m.id, true);
@@ -3128,8 +3136,8 @@ function act(place, mouse) {
 // closes it. A line without a slash is chat to the players around you (the world server relays it to whoever watches
 // the plots you watch). SETTINGS are this viewer's own, remembered in this browser — a convenience, nothing shared.
 const LS_SET = "nado_land_settings";
-const SET_DEF = { fov: 72, sens: 1, invert: 0, grass: 1, shadows: 2, effects: 1, borders: 1, stats: 0, res: 100, view: 6, fps: 0, auto: 1, clouds: 1 };
-const SET_RANGE = { fov: [50, 110], sens: [0.2, 4], invert: [0, 1], grass: [0, 1], shadows: [0, 3], effects: [0, 1], borders: [0, 1], stats: [0, 1],
+const SET_DEF = { fov: 72, sens: 1, invert: 0, grass: 1, shadows: 2, effects: 1, borders: 1, stats: 0, res: 100, view: 6, fps: 0, auto: 1, clouds: 1, sound: 1 };
+const SET_RANGE = { fov: [50, 110], sens: [0.2, 4], invert: [0, 1], sound: [0, 1], grass: [0, 1], shadows: [0, 3], effects: [0, 1], borders: [0, 1], stats: [0, 1],
   res: [50, 100], view: [2, 10], fps: [0, 60], auto: [0, 1], clouds: [0, 1] };
 // GRAPHICS (#166, operator 2026-11-10: "make graphical settings more configurable (resolution, shadows, etc)"): res is the
 // render resolution in % of the screen's pixels, shadows off / low / medium / high (the sun's shadow map size and reach),
@@ -3236,6 +3244,7 @@ function renderSettings() {
     + sel("invert", T("gInvert", "Invert look (up is down)"), onOff)
     + sel("borders", T("gBorders", "Plot borders on the ground"), onOff)
     + sel("stats", T("gStats", "Stats line (frame rate, triangles)"), onOff)
+    + sel("sound", T("gSound", "Sound (steps, a hit, a charge, a pickup)"), onOff)
     + `<p class="dim">${esc(T("gNote", "Kept in this browser. Each change applies at once."))}</p>`;
   for (const b of box.querySelectorAll("[data-preset]")) b.onclick = () => {
     for (const [k, v] of Object.entries(GFX_PRESETS[b.dataset.preset])) setSetting(k, v);
@@ -3441,7 +3450,11 @@ function wireConsole() {
  *  cannot be acquired immediately after the user has exited the lock") — that refusal came up as an error bar and play
  *  stayed stuck until another click (operator 2026-11-09, chatting on the live page): it is retried once the second has
  *  passed, and never shown. */
+// SOUND (#113): synthesised cues (land-sound.js) — the context opens on the first click or key, here and in the touch
+// wiring, since a browser refuses audio before a gesture
+const sound = new Sound(() => !!SET.sound);
 function lockPointer() {
+  sound.enable();
   const c = $("world");
   if (!c || document.pointerLockElement === c) return;
   try {
@@ -3503,6 +3516,7 @@ function wireInput(canvas) {
   if ("ontouchstart" in window || navigator.maxTouchPoints > 0) {
     touch = { mx: 0, my: 0, up: false, down: false, run: false };
     document.body.classList.add("touch");
+    document.addEventListener("touchstart", () => sound.enable(), { once: true, passive: true });
     let stickId = null, lookId = null, sx = 0, sy = 0, lx = 0, ly = 0;
     canvas.addEventListener("touchstart", (e) => {
       for (const t of e.changedTouches) {
