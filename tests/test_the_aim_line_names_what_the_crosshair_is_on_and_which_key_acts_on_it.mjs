@@ -41,7 +41,7 @@ ok(/kind === B\.door \|\| kind === B\.chest \? T\("v\.open"/.test(at) && /kind =
    "a door or chest — open; a bed — sleep here; a well — draw water; a seat or hull — board; a machine or pad — use");
 ok(/return mayBuild\(a\.box\.plot\) \? T\("aimFmt2", "\{what\} — \{v\}", \{ what, v: T\("v\.take", "hold \{b\} to take down", \{ b \}\) \}\) : notYours\(what, a\.box\.plot\);/.test(at), "any other piece: take down where you may build, else not yours");
 ok(/const \[u, v, h\] = a\.hit, what = blockLabel\(blockAt\(P\.face, u, v, h\)\), plot = Wd\.plotOf\(P\.face, u, v\);\n  return mayBuild\(plot\) \? T\("aimFmt2", "\{what\} — \{v\}", \{ what, v: T\("v\.gather", "hold \{b\} to gather", \{ b \}\) \}\) : notYours\(what, plot\);/.test(at), "a cell: its name — hold to gather, or not yours");
-ok(/const notYours = \(what, plot\) => \{ const t = titles\.get\(plot\); return T\("aimFmt2"[\s\S]*t && t\.sale \? T\("forSale"[\s\S]*T\("owned", "Owned by \{o\}"[\s\S]*v: T\("v\.notYours", "not yours to gather here"\)/.test(at), "…and 'not yours' carries the plot's state: for sale at its price, or whose it is");
+ok(/const notYours = \(what, plot\) => \{ const t = titles\.get\(plot\); return T\("aimFmt2"[\s\S]*t && t\.sale \? T\("forSale"[\s\S]*t && t\.holder \? T\("owned", "Owned by \{o\}"[\s\S]*: T\("titled", "Titled"\)[\s\S]*v: T\("v\.notYours", "not yours to gather here"\)/.test(at), "…and 'not yours' carries the plot's state: for sale at its price, whose it is, or just titled (never 'Owned by —')");
 ok(/^function blockLabel\(b\) \{/m.test(land) && /const named = blockLabel;/.test(land), "the /aim command and the line share one naming of blocks and pieces");
 
 // 3. a click talks
