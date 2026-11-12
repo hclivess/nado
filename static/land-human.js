@@ -25,7 +25,10 @@ import { parseHuman, parseWear, hairStyleOf, wornOf, PART, B, NB, REGIONS, ROW_T
 
 export const MAXF = 128;                                   // figures drawn at once (a texture row each)
 const NEAR = 60, FAR = 350;                                // m: LOD0 within NEAR of the eye, LOD1 to FAR, none beyond
-const HAIR_FAR = 160;                                      // m: hair drawn to here (a bob at 200 m is a texel), eyebrows within NEAR
+// hair, eyebrows and clothes are drawn within NEAR only — the body's LOD0 range: beyond it the body is 1,100 triangles
+// and a braid or ponytail 5,500, on a figure a few pixels tall (#150, measured 2026-11-12 at the landing on Low: 42k
+// triangles of hair and clothes on four people against 17k of bodies; they were drawn to 160 m)
+const HAIR_FAR = NEAR;
 const V3 = () => new THREE.Vector3();
 const X_ = new THREE.Vector3(1, 0, 0), Y_ = new THREE.Vector3(0, 1, 0), Z_ = new THREE.Vector3(0, 0, 1);
 const _q = new THREE.Quaternion(), _q2 = new THREE.Quaternion(), _q3 = new THREE.Quaternion(), _m = new THREE.Matrix4(), _m2 = new THREE.Matrix4();

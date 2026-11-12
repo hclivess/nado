@@ -12,7 +12,7 @@
  * Run: node tests/test_people_on_the_page_are_makehuman_bodies_drawn_in_one_instanced_pass.mjs   (needs chrome, python3)
  */
 import { spawn } from "node:child_process";
-import { writeFileSync, mkdtempSync, rmSync } from "node:fs";
+import { writeFileSync, readFileSync, mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join, dirname } from "node:path";
 import { fileURLToPath } from "node:url";
@@ -125,5 +125,10 @@ try {
 } catch (e) {
   ok(false, "harness: " + (e && e.message || e) + "\n" + fxOut.slice(-1500));
 } finally { cleanup(); }
+
+// #150: hair, eyebrows and clothes stop at the body's LOD0 range — the renderer's own constant, not a wider one
+const hv = readFileSync(join(ROOT, "static", "land-human.js"), "utf8");
+ok(/^const HAIR_FAR = NEAR;/m.test(hv) && /if \(f\.style >= 0 && f\.dist < HAIR_FAR\)/.test(hv) && /if \(f\.dist < HAIR_FAR\) \{\s*\/\/ the garments/.test(hv), "hair and clothes are drawn within the body's LOD0 range only (HAIR_FAR = NEAR)");
+
 console.log(fails ? `${fails} FAILED` : "all passed");
 process.exit(fails ? 1 : 0);
