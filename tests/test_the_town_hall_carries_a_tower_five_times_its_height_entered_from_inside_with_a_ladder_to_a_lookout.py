@@ -8,11 +8,12 @@ build_tower — the tower as the town script plans it, checked against the hall 
      and not another of its own (the world server refuses an overlap, and refused is not built);
   3. the tower's spire stands at least four times the hall's ridge over the ground (Siena's Torre del Mangia over its
      Palazzo Pubblico, land research townhall/); its belfry has an opening on every side (the lookout);
-  4. it is entered from inside the hall: the hall's west wall gets a door and a covered passage reaches the tower's
-     east wall, whose ground floor has the matching gap; a ladder's cells run unbroken from the floor to the belfry,
-     inside the shaft;
+  4. it is entered from inside the hall: the hall's back wall gets a door and a covered passage reaches the tower's
+     north wall, whose ground floor has the matching gap; a ladder's cells run unbroken from over the floor to the
+     belfry, inside the shaft; the tower stands clear of the town's streets (the first build stood in one);
   5. tower_present says no before and yes after; on a rehearsal world (a copy of a built town) build_tower sets every
-     piece and every ladder cell, and a second run leaves it as it is.
+     piece and every ladder cell, and a second run leaves it as it is; the first build (TOWER_V1) comes down whole with
+     --untower, the hall's wall made good, before the right one goes up.
 Run: python3 tests/test_the_town_hall_carries_a_tower_five_times_its_height_entered_from_inside_with_a_ladder_to_a_lookout.py
 """
 import os, tempfile  # ISOLATION FIRST (CLAUDE.md rule 4)
@@ -49,8 +50,9 @@ hall_top = max(b[2] + b[5] for b in hall) - G
 check("every tower piece lies inside the plot (the server's own box_ok)", all(S.box_ok(b) for b in adds), [b for b in adds if not S.box_ok(b)][:2])
 kept = [b for b in hall if b not in removes]
 check("the wall the tower takes out is a piece the hall has", all(r in hall for r in removes) and len(removes) == 1, removes)
-pairs = [(a, k) for a in adds for k in kept if ov(a, k)]
-check("no tower piece overlaps the hall (less that wall)", not pairs, pairs[:2])
+streets = [[0, 0, G - 25, 200, 1600, 30, T.SB], [200, 0, G - 25, 1400, 200, 30, T.SB], [200, 200, G - 25, 10, 1400, 35, T.COB], [210, 200, G - 25, 1390, 10, 35, T.COB]]
+pairs = [(a, k) for a in adds for k in kept + streets if ov(a, k)]
+check("no tower piece overlaps the hall (less that wall) or the quarter's streets and kerbs", not pairs, pairs[:2])
 selfp = [(adds[i], adds[j]) for i in range(len(adds)) for j in range(i + 1, len(adds)) if ov(adds[i], adds[j])]
 check("…nor another of its own", not selfp, selfp[:2])
 
@@ -64,15 +66,16 @@ sides = {("n" if b[1] < Z0 + 10 else "s" if b[1] > Z0 + Sz - 30 else "w" if b[0]
 check("the belfry has a window on every side, set low (the lookout)", sides == {"n", "s", "w", "e"} and all(b[5] == 120 and b[2] == by + 60 for b in openings), (sides, openings))
 
 # 4. entered from inside; the ladder
-hx = T.HALL["X0"]
-door = [b for b in adds if b[6] == T.DOOR and b[0] == hx + 3]
-check("the hall's west wall gets a door", len(door) == 1 and door[0][5] == 200, door)
-passage = [b for b in adds if b[6] == T.PS and b[0] == X0 + Sz and b[0] + b[3] == hx]
-check("a covered passage bridges the tower's east wall to the hall's", len(passage) == 3, passage)
-gz0 = T.HALL["Z0"] + 120
-east_ground = [b for b in adds if b[6] == T.SB and b[0] == X0 + Sz - T.TOWER["T"] and b[2] == G + 45]
-gap_clear = not any(b[1] < gz0 + 90 and b[1] + b[4] > gz0 for b in east_ground)
-check("…and the tower's ground-floor east wall leaves the door's gap", gap_clear and len(east_ground) == 2, east_ground)
+bz = T.HALL["Z0"] + T.HALL["D"] - 12
+door = [b for b in adds if b[6] == T.DOOR and b[1] == bz + 3]
+check("the hall's back wall gets a door", len(door) == 1 and door[0][5] == 200 and door[0][3] == 90, door)
+passage = [b for b in adds if b[6] == T.PS and b[1] == bz + 12 and b[1] + b[4] == Z0]
+check("a covered passage bridges the hall's back wall to the tower's north wall", len(passage) == 3, passage)
+gx0 = door[0][0] if door else 0
+north_ground = [b for b in adds if b[6] == T.SB and b[1] == Z0 and b[2] == G + 45 and b[4] == T.TOWER["T"]]
+gap_clear = not any(b[0] < gx0 + 90 and b[0] + b[3] > gx0 for b in north_ground)
+check("…and the tower's ground-floor north wall leaves the door's gap", gap_clear and len(north_ground) == 2, north_ground)
+check("the tower stands behind the hall, clear of both streets", X0 > 210 and Z0 > T.HALL["Z0"] + T.HALL["D"] and X0 + Sz < 1600 and Z0 + Sz <= 1600, (X0, Z0))
 hs = sorted(c[2] for c in ladder)
 check("the ladder runs unbroken from just over the floor to the belfry", hs == list(range(hs[0], hs[-1] + 1)) and hs[0] * 100 <= G + 45 + 100 and hs[-1] * 100 >= by - 100, (hs[0], hs[-1], by))
 lu, lv = ladder[0][0], ladder[0][1]
@@ -114,9 +117,17 @@ async def rehearse():
         pl["tools"].append(k)
     added, _, ref = await world.boxes(T.WHO, p, hall, [])
     check("a rehearsal world holds the hall", len(added) == len(hall) and not ref, (len(added), ref[:2]))
-    for k, n in {"stonebrick": 500, "planks": 40, "beam": 6, "tiles": 40, "plaster": 12, "window": 14, "door": 1, "ladder": 20, "torch": 2}.items():
+    for k, n in {"stonebrick": 1000, "planks": 80, "beam": 12, "tiles": 80, "plaster": 24, "window": 28, "door": 2, "ladder": 40, "torch": 4}.items():
         pl["items"][k] = pl["items"].get(k, 0) + n
     T.DRY = False
+    # the first build goes up and comes down again: the hall as it was
+    a1, r1, l1 = T.tower_pieces(G, T.TOWER_V1)
+    await world.boxes(T.WHO, p, [], r1); await world.boxes(T.WHO, p, [b for b in a1 if T.S.box_ok(b)], [])
+    _, row, col = S.plot_coords(p)
+    await world.apply(T.WHO, [[0, col * S.PLOT + du, row * S.PLOT + dv, h, 53] for du, dv, h in l1])
+    check("the first build's tower stands on the rehearsal world", T.tower_present(world.plots[p]["boxes"], T.TOWER_V1))
+    await T.untower(world, pl)
+    check("--untower takes it down and makes the hall's wall good: the hall as it was", sorted(map(tuple, world.plots[p]["boxes"])) == sorted(map(tuple, hall)) and not any(b == 53 for b in world.plots[p]["edits"].values()), len(world.plots[p]["boxes"]))
     await T.build_tower(world, pl)
     boxes = world.plots[p]["boxes"]
     check("build_tower sets every tower piece and takes the wall out", all(a in boxes for a in adds) and not any(r in boxes for r in removes), (len(boxes), len(adds)))
