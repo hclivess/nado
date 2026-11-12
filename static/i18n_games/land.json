@@ -599,7 +599,9 @@
   "land.v.hunt": "a weapon hunts it",
   "land.v.gather": "hold {b} to gather",
   "land.v.take": "hold {b} to take down",
-  "land.v.notYours": "not yours to gather here"
+  "land.v.notYours": "not yours to gather here",
+  "land.notYoursSale": "Plot {p} is for sale · {n} NADO — buy it on the market to gather and build here.",
+  "land.notYoursOwned": "Plot {p} is owned by {o} — ask them to invite you to build here."
  },
  "cs": {
   "land.notYours": "Pozemek {p} patří někomu jinému. Kupte si pozemek, nebo požádejte jeho vlastníka o pozvání.",
@@ -1201,7 +1203,9 @@
   "land.v.hunt": "loví se zbraní",
   "land.v.gather": "drž {b} pro sběr",
   "land.v.take": "drž {b} pro rozebrání",
-  "land.v.notYours": "tady nesmíš sbírat"
+  "land.v.notYours": "tady nesmíš sbírat",
+  "land.notYoursSale": "Parcela {p} je na prodej · {n} NADO — kup ji na trhu, abys tu mohl sbírat a stavět.",
+  "land.notYoursOwned": "Parcela {p} patří {o} — požádej je, ať tě pozvou stavět."
  },
  "es": {
   "land.notYours": "La parcela {p} pertenece a otra persona. Compra una parcela o pide a su dueño que te invite.",
@@ -1803,7 +1807,9 @@
   "land.v.hunt": "se caza con un arma",
   "land.v.gather": "mantén {b} para recoger",
   "land.v.take": "mantén {b} para desmontar",
-  "land.v.notYours": "no es tuyo para recoger aquí"
+  "land.v.notYours": "no es tuyo para recoger aquí",
+  "land.notYoursSale": "La parcela {p} está en venta · {n} NADO — cómprala en el mercado para recoger y construir aquí.",
+  "land.notYoursOwned": "La parcela {p} es de {o} — pídele que te invite a construir aquí."
  },
  "pt": {
   "land.notYours": "O lote {p} pertence a outra pessoa. Compre um lote ou peça ao dono que convide você.",
@@ -2405,7 +2411,9 @@
   "land.v.hunt": "caça-se com uma arma",
   "land.v.gather": "segura {b} para apanhar",
   "land.v.take": "segura {b} para desmontar",
-  "land.v.notYours": "não é teu para apanhar aqui"
+  "land.v.notYours": "não é teu para apanhar aqui",
+  "land.notYoursSale": "O lote {p} está à venda · {n} NADO — compra-o no mercado para apanhar e construir aqui.",
+  "land.notYoursOwned": "O lote {p} é de {o} — pede-lhe um convite para construir aqui."
  },
  "fr": {
   "land.notYours": "La parcelle {p} appartient à quelqu'un d'autre. Achetez une parcelle ou demandez à son propriétaire de vous inviter.",
@@ -3007,7 +3015,9 @@
   "land.v.hunt": "se chasse avec une arme",
   "land.v.gather": "maintiens {b} pour ramasser",
   "land.v.take": "maintiens {b} pour démonter",
-  "land.v.notYours": "pas à toi de ramasser ici"
+  "land.v.notYours": "pas à toi de ramasser ici",
+  "land.notYoursSale": "La parcelle {p} est à vendre · {n} NADO — achète-la sur le marché pour ramasser et bâtir ici.",
+  "land.notYoursOwned": "La parcelle {p} appartient à {o} — demande-lui une invitation pour bâtir ici."
  },
  "de": {
   "land.notYours": "Grundstück {p} gehört jemand anderem. Kauf dir ein Grundstück oder bitte den Besitzer um eine Einladung.",
@@ -3609,7 +3619,9 @@
   "land.v.hunt": "mit einer Waffe zu jagen",
   "land.v.gather": "{b} halten zum Sammeln",
   "land.v.take": "{b} halten zum Abbauen",
-  "land.v.notYours": "hier darfst du nicht sammeln"
+  "land.v.notYours": "hier darfst du nicht sammeln",
+  "land.notYoursSale": "Parzelle {p} steht zum Verkauf · {n} NADO — kauf sie auf dem Markt, um hier zu sammeln und zu bauen.",
+  "land.notYoursOwned": "Parzelle {p} gehört {o} — bitte um eine Einladung, um hier zu bauen."
  },
  "it": {
   "land.notYours": "Il lotto {p} appartiene a qualcun altro. Compra un lotto o chiedi al proprietario di invitarti.",
@@ -4211,7 +4223,9 @@
   "land.v.hunt": "si caccia con un'arma",
   "land.v.gather": "tieni {b} per raccogliere",
   "land.v.take": "tieni {b} per smontare",
-  "land.v.notYours": "qui non puoi raccogliere"
+  "land.v.notYours": "qui non puoi raccogliere",
+  "land.notYoursSale": "Il lotto {p} è in vendita · {n} NADO — compralo sul mercato per raccogliere e costruire qui.",
+  "land.notYoursOwned": "Il lotto {p} è di {o} — chiedi un invito per costruire qui."
  },
  "ru": {
   "land.notYours": "Участок {p} принадлежит другому игроку. Купите участок или попросите владельца пригласить вас.",
@@ -4813,7 +4827,9 @@
   "land.v.hunt": "охота — с оружием",
   "land.v.gather": "удерживай {b}, чтобы собрать",
   "land.v.take": "удерживай {b}, чтобы разобрать",
-  "land.v.notYours": "здесь собирать нельзя — не твоё"
+  "land.v.notYours": "здесь собирать нельзя — не твоё",
+  "land.notYoursSale": "Участок {p} продаётся · {n} NADO — купи его на рынке, чтобы собирать и строить здесь.",
+  "land.notYoursOwned": "Участок {p} принадлежит {o} — попроси приглашение, чтобы строить здесь."
  },
  "zh": {
   "land.notYours": "地块 {p} 属于别人。购买一块地，或请它的所有者邀请你。",
@@ -5415,7 +5431,9 @@
   "land.v.hunt": "需要武器来狩猎",
   "land.v.gather": "按住 {b} 采集",
   "land.v.take": "按住 {b} 拆除",
-  "land.v.notYours": "这里不属于你，不能采集"
+  "land.v.notYours": "这里不属于你，不能采集",
+  "land.notYoursSale": "地块 {p} 在售 · {n} NADO — 在市场上买下它才能在此采集和建造。",
+  "land.notYoursOwned": "地块 {p} 属于 {o} — 请对方邀请你在此建造。"
  },
  "ja": {
   "land.notYours": "区画 {p} は他の人のものです。区画を購入するか、所有者に招待してもらいましょう。",
@@ -6017,7 +6035,9 @@
   "land.v.hunt": "武器で狩る",
   "land.v.gather": "{b} 長押しで集める",
   "land.v.take": "{b} 長押しで取り外す",
-  "land.v.notYours": "ここはあなたの土地ではない — 集められない"
+  "land.v.notYours": "ここはあなたの土地ではない — 集められない",
+  "land.notYoursSale": "区画 {p} は売り出し中 · {n} NADO — 市場で買えばここで集め、建てられる。",
+  "land.notYoursOwned": "区画 {p} は {o} の所有 — ここで建てるには招待を頼もう。"
  },
  "ko": {
   "land.notYours": "구역 {p}은(는) 다른 사람의 땅입니다. 구역을 사거나 소유자에게 초대를 요청하세요.",
@@ -6619,7 +6639,9 @@
   "land.v.hunt": "무기로 사냥",
   "land.v.gather": "{b} 길게 눌러 채집",
   "land.v.take": "{b} 길게 눌러 해체",
-  "land.v.notYours": "당신의 땅이 아니라 채집할 수 없음"
+  "land.v.notYours": "당신의 땅이 아니라 채집할 수 없음",
+  "land.notYoursSale": "구획 {p}은(는) 판매 중 · {n} NADO — 시장에서 사면 여기서 채집하고 지을 수 있습니다.",
+  "land.notYoursOwned": "구획 {p}은(는) {o}의 소유 — 여기서 지으려면 초대를 부탁하세요."
  },
  "ar": {
   "land.notYours": "القطعة {p} ملك لشخص آخر. اشترِ قطعة، أو اطلب من مالكها أن يدعوك.",
@@ -7221,7 +7243,9 @@
   "land.v.hunt": "يُصاد بسلاح",
   "land.v.gather": "اضغط مطولًا {b} للجمع",
   "land.v.take": "اضغط مطولًا {b} للتفكيك",
-  "land.v.notYours": "ليس لك أن تجمع هنا"
+  "land.v.notYours": "ليس لك أن تجمع هنا",
+  "land.notYoursSale": "القطعة {p} معروضة للبيع · {n} NADO — اشترها من السوق لتجمع وتبني هنا.",
+  "land.notYoursOwned": "القطعة {p} يملكها {o} — اطلب دعوة لتبني هنا."
  },
  "hi": {
   "land.notYours": "प्लॉट {p} किसी और का है। कोई प्लॉट खरीदें, या उसके मालिक से आपको आमंत्रित करने को कहें।",
@@ -7823,7 +7847,9 @@
   "land.v.hunt": "हथियार से शिकार",
   "land.v.gather": "इकट्ठा करने के लिए {b} दबाए रखो",
   "land.v.take": "हटाने के लिए {b} दबाए रखो",
-  "land.v.notYours": "यह तुम्हारा नहीं — यहाँ इकट्ठा नहीं कर सकते"
+  "land.v.notYours": "यह तुम्हारा नहीं — यहाँ इकट्ठा नहीं कर सकते",
+  "land.notYoursSale": "भूखंड {p} बिक्री पर है · {n} NADO — यहाँ इकट्ठा करने और बनाने के लिए इसे बाज़ार से खरीदो।",
+  "land.notYoursOwned": "भूखंड {p} {o} का है — यहाँ बनाने के लिए उनसे न्योता माँगो।"
  },
  "tr": {
   "land.notYours": "{p} arsası başkasına ait. Bir arsa satın al ya da sahibinden seni davet etmesini iste.",
@@ -8425,7 +8451,9 @@
   "land.v.hunt": "silahla avlanır",
   "land.v.gather": "toplamak için {b} basılı tut",
   "land.v.take": "sökmek için {b} basılı tut",
-  "land.v.notYours": "burası senin değil, toplayamazsın"
+  "land.v.notYours": "burası senin değil, toplayamazsın",
+  "land.notYoursSale": "Parsel {p} satılık · {n} NADO — burada toplamak ve inşa etmek için pazardan satın al.",
+  "land.notYoursOwned": "Parsel {p} {o} kişisine ait — burada inşa etmek için davet iste."
  },
  "id": {
   "land.notYours": "Petak {p} milik orang lain. Beli sebuah petak, atau minta pemiliknya mengundangmu.",
@@ -9027,7 +9055,9 @@
   "land.v.hunt": "diburu dengan senjata",
   "land.v.gather": "tahan {b} untuk mengumpulkan",
   "land.v.take": "tahan {b} untuk membongkar",
-  "land.v.notYours": "bukan milikmu, tak bisa mengumpulkan di sini"
+  "land.v.notYours": "bukan milikmu, tak bisa mengumpulkan di sini",
+  "land.notYoursSale": "Petak {p} dijual · {n} NADO — beli di pasar untuk mengumpulkan dan membangun di sini.",
+  "land.notYoursOwned": "Petak {p} milik {o} — minta undangan untuk membangun di sini."
  },
  "vi": {
   "land.notYours": "Mảnh đất {p} thuộc về người khác. Hãy mua một mảnh, hoặc nhờ chủ của nó mời bạn.",
@@ -9629,7 +9659,9 @@
   "land.v.hunt": "săn bằng vũ khí",
   "land.v.gather": "giữ {b} để thu thập",
   "land.v.take": "giữ {b} để tháo dỡ",
-  "land.v.notYours": "không phải của bạn, không thể thu thập ở đây"
+  "land.v.notYours": "không phải của bạn, không thể thu thập ở đây",
+  "land.notYoursSale": "Lô {p} đang bán · {n} NADO — mua trên chợ để thu thập và xây dựng ở đây.",
+  "land.notYoursOwned": "Lô {p} thuộc về {o} — hãy xin họ mời bạn xây ở đây."
  },
  "pl": {
   "land.notYours": "Działka {p} należy do kogoś innego. Kup działkę albo poproś jej właściciela o zaproszenie.",
@@ -10231,6 +10263,8 @@
   "land.v.hunt": "poluje się bronią",
   "land.v.gather": "przytrzymaj {b}, by zebrać",
   "land.v.take": "przytrzymaj {b}, by rozebrać",
-  "land.v.notYours": "nie twoje — tu nie wolno zbierać"
+  "land.v.notYours": "nie twoje — tu nie wolno zbierać",
+  "land.notYoursSale": "Działka {p} jest na sprzedaż · {n} NADO — kup ją na rynku, by tu zbierać i budować.",
+  "land.notYoursOwned": "Działka {p} należy do {o} — poproś o zaproszenie, by tu budować."
  }
 }

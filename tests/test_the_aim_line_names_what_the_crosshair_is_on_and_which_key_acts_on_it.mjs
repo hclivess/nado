@@ -8,7 +8,9 @@
  *      other piece → take down where you may build, else the plot's state and "not yours"; a cell → gather or not
  *      yours; on a phone the key is the Use button and the hold the Break button;
  *   3. a click on a person talks (act() opens them before anything else, left or right button);
- *   4. the twelve strings are in all 17 languages with their placeholders.
+ *   4. the twelve strings are in all 17 languages with their placeholders;
+ *   5. a plot you may not touch says so BEFORE the hold: startBreak and startTakeDown check mayBuild first and
+ *      explainNoBuild names the plot's real state — for sale at its price, or whose it is (two more strings, 17 languages).
  * Run: node tests/test_the_aim_line_names_what_the_crosshair_is_on_and_which_key_acts_on_it.mjs
  */
 import { readFileSync } from "node:fs";
@@ -48,6 +50,15 @@ ok(iSign >= 0 && iTalk > iSign && iAnimal > iTalk && !/if \(!place\) \{ const n 
 const keys = { "land.aimFmt": ["{what}", "{k}", "{v}"], "land.aimFmt2": ["{what}", "{v}"], "land.v.talk": [], "land.v.open": [], "land.v.sleep": [], "land.v.draw": [], "land.v.board": [], "land.v.use": [], "land.v.hunt": [], "land.v.gather": ["{b}"], "land.v.take": ["{b}"], "land.v.notYours": [] };
 const langs = Object.keys(I);
 ok(langs.length === 17 && Object.entries(keys).every(([k, ph]) => langs.every((l) => typeof I[l][k] === "string" && I[l][k].length > 0 && ph.every((x) => I[l][k].includes(x)))), "the twelve strings are in all 17 languages with their placeholders");
+
+// 5. refused before the hold, with the plot's state
+const sb = land.slice(land.indexOf("function startBreak(c, mouse)"), land.indexOf("function startBreak(c, mouse)") + 700);
+ok(/if \(c\[2\] >= 0 && !mayBuild\(Wd\.plotOf\(P\.face, c\[0\], c\[1\]\)\)\) return explainNoBuild\(Wd\.plotOf\(P\.face, c\[0\], c\[1\]\)\);/.test(sb) && sb.indexOf("explainNoBuild") < sb.indexOf("RULES.breaking[b]"), "startBreak refuses a plot you may not touch before the hold (the deep excepted)");
+const td = land.slice(land.indexOf("function startTakeDown(bx, mouse)"), land.indexOf("function startTakeDown(bx, mouse)") + 300);
+ok(/^function startTakeDown\(bx, mouse\) \{\n  if \(!mayBuild\(bx\.plot\)\) return explainNoBuild\(bx\.plot\);/m.test(td), "…and so does taking a piece down");
+const en = land.slice(land.indexOf("function explainNoBuild(plot)"), land.indexOf("function explainNoBuild(plot)") + 900);
+ok(/t && t\.sale\) notify\(T\("notYoursSale", "[^"]*\{p\}[^"]*\{n\}[^"]*"/.test(en) && /t && t\.holder\) notify\(T\("notYoursOwned", "[^"]*\{p\}[^"]*\{o\}[^"]*"/.test(en) && /T\("notYours", /.test(en), "explainNoBuild says for sale at the price, or whose it is, else the old line");
+ok(langs.every((l) => /\{p\}/.test(I[l]["land.notYoursSale"] || "") && /\{n\}/.test(I[l]["land.notYoursSale"] || "") && /\{p\}/.test(I[l]["land.notYoursOwned"] || "") && /\{o\}/.test(I[l]["land.notYoursOwned"] || "")), "the two refusals are in all 17 languages with their placeholders");
 
 console.log(fails ? `${fails} FAILED` : "all passed");
 process.exit(fails ? 1 : 0);

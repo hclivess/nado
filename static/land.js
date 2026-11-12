@@ -874,7 +874,12 @@ function setBlock(f, u, v, h, b) {
   return true;
 }
 function explainNoBuild(plot) {
+  // the plot's real state, at once (#177: "belongs to someone else" came only after the whole hold, while the HUD said
+  // "For sale" for the same plot) — for sale at its price, or whose it is; the old line when the title is not known yet
+  const t = titles.get(plot);
   if (!net.me) notify(T("signInBuild2", "Sign in to gather and build."));
+  else if (t && t.sale) notify(T("notYoursSale", "Plot {p} is for sale · {n} NADO — buy it on the market to gather and build here.", { p: plotLabel(plot), n: rawToNado(t.sale.price.toString()) }));
+  else if (t && t.holder) notify(T("notYoursOwned", "Plot {p} is owned by {o} — ask them to invite you to build here.", { p: plotLabel(plot), o: disp(t.holder) }));
   else notify(T("notYours", "Plot {p} belongs to someone else. Buy a plot, or ask its owner to invite you.", { p: plotLabel(plot) }));
   return false;
 }
@@ -2675,6 +2680,9 @@ function riseShape() {
 const shaped = (box, shape) => piecesFor(box, shape, shape ? riseShape() : 0);
 function startBreak(c, mouse) {
   if (!RULES) return;
+  // a plot you may not touch says so before the hold, not after it (the world server refuses afterwards all the same);
+  // the deep (h < 0) is everyone's, as when placing (#129)
+  if (c[2] >= 0 && !mayBuild(Wd.plotOf(P.face, c[0], c[1]))) return explainNoBuild(Wd.plotOf(P.face, c[0], c[1]));
   const b = blockAt(P.face, c[0], c[1], c[2]), rule = RULES.breaking[b];
   if (!rule) return notify(T("cantGather", "Nothing here can be gathered."));
   if (rule.needs && !hasClass(rule.needs)) return notify(T("needsTool", "That needs a {t}.", { t: nameOf(rule.needs) }));
@@ -2910,6 +2918,7 @@ function renderWard() {
   box.querySelectorAll("[data-off]").forEach((b) => { b.onclick = () => send({ t: "wear", slot: b.dataset.off, item: null }); });
 }
 function startTakeDown(bx, mouse) {
+  if (!mayBuild(bx.plot)) return explainNoBuild(bx.plot);                      // (#177: said before the hold, with the plot's state)
   const rule = RULES.breaking[bx.b[6]] || { hard: 1 };
   if (rule.needs && !hasClass(rule.needs)) return notify(T("needsTool", "That needs a {t}.", { t: nameOf(rule.needs) }));
   const speed = rule.class ? toolSpeed(rule.class) : 1;
