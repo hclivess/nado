@@ -168,8 +168,9 @@ check("what lies on levelled ground is drawn at the cell's floor, not the column
       "const col = edited || gh !== col0.top + 1 ? { height: gh } : col0;" in mesher)
 check("…and grass grown back over dug ground is drawn as grass, not bare earth", "=== B.grass)) dug[x] = 1;" in mesher)
 q = (TOWN[3] // 8192) % 8192, TOWN[3] % 8192
-check("a newcomer arrives on the street before the town hall's door, facing it; /tp spawn goes there too",
-      "const TOWN_HALL_PLOT = 40963440;" in page and "return [q.face, q.u0 + 8.5, q.v0 + 1.5, 0];" in page
+# (the landing faces WEST along the street since 8859fc2c, #178 — the townspeople in view, not the hall's wall)
+check("a newcomer arrives on the street before the town hall's door, facing along it; /tp spawn goes there too",
+      "const TOWN_HALL_PLOT = 40963440;" in page and "return [q.face, q.u0 + 8.5, q.v0 + 1.5, -Math.PI / 2];" in page
       and "[P.face, P.u, P.v, P.yaw] = townSpawn();" in page
       # /tp spawn (rewritten by #167: signed in, the world server moves the player to ITS landing; a visitor's page
       # goes to townSpawn itself) — the pin had kept the wording of the page before #167 and was red since (#189)

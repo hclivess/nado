@@ -130,7 +130,8 @@ async def main():
 
     # ---- by hand -------------------------------------------------------------------------------------------------
     r = await setc([CELLS["grass"] + [0]], ha)
-    check("by hand, grass gives earth and fiber", r["applied"] == 1 and inv(A["address"])["items"].get("dirt") == 1
+    # (applied may count a pebble that stood on the grass and went with it — the litter rule of 893898b9, #177)
+    check("by hand, grass gives earth and fiber", r["applied"] >= 1 and inv(A["address"])["items"].get("dirt") == 1
           and inv(A["address"])["items"].get("fiber") == 1, r)
     r = await setc([CELLS["leaves"] + [0]], ha)
     check("by hand, leaves give sticks and fiber", r["applied"] == 1 and inv(A["address"])["items"].get("sticks") == 1, r)

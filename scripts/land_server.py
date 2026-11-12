@@ -3377,7 +3377,10 @@ def make_app(world, hub, site_origin, wallet_url, secure_cookies=True, shot_page
                         if addr and not world.pace_free:            # TRAVEL (#167): no faster than one can go
                             anc = hub.pace_anchor(world, st, addr)
                             if anc and not pace_ok(anc[0], anc[1], p, time.time()):
-                                await ws.send_json({"t": "pos_fix", "p": list(anc[0][:4]), "why": "pace"})
+                                # refused by the window's anchor, put back to where the page was LAST seen (its last
+                                # accepted place), not to the anchor up to five seconds behind it
+                                back = st["pace"][0] if st.get("pace") else anc[0]
+                                await ws.send_json({"t": "pos_fix", "p": list(back[:4]), "why": "pace"})
                                 continue
                             st["pace"] = (list(p), time.time())                      # the last accepted place (where() reads it)
                             if not st.get("pace_anchor") or time.time() - st["pace_anchor"][1] >= PACE_WIN:
