@@ -907,7 +907,10 @@ function takePlace(p) {
 }
 function townSpawn() {
   const q = Wd.plotCoords(TOWN_HALL_PLOT);
-  return [q.face, q.u0 + 8.5, q.v0 + 1.5, 0];             // the door is 8.05-8.95 m in, the street 0-2 m; yaw 0 faces +v
+  // the door is 8.05-8.95 m in, the street 0-2 m. The landing FACES WEST along the street (yaw -π/2), where Maren the
+  // elder stands 2.5 m off and the square runs on: a newcomer who faced +v stood nose to the hall's wall with nothing
+  // to do in sight (#178, playtest 2026-11-11); the test holds a townsperson in the landing's view
+  return [q.face, q.u0 + 8.5, q.v0 + 1.5, -Math.PI / 2];
 }
 function load() {
   let d = null;
@@ -2382,7 +2385,10 @@ function tileIcon(cv, id, px) {
 function hotbar() {
   const bar = $("hotbar");
   if (!RULES || !hot.length) {
-    bar.innerHTML = `<div class="hs empty">${esc(net.me ? T("emptyHands", "Empty hands — gather something") : T("signInGather", "Sign in to gather"))}</div>`;
+    // the bar holds what can be placed; a bag of berries, sticks and fibre fills none of it, and "gather something"
+    // over a full bag sent a newcomer gathering more (#178): say what the bag holds and where it opens
+    const held = net.me && RULES ? Object.values(inv.items || {}).filter((n) => n > 0).length : 0;
+    bar.innerHTML = `<div class="hs empty">${esc(!net.me ? T("signInGather", "Sign in to gather") : held ? T("bagHeld", "E opens your bag — {n} {n|one:thing|other:things} in it, none of them placeable here", { n: held }) : T("emptyHands", "Empty hands — gather something"))}</div>`;
     $("hotName").textContent = "";
     return;
   }

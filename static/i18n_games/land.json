@@ -582,7 +582,8 @@
   "land.cTrace": "the last events: boarding, leaving, every teleport, hurt, errors",
   "land.cTraceNone": "No events yet.",
   "land.fTooHigh": "Too high to step off — land first ({h} m up).",
-  "land.fNoSpot": "Nowhere to step off here — move the craft first."
+  "land.fNoSpot": "Nowhere to step off here — move the craft first.",
+  "land.bagHeld": "E opens your bag — {n} {n|one:thing|other:things} in it, none of them placeable here"
  },
  "cs": {
   "land.notYours": "Pozemek {p} patří někomu jinému. Kupte si pozemek, nebo požádejte jeho vlastníka o pozvání.",
@@ -1167,7 +1168,8 @@
   "land.cTrace": "poslední události: nástup, výstup, každý přesun, zranění, chyby",
   "land.cTraceNone": "Zatím žádné události.",
   "land.fTooHigh": "Příliš vysoko na vystoupení — nejdřív přistaňte ({h} m nad zemí).",
-  "land.fNoSpot": "Tady není kam vystoupit — nejdřív přesuňte stroj."
+  "land.fNoSpot": "Tady není kam vystoupit — nejdřív přesuňte stroj.",
+  "land.bagHeld": "E otevře tvůj batoh — {n} {n|one:věc|few:věci|many:věci|other:věcí} v něm, žádnou tu nelze postavit"
  },
  "es": {
   "land.notYours": "La parcela {p} pertenece a otra persona. Compra una parcela o pide a su dueño que te invite.",
@@ -1752,7 +1754,8 @@
   "land.cTrace": "los últimos eventos: abordar, salir, cada teletransporte, daño, errores",
   "land.cTraceNone": "Aún no hay eventos.",
   "land.fTooHigh": "Demasiado alto para bajar — aterriza primero ({h} m de altura).",
-  "land.fNoSpot": "No hay dónde bajar aquí — mueve la nave primero."
+  "land.fNoSpot": "No hay dónde bajar aquí — mueve la nave primero.",
+  "land.bagHeld": "E abre tu bolsa — {n} {n|one:cosa|other:cosas} dentro, ninguna se puede colocar aquí"
  },
  "pt": {
   "land.notYours": "O lote {p} pertence a outra pessoa. Compre um lote ou peça ao dono que convide você.",
@@ -2337,7 +2340,8 @@
   "land.cTrace": "os últimos eventos: embarcar, sair, cada teletransporte, ferimento, erros",
   "land.cTraceNone": "Ainda sem eventos.",
   "land.fTooHigh": "Demasiado alto para sair — aterra primeiro ({h} m de altura).",
-  "land.fNoSpot": "Não há onde sair aqui — move a nave primeiro."
+  "land.fNoSpot": "Não há onde sair aqui — move a nave primeiro.",
+  "land.bagHeld": "E abre a tua bolsa — {n} {n|one:coisa|other:coisas} lá dentro, nenhuma se pode colocar aqui"
  },
  "fr": {
   "land.notYours": "La parcelle {p} appartient à quelqu'un d'autre. Achetez une parcelle ou demandez à son propriétaire de vous inviter.",
@@ -2922,7 +2926,8 @@
   "land.cTrace": "les derniers événements : embarquement, sortie, chaque téléportation, blessure, erreurs",
   "land.cTraceNone": "Aucun événement encore.",
   "land.fTooHigh": "Trop haut pour descendre — atterrissez d'abord ({h} m d'altitude).",
-  "land.fNoSpot": "Nulle part où descendre ici — déplacez d'abord l'appareil."
+  "land.fNoSpot": "Nulle part où descendre ici — déplacez d'abord l'appareil.",
+  "land.bagHeld": "E ouvre ton sac — {n} {n|one:objet|other:objets} dedans, aucun à poser ici"
  },
  "de": {
   "land.notYours": "Grundstück {p} gehört jemand anderem. Kauf dir ein Grundstück oder bitte den Besitzer um eine Einladung.",
@@ -3507,7 +3512,8 @@
   "land.cTrace": "die letzten Ereignisse: Einsteigen, Aussteigen, jeder Versatz, Verletzung, Fehler",
   "land.cTraceNone": "Noch keine Ereignisse.",
   "land.fTooHigh": "Zu hoch zum Aussteigen — erst landen ({h} m hoch).",
-  "land.fNoSpot": "Hier ist kein Platz zum Aussteigen — erst das Fahrzeug bewegen."
+  "land.fNoSpot": "Hier ist kein Platz zum Aussteigen — erst das Fahrzeug bewegen.",
+  "land.bagHeld": "E öffnet deine Tasche — {n} {n|one:Ding|other:Dinge} darin, keines hier zu setzen"
  },
  "it": {
   "land.notYours": "Il lotto {p} appartiene a qualcun altro. Compra un lotto o chiedi al proprietario di invitarti.",
@@ -4092,7 +4098,8 @@
   "land.cTrace": "gli ultimi eventi: imbarco, uscita, ogni teletrasporto, ferite, errori",
   "land.cTraceNone": "Ancora nessun evento.",
   "land.fTooHigh": "Troppo in alto per scendere — atterra prima ({h} m di quota).",
-  "land.fNoSpot": "Qui non c'è dove scendere — sposta prima il mezzo."
+  "land.fNoSpot": "Qui non c'è dove scendere — sposta prima il mezzo.",
+  "land.bagHeld": "E apre la tua borsa — {n} {n|one:cosa|other:cose} dentro, nessuna da posare qui"
  },
  "ru": {
   "land.notYours": "Участок {p} принадлежит другому игроку. Купите участок или попросите владельца пригласить вас.",
@@ -4677,7 +4684,8 @@
   "land.cTrace": "последние события: посадка, выход, каждое перемещение, урон, ошибки",
   "land.cTraceNone": "Событий пока нет.",
   "land.fTooHigh": "Слишком высоко, чтобы выйти — сначала приземлитесь ({h} м над землёй).",
-  "land.fNoSpot": "Здесь негде выйти — сначала переместите аппарат."
+  "land.fNoSpot": "Здесь негде выйти — сначала переместите аппарат.",
+  "land.bagHeld": "E открывает сумку — {n} {n|one:вещь|few:вещи|many:вещей|other:вещи} в ней, ни одну здесь не поставить"
  },
  "zh": {
   "land.notYours": "地块 {p} 属于别人。购买一块地，或请它的所有者邀请你。",
@@ -5262,7 +5270,8 @@
   "land.cTrace": "最近的事件：登机、离开、每次传送、受伤、错误",
   "land.cTraceNone": "还没有事件。",
   "land.fTooHigh": "太高了无法下机——请先着陆（离地 {h} m）。",
-  "land.fNoSpot": "这里没有地方下机——请先移动载具。"
+  "land.fNoSpot": "这里没有地方下机——请先移动载具。",
+  "land.bagHeld": "E 打开背包 — 里面有 {n} 件物品，都不能放在这里"
  },
  "ja": {
   "land.notYours": "区画 {p} は他の人のものです。区画を購入するか、所有者に招待してもらいましょう。",
@@ -5847,7 +5856,8 @@
   "land.cTrace": "最近の出来事：搭乗、降機、すべての位置補正、負傷、エラー",
   "land.cTraceNone": "まだ出来事はありません。",
   "land.fTooHigh": "高すぎて降りられません — まず着陸してください（高度 {h} m）。",
-  "land.fNoSpot": "ここには降りる場所がありません — まず機体を動かしてください。"
+  "land.fNoSpot": "ここには降りる場所がありません — まず機体を動かしてください。",
+  "land.bagHeld": "E でかばんを開く — 中に {n} 個、ここに置けるものはない"
  },
  "ko": {
   "land.notYours": "구역 {p}은(는) 다른 사람의 땅입니다. 구역을 사거나 소유자에게 초대를 요청하세요.",
@@ -6432,7 +6442,8 @@
   "land.cTrace": "최근 이벤트: 탑승, 하차, 모든 순간이동, 피해, 오류",
   "land.cTraceNone": "아직 이벤트가 없습니다.",
   "land.fTooHigh": "너무 높아 내릴 수 없습니다 — 먼저 착륙하세요 ({h} m 상공).",
-  "land.fNoSpot": "여기서는 내릴 곳이 없습니다 — 먼저 기체를 옮기세요."
+  "land.fNoSpot": "여기서는 내릴 곳이 없습니다 — 먼저 기체를 옮기세요.",
+  "land.bagHeld": "E로 가방 열기 — 안에 {n}개, 여기 놓을 수 있는 것은 없음"
  },
  "ar": {
   "land.notYours": "القطعة {p} ملك لشخص آخر. اشترِ قطعة، أو اطلب من مالكها أن يدعوك.",
@@ -7017,7 +7028,8 @@
   "land.cTrace": "آخر الأحداث: الصعود، النزول، كل انتقال، الإصابات، الأخطاء",
   "land.cTraceNone": "لا أحداث بعد.",
   "land.fTooHigh": "مرتفع جدًا للنزول — اهبط أولًا ({h} م فوق الأرض).",
-  "land.fNoSpot": "لا مكان للنزول هنا — حرّك المركبة أولًا."
+  "land.fNoSpot": "لا مكان للنزول هنا — حرّك المركبة أولًا.",
+  "land.bagHeld": "E يفتح حقيبتك — فيها {n} {n|zero:أشياء|one:شيء|two:شيئان|few:أشياء|many:شيئًا|other:شيء}، لا يمكن وضع أيٍّ منها هنا"
  },
  "hi": {
   "land.notYours": "प्लॉट {p} किसी और का है। कोई प्लॉट खरीदें, या उसके मालिक से आपको आमंत्रित करने को कहें।",
@@ -7602,7 +7614,8 @@
   "land.cTrace": "हाल की घटनाएँ: सवार होना, उतरना, हर स्थानांतरण, चोट, त्रुटियाँ",
   "land.cTraceNone": "अभी कोई घटना नहीं।",
   "land.fTooHigh": "उतरने के लिए बहुत ऊँचा — पहले लैंड करें ({h} m ऊपर)।",
-  "land.fNoSpot": "यहाँ उतरने की जगह नहीं — पहले यान को हटाएँ।"
+  "land.fNoSpot": "यहाँ उतरने की जगह नहीं — पहले यान को हटाएँ।",
+  "land.bagHeld": "E से थैला खुलता है — उसमें {n} {n|one:चीज़|other:चीज़ें}, कोई यहाँ रखी नहीं जा सकती"
  },
  "tr": {
   "land.notYours": "{p} arsası başkasına ait. Bir arsa satın al ya da sahibinden seni davet etmesini iste.",
@@ -8187,7 +8200,8 @@
   "land.cTrace": "son olaylar: binme, inme, her ışınlanma, yaralanma, hatalar",
   "land.cTraceNone": "Henüz olay yok.",
   "land.fTooHigh": "İnmek için çok yüksek — önce iniş yapın ({h} m yukarıda).",
-  "land.fNoSpot": "Burada inecek yer yok — önce aracı taşıyın."
+  "land.fNoSpot": "Burada inecek yer yok — önce aracı taşıyın.",
+  "land.bagHeld": "E çantanı açar — içinde {n} şey, hiçbiri buraya konamaz"
  },
  "id": {
   "land.notYours": "Petak {p} milik orang lain. Beli sebuah petak, atau minta pemiliknya mengundangmu.",
@@ -8772,7 +8786,8 @@
   "land.cTrace": "kejadian terakhir: naik, turun, setiap teleport, luka, galat",
   "land.cTraceNone": "Belum ada kejadian.",
   "land.fTooHigh": "Terlalu tinggi untuk turun — mendaratlah dulu ({h} m di atas tanah).",
-  "land.fNoSpot": "Tidak ada tempat turun di sini — pindahkan wahana dulu."
+  "land.fNoSpot": "Tidak ada tempat turun di sini — pindahkan wahana dulu.",
+  "land.bagHeld": "E membuka tasmu — ada {n} barang di dalamnya, tak satu pun bisa ditaruh di sini"
  },
  "vi": {
   "land.notYours": "Mảnh đất {p} thuộc về người khác. Hãy mua một mảnh, hoặc nhờ chủ của nó mời bạn.",
@@ -9357,7 +9372,8 @@
   "land.cTrace": "các sự kiện gần nhất: lên, xuống, mỗi lần dịch chuyển, bị thương, lỗi",
   "land.cTraceNone": "Chưa có sự kiện nào.",
   "land.fTooHigh": "Quá cao để bước xuống — hãy hạ cánh trước ({h} m trên mặt đất).",
-  "land.fNoSpot": "Không có chỗ để bước xuống ở đây — hãy di chuyển phương tiện trước."
+  "land.fNoSpot": "Không có chỗ để bước xuống ở đây — hãy di chuyển phương tiện trước.",
+  "land.bagHeld": "E mở túi — trong túi có {n} món, không món nào đặt được ở đây"
  },
  "pl": {
   "land.notYours": "Działka {p} należy do kogoś innego. Kup działkę albo poproś jej właściciela o zaproszenie.",
@@ -9942,6 +9958,7 @@
   "land.cTrace": "ostatnie zdarzenia: wsiadanie, wysiadanie, każde przeniesienie, obrażenia, błędy",
   "land.cTraceNone": "Brak zdarzeń.",
   "land.fTooHigh": "Za wysoko, by wysiąść — najpierw wyląduj ({h} m nad ziemią).",
-  "land.fNoSpot": "Nie ma tu gdzie wysiąść — najpierw przesuń pojazd."
+  "land.fNoSpot": "Nie ma tu gdzie wysiąść — najpierw przesuń pojazd.",
+  "land.bagHeld": "E otwiera plecak — {n} {n|one:rzecz|few:rzeczy|many:rzeczy|other:rzeczy} w środku, żadnej nie da się tu postawić"
  }
 }
