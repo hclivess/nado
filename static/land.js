@@ -3216,6 +3216,12 @@ function renderSettings() {
     + sel("effects", T("gEffects", "Effects (bloom, ambient light)"), onOff)
     + sel("auto", T("gAuto", "Adjust automatically (presets only)"), onOff)
     + sel("fov", T("gFov", "Field of view"), [60, 66, 72, 80, 90, 100, 110].concat([SET.fov]).filter((v, i, a) => a.indexOf(v) === i).sort((a, b) => a - b).map((v) => [v, v + "°"]))
+    // the controls and the HUD (#179: sensitivity, invert-Y, plot borders and the stats line existed as settings and
+    // were reachable only through /set) — a gear on the HUD opens this panel (land.html #setBtn)
+    + sel("sens", T("gSens", "Mouse sensitivity"), [0.5, 0.75, 1, 1.5, 2].concat([SET.sens]).filter((v, i, a) => a.indexOf(v) === i).sort((a, b) => a - b).map((v) => [v, v + "×"]))
+    + sel("invert", T("gInvert", "Invert look (up is down)"), onOff)
+    + sel("borders", T("gBorders", "Plot borders on the ground"), onOff)
+    + sel("stats", T("gStats", "Stats line (frame rate, triangles)"), onOff)
     + `<p class="dim">${esc(T("gNote", "Kept in this browser. Each change applies at once."))}</p>`;
   for (const b of box.querySelectorAll("[data-preset]")) b.onclick = () => {
     for (const [k, v] of Object.entries(GFX_PRESETS[b.dataset.preset])) setSetting(k, v);
@@ -3500,6 +3506,7 @@ function wireInput(canvas) {
   $("planetClose").onclick = () => planetPanel(false);
   $("padClose").onclick = () => showPanel("padPanel", false);
   $("mapBtn").onclick = () => mapPanel(true);
+  $("setBtn").onclick = () => settings(true);           // the gear on the HUD (#179): settings were inside the Bag only
   $("wardOpen").onclick = () => { palette(false); wardrobe(true); };
 }
 

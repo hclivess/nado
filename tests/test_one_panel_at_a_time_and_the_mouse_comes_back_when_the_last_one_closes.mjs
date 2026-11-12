@@ -8,7 +8,10 @@
  *      (closePanels) hides them all and never recaptures (the card is about to show);
  *   3. Escape with a panel open closes them all and gives the mouse back; with none open it does nothing of its own;
  *   4. a language change (i18n.js's nado-lang event) re-renders the hotbar, the piece line, the health line and the plot
- *      card.
+ *      card;
+ *   5. a Settings button sits on the HUD (settings were inside the Bag only) and the panel carries the controls that
+ *      existed as settings but had no row: mouse sensitivity, invert look, plot borders, the stats line — within the
+ *      settings' own ranges; four strings in 17 languages.
  * Run: node tests/test_one_panel_at_a_time_and_the_mouse_comes_back_when_the_last_one_closes.mjs
  */
 import { readFileSync } from "node:fs";
@@ -44,6 +47,15 @@ ok(/if \(e\.code === "Escape" && anyPanelOpen\(\)\) \{ closePanels\(\); if \(!to
 // 4. a language change
 ok(/window\.addEventListener\("nado-lang", \(\) => \{ hotbar\(\); pieceInfo\(\); if \(lastHp != null\) showHp\(lastHp\); const st = \$\("hudPlot"\); if \(st\) st\.dataset\.html = ""; \}\);/.test(land) && /lastHp = hp;/.test(land), "a language change re-renders the hotbar, the piece line, the health line and the plot card");
 ok(/window\.dispatchEvent\(new CustomEvent\("nado-lang"/.test(readFileSync(join(ROOT, "static", "i18n.js"), "utf8")), "…and i18n.js announces the change on window");
+
+// 5. the gear and the missing rows
+const html = readFileSync(join(ROOT, "static", "land.html"), "utf8"), I = JSON.parse(readFileSync(join(ROOT, "static", "i18n_games", "land.json"), "utf8"));
+ok(/<button id="setBtn" data-i18n="land\.setBtn">Settings<\/button><\/div>/.test(html) && /\$\("setBtn"\)\.onclick = \(\) => settings\(true\);/.test(land), "a Settings button on the HUD opens the panel");
+const rs = land.slice(land.indexOf("function renderSettings()"), land.indexOf("function presetName(n)"));
+ok(/sel\("sens", T\("gSens"/.test(rs) && /sel\("invert", T\("gInvert"[^\n]*onOff\)/.test(rs) && /sel\("borders", T\("gBorders"[^\n]*onOff\)/.test(rs) && /sel\("stats", T\("gStats"[^\n]*onOff\)/.test(rs), "the panel has rows for sensitivity, invert look, plot borders and the stats line");
+const range = /const SET_RANGE = \{[^}]*sens: \[([\d.]+), ([\d.]+)\]/.exec(land);
+ok(range && [0.5, 0.75, 1, 1.5, 2].every((v) => v >= Number(range[1]) && v <= Number(range[2])), "the sensitivity choices lie within SET_RANGE.sens");
+ok(["land.gSens", "land.gInvert", "land.gBorders", "land.gStats"].every((k) => Object.keys(I).length === 17 && Object.keys(I).every((l) => typeof I[l][k] === "string" && I[l][k].length > 2)), "the four strings are in all 17 languages");
 
 console.log(fails ? `${fails} FAILED` : "all passed");
 process.exit(fails ? 1 : 0);
