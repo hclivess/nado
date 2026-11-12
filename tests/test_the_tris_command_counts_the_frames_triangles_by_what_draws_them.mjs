@@ -23,5 +23,10 @@ ok(/while \(p\) \{ if \(!p\.visible\) \{ shown = false; break; \} p = p\.parent;
 ok(/human\.meshes \|\| \[\]\)\.includes\(o\)\) k = "people";/.test(cmd) && /\.some\(\(w\) => w\.mesh === o\)\) k = "hair, clothes";/.test(cmd) && /o === farBoxMesh\) k = "far boxes";/.test(cmd), "the people, their hair and clothes, and the far boxes are named by their own meshes");
 ok(/\.sort\(\(a, b\) => b\[1\] - a\[1\]\)/.test(cmd) && /conLine\(T\("cTris", "[^"]*\{n\}[^"]*", \{ n: Math\.round\(total \/ 1000\) \}\)\);/.test(cmd), "largest first, under a total in thousands");
 ok(Object.keys(I).length === 17 && Object.keys(I).every((l) => typeof I[l]["land.cTris"] === "string" && I[l]["land.cTris"].includes("{n}")), "the header is in all 17 languages with the count");
+// /lod (#150): the loaded chunks by level, with the bark and foliage triangles each level's meshes carry
+const lodc = land.slice(land.indexOf("  lod: () => {"), land.indexOf("  prof: () => {"));
+ok(lodc.length > 100 && /for \(const c of chunks\.values\(\)\) \{/.test(lodc) && /const l = c\.lod \?\? -1/.test(lodc) && /if \(m\.material === matBark\) e\.bark \+= n; else if \(m\.material === matLeaves\) e\.leaves \+= n;/.test(lodc) && /conLine\(T\("cLod", /.test(lodc), "/lod counts the loaded chunks by level and sums their bark and foliage triangles");
+ok(Object.keys(I).every((l) => typeof I[l]["land.cLod"] === "string" && I[l]["land.cLod"].length > 10), "its header is in all 17 languages");
+
 console.log(fails ? `${fails} FAILED` : "all passed");
 process.exit(fails ? 1 : 0);

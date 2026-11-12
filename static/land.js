@@ -3437,6 +3437,23 @@ const CMDS = {
     conLine(T("cTris", "Triangles this frame: {n}k — by what draws them:", { n: Math.round(total / 1000) }));
     for (const [k, n] of rows) conLine(`  ${Math.round(n / 1000)}k  ${k}`);
   },
+  // /lod (#150): the loaded chunks by their level of detail, and the bark and foliage triangles each level carries —
+  // the question "did the near chunks take level 1, and what do their trees cost" answered on the page itself (the
+  // chunkLod rule of fe10affa measured no change at the landing on Low, and nothing could say why)
+  lod: () => {
+    const by = new Map();
+    for (const c of chunks.values()) {
+      const l = c.lod ?? -1, e = by.get(l) || { chunks: 0, bark: 0, leaves: 0 };
+      e.chunks++;
+      for (const m of c.meshes || []) {
+        const g = m.geometry, n = g && g.index ? g.index.count / 3 : 0;
+        if (m.material === matBark) e.bark += n; else if (m.material === matLeaves) e.leaves += n;
+      }
+      by.set(l, e);
+    }
+    conLine(T("cLod", "Chunks by level of detail (0 near, 1 middle, 2 far) — bark and foliage triangles each:"));
+    for (const [l, e] of [...by.entries()].sort((a, b) => a[0] - b[0])) conLine(`  lod ${l}: ${e.chunks} chunks · ${Math.round(e.bark / 1000)}k bark · ${Math.round(e.leaves / 1000)}k foliage`);
+  },
   prof: () => { profToggle(); conLine(PROF.on ? T("cProfOn", "Profiler on — ` (the key left of 1) or /prof closes it.") : T("cProfOff", "Profiler off.")); },
 };
 function conRun(line) {
