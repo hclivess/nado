@@ -9,11 +9,13 @@ build_tower — the tower as the town script plans it, checked against the hall 
   3. the tower's spire stands at least four times the hall's ridge over the ground (Siena's Torre del Mangia over its
      Palazzo Pubblico, land research townhall/); its belfry has an opening on every side (the lookout);
   4. it is entered from inside the hall: the hall's back wall gets a door and a covered passage reaches the tower's
-     north wall, whose ground floor has the matching gap; a ladder's cells run unbroken from over the floor to the
-     belfry, inside the shaft; the tower stands clear of the town's streets (the first build stood in one);
+     north wall, whose ground floor has the matching gap; the ladder is the game's own ladder PIECES (50 x 8 x 300, what
+     land.js ladderNear climbs — the first build stacked block cells, a solid column nobody could climb) run unbroken
+     from the floor to the belfry inside the shaft's well; the tower stands clear of the town's streets;
   5. tower_present says no before and yes after; on a rehearsal world (a copy of a built town) build_tower sets every
-     piece and every ladder cell, and a second run leaves it as it is; the first build (TOWER_V1) comes down whole with
-     --untower, the hall's wall made good, before the right one goes up.
+     piece, ladder pieces among them, and a second run leaves it as it is; the first build (TOWER_V1) comes down whole with
+     --untower, the hall's wall made good, before the right one goes up; a standing tower with the old block column gets
+     the column cleared and the ladder pieces set.
 Run: python3 tests/test_the_town_hall_carries_a_tower_five_times_its_height_entered_from_inside_with_a_ladder_to_a_lookout.py
 """
 import os, tempfile  # ISOLATION FIRST (CLAUDE.md rule 4)
@@ -76,12 +78,15 @@ north_ground = [b for b in adds if b[6] == T.SB and b[1] == Z0 and b[2] == G + 4
 gap_clear = not any(b[0] < gx0 + 90 and b[0] + b[3] > gx0 for b in north_ground)
 check("…and the tower's ground-floor north wall leaves the door's gap", gap_clear and len(north_ground) == 2, north_ground)
 check("the tower stands behind the hall, clear of both streets", X0 > 210 and Z0 > T.HALL["Z0"] + T.HALL["D"] and X0 + Sz < 1600 and Z0 + Sz <= 1600, (X0, Z0))
-hs = sorted(c[2] for c in ladder)
-check("the ladder runs unbroken from just over the floor to the belfry", hs == list(range(hs[0], hs[-1] + 1)) and hs[0] * 100 <= G + 45 + 100 and hs[-1] * 100 >= by - 100, (hs[0], hs[-1], by))
-lu, lv = ladder[0][0], ladder[0][1]
-check("…inside the shaft (its column clear of the walls)", X0 + T.TOWER["T"] <= lu * 100 and lu * 100 + 100 <= X0 + Sz - T.TOWER["T"] and Z0 < lv * 100 < Z0 + Sz, (lu, lv))
+ys = sorted(b[2] for b in ladder)
+check("the ladder is the game's ladder pieces (50 x 8 x 300, kind 53), among the tower's pieces", ladder and all(b[6] == T.LADDER and sorted(b[3:5]) == [8, 50] and b[5] == 300 and b in adds for b in ladder), ladder[:2])
+check("it runs unbroken from the floor to the belfry: each piece's foot within the 1.5 m the page reaches under it", ys[0] <= G + 45 and all(ys[i + 1] - ys[i] <= 300 for i in range(len(ys) - 1)) and ys[-1] + 300 >= by - 100, (ys, by))
+lx = T.TOWER["LADDER_X"]
+check("…inside the shaft, in the floors' well, clear of the doorway", all(lx <= b[0] and b[0] + b[3] <= lx + 100 and Z0 + T.TOWER["T"] <= b[1] and b[1] + b[4] <= Z0 + Sz - T.TOWER["T"] and b[1] > Z0 + 100 for b in ladder), ladder[:1])
 floors = [b for b in adds if b[6] == T.PL and b[5] == 10]
-check("the ladder's well is left open in every floor", floors and all(b[0] + b[3] <= lu * 100 or b[0] >= lu * 100 + 100 for b in floors), floors[:2])
+check("the ladder's well is left open in every floor", floors and all(b[0] + b[3] <= lx or b[0] >= lx + 100 for b in floors), floors[:2])
+cells = T.ladder_cells(G)
+check("the first build's block column is named for clearing (the cells the page could not climb)", cells and all(c[2] * 100 >= G + 45 for c in cells) and cells[0][0] == lx // 100, cells[:2])
 check("the belfry's openings are the game's windows (the unit piece, 100 x 10 x 120)", all(b[3:6] in ([100, 10, 120], [10, 100, 120]) for b in adds if b[6] == T.WIN))
 
 # 5. once
@@ -121,20 +126,22 @@ async def rehearse():
         pl["items"][k] = pl["items"].get(k, 0) + n
     T.DRY = False
     # the first build goes up and comes down again: the hall as it was
-    a1, r1, l1 = T.tower_pieces(G, T.TOWER_V1)
-    await world.boxes(T.WHO, p, [], r1); await world.boxes(T.WHO, p, [b for b in a1 if T.S.box_ok(b)], [])
+    a1, r1, _ = T.tower_pieces(G, T.TOWER_V1)
+    l1 = T.ladder_cells(G, T.TOWER_V1)
+    await world.boxes(T.WHO, p, [], r1); await world.boxes(T.WHO, p, [b for b in a1 if T.S.box_ok(b) and b[6] != T.LADDER], [])
     _, row, col = S.plot_coords(p)
     await world.apply(T.WHO, [[0, col * S.PLOT + du, row * S.PLOT + dv, h, 53] for du, dv, h in l1])
     check("the first build's tower stands on the rehearsal world", T.tower_present(world.plots[p]["boxes"], T.TOWER_V1))
     await T.untower(world, pl)
     check("--untower takes it down and makes the hall's wall good: the hall as it was", sorted(map(tuple, world.plots[p]["boxes"])) == sorted(map(tuple, hall)) and not any(b == 53 for b in world.plots[p]["edits"].values()), len(world.plots[p]["boxes"]))
+    # the live case first: the tower as the first --tower built it — every piece but the ladder, and the block column
+    await world.boxes(T.WHO, p, [], removes); await world.boxes(T.WHO, p, [b for b in adds if b not in ladder], [])
+    await world.apply(T.WHO, [[0, col * S.PLOT + du, row * S.PLOT + dv, h, 53] for du, dv, h in cells])
+    check("the rehearsal holds a standing tower with the old block column", T.tower_present(world.plots[p]["boxes"]) and any(b == 53 for b in world.plots[p]["edits"].values()))
     await T.build_tower(world, pl)
     boxes = world.plots[p]["boxes"]
-    check("build_tower sets every tower piece and takes the wall out", all(a in boxes for a in adds) and not any(r in boxes for r in removes), (len(boxes), len(adds)))
-    _, row, col = S.plot_coords(p)
-    cells = {(0, col * S.PLOT + du, row * S.PLOT + dv, h) for du, dv, h in ladder}
-    placed = {k for k, b in world.plots[p]["edits"].items() if b == 53}
-    check("…and places every ladder cell", all((c[1], c[2], c[3]) in placed or (c[1], c[2], c[3], 0) in placed or any(k[:3] == (c[1] - col * S.PLOT, c[2] - row * S.PLOT, c[3]) or k == (c[1], c[2], c[3]) for k in placed) for c in cells) or len(placed) >= len(cells), (len(placed), len(cells)))
+    check("build_tower on a standing tower clears the block column and sets the ladder pieces", all(a in boxes for a in ladder) and not any(b == 53 for b in world.plots[p]["edits"].values()), (len(boxes), len(ladder)))
+    check("…and every other tower piece is there, the wall out", all(a in boxes for a in adds) and not any(r in boxes for r in removes), (len(boxes), len(adds)))
     n0 = len(boxes)
     await T.build_tower(world, pl)
     check("a second run leaves it as it is", len(world.plots[p]["boxes"]) == n0)

@@ -20,6 +20,7 @@ U0, V0 = COLS[0] * 16, ROWS[0] * 16                  # the town's corner, grid u
 WHO = L.ISSUER
 # block ids (static/land-world.js B)
 PL, COB, SB, TI, PS, BM, DOOR, WIN, TABLE, CHAIR, BENCH, TORCH, CHEST, DIRT = 9, 10, 16, 13, 14, 38, 37, 40, 45, 46, 47, 50, 54, 2
+LADDER = 53                       # the ladder PIECE (land-recipes.json "ladder" places 53 as a 50 x 8 x 300 unit): the page climbs pieces only
 ENDOW = {"stonebrick": 400, "cobble": 120, "planks": 160, "plaster": 160, "beam": 80, "tiles": 160, "dirt": 600,
          "door": 2, "window": 8, "table": 2, "chair": 8, "bench": 8, "torch": 16, "chest": 1}
 DRY = "--dry-run" in sys.argv
@@ -222,8 +223,11 @@ TOWER = dict(X0=760, Z0=1290, S=280, T=20, STOREY=320, N=5, SPIRE=500, LADDER_X=
 # the first build's place (in the west street, 2026-11-12): what --untower takes down
 TOWER_V1 = dict(X0=30, Z0=480, S=280, T=20, STOREY=320, N=5, SPIRE=500, LADDER_X=100, door="east")
 def tower_pieces(G, P=None):
-    """(adds, removes, ladder cells) for the hall's plot: the pieces to set, the hall wall to take out for the door, and
-    the ladder's cells [du, dv, h] in plot columns (0..15) and grid heights. P: the tower's place (TOWER)."""
+    """(adds, removes, ladder) for the hall's plot: the pieces to set (the ladder's among them), the hall wall to take out
+    for the door, and the ladder's pieces on their own. P: the tower's place (TOWER).
+    THE LADDER IS PIECES, NOT BLOCKS (#195, 2026-11-12): land.js ladderNear climbs only a plot PIECE of kind 53 — the
+    game's ladder item is a 50 x 8 x 300 unit piece — while the first build stacked BLOCK cells of 53 up the well, a
+    solid column nobody could climb (the agent stood at its foot). ladder_cells names that column for clearing."""
     P = P or TOWER
     X0, Z0, S, T, ST, N, SP, LX, door = (P[k] for k in ("X0", "Z0", "S", "T", "STOREY", "N", "SPIRE", "LADDER_X", "door"))
     F = G + 45
@@ -304,11 +308,21 @@ def tower_pieces(G, P=None):
         px, pw = X0 + S, hx - (X0 + S)
         adds += [[px, gz0 - 20, F, pw, 20, ph, PS], [px, gz1, F, pw, 20, ph, PS], [px, gz0, F + 200, pw, 90, ph - 200, PS],
                  [px, gz0, F - 5, pw, 90, 5, PL]]
-    # the ladder: a column of ladder cells inside the shaft (the floors' well), from the first whole cell over the ground
-    # floor's planks (the cell the floor lies in is not air) to the belfry
-    lu, lv = LX // 100, (Z0 + S // 2) // 100
-    ladder = [[lu, lv, h] for h in range(F // 100 + 1, (top - ST) // 100 + 1)]
+    # the ladder: unit pieces (50 x 8 x 300) stacked up the floors' well against the shaft's south inner wall (the north
+    # wall's ground floor is the doorway), from the ground floor to the belfry — each within the 1.5 m the page reaches
+    # under a piece's foot, so the climb never breaks between two
+    ladder = [[LX + 25, Z0 + S - T - 8, y, 50, 8, 300, LADDER] for y in range(F, top - ST, 300)]
+    adds += ladder
     return adds, removes, ladder
+def ladder_cells(G, P=None):
+    """The first build's ladder: BLOCK cells [du, dv, h] (plot columns 0..15, grid heights) up the well — what --tower
+    clears before setting the pieces, and what --untower clears of the v1 build."""
+    P = P or TOWER
+    X0, Z0, S, ST, N, LX = (P[k] for k in ("X0", "Z0", "S", "STOREY", "N", "LADDER_X"))
+    F = G + 45
+    top = F + ST * N
+    lu, lv = LX // 100, (Z0 + S // 2) // 100
+    return [[lu, lv, h] for h in range(F // 100 + 1, (top - ST) // 100 + 1)]
 def tower_present(boxes, P=None):
     """Does the hall's plot already carry the tower? Its spire post, nowhere else in the town."""
     P = P or TOWER
@@ -318,28 +332,34 @@ def tower_present(boxes, P=None):
 
 async def build_tower(world, pl):
     """The tower on the hall's plot (#195): the ground's top G read from the hall's plank floor (F - 5 = G + 40), the hall
-    wall for the door taken out, the pieces set, the ladder's cells placed — once; a second run reports it standing."""
+    wall for the door taken out, the pieces set — once; a second run reports it standing. A standing tower still gets
+    its ladder made good: the first build's block column cleared and the ladder pieces set where they are missing."""
     p = plot_at(ROWS[1], COLS[1])
     boxes = (world.plots.get(p) or {}).get("boxes", [])
-    if tower_present(boxes):
-        print(f"plot {p}: the tower stands already"); return
     floors = [b for b in boxes if b[6] == PL and b[3] == HALL["W"] and b[4] == HALL["D"] and b[5] == 5]
     if not floors:
         sys.exit(f"plot {p}: no hall floor found — build the town first")
     G = floors[0][2] + 5 - 45
     adds, removes, ladder = tower_pieces(G)
+    _, row, col = S.plot_coords(p)
+    cells = [[0, col * S.PLOT + du, row * S.PLOT + dv, h, 0] for du, dv, h in ladder_cells(G)]
+    if tower_present(boxes):
+        want = [b for b in ladder if b not in boxes]
+        if DRY:
+            print(f"plot {p}: the tower stands; would clear {len(cells)} block cells of the old ladder and set {len(want)} ladder pieces"); return
+        _, ref3, _ = await world.apply(WHO, cells)
+        added, _, ref2 = await world.boxes(WHO, p, want, [])
+        print(f"plot {p}: the tower stands already; {len(cells) - len(ref3)} old ladder cells cleared, {len(added)} ladder pieces set"
+              + (f"; refused: {ref2[:4]}" if ref2 else "")); return
     missing = [b for b in removes if b not in boxes]
     if missing:
         sys.exit(f"plot {p}: the hall wall to take out is not there: {missing}")
     if DRY:
-        print(f"plot {p}: would take out {len(removes)}, set {len(adds)} pieces and {len(ladder)} ladder cells (G {G})"); return
+        print(f"plot {p}: would take out {len(removes)}, set {len(adds)} pieces ({len(ladder)} of them the ladder) (G {G})"); return
     _, removed, ref = await world.boxes(WHO, p, [], removes)
     added, _, ref2 = await world.boxes(WHO, p, adds, [])
-    _, row, col = S.plot_coords(p)
-    cells = [[0, col * S.PLOT + du, row * S.PLOT + dv, h, S.B_LADDER if hasattr(S, "B_LADDER") else 53] for du, dv, h in ladder]
-    _, ref3, _ = await world.apply(WHO, cells)
-    print(f"plot {p}: {len(removed)} wall piece out, {len(added)} tower pieces set, {len(cells) - len(ref3)} ladder cells placed"
-          + (f"; refused: {(ref + ref2)[:4]} {ref3[:3]}" if ref or ref2 or ref3 else ""))
+    print(f"plot {p}: {len(removed)} wall piece out, {len(added)} tower pieces set ({len(ladder)} ladder pieces among them)"
+          + (f"; refused: {(ref + ref2)[:4]}" if ref or ref2 else ""))
     print("the server wallet keeps:", {k: pl["items"].get(k, 0) for k in ("stonebrick", "planks", "beam", "tiles", "plaster", "window", "door", "ladder", "torch")})
 
 
@@ -352,7 +372,8 @@ async def untower(world, pl):
         print(f"plot {p}: no tower of the first build stands"); return
     floors = [b for b in boxes if b[6] == PL and b[3] == HALL["W"] and b[4] == HALL["D"] and b[5] == 5]
     G = floors[0][2] + 5 - 45
-    adds, removes, ladder = tower_pieces(G, TOWER_V1)
+    adds, removes, _ = tower_pieces(G, TOWER_V1)
+    ladder = ladder_cells(G, TOWER_V1)
     there = [b for b in adds if b in boxes]
     if DRY:
         print(f"plot {p}: would take down {len(there)} pieces, put back {len(removes)}, clear {len(ladder)} ladder cells"); return
