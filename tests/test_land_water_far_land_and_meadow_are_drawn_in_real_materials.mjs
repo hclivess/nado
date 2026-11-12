@@ -60,7 +60,8 @@ ok(/const top = \[hit\[0\], hit\[1\], hit\[2\] \+ 1\];\s*\/\/[^\n]*\n\s*return f
 // a night you can find your way in: away from the lamps the ground measured 6 of 255 at night, all but black (live,
 // 2026-11-08); moonlight and a blue sky fill brought the same view to 19
 const skyFn = land.slice(land.indexOf("function sky("), land.indexOf("function sky(") + 3000);
-ok(/moon\.intensity = 0\.9 \* \(1 - day\)/.test(skyFn) && /hemi\.intensity = 1\.1 \+ 1\.1 \* day/.test(skyFn)
+// (the sky fill is scaled by what the clouds let through since #183 step 4a — (0.85 + 0.15 × cloudLitNow), never below 85 %)
+ok(/moon\.intensity = 0\.9 \* \(1 - day\)/.test(skyFn) && /hemi\.intensity = \(1\.1 \+ 1\.1 \* day\) \* \(0\.85 \+ 0\.15 \* cloudLitNow\)/.test(skyFn)
    && /hemi\.color\.copy\(SKY\.moonFill\)\.lerp\(SKY\.horizon, day\)/.test(skyFn) && /moonFill: new THREE\.Color\(0x4a5f8a\)/.test(land),
    "night is lit by the moon and a blue sky fill, not left black");
 

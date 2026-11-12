@@ -10,14 +10,19 @@
 // (the same three.js, the same TSL idiom): the skinning from texture rows, the rest frames, the IK solver and the gait are
 // its, cut down to what a townsperson does — stand, walk, look. Hands with nothing to hold hang by the thighs and swing
 // against the legs when walking.
-// NOT yet (owed, #172): hair as a shaped mesh and faces beyond the mesh's own (a nose, a brow and a jaw it has; no
-// eyebrows or lips painted), clothes as meshes (a dress, a cloak), the wardrobe's 3D preview, sitting, a run cycle.
+// Step 2: HAIR AND EYEBROWS as meshes — MakeHuman's own CC0 proxies (seven styles and an eyebrow), fitted to the three
+// builds offline (tools/human/build_wear.py → static/human/wear.bin) and drawn like the body: one instanced draw an
+// item, skinned from the same texture rows, the painted strands tinted by the figure's own hair colour. The look's face
+// choice names the style (land-human-data.js hairStyleOf).
+// NOT yet (owed, #172): faces beyond the mesh's own (lips, a painted iris), clothes as meshes (a dress, a cloak), the
+// wardrobe's 3D preview, sitting, a run cycle; a cap is still a colour on the scalp under the hair.
 import * as THREE from "three/webgpu";
 import * as TSL from "three/tsl";
-import { parseHuman, B, NB, REGIONS, ROW_TEXELS, kitOf, variantOf, gait, WALK_CYCLE, KNEE_GAIT } from "./land-human-data.js";
+import { parseHuman, parseWear, hairStyleOf, B, NB, REGIONS, ROW_TEXELS, kitOf, variantOf, gait, WALK_CYCLE, KNEE_GAIT } from "./land-human-data.js";
 
 export const MAXF = 128;                                   // figures drawn at once (a texture row each)
 const NEAR = 60, FAR = 350;                                // m: LOD0 within NEAR of the eye, LOD1 to FAR, none beyond
+const HAIR_FAR = 160;                                      // m: hair drawn to here (a bob at 200 m is a texel), eyebrows within NEAR
 const V3 = () => new THREE.Vector3();
 const X_ = new THREE.Vector3(1, 0, 0), Y_ = new THREE.Vector3(0, 1, 0), Z_ = new THREE.Vector3(0, 0, 1);
 const _q = new THREE.Quaternion(), _q2 = new THREE.Quaternion(), _q3 = new THREE.Quaternion(), _m = new THREE.Matrix4(), _m2 = new THREE.Matrix4();
@@ -103,6 +108,46 @@ function humanMaterial(tex) {
   return m;
 }
 
+// the worn items: the same skinning, the item's own painted texture (alpha-tested strands) tinted by the row's hair
+// colour — colour × (texel luminance / the texture's mean), so the strands keep their light and dark while a blond
+// choice is blond on a texture painted dark (build_wear.py writes the mean)
+function wearMaterial(tex, map, lum, dark) {
+  const { attribute, texture, int, ivec2, vec3, vec4, float, uv, dot, clamp, varying, normalLocal, materialColor } = TSL;
+  const m = new THREE.MeshStandardNodeMaterial({ roughness: 0.55, metalness: 0, side: THREE.DoubleSide, alphaTest: 0.5 });
+  const T = texture(tex);
+  m.positionNode = skinned(T, false);
+  const nrm = skinned(T, true);
+  m.setupPosition = function (builder) { normalLocal.assign(nrm); return Object.getPrototypeOf(this).setupPosition.call(this, builder); };
+  const row = int(attribute("aFig", "float").add(0.5));
+  const hair = T.load(ivec2(NB * 3 + 1 + REGIONS.indexOf("hair"), row));
+  const vCol = varying(hair.rgb, "vWearCol"), vRough = varying(hair.a, "vWearRough");
+  const tx = texture(map, uv());
+  const L = clamp(dot(tx.rgb, vec3(0.2126, 0.7152, 0.0722)).div(float(Math.max(0.02, lum))), 0.0, 1.8);
+  m.colorNode = vec4(materialColor.rgb.mul(vCol).mul(L).mul(float(dark)), tx.a);
+  m.roughnessNode = vRough;
+  return m;
+}
+// the static per-vertex attributes of a figure or an item in ONE interleaved buffer (WebGPU allows 8 vertex buffers a
+// pipeline; as separate buffers the body's were 12 with aFig)
+function interleave(nV, lay) {
+  const stride = lay.reduce((s, l) => s + l[2], 0), arr = new Float32Array(nV * stride), ib = new THREE.InterleavedBuffer(arr, stride), attrs = {};
+  let off = 0;
+  for (const [name, src, k] of lay) {
+    const norm = name === "aBoneW" ? 255 : 1;
+    for (let i = 0; i < nV; i++) for (let j = 0; j < k; j++) arr[i * stride + off + j] = src[i * k + j] / norm;
+    attrs[name] = new THREE.InterleavedBufferAttribute(ib, k, off); off += k;
+  }
+  return attrs;
+}
+function instanced(attrs, idx) {
+  const g = new THREE.InstancedBufferGeometry();
+  for (const [n, a] of Object.entries(attrs)) g.setAttribute(n, a);
+  g.setIndex(new THREE.BufferAttribute(idx, 1));
+  const fig = new THREE.InstancedBufferAttribute(new Float32Array(MAXF), 1); fig.setUsage(THREE.DynamicDrawUsage);
+  g.setAttribute("aFig", fig); g.instanceCount = 0;
+  return g;
+}
+
 // ---- the pose solver (figure space: the rest skeleton's own — metres, y up, +z the way it faces, +x its left)
 class Pose {
   constructor() {
@@ -165,46 +210,53 @@ function solve(R, P) {
 
 // ---- the view: every figure in one instanced mesh a LOD, a texture row each
 export class HumanView {
-  constructor(scene, url = "/static/human/crew.bin") {
+  constructor(scene, url = "/static/human/crew.bin", wearUrl = "/static/human/wear.bin") {
     this.scene = scene; this.ready = false; this.figs = new Map(); this.free = []; this.pose = new Pose(); this.meshes = null;
+    this.wear = null; this.hairIdx = []; this.browIdx = []; this.hairDrawn = 0; this.walking = 0;
     this.data = new Float32Array(ROW_TEXELS * MAXF * 4);
     this.tex = new THREE.DataTexture(this.data, ROW_TEXELS, MAXF, THREE.RGBAFormat, THREE.FloatType);
     this.tex.minFilter = this.tex.magFilter = THREE.NearestFilter; this.tex.generateMipmaps = false; this.tex.needsUpdate = true;
     for (let i = MAXF - 1; i >= 0; i--) this.free.push(i);
     this.load = fetch(url, { cache: "force-cache" }).then((r) => { if (!r.ok) throw new Error("crew.bin " + r.status); return r.arrayBuffer(); })
       .then((b) => this.build(parseHuman(b))).catch((e) => { console.error("human", e); throw e; });
+    // the hair follows on its own: a figure without it is a figure, not a wait (the file is 1.5 MB beside the body's)
+    this.loadWear = fetch(wearUrl, { cache: "force-cache" }).then((r) => { if (!r.ok) throw new Error("wear.bin " + r.status); return r.arrayBuffer(); })
+      .then((b) => this.buildWear(parseWear(b))).catch((e) => { console.error("human wear", e); });
   }
   build(D) {
     this.D = D; this.rest = D.vars.map(restOf);
     // the eleven static per-vertex attributes in ONE interleaved buffer shared by both LODs (WebGPU allows 8 vertex
     // buffers a pipeline; as separate buffers these were 12 with aFig)
-    const nV = D.nV, lay = [["position", D.vars[0].pos, 3], ["normal", D.vars[0].nrm, 3], ["p1", D.vars[1].pos, 3], ["n1", D.vars[1].nrm, 3], ["p2", D.vars[2].pos, 3], ["n2", D.vars[2].nrm, 3],
-      ["aBoneI", D.skinI, 4], ["aBoneW", D.skinW, 4], ["aRegion", D.region, 1], ["aRegion2", D.reg2, 1], ["aMix", D.mix, 1]];
-    const stride = lay.reduce((s, l) => s + l[2], 0), arr = new Float32Array(nV * stride), ib = new THREE.InterleavedBuffer(arr, stride), attrs = {};
-    let off = 0;
-    for (const [name, src, k] of lay) {
-      const norm = name === "aBoneW" ? 255 : 1;
-      for (let i = 0; i < nV; i++) for (let j = 0; j < k; j++) arr[i * stride + off + j] = src[i * k + j] / norm;
-      attrs[name] = new THREE.InterleavedBufferAttribute(ib, k, off); off += k;
-    }
+    const attrs = interleave(D.nV, [["position", D.vars[0].pos, 3], ["normal", D.vars[0].nrm, 3], ["p1", D.vars[1].pos, 3], ["n1", D.vars[1].nrm, 3], ["p2", D.vars[2].pos, 3], ["n2", D.vars[2].nrm, 3],
+      ["aBoneI", D.skinI, 4], ["aBoneW", D.skinW, 4], ["aRegion", D.region, 1], ["aRegion2", D.reg2, 1], ["aMix", D.mix, 1]]);
     const mat = humanMaterial(this.tex);
     this.meshes = [D.lod0, D.lod1].map((idx) => {
-      const g = new THREE.InstancedBufferGeometry();
-      for (const [n, a] of Object.entries(attrs)) g.setAttribute(n, a);
-      g.setIndex(new THREE.BufferAttribute(idx, 1));
-      const fig = new THREE.InstancedBufferAttribute(new Float32Array(MAXF), 1); fig.setUsage(THREE.DynamicDrawUsage);
-      g.setAttribute("aFig", fig); g.instanceCount = 0;
-      const m = new THREE.Mesh(g, mat); m.frustumCulled = false; m.castShadow = true; m.receiveShadow = true; m.matrixAutoUpdate = false;
+      const m = new THREE.Mesh(instanced(attrs, idx), mat); m.frustumCulled = false; m.castShadow = true; m.receiveShadow = true; m.matrixAutoUpdate = false;
       this.scene.add(m); return m;
     });
     this.ready = true;
+  }
+  /** The worn items (wear.bin): a mesh an item, every figure wearing it an instance; the textures load beside. */
+  buildWear(W) {
+    const loader = new THREE.TextureLoader();
+    this.wear = W.items.map((it) => {
+      const attrs = interleave(it.nV, [["position", it.pos[0], 3], ["normal", it.nrm[0], 3], ["p1", it.pos[1], 3], ["n1", it.nrm[1], 3], ["p2", it.pos[2], 3], ["n2", it.nrm[2], 3],
+        ["aBoneI", it.skinI, 4], ["aBoneW", it.skinW, 4], ["uv", it.uv, 2]]);
+      const map = loader.load("/static/human/" + it.tex); map.colorSpace = THREE.SRGBColorSpace; map.anisotropy = 4;
+      const m = new THREE.Mesh(instanced(attrs, it.idx), wearMaterial(this.tex, map, it.lum, it.kind === "eyebrows" ? 0.55 : 1));   // (brows a shade darker than the hair)
+      m.frustumCulled = false; m.castShadow = it.kind === "hair"; m.receiveShadow = true; m.matrixAutoUpdate = false; m.visible = false;
+      this.scene.add(m); return { it, mesh: m };
+    });
+    this.hairIdx = W.items.map((it, i) => (it.kind === "hair" ? i : -1)).filter((i) => i >= 0);
+    this.browIdx = W.items.map((it, i) => (it.kind === "eyebrows" ? i : -1)).filter((i) => i >= 0);
+    for (const f of this.figs.values()) f.style = hairStyleOf(f.look, this.hairIdx.length);
   }
   /** A figure: `look` the wardrobe's, `colours` land.js lookColours' { skin, top, legs, hair, cap, cloak }. */
   add(id, look, colours) {
     if (this.figs.has(id)) return this.figs.get(id);
     const row = this.free.pop();
     if (row === undefined) return null;                        // (more than MAXF people in view: the rest are not drawn)
-    const f = { row, variant: variantOf(look), kit: kitOf(colours), scale: 1, ph: 0, mv: 0, phase: (row * 0.618) % 1 * 10, yaw: 0, dist: Infinity, placed: false, breath: 0 };
+    const f = { row, look, variant: variantOf(look), kit: kitOf(colours), style: hairStyleOf(look, this.hairIdx.length), scale: 1, ph: 0, mv: 0, phase: (row * 0.618) % 1 * 10, yaw: 0, dist: Infinity, placed: false, breath: 0 };
     this.figs.set(id, f); return f;
   }
   remove(id) { const f = this.figs.get(id); if (!f) return; this.figs.delete(id); this.free.push(f.row); }
@@ -267,13 +319,18 @@ export class HumanView {
   /** After every figure is placed: the LODs' instance lists and the texture upload. Returns how many are drawn. */
   flush() {
     if (!this.ready) return 0;
-    const near = [], far = [];
-    this.walking = 0;
-    for (const f of this.figs.values()) if (f.placed) { (f.dist < NEAR ? near : far).push(f.row); if (f.mv > 0.2) this.walking++; }
-    [near, far].forEach((rows, i) => {
-      const m = this.meshes[i], a = m.geometry.getAttribute("aFig");
-      a.array.set(rows); a.needsUpdate = true; m.geometry.instanceCount = rows.length; m.visible = rows.length > 0;
-    });
+    const near = [], far = [], worn = this.wear ? this.wear.map(() => []) : null;
+    this.walking = 0; this.hairDrawn = 0;
+    for (const f of this.figs.values()) if (f.placed) {
+      (f.dist < NEAR ? near : far).push(f.row); if (f.mv > 0.2) this.walking++;
+      if (worn) {
+        if (f.style >= 0 && f.dist < HAIR_FAR) { worn[this.hairIdx[f.style]].push(f.row); this.hairDrawn++; }
+        if (f.dist < NEAR) for (const b of this.browIdx) worn[b].push(f.row);
+      }
+    }
+    const set = (m, rows) => { const a = m.geometry.getAttribute("aFig"); a.array.set(rows); a.needsUpdate = true; m.geometry.instanceCount = rows.length; m.visible = rows.length > 0; };
+    [near, far].forEach((rows, i) => set(this.meshes[i], rows));
+    if (worn) worn.forEach((rows, i) => set(this.wear[i].mesh, rows));
     this.tex.needsUpdate = true;
     return near.length + far.length;
   }

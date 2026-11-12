@@ -12,7 +12,8 @@
  *   5. digging dents the ground: removing a solid cell lowers the surface there;
  *   6. the field is the one land-world.fieldOf rule the page touches the ground by (static/land.js fieldCell);
  *   7. every ground vertex carries six material weights summing to 1 and world texture coordinates; the landing meadow is
- *      mostly grass; grass clumps cover it at about 6 per m² near the player, a third of that in the middle distance,
+ *      mostly grass; grass clumps cover it at the mesher's GRASS_DENSITY per m² near the player (10 since the painted
+ *      cards of #183 step 3b: 12 triangles a clump, so ten clumps cost less than six of the modelled blades), a third of that in the middle distance,
  *      none far away or on a phone;
  *   8. a dug hole's floor (3 x 3 and wider) is earth, not the rim's grass, and the soil goes 4+ layers down before rock.
  *
@@ -121,11 +122,14 @@ let area = 0;
   for (let t = 0; t < I.length; t += 3) { const a = I[t] * 3, b = I[t + 1] * 3, c = I[t + 2] * 3;
     const e = [P[b] - P[a], P[b + 1] - P[a + 1], P[b + 2] - P[a + 2]], f = [P[c] - P[a], P[c + 1] - P[a + 1], P[c + 2] - P[a + 2]];
     area += Math.hypot(e[1] * f[2] - e[2] * f[1], e[2] * f[0] - e[0] * f[2], e[0] * f[1] - e[1] * f[0]) / 2; } }
-ok(nG / area > 3.5 && nG / area < 8, `grass clumps cover the meadow at about 6 per m² (${(nG / area).toFixed(1)})`);
+// the density is read from the mesher's own constant so the two cannot drift again (6 was pinned here while the mesher
+// said 10 for a day, 2026-11-12); ± a third for the clumps the slope and the material weights thin out
+const DENS = Number(/const GRASS_DENSITY = (\d+)/.exec(readFileSync(join(ROOT, "static", "land-mesher.js"), "utf8"))[1]);
+ok(DENS === 10 && nG / area > DENS * 0.6 && nG / area < DENS * 1.34, `grass clumps cover the meadow at about ${DENS} per m² (${(nG / area).toFixed(1)}; the mesher's GRASS_DENSITY)`);
 // the middle distance carries a third of the blades (a meadow that stopped 40 m away left a pale wash beyond it), the far
 // land none, and a phone none at all
 const mid = M.meshChunk(q.face, cu0 + 1, cv0 + 1, ch, null, null, 1), nMid = mid.grass ? mid.grass.inst.length / 7 : 0;
-ok(nMid / area > 1 && nMid / area < 3, `the middle distance (lod 1) has grass at about a third of the density (${(nMid / area).toFixed(1)} per m²)`);
+ok(nMid / area > DENS * 0.2 && nMid / area < DENS * 0.45, `the middle distance (lod 1) has grass at about a third of the density (${(nMid / area).toFixed(1)} per m²)`);
 ok(!M.meshChunk(q.face, cu0 + 1, cv0 + 1, ch, null, null, 2).grass, "the far land (lod 2) has no grass");
 ok(!M.meshChunk(q.face, cu0 + 1, cv0 + 1, ch, null, null, 0, false).grass, "and a page that asks for none (a phone) gets none");
 

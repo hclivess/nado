@@ -107,6 +107,9 @@ try {
   const okB = await until(B, "/[1-9]\\d* people/.test(document.getElementById('hudGpu').textContent)", 120000);
   const pb = await stat(B, "people");
   ok(okA && okB && pa >= 1 && pb >= 1, `each page draws the other as a person (A sees ${pa}, B sees ${pb}; the townspeople count too)`);
+  // #172 step 2: the people wear hair — MakeHuman's meshes, one instanced draw a style (the readout counts the heads)
+  const okH = await until(B, "/[1-9]\\d* heads of hair/.test(document.getElementById('hudGpu').textContent)", 60000);
+  ok(okH && (await stat(B, "heads of hair")) >= 1, `the people wear hair as meshes (${await stat(B, "heads of hair")} heads of hair drawn on B)`);
   await shot(B, "people_B_sees_A"); await shot(A, "people_A_sees_B");
   const calls = await stat(B, "calls");
   ok(calls > 0 && calls < 200, `…the body is an instanced draw, not a mesh a limb (${calls} draw calls in all, ${pb} people)`);

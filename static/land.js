@@ -4140,7 +4140,7 @@ function statsTick(now) {
   const gpu = renderer.backend && renderer.backend.isWebGPUBackend ? "WebGPU" : "WebGL2";
   if (!SET.stats) { $("hudGpu").textContent = gpu; return; }
   const r = renderer.info.render;
-  $("hudGpu").textContent = `${gpu} · ${fps} fps · ${Math.round(r.triangles / 1000)}k tris · ${r.drawCalls ?? r.calls} calls · ${chunks.size} chunks · ${forestTrees} far trees · ${farBoxes} far boxes · ${humanDrawn} people${human && human.walking ? ` (${human.walking} in a gait)` : ""} · ${cloudMaps} sky maps${cloudTileI ? ` +${cloudTileI}/${CLOUD_TILES[0] * CLOUD_TILES[1]}` : ""}`;
+  $("hudGpu").textContent = `${gpu} · ${fps} fps · ${Math.round(r.triangles / 1000)}k tris · ${r.drawCalls ?? r.calls} calls · ${chunks.size} chunks · ${forestTrees} far trees · ${farBoxes} far boxes · ${humanDrawn} people${human && human.walking ? ` (${human.walking} in a gait)` : ""}${human && human.hairDrawn ? ` · ${human.hairDrawn} heads of hair` : ""} · ${cloudMaps} sky maps${cloudTileI ? ` +${cloudTileI}/${CLOUD_TILES[0] * CLOUD_TILES[1]}` : ""}`;
 }
 // ---- THE PROFILER (` the key left of 1, ?prof=1, or /prof; "work on performance, take a hint from true wind", operator
 // 2026-11-09 — True Wind's js/profiler.js, "measure performance; don't guess"): where the frame's time goes, live — the
