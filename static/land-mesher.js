@@ -729,26 +729,36 @@ function sphere() {
   F = F.flatMap(([a, b, c]) => { const ab = m(a, b), bc = m(b, c), ca = m(c, a); return [[a, ab, ca], [b, bc, ab], [c, ca, bc], [ab, bc, ca]]; });
   return (unitSphere = { V, F });
 }
-/** A rock of radius r sitting a third sunk at grid (cu, cv) on ground `base`, into the ground buffer `out`. */
+/** A rock of radius r sitting a third sunk at grid (cu, cv) on ground `base`, into the ground buffer `out`.
+ *  ANGULAR AND GREY (#181, playtest 2026-11-11: "stones read as brown potatoes — smooth brown lumps; they should be grey,
+ *  angular"): every triangle carries its own flat normal (its corners are its own vertices, nothing smoothed across
+ *  faces), the vertex jitter is wide enough to break the sphere into facets, and the tint is a cool grey against the
+ *  rock texture's warmth. */
 function pebble(out, face, cu, cv, base, r, seed, rot, place) {
   const { V, F } = sphere(), fr = frameOf(face, cu, cv), first = out.n, cr = Math.cos(rot), sr = Math.sin(rot);
+  const sid = Math.floor(seed * 1e6);
   const g = V.map(([x, y, z], i) => {
-    const k = r * (0.8 + 0.4 * hash3(i, Math.floor(seed * 1e6), 7));
-    const lx = x * k * 1.15, ly = y * k * 0.9, lz = z * k * 0.6;
+    const k = r * (0.65 + 0.7 * hash3(i, sid, 7));
+    const lx = x * k * 1.15, ly = y * k * 0.9, lz = z * k * 0.65;
     return [cu + lx * cr - ly * sr, cv + lx * sr + ly * cr, base - r * 0.2 + lz];
   });
-  for (let i = 0; i < V.length; i++) {
-    const [x, y, z] = V[i], nx = x * cr - y * sr, ny = x * sr + y * cr, p = place(g[i][0], g[i][1], g[i][2]);
-    out.pos.push(p[0], p[1], p[2]);
-    out.nor.push(nx * fr.east[0] + ny * fr.north[0] + z * fr.up[0], nx * fr.east[1] + ny * fr.north[1] + z * fr.up[1], nx * fr.east[2] + ny * fr.north[2] + z * fr.up[2]);
-    const j = 0.75 + 0.25 * hash3(i, 3, Math.floor(seed * 1e6));
-    out.col.push(j, j, j);
-    out.uvw.push(((g[i][0] % 4096) + 4096) % 4096, ((g[i][1] % 4096) + 4096) % 4096, g[i][2]);
-    out.gn.push(nx, ny, z);
-    out.w1.push(0, 0, 1, 0); out.w2.push(0, 0);                      // all rock
-    out.n++;
+  for (const [a, b, c] of F) {
+    // the face's own normal in the grid frame (east, north, up), from its corners as placed on the sphere's local axes
+    const e1 = [g[b][0] - g[a][0], g[b][1] - g[a][1], g[b][2] - g[a][2]], e2 = [g[c][0] - g[a][0], g[c][1] - g[a][1], g[c][2] - g[a][2]];
+    let nx = e1[1] * e2[2] - e1[2] * e2[1], ny = e1[2] * e2[0] - e1[0] * e2[2], nz = e1[0] * e2[1] - e1[1] * e2[0];
+    const L = Math.hypot(nx, ny, nz) || 1; nx /= L; ny /= L; nz /= L;
+    const j = 0.78 + 0.22 * hash3(a, 3, sid);
+    for (const i of [a, b, c]) {
+      const p = place(g[i][0], g[i][1], g[i][2]);
+      out.pos.push(p[0], p[1], p[2]);
+      out.nor.push(nx * fr.east[0] + ny * fr.north[0] + nz * fr.up[0], nx * fr.east[1] + ny * fr.north[1] + nz * fr.up[1], nx * fr.east[2] + ny * fr.north[2] + nz * fr.up[2]);
+      out.col.push(j * 0.86, j * 0.88, j * 0.94);                        // cool grey
+      out.uvw.push(((g[i][0] % 4096) + 4096) % 4096, ((g[i][1] % 4096) + 4096) % 4096, g[i][2]);
+      out.gn.push(nx, ny, nz);
+      out.w1.push(0, 0, 1, 0); out.w2.push(0, 0);                      // all rock
+      out.idx.push(out.n); out.n++;
+    }
   }
-  for (const [a, b, c] of F) out.idx.push(first + a, first + b, first + c);
 }
 
 // ---- tree models: one per (kind, height, variant, detail), turned and placed per tree --------------------------------

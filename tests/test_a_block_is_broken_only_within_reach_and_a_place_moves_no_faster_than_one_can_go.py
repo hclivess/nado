@@ -126,6 +126,32 @@ async def main():
     check("a place reported 900 m from the last is put back where the world last saw them", r and r["why"] == "pace" and abs(r["p"][1] - here[1]) < 0.01, r)
     r = await say({"t": "tp", "to": "spawn"}, "pos_fix")
     check("/tp spawn moves them to the landing", r and r["why"] == "tp" and r["p"][:3] == S.landing(), r)
+    # THE WINDOW (#180): a stale report after a long frame, then the true place 0.2 s later — a second's worth of going
+    # from the anchor, accepted; 400 m in two seconds from it is not
+    base = list(r["p"][:3]) + [here[3]]                                   # (the tp leaves the height to the page: a finite one here)
+    async def quiet(m, wait=0.6):
+        """The pos_fix the socket answers `m` with inside `wait` s, else None (other broadcasts in between are skipped)."""
+        await ws.send_json(m)
+        import time as _t
+        end = _t.time() + wait
+        while _t.time() < end:
+            try:
+                got = await ws.receive_json(timeout=max(0.05, end - _t.time()))
+            except Exception:
+                return None
+            if got.get("t") == "pos_fix":
+                return got
+        return None
+    await quiet({"t": "pos", "p": [base[0], base[1], base[2], base[3], 0]}, 0.3)         # the anchor, now
+    await asyncio.sleep(1.0)
+    await quiet({"t": "pos", "p": [base[0], base[1], base[2], base[3], 0]}, 0.3)         # the stale report (a long frame)
+    await asyncio.sleep(0.2)
+    r = await quiet({"t": "pos", "p": [base[0], base[1] + 60, base[2], base[3], 0]})
+    check("a 60 m step reported 0.2 s after a stale report of the old place is a second's worth of going: accepted (judged over the window)", r is None, r)
+    await asyncio.sleep(0.8)
+    r = await quiet({"t": "pos", "p": [base[0], base[1] + 400, base[2], base[3], 0]})
+    check("…but 400 m within two seconds of the anchor is refused", r is not None and r["why"] == "pace", r)
+    await quiet({"t": "pos", "p": [base[0], base[1], base[2], base[3], 0]}, 0.3)         # back at the landing, as before this
     r = await say({"t": "tp", "to": "bed"}, "pos_fix")
     check("/tp bed without a bed is refused", r and r["why"] == "nobed", r)
     world.player(me)["bed"] = [0, u + 2, v + 2, top + 1, S.plot_of(0, u, v)]
@@ -141,8 +167,9 @@ async def main():
     await w1.send_json({"t": "pos", "p": [0, u + 300.5, v + 0.5, top + 1, 0]}); await asyncio.sleep(0.3)
     await w2.send_json({"t": "pos", "p": [0, u + 1.5, v + 2.5, top + 1, 0]}); await asyncio.sleep(0.3)
     r = await dig([[0, u, v + 2, top, 0]])
+    # (applied counts the dug cell AND the litter that stood on it, since 893898b9 — #177: a pebble went with its turf)
     check("with two pages open, a dig is measured from the page that moved last (beside it), not the first one found",
-          r["applied"] == 1 or "nothing here" in str(r["refused"]), r)
+          r["applied"] >= 1 or "nothing here" in str(r["refused"]), r)
     # a page left open far off, then the player moves by /land/api/move (an agent): measured from where it moved, the
     # newer place — the open page's old one refused every dig beside the agent (2026-11-11)
     await w1.send_json({"t": "pos", "p": [0, u + 300.5, v + 0.5, top + 1, 0]}); await asyncio.sleep(0.3)
@@ -151,7 +178,7 @@ async def main():
         mv = await rr.json()
     r = await dig([[0, u + 1, v + 2, top, 0]])
     check("a page left open far off, then a move by the API beside it: the dig is measured from the newer place",
-          mv.get("ok") and (r["applied"] == 1 or "nothing here" in str(r["refused"])), (mv, r))
+          mv.get("ok") and (r["applied"] >= 1 or "nothing here" in str(r["refused"])), (mv, r))
     await w1.close(); await w2.close()
 
     await c.close(); await ex.close()

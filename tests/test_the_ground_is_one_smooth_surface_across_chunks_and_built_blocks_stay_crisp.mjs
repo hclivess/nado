@@ -188,5 +188,25 @@ ok(/Wd\.fieldOf\(colAt\(/.test(land) && /fieldOf/.test(readFileSync(join(ROOT, "
   ok(shallow === 0, `the meadow's soil is earth or clay at least 4 layers down everywhere (${shallow} of ${n} columns hit rock sooner)`);
 }
 
+// 9. STONES ARE ANGULAR AND GREY (#181, playtest 2026-11-11: "brown potatoes"): in the stones buffer every triangle owns its
+// three corners (no vertex shared across faces, so each facet is flat), the three corners carry the face's one normal,
+// and the tint is a cool grey (blue above green above red)
+{
+  let st = null;
+  for (let dx = -4; dx <= 4 && !st; dx++) for (let dy = -4; dy <= 4 && !st; dy++) for (const c of chs) { const r = M.meshChunk(q.face, cu0 + dx, cv0 + dy, c, null); if (r.stones && r.stones.idx && r.stones.idx.length) { st = r.stones; st.n = st.pos.length / 3; break; } }
+  ok(!!st, "a chunk near the landing carries stones");
+  if (st) {
+    const own = st.idx.length === st.n && st.idx.every((v, i) => v === i);
+    let flat = true, grey = true;
+    for (let t = 0; t + 2 < st.n; t += 3) {
+      for (let k = 1; k < 3; k++) for (let a = 0; a < 3; a++) if (Math.abs(st.nor[t * 3 + a] - st.nor[(t + k) * 3 + a]) > 1e-9) flat = false;
+      const r = st.col[t * 3], g = st.col[t * 3 + 1], b = st.col[t * 3 + 2]; if (!(r < g && g < b)) grey = false;
+    }
+    ok(own, `every stone triangle owns its three corners (${st.n} vertices, ${st.idx.length} indices)`);
+    ok(flat, "the three corners of a facet carry the facet's one normal (flat shading: angular, not a smooth lump)");
+    ok(grey, "the tint is a cool grey");
+  }
+}
+
 console.log(fails ? `${fails} FAILED` : "all passed");
 process.exit(fails ? 1 : 0);

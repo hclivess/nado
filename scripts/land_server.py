@@ -126,6 +126,12 @@ POS_SAVE_S = 10                   # a signed-in player's place is kept at most t
 # landing or your own bed only.
 REACH_M = 12                      # the page reaches 7 m; its levelling square (shovel, L) works up to ~11 m from the eye
 PACE_MPS, PACE_SLACK, PACE_DT_MAX = 65.0, 6.0, 5.0      # free flight's fastest is 60 m/s (static/land.js FLY_FAST)
+# THE PACE IS JUDGED OVER A WINDOW, NOT PER MESSAGE (#180, playtest 2026-11-11): a page's timers fire after a long frame
+# BEFORE that frame moves the player, so a stale report of the old place arrived, and the true place 0.2 s later —
+# 60 m in 0.2 s by the per-message rule, refused, and the flier was pulled back. The anchor a report is measured from
+# now advances only once it is PACE_WIN old: a 60 m step after a second of silence followed by a report 100 ms later
+# is a second's worth of going, accepted; 400 m in 2 s is not.
+PACE_WIN = 5.0
 EYE = 1.62                        # static/land.js EYE: the eye over the feet
 
 
@@ -2837,7 +2843,7 @@ class Hub:
         for ws, st in list(self.socks.items()):
             if st["who"] == who and res[0] == "died":              # they wake far off: the pace starts again there (#167)
                 wake = list(res[1][:4]) if res[1] else landing() + [(st.get("pos") or [0, 0, 0, 0.0])[3]]
-                st["pace"] = (wake, time.time())
+                st["pace"] = st["pace_anchor"] = (wake, time.time())
                 # NO SECOND DEATH BEHIND THE CARD (#176): the socket stands at the wake place from now, whatever the page
                 # (still at the death spot until its player presses Wake up, or away from the keyboard) goes on
                 # reporting — see the "pos" handler. A player left at the death spot died again every grace_s: nine
@@ -2876,6 +2882,8 @@ class Hub:
     def pace_anchor(world, st, addr):
         """The place (and when) a socket's next reported place is measured from: its last accepted one, else the place
         the world server kept for the player (#167)."""
+        if st.get("pace_anchor"):
+            return st["pace_anchor"]                     # (the window's anchor, #180; a tp, a death or a craft resets it)
         if st.get("pace"):
             return st["pace"]
         pl = world.player(addr)
@@ -3371,7 +3379,9 @@ def make_app(world, hub, site_origin, wallet_url, secure_cookies=True, shot_page
                             if anc and not pace_ok(anc[0], anc[1], p, time.time()):
                                 await ws.send_json({"t": "pos_fix", "p": list(anc[0][:4]), "why": "pace"})
                                 continue
-                            st["pace"] = (list(p), time.time())
+                            st["pace"] = (list(p), time.time())                      # the last accepted place (where() reads it)
+                            if not st.get("pace_anchor") or time.time() - st["pace_anchor"][1] >= PACE_WIN:
+                                st["pace_anchor"] = (list(p), time.time())           # the window's anchor (PACE_WIN above)
                         st["pos"] = [int(p[0]), float(p[1]), float(p[2]), float(p[3]), float(p[4])]
                         st["pos_t"] = time.time()                  # which of a player's pages moved last (Hub.where)
                         if addr:
@@ -3401,7 +3411,7 @@ def make_app(world, hub, site_origin, wallet_url, secure_cookies=True, shot_page
                         to = list(pl["bed"][:4])
                     else:
                         to = landing() + [None]
-                    st["pace"] = (to, time.time())
+                    st["pace"] = st["pace_anchor"] = (to, time.time())
                     await ws.send_json({"t": "pos_fix", "p": to, "why": "tp", "to": "bed" if m.get("to") == "bed" else "spawn"})
                 elif t == "chat":
                     # the console's chat: one line to every socket watching any plot the sender watches (the players
@@ -3482,7 +3492,7 @@ def make_app(world, hub, site_origin, wallet_url, secure_cookies=True, shot_page
                             # bit a pilot 500 m up (operator, 2026-11-11: "im getting attacked by a deer 500 meters above
                             # the ground"), the herd, the market and "where" all reading that ground spot.
                             c = world.crafts[m.get("craft")]
-                            st["pos"] = list(c["pose"]); st["pace"] = (list(c["pose"]), time.time()); st["pos_t"] = time.time()
+                            st["pos"] = list(c["pose"]); st["pace"] = st["pace_anchor"] = (list(c["pose"]), time.time()); st["pos_t"] = time.time()
                     elif t == "leave":
                         await ws.send_json({"t": "craft_ok", "op": t, "req": m.get("req"), "error": world.leave(addr, m.get("craft"))})
                     elif t == "handover":
