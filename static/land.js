@@ -3447,56 +3447,73 @@ function groundMaterial() {
 }
 
 // ---- grass: instanced clumps of tapered blades, dark at the root and light at the tip, swaying in the wind on the GPU
-// (the mesher scatters them over the meadow, near the player only). One clump in 25 is a wildflower.
-let clumpGeo = null, flowerGeo = null, matGrass = null;
+// (the mesher scatters them over the meadow, near the player only). One clump in twelve is a wildflower.
+// THE MEADOW'S GRASS (#183 step 3; the operator's concept picture: a dense blanket of grass in many greens with
+// white, yellow and purple flowers through it; the live meadow beside it, 2026-11-11: stiff bright spikes with bare
+// ground between them, three small yellow heads on one clump in 25). The same clumps at the same density (the
+// triangle budget is #150's), but each clump SPREADS wider and leans more so the blanket closes, the blades run from
+// a dark root to a yellow-green tip, every clump carries its own tint (an instance colour), and a flower clump is one
+// in twelve with heads of white, yellow or purple (the meadow photographs, land research meadow/). Judged side by side
+// with the concept picture, not with the earlier render.
+let clumpGeo = null, flowerGeo = null, matGrass = null, matFlower = null;
 function bladeClump(blades, flower) {
-  const pos = [], col = [], nor = [], idx = [];
+  const pos = [], col = [], nor = [], idx = [], head = [];
   let seed = flower ? 7 : 3;
   const rnd = () => { seed = (seed * 16807) % 2147483647; return seed / 2147483647; };
   for (let i = 0; i < blades; i++) {
-    const a = rnd() * Math.PI * 2, r = rnd() * 0.14, h = 0.22 + rnd() * 0.33, w = 0.01 + rnd() * 0.008, lean = 0.05 + rnd() * 0.12;
+    const a = rnd() * Math.PI * 2, r = rnd() * 0.2, h = 0.2 + rnd() * 0.3, w = 0.012 + rnd() * 0.01, lean = 0.08 + rnd() * 0.14;
     const bx = Math.cos(a) * r, bz = Math.sin(a) * r, dx = Math.cos(a + 1.3) * w, dz = Math.sin(a + 1.3) * w, lx = Math.cos(a) * lean, lz = Math.sin(a) * lean;
     const base = pos.length / 3;
     pos.push(bx - dx, 0, bz - dz, bx + dx, 0, bz + dz, bx - dx * 0.6 + lx * 0.4, h * 0.55, bz - dz * 0.6 + lz * 0.4,
              bx + dx * 0.6 + lx * 0.4, h * 0.55, bz + dz * 0.6 + lz * 0.4, bx + lx, h, bz + lz);
-    const root = [0.05, 0.12, 0.02], mid = [0.13, 0.28, 0.05], tip = [0.30, 0.45, 0.10];
+    const root = [0.04, 0.1, 0.02], mid = [0.12, 0.27, 0.05], tip = [0.36, 0.48, 0.11];     // dark root, yellow-green tip
     col.push(...root, ...root, ...mid, ...mid, ...tip);
-    for (let k = 0; k < 5; k++) nor.push(0, 1, 0);                 // up-facing normals: the blade takes the ground's light
+    for (let k = 0; k < 5; k++) { nor.push(0, 1, 0); head.push(0); }   // up-facing normals: the blade takes the ground's light
     // both faces, each wound to face out, both with the up normal: a double-sided material would flip the back face's
     // normal downward and the blade's back would render black
     idx.push(base, base + 1, base + 3, base, base + 3, base + 2, base + 2, base + 3, base + 4,
              base, base + 3, base + 1, base, base + 2, base + 3, base + 2, base + 4, base + 3);
   }
-  if (flower) for (let i = 0; i < 3; i++) {                        // three small yellow heads
-    const a = rnd() * Math.PI * 2, r = rnd() * 0.1, h = 0.45 + rnd() * 0.2, s = 0.03, base = pos.length / 3;
+  if (flower) for (let i = 0; i < 4; i++) {                        // four small heads, in the instance's colour (head = 1)
+    const a = rnd() * Math.PI * 2, r = rnd() * 0.12, h = 0.42 + rnd() * 0.22, s = 0.035, base = pos.length / 3;
     const x = Math.cos(a) * r, z = Math.sin(a) * r;
     pos.push(x - s, h, z - s, x + s, h, z - s, x + s, h, z + s, x - s, h, z + s);
-    for (let k = 0; k < 4; k++) { col.push(0.95, 0.75, 0.12); nor.push(0, 1, 0); }
+    for (let k = 0; k < 4; k++) { col.push(1, 1, 1); nor.push(0, 1, 0); head.push(1); }
     idx.push(base, base + 1, base + 2, base, base + 2, base + 3);
   }
   const g = new THREE.BufferGeometry();
   g.setAttribute("position", new THREE.Float32BufferAttribute(pos, 3));
   g.setAttribute("color", new THREE.Float32BufferAttribute(col, 3));
   g.setAttribute("normal", new THREE.Float32BufferAttribute(nor, 3));
+  g.setAttribute("head", new THREE.Float32BufferAttribute(head, 1));
   g.setIndex(idx);
   return g;
 }
+// the flowers of the meadow photographs and the concept picture: white (yarrow, daisies), yellow (buttercups), purple
+// (knapweed, clover) — linear rgb, a head's own colour; the share of each a design choice
+const FLOWER_HEADS = [[0.9, 0.9, 0.82], [0.95, 0.72, 0.1], [0.55, 0.3, 0.8], [0.9, 0.9, 0.82]];
 function grassMeshes(gr) {
   if (!clumpGeo) {
     clumpGeo = bladeClump(9, false); flowerGeo = bladeClump(4, true);
-    matGrass = new THREE.MeshStandardNodeMaterial({ roughness: 0.85, metalness: 0 });
-    matGrass.colorNode = TSL.attribute("color", "vec3");
     // wind: the tip sways most, the root not at all; each clump in its own phase
     const lp = TSL.positionLocal, sway = TSL.sin(TSL.time.mul(1.7).add(TSL.instanceIndex.toFloat().mul(0.731))).mul(0.06)
       .add(TSL.sin(TSL.time.mul(0.45).add(TSL.instanceIndex.toFloat().mul(0.113))).mul(0.05));
     // the sway's strength comes from the blade's OWN height (the geometry's vertex), not from positionLocal: by here
     // that already includes the instance's place in the chunk, metres up — squared, it threw the grass into the sky
     const tipness = TSL.attribute("position", "vec3").y.div(0.75).clamp(0, 1).pow(2);
-    matGrass.positionNode = lp.add(TSL.vec3(sway, 0, sway.mul(0.6)).mul(tipness));
+    const swayed = lp.add(TSL.vec3(sway, 0, sway.mul(0.6)).mul(tipness));
+    // a grass clump: its blades' colours in the clump's own tint (instanceColor); a flower clump: green blades, heads
+    // in the instance's colour (head = 1)
+    matGrass = new THREE.MeshStandardNodeMaterial({ roughness: 0.85, metalness: 0 });
+    matGrass.colorNode = TSL.attribute("color", "vec3").mul(TSL.instanceColor);
+    matGrass.positionNode = swayed;
+    matFlower = new THREE.MeshStandardNodeMaterial({ roughness: 0.85, metalness: 0 });
+    matFlower.colorNode = TSL.attribute("color", "vec3").mul(TSL.mix(TSL.vec3(1), TSL.instanceColor, TSL.attribute("head", "float")));
+    matFlower.positionNode = swayed;
   }
   const n = gr.kind.length, nf = gr.kind.reduce((a, x) => a + x, 0);
-  const grass = new THREE.InstancedMesh(clumpGeo, matGrass, n - nf), flowers = new THREE.InstancedMesh(flowerGeo, matGrass, Math.max(1, nf));
-  const m = new THREE.Matrix4(), q = new THREE.Quaternion(), q2 = new THREE.Quaternion(), up = new THREE.Vector3(0, 1, 0), nv = new THREE.Vector3(), p = new THREE.Vector3(), sc = new THREE.Vector3();
+  const grass = new THREE.InstancedMesh(clumpGeo, matGrass, n - nf), flowers = new THREE.InstancedMesh(flowerGeo, matFlower, Math.max(1, nf));
+  const m = new THREE.Matrix4(), q = new THREE.Quaternion(), q2 = new THREE.Quaternion(), up = new THREE.Vector3(0, 1, 0), nv = new THREE.Vector3(), p = new THREE.Vector3(), sc = new THREE.Vector3(), c = new THREE.Color();
   let gi = 0, fi = 0;
   for (let i = 0; i < n; i++) {
     const o = i * 7, r = gr.inst[o + 6];
@@ -3505,9 +3522,18 @@ function grassMeshes(gr) {
     q.setFromUnitVectors(up, nv).multiply(q2.setFromAxisAngle(up, r * Math.PI * 2));
     const s = 0.75 + 0.55 * r;
     m.compose(p, q, sc.set(s, s, s));
-    if (gr.kind[i]) flowers.setMatrixAt(fi++, m); else grass.setMatrixAt(gi++, m);
+    if (gr.kind[i]) {
+      const hc = FLOWER_HEADS[Math.floor(((r * 977) % 1) * FLOWER_HEADS.length)];
+      flowers.setMatrixAt(fi, m); flowers.setColorAt(fi++, c.setRGB(hc[0], hc[1], hc[2]));
+    } else {
+      // the tint: from a cooler, deeper green to a warmer, yellower one, by the clump's own number (never grey, never blue)
+      const t = (r * 389) % 1;
+      grass.setMatrixAt(gi, m); grass.setColorAt(gi++, c.setRGB(0.85 + 0.3 * t, 0.95 + 0.1 * t, 0.9 - 0.25 * t));
+    }
   }
   flowers.count = fi;
+  if (grass.instanceColor) grass.instanceColor.needsUpdate = true;
+  if (flowers.instanceColor) flowers.instanceColor.needsUpdate = true;
   return fi ? [grass, flowers] : [grass];
 }
 

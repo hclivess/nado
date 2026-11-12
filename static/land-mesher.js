@@ -826,7 +826,7 @@ function scatterGrass(g, density, under) {
         if (under(gp(0), gp(1), gp(2))) continue;
       }
       out.push(ax + ex * r1 + fx * r2, ay + ey * r1 + fy * r2, az + ez * r1 + fz * r2, N[a * 3], N[a * 3 + 1], N[a * 3 + 2], hash3(c, k, a));
-      kinds.push(hash3(k, a, c) < 0.04 ? 1 : 0);                       // one clump in 25 is a wildflower
+      kinds.push(hash3(k, a, c) < 0.08 ? 1 : 0);                       // one clump in twelve is a wildflower (#183 step 3: the concept's meadow is full of them; was one in 25)
     }
   }
   return out.length ? { inst: new Float32Array(out), kind: new Uint8Array(kinds) } : null;
