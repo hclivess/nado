@@ -113,8 +113,13 @@ function grownModel(kind, H0, R, lod) {
     if (s.depth > A.wood[far ? 1 : 0] || (s.depth === 2 && s.radii[0] < 0.012)) continue;
     const sides = s.depth === 0 ? (far ? 5 : 7) : s.depth === 1 && s.radii[0] >= 0.05 && !far ? 5 : 3;
     const last = s.pts.length - 1;
+    // A ROOT FLARE (#181, playtest 2026-11-11: "tree trunks end in a flat faceted cut standing on the grass — no root
+    // flare, so trees look placed, not grown"): the trunk's girth swells toward the ground — half as wide again at the
+    // root, fading out by a tenth of the tree's height — and its first ring sits a hand under the surface
+    const radii = s.depth === 0 ? s.radii.map((r, i) => r * (1 + 0.5 * Math.max(0, 1 - s.pts[i][2] / (0.1 * H0)) ** 2)) : s.radii;
+    const pts = s.depth === 0 ? s.pts.map((p, i) => (i === 0 ? [p[0], p[1], p[2] - 0.08] : p)) : s.pts;
     // the wind: a trunk sways from its crown, a limb more toward its tip, a twig most
-    tube(bark, s.pts.map(clampR), s.radii, sides, (i) => 0.02 * (s.pts[i][2] / top) ** 2 + 0.035 * s.depth * (i / last), barkTile, brown);
+    tube(bark, pts.map(clampR), radii, sides, (i) => 0.02 * (s.pts[i][2] / top) ** 2 + 0.035 * s.depth * (i / last), barkTile, brown);
   }
   // the tree's leaf cards shared out over its outermost shoots by their length
   const total = leafy.reduce((n, i) => n + stems[i].len, 0) || 1, budget = A.cards[far ? 2 : 0], grow = far ? 1.35 : 1;

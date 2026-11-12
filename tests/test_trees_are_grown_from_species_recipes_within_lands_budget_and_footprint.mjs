@@ -63,5 +63,19 @@ ok(JSON.stringify(a.leaves.pos) === JSON.stringify(a2.leaves.pos) && JSON.string
 // 5
 const mesher = readFileSync(join(ROOT, "static", "land-mesher.js"), "utf8");
 ok(/const key = t\.kind \+ ":" \+ t\.height \+ ":" \+ variant \+ ":" \+ far;/.test(mesher) && /models\.get\(key\)/.test(mesher), "the mesher caches a few variants per kind and height");
+
+// A ROOT FLARE (#181, playtest 2026-11-11: trunks ended in a flat faceted cut standing on the grass): in every kind's
+// LOD0 model the trunk's lowest ring is at least a third wider than the trunk a tenth of the height up, and its first
+// ring sits under the ground (z < 0), so no cut face rests on the surface
+for (const kind of ["broadleaf", "birch", "conifer"]) {                 // (a bush has no trunk to flare)
+  const b = T.treeModel(kind, 12, 7, 0).bark, sp = S.parseSpecies(S.RECIPES[S.ADAPT[kind].recipe]);
+  // the first ring is the one under the ground (no limb goes there): its width in x against the recipe's own trunk
+  // diameter at this height — the flare is half as much again on top of the tube's base taper
+  let lo = Infinity, hi = -Infinity, zmin = Infinity;
+  for (let i = 0; i < b.n; i++) { const z = b.pos[i * 3 + 2]; zmin = Math.min(zmin, z); if (z < 0) { lo = Math.min(lo, b.pos[i * 3]); hi = Math.max(hi, b.pos[i * 3]); } }
+  const base = hi - lo, plain = 2 * sp.trunk.radius * (12 / sp.height);
+  ok(zmin < 0 && base >= 1.3 * plain && base <= 3 * plain, `${kind}: the trunk's first ring is under the ground (${zmin.toFixed(2)} m) and flared — ${base.toFixed(2)} m wide against the recipe's ${plain.toFixed(2)} m trunk`);
+}
+
 console.log(fails ? `${fails} FAILED` : "ALL PASS");
 process.exit(fails ? 1 : 0);

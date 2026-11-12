@@ -28,7 +28,7 @@ ok(page.includes("const basePR = () => Math.min(PHONE ? 1.25 : 2, devicePixelRat
   "…it renders 1.25 pixels per CSS pixel (not 2), times its render resolution setting (#166)");
 ok(page.includes("const SET_PHONE = { shadows: 0, grass: 0, effects: 0, view: 4 };") && page.includes("viewDist = SET.view;"),
   "…sees 4 chunks of full view (the far land still to the horizon) unless the settings say more");
-ok(page.includes("const TORCH_LIGHTS = PHONE ? 2 : 6"), "…lights two point lights");
+ok(page.includes("const TORCH_LIGHTS = PHONE ? 2 : 8"), "…lights two point lights (eight on a desktop, #181)");
 ok(page.includes("const o = { ...SET_DEF, ...(PHONE ? SET_PHONE : {}) };"), "…casts no shadows, and draws no grass or effects, unless asked (the graphics panel)");
 ok(page.includes("c.lod = PHONE ? (dist <= 1 ? 1 : 2)") && page.includes("lodNow = PHONE ? (dd <= 1 ? 1 : 2)"), "…and draws full tree models in the nearest ring only");
 

@@ -4192,11 +4192,14 @@ function cloudsFrame(cam, fr) {
   cloudSky.renderOrder = above > 0 ? 10 : -0.5;
 }
 // the torches nearest the player, re-chosen twice a second from the loaded plots' pieces; [x, y, z] world metres
-const TORCH_LIGHTS = PHONE ? 2 : 6, torchLights = [];
+// eight on a desktop (#181, playtest 2026-11-11: "nothing lights the square" — thirteen torches stand within 30 m of the
+// hall and the six nearest were the hall's own, inside it and up its tower, so the square outside them stayed dark); a
+// fixed count still: a changing light count would recompile every material
+const TORCH_LIGHTS = PHONE ? 2 : 8, torchLights = [];
 // LIGHTS by source: how bright, how far it reaches (m), how much it flickers, and the height of its flame in its piece
 // (cm). A lantern lights a yard, a street lamp a street ("townhall disappears after walking 20 meters at night",
 // operator 2026-11-07); the pool is given to the sources whose light reaches the player soonest (distance / reach).
-const LIGHTS = { torch: { i: 3, d: 9, f: 1, y: 112 }, fire: { i: 3, d: 9, f: 1, y: 0 },
+const LIGHTS = { torch: { i: 3, d: 11, f: 1, y: 112 }, fire: { i: 3, d: 9, f: 1, y: 0 },      // (a torch reaches 11 m: the square's posts are ~9 m apart, #181)
                  lantern: { i: 20, d: 18, f: 0.25, y: 18 }, lamppost: { i: 60, d: 26, f: 0.12, y: 297 } };
 let torchNear = [], torchAt = 0, torchNight = 0;
 function torchTick(now, cam) {
