@@ -4608,12 +4608,7 @@
      55046.0,
      80001.0
     ],
-    "look": {
-     "skin": 2,
-     "hair": 7,
-     "body": 1,
-     "face": 1
-    },
+    "look": {"skin": 2, "hair": 5, "body": 1, "face": 1, "worn": {"body": "linen_shirt", "legs": "linen_trousers"}},
     "gives": true
    },
    {
@@ -4625,12 +4620,7 @@
      55052.0,
      80001.0
     ],
-    "look": {
-     "skin": 4,
-     "hair": 2,
-     "body": 0,
-     "face": 0
-    }
+    "look": {"skin": 4, "hair": 1, "body": 0, "face": 0, "worn": {"body": "linen_shirt", "legs": "linen_trousers"}}
    },
    {
     "id": "smith",
@@ -4641,12 +4631,7 @@
      55043.0,
      80001.0
     ],
-    "look": {
-     "skin": 1,
-     "hair": 9,
-     "body": 1,
-     "face": 3
-    }
+    "look": {"skin": 1, "hair": 0, "body": 1, "face": 3, "worn": {"body": "linen_shirt", "legs": "linen_trousers"}}
    }
   ],
   "bring": [

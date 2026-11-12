@@ -71,5 +71,14 @@ const pf = land.slice(land.indexOf("function prefetchTown()"), land.indexOf("asy
 ok(/for \(let dr = -1; dr <= 1; dr\+\+\) for \(let dc = -1; dc <= 1; dc\+\+\) resync\(Wd\.plotId\(q\.face, q\.prow \+ dr, q\.pcol \+ dc\)\);/.test(pf) && !/await/.test(pf),
    "…the hall's plot and its eight neighbours, each fetch on its own, none awaited");
 
+
+// THE TOWNSPEOPLE LOOK LIKE TOWNSPEOPLE (operator 2026-11-12, "why is their hair green and blue"): every townsperson's
+// hair is one of the natural colours (the palette's first six: dark to grey) and each wears linen — a shirt and trousers
+{
+  const natural = 6, npcs = R.quests.npcs;
+  ok(npcs.every((n) => n.look && Number.isInteger(n.look.hair) && n.look.hair < natural), `every townsperson's hair is a natural colour (${npcs.map((n) => `${n.id}:${n.look.hair}`).join(", ")})`);
+  ok(npcs.every((n) => n.look.worn && n.look.worn.body === "linen_shirt" && n.look.worn.legs === "linen_trousers"), "…and each wears a linen shirt and linen trousers");
+}
+
 console.log(fails ? `${fails} FAILED` : "all passed");
 process.exit(fails ? 1 : 0);
