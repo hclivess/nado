@@ -10,6 +10,9 @@
 // (the same three.js, the same TSL idiom): the skinning from texture rows, the rest frames, the IK solver and the gait are
 // its, cut down to what a townsperson does — stand, walk, look. Hands with nothing to hold hang by the thighs and swing
 // against the legs when walking.
+// Step 3: GARMENTS as meshes — MakeHuman's t-shirt-and-jeans outfit (one a build's sex) and shoes, the outfit split at
+// the waist into the wardrobe's body and legs slots: a part is drawn only when its slot is worn (the row's info texel
+// carries the flags), tinted by the slot's region colour. The body's painted regions stay under them.
 // Step 2: HAIR AND EYEBROWS as meshes — MakeHuman's own CC0 proxies (seven styles and an eyebrow), fitted to the three
 // builds offline (tools/human/build_wear.py → static/human/wear.bin) and drawn like the body: one instanced draw an
 // item, skinned from the same texture rows, the painted strands tinted by the figure's own hair colour. The look's face
@@ -18,7 +21,7 @@
 // wardrobe's 3D preview, sitting, a run cycle; a cap is still a colour on the scalp under the hair.
 import * as THREE from "three/webgpu";
 import * as TSL from "three/tsl";
-import { parseHuman, parseWear, hairStyleOf, B, NB, REGIONS, ROW_TEXELS, kitOf, variantOf, gait, WALK_CYCLE, KNEE_GAIT } from "./land-human-data.js";
+import { parseHuman, parseWear, hairStyleOf, wornOf, PART, B, NB, REGIONS, ROW_TEXELS, kitOf, variantOf, gait, WALK_CYCLE, KNEE_GAIT } from "./land-human-data.js";
 
 export const MAXF = 128;                                   // figures drawn at once (a texture row each)
 const NEAR = 60, FAR = 350;                                // m: LOD0 within NEAR of the eye, LOD1 to FAR, none beyond
@@ -111,19 +114,34 @@ function humanMaterial(tex) {
 // the worn items: the same skinning, the item's own painted texture (alpha-tested strands) tinted by the row's hair
 // colour — colour × (texel luminance / the texture's mean), so the strands keep their light and dark while a blond
 // choice is blond on a texture painted dark (build_wear.py writes the mean)
-function wearMaterial(tex, map, lum, dark) {
-  const { attribute, texture, int, ivec2, vec3, vec4, float, uv, dot, clamp, varying, normalLocal, materialColor } = TSL;
+function wearMaterial(tex, map, lum, dark, clothes, lums) {
+  const { attribute, texture, int, ivec2, vec3, vec4, float, uv, dot, clamp, select, varying, normalLocal, materialColor } = TSL;
   const m = new THREE.MeshStandardNodeMaterial({ roughness: 0.55, metalness: 0, side: THREE.DoubleSide, alphaTest: 0.5 });
   const T = texture(tex);
   m.positionNode = skinned(T, false);
   const nrm = skinned(T, true);
   m.setupPosition = function (builder) { normalLocal.assign(nrm); return Object.getPrototypeOf(this).setupPosition.call(this, builder); };
   const row = int(attribute("aFig", "float").add(0.5));
-  const hair = T.load(ivec2(NB * 3 + 1 + REGIONS.indexOf("hair"), row));
-  const vCol = varying(hair.rgb, "vWearCol"), vRough = varying(hair.a, "vWearRough");
+  let col, shown = float(1.0);
+  if (clothes) {
+    // a garment's part takes its slot's region colour — the shirt the jacket's, the trousers the trousers', shoes the
+    // boots' — and is drawn only when that slot is worn (the row's info texel: y the body slot, z the legs; shoes always)
+    const part = attribute("aPart", "float").add(0.5), info = T.load(ivec2(NB * 3, row));
+    const region = select(part.lessThan(1.0), int(REGIONS.indexOf("jacket")), select(part.lessThan(2.0), int(REGIONS.indexOf("trousers")), int(REGIONS.indexOf("boots"))));
+    col = T.load(ivec2(region.add(NB * 3 + 1), row));
+    shown = select(part.lessThan(1.0), info.y, select(part.lessThan(2.0), info.z, float(1.0)));
+  } else col = T.load(ivec2(NB * 3 + 1 + REGIONS.indexOf("hair"), row));
+  const vCol = varying(col.rgb, "vWearCol"), vRough = varying(col.a, "vWearRough"), vShown = varying(shown, "vWearShown");
   const tx = texture(map, uv());
-  const L = clamp(dot(tx.rgb, vec3(0.2126, 0.7152, 0.0722)).div(float(Math.max(0.02, lum))), 0.0, 1.8);
-  m.colorNode = vec4(materialColor.rgb.mul(vCol).mul(L).mul(float(dark)), tx.a);
+  // the strands keep their light and dark (hair, up to 1.8× the mean); a garment's weave is flattened to 0.6..1.4× its
+  // own part's mean, so an outfit's painted print reads as a shade, not a stain
+  let L;
+  if (clothes) {
+    const part = varying(attribute("aPart", "float").add(0.5), "vWearPart");
+    const mean = select(part.lessThan(1.0), float(Math.max(0.02, lums[0])), select(part.lessThan(2.0), float(Math.max(0.02, lums[1])), float(Math.max(0.02, lums[2]))));
+    L = clamp(dot(tx.rgb, vec3(0.2126, 0.7152, 0.0722)).div(mean), 0.6, 1.4);
+  } else L = clamp(dot(tx.rgb, vec3(0.2126, 0.7152, 0.0722)).div(float(Math.max(0.02, lum))), 0.0, 1.8);
+  m.colorNode = vec4(materialColor.rgb.mul(vCol).mul(L).mul(float(dark)), tx.a.mul(vShown));
   m.roughnessNode = vRough;
   return m;
 }
@@ -212,7 +230,7 @@ function solve(R, P) {
 export class HumanView {
   constructor(scene, url = "/static/human/crew.bin", wearUrl = "/static/human/wear.bin") {
     this.scene = scene; this.ready = false; this.figs = new Map(); this.free = []; this.pose = new Pose(); this.meshes = null;
-    this.wear = null; this.hairIdx = []; this.browIdx = []; this.hairDrawn = 0; this.walking = 0;
+    this.wear = null; this.hairIdx = []; this.browIdx = []; this.suitIdx = [-1, -1, -1]; this.shoeIdx = []; this.hairDrawn = 0; this.dressed = 0; this.walking = 0;
     this.data = new Float32Array(ROW_TEXELS * MAXF * 4);
     this.tex = new THREE.DataTexture(this.data, ROW_TEXELS, MAXF, THREE.RGBAFormat, THREE.FloatType);
     this.tex.minFilter = this.tex.magFilter = THREE.NearestFilter; this.tex.generateMipmaps = false; this.tex.needsUpdate = true;
@@ -240,15 +258,20 @@ export class HumanView {
   buildWear(W) {
     const loader = new THREE.TextureLoader();
     this.wear = W.items.map((it) => {
+      const clothes = it.kind === "clothes";
       const attrs = interleave(it.nV, [["position", it.pos[0], 3], ["normal", it.nrm[0], 3], ["p1", it.pos[1], 3], ["n1", it.nrm[1], 3], ["p2", it.pos[2], 3], ["n2", it.nrm[2], 3],
-        ["aBoneI", it.skinI, 4], ["aBoneW", it.skinW, 4], ["uv", it.uv, 2]]);
+        ["aBoneI", it.skinI, 4], ["aBoneW", it.skinW, 4], ["uv", it.uv, 2], ...(clothes ? [["aPart", it.part, 1]] : [])]);
       const map = loader.load("/static/human/" + it.tex); map.colorSpace = THREE.SRGBColorSpace; map.anisotropy = 4;
-      const m = new THREE.Mesh(instanced(attrs, it.idx), wearMaterial(this.tex, map, it.lum, it.kind === "eyebrows" ? 0.55 : 1));   // (brows a shade darker than the hair)
-      m.frustumCulled = false; m.castShadow = it.kind === "hair"; m.receiveShadow = true; m.matrixAutoUpdate = false; m.visible = false;
+      const m = new THREE.Mesh(instanced(attrs, it.idx), wearMaterial(this.tex, map, it.lum, it.kind === "eyebrows" ? 0.55 : 1, clothes, it.lums));   // (brows a shade darker than the hair)
+      m.frustumCulled = false; m.castShadow = it.kind !== "eyebrows"; m.receiveShadow = true; m.matrixAutoUpdate = false; m.visible = false;
       this.scene.add(m); return { it, mesh: m };
     });
     this.hairIdx = W.items.map((it, i) => (it.kind === "hair" ? i : -1)).filter((i) => i >= 0);
     this.browIdx = W.items.map((it, i) => (it.kind === "eyebrows" ? i : -1)).filter((i) => i >= 0);
+    // the outfit a build wears: the male one on the male and heavy builds, the female one on the female; shoes on all
+    const suit = (sex) => W.items.findIndex((it) => it.kind === "clothes" && it.name.startsWith(sex + "_"));
+    this.suitIdx = [suit("male"), suit("female"), suit("male")];
+    this.shoeIdx = W.items.map((it, i) => (it.kind === "clothes" && it.name.startsWith("shoes") ? i : -1)).filter((i) => i >= 0);
     for (const f of this.figs.values()) f.style = hairStyleOf(f.look, this.hairIdx.length);
   }
   /** A figure: `look` the wardrobe's, `colours` land.js lookColours' { skin, top, legs, hair, cap, cloak }. */
@@ -256,7 +279,7 @@ export class HumanView {
     if (this.figs.has(id)) return this.figs.get(id);
     const row = this.free.pop();
     if (row === undefined) return null;                        // (more than MAXF people in view: the rest are not drawn)
-    const f = { row, look, variant: variantOf(look), kit: kitOf(colours), style: hairStyleOf(look, this.hairIdx.length), scale: 1, ph: 0, mv: 0, phase: (row * 0.618) % 1 * 10, yaw: 0, dist: Infinity, placed: false, breath: 0 };
+    const f = { row, look, variant: variantOf(look), kit: kitOf(colours), style: hairStyleOf(look, this.hairIdx.length), worn: wornOf(look), scale: 1, ph: 0, mv: 0, phase: (row * 0.618) % 1 * 10, yaw: 0, dist: Infinity, placed: false, breath: 0 };
     this.figs.set(id, f); return f;
   }
   remove(id) { const f = this.figs.get(id); if (!f) return; this.figs.delete(id); this.free.push(f.row); }
@@ -314,18 +337,24 @@ export class HumanView {
       dd[j + 8] = e[2]; dd[j + 9] = e[6]; dd[j + 10] = e[10]; dd[j + 11] = e[14];
     }
     dd[o + NB * 12] = f.variant;
+    dd[o + NB * 12 + 1] = f.worn.body ? 1 : 0; dd[o + NB * 12 + 2] = f.worn.legs ? 1 : 0;    // (the garment parts drawn)
     dd.set(f.kit, o + NB * 12 + 4);
   }
   /** After every figure is placed: the LODs' instance lists and the texture upload. Returns how many are drawn. */
   flush() {
     if (!this.ready) return 0;
     const near = [], far = [], worn = this.wear ? this.wear.map(() => []) : null;
-    this.walking = 0; this.hairDrawn = 0;
+    this.walking = 0; this.hairDrawn = 0; this.dressed = 0;
     for (const f of this.figs.values()) if (f.placed) {
       (f.dist < NEAR ? near : far).push(f.row); if (f.mv > 0.2) this.walking++;
       if (worn) {
         if (f.style >= 0 && f.dist < HAIR_FAR) { worn[this.hairIdx[f.style]].push(f.row); this.hairDrawn++; }
         if (f.dist < NEAR) for (const b of this.browIdx) worn[b].push(f.row);
+        if (f.dist < HAIR_FAR) {                        // the garments: the build's outfit when a slot is worn, shoes always
+          const si = this.suitIdx[f.variant];
+          if (si >= 0 && (f.worn.body || f.worn.legs)) { worn[si].push(f.row); this.dressed++; }
+          for (const b of this.shoeIdx) worn[b].push(f.row);
+        }
       }
     }
     const set = (m, rows) => { const a = m.geometry.getAttribute("aFig"); a.array.set(rows); a.needsUpdate = true; m.geometry.instanceCount = rows.length; m.visible = rows.length > 0; };

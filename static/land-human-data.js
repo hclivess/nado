@@ -70,16 +70,21 @@ export function parseWear(buf) {
   const n = dv.getUint32(4, true), hdr = JSON.parse(new TextDecoder().decode(new Uint8Array(buf, 8, n))), o = 8 + n;
   const view = (T, [off, len]) => new T(buf, o + off, len / T.BYTES_PER_ELEMENT);
   const items = hdr.items.map((it) => ({
-    kind: it.kind, name: it.name, nV: it.nV, nT: it.nT, tex: it.tex, lum: it.lum || 0.5,
+    kind: it.kind, name: it.name, nV: it.nV, nT: it.nT, tex: it.tex, lum: it.lum || 0.5, lums: it.lums || [it.lum || 0.5, it.lum || 0.5, it.lum || 0.5],
     pos: it.variants.map((v) => { const q = view(Int16Array, v.pos), p = new Float32Array(it.nV * 3); for (let i = 0; i < p.length; i++) p[i] = q[i] * it.posScale; return p; }),
     nrm: it.variants.map((v) => view(Float32Array, v.nrm)),
     uv: view(Float32Array, it.uv), skinI: view(Uint8Array, it.skinI), skinW: view(Uint8Array, it.skinW),
     idx: view(it.idx32 ? Uint32Array : Uint16Array, it.idx),
+    part: it.part ? view(Uint8Array, it.part) : null,     // (#172 step 3: 0 the shirt, 1 the trousers, 2 shoes; 255 none)
   }));
   return { items, bones: hdr.bones, licence: hdr.licence || null };
 }
 /** The hair a look wears: one of the hair items by the look's face choice (the wardrobe picks faces 0..5: the face is the
  *  mesh's own now, so the choice names the hair style — the wardrobe will say so, #172), bald for none. */
+/** What a look wears as flags for the figure's row (#172 step 3): the body and legs slots of the wardrobe; a look that
+ *  carries no `worn` at all (a townsperson's) is dressed in both. */
+export const wornOf = (look) => (look && look.worn ? { body: !!look.worn.body, legs: !!look.worn.legs } : { body: true, legs: true });
+export const PART = { top: 0, legs: 1, shoes: 2, none: 255 };
 export const hairStyleOf = (look, nHair) => (nHair ? Math.abs(((look && look.face) || 0) + ((look && look.body) || 0) * 2) % nHair : -1);
 // (face * 7 + body was the first form: seven styles, so every face gave style `body` — the test counts the styles six faces reach)
 

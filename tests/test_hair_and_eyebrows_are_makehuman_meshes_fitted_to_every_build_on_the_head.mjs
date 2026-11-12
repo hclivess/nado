@@ -55,7 +55,7 @@ for (let v = 0; v < 3; v++) {
 }
 
 // 3. skinned to the head
-for (const it of W.items) {
+for (const it of [...hair, ...brows]) {               // (the clothes items of step 3 are the garments test's)
   const chain = LONG.has(it.name) ? [Hd.B.head, Hd.B.neck, Hd.B.chest, Hd.B.spine] : [Hd.B.head, Hd.B.neck];
   let headW = 0, total = 0;
   for (let i = 0; i < it.nV; i++) for (let j = 0; j < 4; j++) { const w = it.skinW[i * 4 + j]; total += w; if (chain.includes(it.skinI[i * 4 + j])) headW += w; }

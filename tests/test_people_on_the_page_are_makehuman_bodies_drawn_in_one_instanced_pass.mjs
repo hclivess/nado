@@ -110,6 +110,9 @@ try {
   // #172 step 2: the people wear hair — MakeHuman's meshes, one instanced draw a style (the readout counts the heads)
   const okH = await until(B, "/[1-9]\\d* heads of hair/.test(document.getElementById('hudGpu').textContent)", 60000);
   ok(okH && (await stat(B, "heads of hair")) >= 1, `the people wear hair as meshes (${await stat(B, "heads of hair")} heads of hair drawn on B)`);
+  // #172 step 3: the townspeople wear their outfit as a mesh (the readout counts the dressed)
+  const okD = await until(B, "/[1-9]\\d* dressed/.test(document.getElementById('hudGpu').textContent)", 30000);
+  ok(okD, `the people wear garments as meshes (${await stat(B, "dressed")} dressed on B)`);
   await shot(B, "people_B_sees_A"); await shot(A, "people_A_sees_B");
   const calls = await stat(B, "calls");
   ok(calls > 0 && calls < 200, `…the body is an instanced draw, not a mesh a limb (${calls} draw calls in all, ${pb} people)`);

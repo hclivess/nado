@@ -25,6 +25,11 @@ from PIL import Image
 SRC = sys.argv[1] if len(sys.argv) > 1 else "/root/land-research/human/mh-release/exe/makehuman/data"
 OUT = sys.argv[2] if len(sys.argv) > 2 else os.path.join(os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))), "static", "human")
 ITEMS = [("hair", n) for n in ["short02", "short04", "bob02", "long01", "ponytail01", "afro01", "braid01"]] + [("eyebrows", "eyebrow001")]
+# GARMENTS (#172 step 3): MakeHuman's t-shirt-and-jeans outfits (one mesh each; the page splits it at the waist into the
+# wardrobe's body and legs slots by the vertex's part) and a pair of shoes; casualsuit04 is the lightest male outfit
+# (1,696 vertices), casualsuit01 the female one (2,197)
+ITEMS += [("clothes", "male_casualsuit04"), ("clothes", "female_casualsuit01"), ("clothes", "shoes01")]
+PART_TOP, PART_LEGS, PART_SHOES, PART_NONE = 0, 1, 2, 255
 VARIANTS = [("male", "caucasian-male-young"), ("female", "caucasian-female-young"), ("heavy", "african-male-young")]
 DM = 0.1                                   # MakeHuman works in decimetres; the body (crew.bin) is in metres
 TEX = 512
@@ -73,6 +78,7 @@ with open(crew_path, "rb") as f:
     hdr_len = struct.unpack("<I", f.read(8)[4:])[0]
     crew = json.loads(f.read(hdr_len))
 head_joint = {v["name"]: np.array(v["heads"][BI["head"]]) for v in crew["variants"]}
+hips_joint = {v["name"]: np.array(v["heads"][BI["hips"]]) for v in crew["variants"]}
 # the base mesh's head joint (the 'head' bone's head) in the same units, to find the frame shift
 def joint(P, name): return P[skel["joints"][name]].mean(0)
 shift = []
@@ -132,6 +138,11 @@ for kind, name in ITEMS:
     for vi, (vname, _) in enumerate(VARIANTS):
         P = fit(pxy, VB[vi])[src_v] * DM + shift[vi]
         posv.append(P); scale = max(scale, float(np.abs(P).max()))
+    # the part each vertex belongs to: an outfit splits at the waist — a vertex under the hips joint less 8 cm (the
+    # jeans' waistband; the shirt's hem hangs over it) is the trousers, over it the shirt; shoes are shoes; hair none
+    if kind == "clothes" and name.startswith("shoes"): part = np.full(nV, PART_SHOES, np.uint8)
+    elif kind == "clothes": part = np.where(posv[0][:, 1] < hips_joint["male"][1] - 0.08, PART_LEGS, PART_TOP).astype(np.uint8)
+    else: part = np.full(nV, PART_NONE, np.uint8)
     posScale = scale / 32000.0
     for vi, (vname, _) in enumerate(VARIANTS):
         P = posv[vi]
@@ -154,12 +165,20 @@ for kind, name in ITEMS:
     px = np.asarray(im, dtype=np.float64) / 255.0
     a = px[..., 3]
     lum = float(((0.2126 * px[..., 0] + 0.7152 * px[..., 1] + 0.0722 * px[..., 2]) * a).sum() / max(1e-6, a.sum()))
-    items.append({"kind": kind, "name": name, "nV": nV, "nT": len(tris), "posScale": posScale, "variants": variants, "lum": round(lum, 4),
+    # …and per PART for an outfit (the shirt and the jeans share one atlas: the jeans' dark texels pulled the shirt's
+    # mean down and the shirt came out blotchy, 2026-11-12): the mean over the texels the part's vertices sample
+    Lt = 0.2126 * px[..., 0] + 0.7152 * px[..., 1] + 0.0722 * px[..., 2]
+    tx_i = np.clip((uv[:, 0] * (TEX - 1)).round().astype(int), 0, TEX - 1); ty_i = np.clip(((1 - uv[:, 1]) * (TEX - 1)).round().astype(int), 0, TEX - 1)
+    lums = []
+    for pt in (PART_TOP, PART_LEGS, PART_SHOES):
+        sel = part == pt
+        lums.append(round(float(Lt[ty_i[sel], tx_i[sel]].mean()), 4) if sel.any() else round(lum, 4))
+    items.append({"kind": kind, "name": name, "nV": nV, "nT": len(tris), "posScale": posScale, "variants": variants, "lum": round(lum, 4), "lums": lums,
                   "uv": put(uv.astype(np.float32)), "skinI": put(skinI), "skinW": put(skinW8),
-                  "idx": put(tris.astype(np.uint16 if nV <= 65535 else np.uint32)), "idx32": nV > 65535, "tex": texfile})
+                  "idx": put(tris.astype(np.uint16 if nV <= 65535 else np.uint32)), "idx32": nV > 65535, "tex": texfile, "part": put(part)})
     print("%s/%s: %d vertices, %d triangles, texture %s" % (kind, name, nV, len(tris), texfile))
 
-hdr = {"version": 1, "bones": BONES, "items": items, "licence": "MakeHuman 1.2.0 assets (CC0 1.0 Universal, LICENSE.md section C): hair and eyebrow proxies fitted to the body's three builds by this converter"}
+hdr = {"version": 1, "bones": BONES, "items": items, "licence": "MakeHuman 1.2.0 assets (CC0 1.0 Universal, LICENSE.md section C): hair, eyebrow and clothes proxies fitted to the body's three builds by this converter"}
 js = json.dumps(hdr, separators=(",", ":")).encode()
 js += b" " * ((-len(js)) % 4)
 with open(os.path.join(OUT, "wear.bin"), "wb") as f:
