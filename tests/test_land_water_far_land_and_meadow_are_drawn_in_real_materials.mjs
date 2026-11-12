@@ -93,12 +93,18 @@ ok(/sat:/.test(land) && /S-curve/.test(gr) && /GRADE\.cool/.test(gr) && /GRADE\.
 // 5
 ok(/#hudPlot\{display:flex;flex-wrap:wrap;align-items:center;gap:/.test(html), "the plot line is a wrapping row with gaps");
 
-if (fails) { console.log(`${fails} FAILURES`); process.exit(1); }
-
 // GRASS AND EARTH ARE TRIPLANAR (#181 item 5): on a hillside the two layers take the rock's three projections, the side
 // ones weighted by the face's turn from the sky, so a steep slope is not a texture stretched along it
 const gmTri = land.slice(land.indexOf("function groundMaterial()"), land.indexOf("function groundMaterial()") + 3000);
 ok(/const tri = \(t\) => TSL\.mix\(TSL\.texture\(t, near\)\.rgb\.mul\(tw\.z\)\.add\(TSL\.texture\(t, TSL\.vec2\(uvw\.y, uvw\.z\)\.div\(3\.2\)\)\.rgb\.mul\(tw\.x\)\)\.add\(TSL\.texture\(t, TSL\.vec2\(uvw\.x, uvw\.z\)\.div\(3\.2\)\)\.rgb\.mul\(tw\.y\)\)\.div\(tws\)/.test(gmTri)
    && /const color = tri\(tex\[0\]\)\.mul\(meadow\)\.mul\(w1\.x\)\.add\(tri\(tex\[1\]\)\.mul\(w1\.y\)\)/.test(gmTri), "grass and earth are blended from three projections by the ground normal, as the rock is");
 
+// STARS ARE POINTS AT EVERY RESOLUTION (#181 item 9): a star's point size grows as the render resolution drops so it is
+// never under two buffer pixels (the upscale split a sub-pixel star into a pair of dots), and the size follows the setting
+ok(/const starPx = \(base\) => Math\.max\(base, \(base \+ 0\.6\) \/ \(basePR\(\) \* SET\.res \/ 100\)\);/.test(land) && /size: starPx\(1\.6\)/.test(land) && /size: starPx\(3\.2\)/.test(land)
+   && /if \(k === "res"\) \{ renderer\.setPixelRatio\(basePR\(\) \* SET\.res \/ 100\); if \(stars\) stars\.material\.size = starPx\(1\.6\); if \(satPts\) satPts\.material\.size = starPx\(3\.2\); \}/.test(land),
+   "a star is never under two buffer pixels: its point size grows as the render resolution drops, and follows the setting");
+
+// (the verdict last: a pin added after it could never fail the test — the triplanar pin sat there for an hour, 2026-11-12)
+if (fails) { console.log(`${fails} FAILURES`); process.exit(1); }
 console.log("ALL PASS");

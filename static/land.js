@@ -3168,7 +3168,7 @@ function applySetting(k) {
   if (k === "fov" && camera) { camera.fov = SET.fov; camera.updateProjectionMatrix(); }
   if (k === "grass") for (const key of chunks.keys()) request(key);           // re-mesh with or without the blades
   if (!renderer) return;                                                       // before start(): start() applies them all
-  if (k === "res") renderer.setPixelRatio(basePR() * SET.res / 100);
+  if (k === "res") { renderer.setPixelRatio(basePR() * SET.res / 100); if (stars) stars.material.size = starPx(1.6); if (satPts) satPts.material.size = starPx(3.2); }
   if (k === "shadows") shadowQuality();
   if (k === "view") { viewDist = SET.view; if (scene && scene.fog) scene.fog.near = viewDist * CHUNK * 0.9; updateChunks(); buildFar(); }
   if (k === "effects") pipeline = buildPipeline();                             // the post-processing is built again, or dropped
@@ -3977,6 +3977,10 @@ function glowTexture() {
   const t = new THREE.CanvasTexture(cv); t.colorSpace = THREE.SRGBColorSpace;
   return t;
 }
+/** A point's size so that it is never under two of the render buffer's pixels: at a lowered render resolution a 1.6-px
+ *  star was under one buffer pixel, and the upscale to the screen split it into a pair of dots — "stars are drawn as
+ *  short dashes at 60 %" (#181 item 9, playtest 2026-11-11; photographed at 60 % and 100 %, 2026-11-12). */
+const starPx = (base) => Math.max(base, (base + 0.6) / (basePR() * SET.res / 100));
 function buildSky() {
   dome = new THREE.Mesh(new THREE.SphereGeometry(3400, 48, 24), new THREE.MeshBasicMaterial({ vertexColors: true, side: THREE.BackSide, fog: false, depthWrite: false }));
   dome.geometry.setAttribute("color", new THREE.BufferAttribute(new Float32Array(dome.geometry.attributes.position.count * 3), 3));
@@ -3999,13 +4003,13 @@ function buildSky() {
     pos.set([Math.cos(a) * r * 3300, z * 3300, Math.sin(a) * r * 3300], i * 3);
   }
   const g = new THREE.BufferGeometry(); g.setAttribute("position", new THREE.BufferAttribute(pos, 3));
-  stars = new THREE.Points(g, new THREE.PointsMaterial({ color: 0xffffff, size: 1.6, sizeAttenuation: false, transparent: true, fog: false, depthWrite: false }));
+  stars = new THREE.Points(g, new THREE.PointsMaterial({ color: 0xffffff, size: starPx(1.6), sizeAttenuation: false, transparent: true, fog: false, depthWrite: false }));
   stars.renderOrder = -1;
   scene.add(stars);
   // THE POSITIONING SATELLITES (#173): points crossing the sky where they really are (land-cosmos.js satPosition), seen
   // as the sky darkens, as the stars are
   const sg = new THREE.BufferGeometry(); sg.setAttribute("position", new THREE.BufferAttribute(new Float32Array(3 * 64), 3));
-  satPts = new THREE.Points(sg, new THREE.PointsMaterial({ color: 0xfff4d6, size: 3.2, sizeAttenuation: false, transparent: true, fog: false, depthWrite: false }));
+  satPts = new THREE.Points(sg, new THREE.PointsMaterial({ color: 0xfff4d6, size: starPx(3.2), sizeAttenuation: false, transparent: true, fog: false, depthWrite: false }));
   satPts.renderOrder = -1; satPts.frustumCulled = false;
   scene.add(satPts);
 }
