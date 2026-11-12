@@ -11,8 +11,8 @@
  *   4. one line says the next thing to do (goalLine, over the bar, refreshed with it): signed out — sign in; no work —
  *      talk to the elder (Q); work taken — the work; done — hand it in; and the plot card's price says how NADO is come
  *      by; the four strings in all 17 languages with their placeholders;
- *   5. the town comes with the first frame: start() asks for the hall's plot and its eight neighbours right after the
- *      rules load, before the renderer is even made, each fetch on its own (not awaited).
+ *   5. the town comes with the first frame: start() asks for the hall's plot and its eight neighbours FIRST — before
+ *      the rules load and the renderer is made — each fetch on its own (not awaited), at high priority.
  * Run: node tests/test_a_new_player_lands_facing_a_townsperson_and_the_bar_says_what_the_bag_holds.mjs
  */
 import { readFileSync } from "node:fs";
@@ -65,7 +65,8 @@ ok(Object.entries(need).every(([k, ph]) => langs.every((l) => typeof I[l][k] ===
 // 5. the town with the first frame
 const st = land.slice(land.indexOf("async function start()"), land.indexOf("async function start()") + 1500);
 const iRules = st.indexOf("RULES = await"), iPre = st.indexOf("prefetchTown();"), iRend = st.indexOf("new THREE.WebGPURenderer");
-ok(iRules >= 0 && iPre > iRules && iRend > iPre, "start() prefetches the town's plots after the rules load and before the renderer is made");
+ok(iRules >= 0 && iPre >= 0 && iPre < iRules && iRend > iRules, "start() prefetches the town's plots before the rules load and the renderer");
+ok(/fetch\("\/land\/api\/plot\?plot=" \+ plot, \{ cache: "no-store", credentials: "same-origin", priority: "high" \}\)/.test(land), "…at high fetch priority, ahead of the page's own downloads");
 const pf = land.slice(land.indexOf("function prefetchTown()"), land.indexOf("async function resync("));
 ok(/for \(let dr = -1; dr <= 1; dr\+\+\) for \(let dc = -1; dc <= 1; dc\+\+\) resync\(Wd\.plotId\(q\.face, q\.prow \+ dr, q\.pcol \+ dc\)\);/.test(pf) && !/await/.test(pf),
    "…the hall's plot and its eight neighbours, each fetch on its own, none awaited");

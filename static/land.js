@@ -1745,7 +1745,7 @@ function prefetchTown() {
   for (let dr = -1; dr <= 1; dr++) for (let dc = -1; dc <= 1; dc++) resync(Wd.plotId(q.face, q.prow + dr, q.pcol + dc));
 }
 async function resync(plot) {
-  try { const r = await (await fetch("/land/api/plot?plot=" + plot, { cache: "no-store", credentials: "same-origin" })).json(); applyPlot(plot, r.edits || []); setPlotBoxes(plot, r.boxes || []); } catch (e) {}
+  try { const r = await (await fetch("/land/api/plot?plot=" + plot, { cache: "no-store", credentials: "same-origin", priority: "high" })).json(); applyPlot(plot, r.edits || []); setPlotBoxes(plot, r.boxes || []); } catch (e) {}
 }
 // THE LOOK (#111, "the crafted items should be what changes how you look"): a body of boxes — legs, torso, arms, head,
 // hair — in the player's chosen skin and hair, dressed in what they wear (scripts/land_server.py look_of). What is not
@@ -4473,12 +4473,14 @@ async function start() {
   load();
   viewDist = SET.view;                                      // the view distance setting (#166); a photo shot takes its own
   if (SHOT !== null) shotSetup();
-  RULES = await (await fetch("/static/land-recipes.json", { cache: "no-cache" })).json();
-  // THE TOWN WITH THE FIRST FRAME (#178): the hall's plot and its eight neighbours are fetched now, while the renderer
-  // starts and the first chunks mesh, so the first picture holds the hall — not bare ground where it will be (the
-  // playtest's newcomer watched the town arrive seconds after the terrain, by the world server's own order of plots).
-  // The same records come over the socket later and replace these alike (setPlotBoxes / applyPlot are idempotent).
+  // THE TOWN WITH THE FIRST FRAME (#178): the hall's plot and its eight neighbours are fetched FIRST — before the
+  // rules, the renderer and the first chunks — so the first picture holds the hall, not bare ground where it will be
+  // (the playtest's newcomer watched the town arrive seconds after the terrain, by the world server's own order of
+  // plots; asked for after the rules, the records still came ~4 s after the first frame, 2026-11-12: they queued behind
+  // the page's own downloads). The same records come over the socket later and replace these alike (setPlotBoxes /
+  // applyPlot are idempotent; the chunks are not there yet, so nothing is remeshed, they are meshed with the pieces).
   prefetchTown();
+  RULES = await (await fetch("/static/land-recipes.json", { cache: "no-cache" })).json();
   const canvas = $("world");
   renderer = new THREE.WebGPURenderer({ canvas, antialias: true });
   renderer.setPixelRatio(basePR() * SET.res / 100);          // render resolution (#166): a share of the screen's pixels
