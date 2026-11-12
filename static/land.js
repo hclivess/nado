@@ -3370,6 +3370,32 @@ const CMDS = {
     if (!last.length) return conLine(T("cTraceNone", "No events yet."));
     for (const e of last) conLine(new Date(e.t).toISOString().slice(11, 19) + " " + e.k + " " + JSON.stringify({ ...e, t: undefined, k: undefined }).slice(0, 160));
   },
+  // /tris (#150): what the frame's triangles are — by what draws them — so a heavy landing says what is heavy (the stats
+  // line gives one number: 557k–638k at the landing on Low, playtest 2026-11-11, and nothing to cut from it)
+  tris: () => {
+    if (!scene) return;
+    const names = [[matGround, "ground, stones, far land"], [matTrees, "trees (cells)"], [matBark, "bark"], [matLeaves, "foliage"], [matSolid, "blocks"], [matClear, "glass blocks"],
+      [matPieces, "pieces"], [matGlassy, "glassy pieces"], [matWater, "water"], [matGrass, "grass"], [matFlower, "flowers"], [matForest, "far trees"], [matFlame, "flames"]];
+    const by = new Map(), add = (k, n) => by.set(k, (by.get(k) || 0) + n);
+    scene.traverse((o) => {
+      if (!o.isMesh && !o.isPoints && !o.isLine) return;
+      let p = o, shown = true; while (p) { if (!p.visible) { shown = false; break; } p = p.parent; }
+      if (!shown || !o.geometry) return;
+      const g = o.geometry, per = (g.index ? g.index.count : g.attributes.position ? g.attributes.position.count : 0) / 3;
+      const inst = g.instanceCount !== undefined && g.instanceCount !== Infinity ? g.instanceCount : o.count !== undefined ? o.count : 1;
+      const n = Math.round(per * inst);
+      if (!n) return;
+      let k = (names.find(([m]) => m && m === o.material) || [])[1];
+      if (!k && human && (human.meshes || []).includes(o)) k = "people";
+      if (!k && human && (human.wear || []).some((w) => w.mesh === o)) k = "hair, clothes";
+      if (!k && o === farBoxMesh) k = "far boxes";
+      if (!k) k = "other: " + (o.material && o.material.constructor ? o.material.constructor.name : "?");
+      add(k, n);
+    });
+    const rows = [...by.entries()].sort((a, b) => b[1] - a[1]), total = rows.reduce((t, [, n]) => t + n, 0);
+    conLine(T("cTris", "Triangles this frame: {n}k — by what draws them:", { n: Math.round(total / 1000) }));
+    for (const [k, n] of rows) conLine(`  ${Math.round(n / 1000)}k  ${k}`);
+  },
   prof: () => { profToggle(); conLine(PROF.on ? T("cProfOn", "Profiler on — ` (the key left of 1) or /prof closes it.") : T("cProfOff", "Profiler off.")); },
 };
 function conRun(line) {

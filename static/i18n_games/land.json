@@ -606,7 +606,8 @@
   "land.gSens": "Mouse sensitivity",
   "land.gInvert": "Invert look (up is down)",
   "land.gBorders": "Plot borders on the ground",
-  "land.gStats": "Stats line (frame rate, triangles)"
+  "land.gStats": "Stats line (frame rate, triangles)",
+  "land.cTris": "Triangles this frame: {n}k — by what draws them:"
  },
  "cs": {
   "land.notYours": "Pozemek {p} patří někomu jinému. Kupte si pozemek, nebo požádejte jeho vlastníka o pozvání.",
@@ -1215,7 +1216,8 @@
   "land.gSens": "Citlivost myši",
   "land.gInvert": "Obrácený pohled (nahoru je dolů)",
   "land.gBorders": "Hranice parcel na zemi",
-  "land.gStats": "Řádek statistik (snímky, trojúhelníky)"
+  "land.gStats": "Řádek statistik (snímky, trojúhelníky)",
+  "land.cTris": "Trojúhelníků v tomto snímku: {n} tis. — podle toho, co je kreslí:"
  },
  "es": {
   "land.notYours": "La parcela {p} pertenece a otra persona. Compra una parcela o pide a su dueño que te invite.",
@@ -1824,7 +1826,8 @@
   "land.gSens": "Sensibilidad del ratón",
   "land.gInvert": "Invertir la vista (arriba es abajo)",
   "land.gBorders": "Límites de parcela en el suelo",
-  "land.gStats": "Línea de estadísticas (fps, triángulos)"
+  "land.gStats": "Línea de estadísticas (fps, triángulos)",
+  "land.cTris": "Triángulos en este fotograma: {n}k — por lo que los dibuja:"
  },
  "pt": {
   "land.notYours": "O lote {p} pertence a outra pessoa. Compre um lote ou peça ao dono que convide você.",
@@ -2433,7 +2436,8 @@
   "land.gSens": "Sensibilidade do rato",
   "land.gInvert": "Inverter o olhar (cima é baixo)",
   "land.gBorders": "Limites dos lotes no chão",
-  "land.gStats": "Linha de estatísticas (fps, triângulos)"
+  "land.gStats": "Linha de estatísticas (fps, triângulos)",
+  "land.cTris": "Triângulos neste quadro: {n}k — por quem os desenha:"
  },
  "fr": {
   "land.notYours": "La parcelle {p} appartient à quelqu'un d'autre. Achetez une parcelle ou demandez à son propriétaire de vous inviter.",
@@ -3042,7 +3046,8 @@
   "land.gSens": "Sensibilité de la souris",
   "land.gInvert": "Inverser le regard (haut = bas)",
   "land.gBorders": "Limites des parcelles au sol",
-  "land.gStats": "Ligne de stats (images/s, triangles)"
+  "land.gStats": "Ligne de stats (images/s, triangles)",
+  "land.cTris": "Triangles dans cette image : {n}k — par ce qui les dessine :"
  },
  "de": {
   "land.notYours": "Grundstück {p} gehört jemand anderem. Kauf dir ein Grundstück oder bitte den Besitzer um eine Einladung.",
@@ -3651,7 +3656,8 @@
   "land.gSens": "Mausempfindlichkeit",
   "land.gInvert": "Blick umkehren (oben ist unten)",
   "land.gBorders": "Parzellengrenzen am Boden",
-  "land.gStats": "Statistikzeile (Bildrate, Dreiecke)"
+  "land.gStats": "Statistikzeile (Bildrate, Dreiecke)",
+  "land.cTris": "Dreiecke in diesem Bild: {n}k — nach dem, was sie zeichnet:"
  },
  "it": {
   "land.notYours": "Il lotto {p} appartiene a qualcun altro. Compra un lotto o chiedi al proprietario di invitarti.",
@@ -4260,7 +4266,8 @@
   "land.gSens": "Sensibilità del mouse",
   "land.gInvert": "Inverti lo sguardo (su è giù)",
   "land.gBorders": "Confini dei lotti a terra",
-  "land.gStats": "Riga di statistiche (fps, triangoli)"
+  "land.gStats": "Riga di statistiche (fps, triangoli)",
+  "land.cTris": "Triangoli in questo fotogramma: {n}k — per ciò che li disegna:"
  },
  "ru": {
   "land.notYours": "Участок {p} принадлежит другому игроку. Купите участок или попросите владельца пригласить вас.",
@@ -4869,7 +4876,8 @@
   "land.gSens": "Чувствительность мыши",
   "land.gInvert": "Инвертировать обзор (вверх — это вниз)",
   "land.gBorders": "Границы участков на земле",
-  "land.gStats": "Строка статистики (кадры, треугольники)"
+  "land.gStats": "Строка статистики (кадры, треугольники)",
+  "land.cTris": "Треугольников в кадре: {n} тыс. — по тому, что их рисует:"
  },
  "zh": {
   "land.notYours": "地块 {p} 属于别人。购买一块地，或请它的所有者邀请你。",
@@ -5478,7 +5486,8 @@
   "land.gSens": "鼠标灵敏度",
   "land.gInvert": "反转视角（上下颠倒）",
   "land.gBorders": "地面上的地块边界",
-  "land.gStats": "统计行（帧率、三角形）"
+  "land.gStats": "统计行（帧率、三角形）",
+  "land.cTris": "本帧三角形：{n}k — 按绘制者分："
  },
  "ja": {
   "land.notYours": "区画 {p} は他の人のものです。区画を購入するか、所有者に招待してもらいましょう。",
@@ -6087,7 +6096,8 @@
   "land.gSens": "マウス感度",
   "land.gInvert": "視点を反転（上が下）",
   "land.gBorders": "地面の区画線",
-  "land.gStats": "統計行（フレームレート、三角形）"
+  "land.gStats": "統計行（フレームレート、三角形）",
+  "land.cTris": "このフレームの三角形：{n}k — 描画元ごと："
  },
  "ko": {
   "land.notYours": "구역 {p}은(는) 다른 사람의 땅입니다. 구역을 사거나 소유자에게 초대를 요청하세요.",
@@ -6696,7 +6706,8 @@
   "land.gSens": "마우스 감도",
   "land.gInvert": "시점 반전 (위가 아래)",
   "land.gBorders": "땅 위의 구획 경계",
-  "land.gStats": "통계 줄 (프레임률, 삼각형)"
+  "land.gStats": "통계 줄 (프레임률, 삼각형)",
+  "land.cTris": "이 프레임의 삼각형: {n}k — 그리는 주체별:"
  },
  "ar": {
   "land.notYours": "القطعة {p} ملك لشخص آخر. اشترِ قطعة، أو اطلب من مالكها أن يدعوك.",
@@ -7305,7 +7316,8 @@
   "land.gSens": "حساسية الفأرة",
   "land.gInvert": "عكس النظر (الأعلى أسفل)",
   "land.gBorders": "حدود القطع على الأرض",
-  "land.gStats": "سطر الإحصاءات (معدل الإطارات، المثلثات)"
+  "land.gStats": "سطر الإحصاءات (معدل الإطارات، المثلثات)",
+  "land.cTris": "المثلثات في هذا الإطار: {n} ألف — بحسب ما يرسمها:"
  },
  "hi": {
   "land.notYours": "प्लॉट {p} किसी और का है। कोई प्लॉट खरीदें, या उसके मालिक से आपको आमंत्रित करने को कहें।",
@@ -7914,7 +7926,8 @@
   "land.gSens": "माउस संवेदनशीलता",
   "land.gInvert": "नज़र उलटें (ऊपर नीचे है)",
   "land.gBorders": "ज़मीन पर भूखंड सीमाएँ",
-  "land.gStats": "आँकड़ा पंक्ति (फ्रेम दर, त्रिभुज)"
+  "land.gStats": "आँकड़ा पंक्ति (फ्रेम दर, त्रिभुज)",
+  "land.cTris": "इस फ़्रेम में त्रिभुज: {n}k — किसके द्वारा बने:"
  },
  "tr": {
   "land.notYours": "{p} arsası başkasına ait. Bir arsa satın al ya da sahibinden seni davet etmesini iste.",
@@ -8523,7 +8536,8 @@
   "land.gSens": "Fare hassasiyeti",
   "land.gInvert": "Bakışı ters çevir (yukarı aşağıdır)",
   "land.gBorders": "Yerdeki parsel sınırları",
-  "land.gStats": "İstatistik satırı (kare hızı, üçgenler)"
+  "land.gStats": "İstatistik satırı (kare hızı, üçgenler)",
+  "land.cTris": "Bu karedeki üçgenler: {n}k — çizene göre:"
  },
  "id": {
   "land.notYours": "Petak {p} milik orang lain. Beli sebuah petak, atau minta pemiliknya mengundangmu.",
@@ -9132,7 +9146,8 @@
   "land.gSens": "Sensitivitas mouse",
   "land.gInvert": "Balik pandangan (atas jadi bawah)",
   "land.gBorders": "Batas petak di tanah",
-  "land.gStats": "Baris statistik (frame rate, segitiga)"
+  "land.gStats": "Baris statistik (frame rate, segitiga)",
+  "land.cTris": "Segitiga pada bingkai ini: {n}k — menurut yang menggambarnya:"
  },
  "vi": {
   "land.notYours": "Mảnh đất {p} thuộc về người khác. Hãy mua một mảnh, hoặc nhờ chủ của nó mời bạn.",
@@ -9741,7 +9756,8 @@
   "land.gSens": "Độ nhạy chuột",
   "land.gInvert": "Đảo hướng nhìn (lên là xuống)",
   "land.gBorders": "Ranh giới lô trên mặt đất",
-  "land.gStats": "Dòng thống kê (tốc độ khung hình, tam giác)"
+  "land.gStats": "Dòng thống kê (tốc độ khung hình, tam giác)",
+  "land.cTris": "Tam giác trong khung hình này: {n}k — theo thứ vẽ chúng:"
  },
  "pl": {
   "land.notYours": "Działka {p} należy do kogoś innego. Kup działkę albo poproś jej właściciela o zaproszenie.",
@@ -10350,6 +10366,7 @@
   "land.gSens": "Czułość myszy",
   "land.gInvert": "Odwróć spojrzenie (góra to dół)",
   "land.gBorders": "Granice działek na ziemi",
-  "land.gStats": "Wiersz statystyk (klatki, trójkąty)"
+  "land.gStats": "Wiersz statystyk (klatki, trójkąty)",
+  "land.cTris": "Trójkąty w tej klatce: {n} tys. — według tego, co je rysuje:"
  }
 }
