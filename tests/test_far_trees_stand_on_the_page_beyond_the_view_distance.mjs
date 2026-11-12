@@ -47,7 +47,10 @@ let around = 0;
 for (let dv = -1; dv <= 1; dv++) for (let du = -1; du <= 1; du++) around += F.forestTile(FACE, tu + du, tv + dv).n;
 // every tile the page wants (land.js updateForest: a tile whose nearest point is within the range), and its trees
 const { readFileSync } = await import("node:fs");
-const RANGE = Number((/FOREST_RANGE = PHONE \? \d+ : (\d+)/.exec(readFileSync(join(ROOT, "static", "land.js"), "utf8")) || [])[1]);
+// the page's full range, HALVED at the view this test loads with (view 3 = the Low preset: forestRange() in land.js,
+// #150 — 26k far trees were nearly half the frame on Low); the settings below set view 3
+const FULL = Number((/FOREST_RANGE = PHONE \? \d+ : (\d+)/.exec(readFileSync(join(ROOT, "static", "land.js"), "utf8")) || [])[1]);
+const VIEW = 3, RANGE = VIEW <= 3 ? FULL / 2 : FULL;
 let inRange = 0, tiles = 0;
 for (let y = Math.floor((V - RANGE) / F.TILE); y <= Math.floor((V + RANGE) / F.TILE); y++)
   for (let x = Math.floor((U - RANGE) / F.TILE); x <= Math.floor((U + RANGE) / F.TILE); x++) {
@@ -101,14 +104,14 @@ try {
   await send(S, "Page.navigate", { url: base + "/static/land-world.js" });
   await until(S, "document.readyState === 'complete'");
   await evl(S, `localStorage.setItem("nado_land_v1", JSON.stringify({ p: [${FACE}, ${U}, ${V}, ${H}, 0, -0.06] }));
-    localStorage.setItem("nado_land_settings", JSON.stringify({ fov: 72, sens: 1, invert: 0, grass: 0, shadows: 0, effects: 0, borders: 0, stats: 1, res: 60, view: 3, fps: 0, auto: 0, sv: 2 })); true`);
+    localStorage.setItem("nado_land_settings", JSON.stringify({ fov: 72, sens: 1, invert: 0, grass: 0, shadows: 0, effects: 0, borders: 0, stats: 1, res: 60, view: ${VIEW}, fps: 0, auto: 0, sv: 2 })); true`);
   await send(S, "Page.navigate", { url: base + "/" });
   ok(await until(S, "document.getElementById('loading') && document.getElementById('loading').classList.contains('hidden')", 60000), "the page loads in the meadow");
   await evl(S, "document.getElementById('help') && document.getElementById('help').classList.add('hidden'), true");
 
   // 1. the far trees arrive
   ok(await until(S, "/[1-9]\\d* far trees/.test(document.getElementById('hudGpu').textContent)", 180000), "the stats readout counts far trees");
-  ok(RANGE > 0 && tiles > 9 && inRange > around && around > 100, `the page's range is read from land.js (${RANGE} m: ${tiles} tiles, ${inRange} trees; ${around} in the player's tile and its neighbours)`);
+  ok(RANGE > 0 && tiles > 9 && inRange > around && around > 100, `the page's reach at view ${VIEW} is read from land.js (${RANGE} m of ${FULL}: ${tiles} tiles, ${inRange} trees; ${around} in the player's tile and its neighbours)`);
   await until(S, `(() => { const m = /(\\d+) far trees/.exec(document.getElementById('hudGpu').textContent); return m && Number(m[1]) >= ${inRange}; })()`, 600000);
   const n = await farTrees(S);
   ok(n === inRange, `…exactly the trees the world grows within the range (${n} drawn, ${inRange} grow there)`);

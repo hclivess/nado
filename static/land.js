@@ -1139,6 +1139,10 @@ function updateChunks() {
 //    back face, and a crown seen from behind went dark.
 const forest = new Map();                      // "face:tu:tv" -> { mesh, busy, n }
 const FOREST_RANGE = PHONE ? 640 : 1152;       // m of far trees around the player — a design choice: 81 tiles, ~60 000 trees, ~36 ms a tile in a worker
+/** The far trees' reach for the current preset: the full range, halved on Low (view ≤ 3 chunks) — a quarter of the tiles.
+ *  Measured 2026-11-12 at the landing on Low: 26,452 far trees at 8 triangles each were 212k of a 474k frame, nearly
+ *  half of it, on the preset meant for weak devices (#150). updateForest prunes the tiles outside the reach. */
+const forestRange = () => (SET.view <= 3 ? FOREST_RANGE / 2 : FOREST_RANGE);
 const SEEN = 64;                               // the meshed-chunk map's edge, in chunks (the view disc is 17 across at most)
 let matForest = null, forestNear = null, forestSeen = null, forestSeenTex = null, forestTrees = 0;
 /** The map of meshed chunk columns the far trees and the far boxes (#193) read: allocated once, by whichever asks first. */
@@ -1227,10 +1231,11 @@ function forestDone(k, m) {
 function updateForest() {
   if (!forestSeen) return;
   const T = Forest.TILE, face = P.face, pcu = Math.floor(P.u / CHUNK), pcv = Math.floor(P.v / CHUNK), want = new Set();
-  if (matForest) for (let tv = Math.floor((P.v - FOREST_RANGE) / T); tv <= Math.floor((P.v + FOREST_RANGE) / T); tv++)   // (no atlas yet: the seen map alone, for the far boxes)
-    for (let tu = Math.floor((P.u - FOREST_RANGE) / T); tu <= Math.floor((P.u + FOREST_RANGE) / T); tu++) {
+  const R = forestRange();
+  if (matForest) for (let tv = Math.floor((P.v - R) / T); tv <= Math.floor((P.v + R) / T); tv++)   // (no atlas yet: the seen map alone, for the far boxes)
+    for (let tu = Math.floor((P.u - R) / T); tu <= Math.floor((P.u + R) / T); tu++) {
       const du = Math.max(tu * T - P.u, 0, P.u - (tu + 1) * T), dv = Math.max(tv * T - P.v, 0, P.v - (tv + 1) * T);
-      if (du * du + dv * dv > FOREST_RANGE * FOREST_RANGE) continue;
+      if (du * du + dv * dv > R * R) continue;
       const k = face + ":" + tu + ":" + tv; want.add(k);
       if (!forest.has(k)) { forest.set(k, { mesh: null, busy: true, n: 0 }); queue.push({ id: ++reqId, k: "F:" + k, forest: 1, face, tu, tv, cu: tu * 16 + 8, cv: tv * 16 + 8 }); }
     }
@@ -3198,7 +3203,7 @@ function applySetting(k) {
   if (!renderer) return;                                                       // before start(): start() applies them all
   if (k === "res") { renderer.setPixelRatio(basePR() * SET.res / 100); if (stars) stars.material.size = starPx(1.6); if (satPts) satPts.material.size = starPx(3.2); }
   if (k === "shadows") shadowQuality();
-  if (k === "view") { viewDist = SET.view; if (scene && scene.fog) scene.fog.near = viewDist * CHUNK * 0.9; updateChunks(); buildFar(); }
+  if (k === "view") { viewDist = SET.view; if (scene && scene.fog) scene.fog.near = viewDist * CHUNK * 0.9; updateChunks(); buildFar(); updateForest(); }   // (the far trees' reach follows the preset, #150)
   if (k === "effects") pipeline = buildPipeline();                             // the post-processing is built again, or dropped
 }
 /** The sun's shadow map for SET.shadows: its size and the box it covers; the old map is let go so the next frame draws a

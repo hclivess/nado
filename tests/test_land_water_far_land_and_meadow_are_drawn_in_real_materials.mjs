@@ -105,6 +105,11 @@ ok(/const starPx = \(base\) => Math\.max\(base, \(base \+ 0\.6\) \/ \(basePR\(\)
    && /if \(k === "res"\) \{ renderer\.setPixelRatio\(basePR\(\) \* SET\.res \/ 100\); if \(stars\) stars\.material\.size = starPx\(1\.6\); if \(satPts\) satPts\.material\.size = starPx\(3\.2\); \}/.test(land),
    "a star is never under two buffer pixels: its point size grows as the render resolution drops, and follows the setting");
 
+// THE FAR TREES' REACH FOLLOWS THE PRESET (#150): halved on Low (view ≤ 3), the one place the tile loop reads it, and a
+// view change re-runs the loop so the tiles outside it drop
+ok(/const forestRange = \(\) => \(SET\.view <= 3 \? FOREST_RANGE \/ 2 : FOREST_RANGE\);/.test(land) && /const R = forestRange\(\);/.test(land) && !/P\.v - FOREST_RANGE/.test(land) && /du \* du \+ dv \* dv > R \* R\) continue;/.test(land)
+   && /if \(k === "view"\) \{[^\n]*updateForest\(\); \}/.test(land), "the far trees reach half as far on Low, and a view change re-runs the tile loop");
+
 // (the verdict last: a pin added after it could never fail the test — the triplanar pin sat there for an hour, 2026-11-12)
 if (fails) { console.log(`${fails} FAILURES`); process.exit(1); }
 console.log("ALL PASS");
