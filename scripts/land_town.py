@@ -35,6 +35,9 @@ GARDEN = "--garden" in sys.argv
 # --lights: street lamps at every corner of the crossing and both ends of each street ("we could use some more intense
 # sources of light - townhall disappears after walking 20 meters at night", operator 2026-11-07)
 LIGHTS = "--lights" in sys.argv
+# --tower: the tower on the hall (#195, "it should be tall to be visible from far away") — tower_pieces below; once
+# (tower_present); the level ground's top is read from the hall's own floor, nothing else of the town is touched
+TOWER_MODE = "--tower" in sys.argv
 if REHEARSE:
     DATA = os.environ["LAND_DATA"]
 
@@ -159,6 +162,162 @@ def garden(T, G):
     return out
 
 
+# the town hall: in the quarter of plot (5000, 3440), facing the E-W street to its north — its pieces, absolute cm in
+# the plot, for the level ground's top G (cm); a function so the tower (#195) is checked against them
+HALL = dict(X0=350, Z0=450, W=1000, D=800, WH=280)
+def hall_pieces(G):
+    X0, Z0, W, D, WH = HALL["X0"], HALL["Z0"], HALL["W"], HALL["D"], HALL["WH"]
+    F = G + 45                                                                   # the hall's floor level
+    hall = []
+    hall.append([X0 - 20, Z0 - 20, G - 25, W + 40, D + 40, 65, SB])               # stone footing, up to the floor
+    hall.append([X0, Z0, F - 5, W, D, 5, PL])                                     # plank floor (on the footing)
+    for cx, cz in ((0, 0), (W - 20, 0), (0, D - 20), (W - 20, D - 20)):
+        hall.append([X0 + cx, Z0 + cz, F, 20, 20, WH, BM])                        # corner posts
+    # front wall (z = Z0) with a door in the middle and a window either side
+    dx = W // 2 - 45
+    hall += [[X0 + 20, Z0, F, 110, 12, WH, PS], [X0 + 230, Z0, F, dx - 230, 12, WH, PS],
+             [X0 + dx + 90, Z0, F, W - 230 - dx - 90, 12, WH, PS], [X0 + W - 130, Z0, F, 110, 12, WH, PS]]
+    for wx in (130, W - 230):
+        hall += [[X0 + wx, Z0, F, 100, 12, 80, PS], [X0 + wx, Z0, F + 200, 100, 12, WH - 200, PS],
+                 [X0 + wx, Z0 + 1, F + 80, 100, 10, 120, WIN]]
+    hall += [[X0 + dx, Z0, F + 200, 90, 12, WH - 200, PS], [X0 + dx, Z0 + 3, F, 90, 5, 200, DOOR]]
+    # back wall with two windows, side walls with one each
+    hall += [[X0 + 20, Z0 + D - 12, F, 160, 12, WH, PS], [X0 + 280, Z0 + D - 12, F, W - 560, 12, WH, PS],
+             [X0 + W - 180, Z0 + D - 12, F, 160, 12, WH, PS]]
+    for wx in (180, W - 280):
+        hall += [[X0 + wx, Z0 + D - 12, F, 100, 12, 80, PS], [X0 + wx, Z0 + D - 12, F + 200, 100, 12, WH - 200, PS],
+                 [X0 + wx, Z0 + D - 11, F + 80, 100, 10, 120, WIN]]
+    for sxw in (0, W - 12):
+        hall += [[X0 + sxw, Z0 + 20, F, 12, 290, WH, PS], [X0 + sxw, Z0 + 410, F, 12, D - 430, WH, PS],
+                 [X0 + sxw, Z0 + 310, F, 12, 100, 80, PS], [X0 + sxw, Z0 + 310, F + 200, 12, 100, WH - 200, PS],
+                 [X0 + sxw + 1, Z0 + 310, F + 80, 10, 100, 120, WIN]]
+    hall.append([X0, Z0, F + WH, W, D, 15, BM])                                   # the tie-beam floor of the roof
+    ry, half = F + WH + 15, D // 2 + 40
+    hall += [[X0 - 30, Z0 - 40, ry, W + 60, half, 170, TI, 3], [X0 - 30, Z0 + D // 2, ry, W + 60, half, 170, TI, 4]]
+    # furniture: two long tables with chairs and benches, a chest at the back, torches inside and at the door
+    for tx in (X0 + 150, X0 + 600):
+        hall.append([tx, Z0 + 330, F, 120, 80, 76, TABLE])
+        hall += [[tx + 35, Z0 + 270, F, 50, 45, 95, CHAIR], [tx + 35, Z0 + 420, F, 50, 45, 95, CHAIR]]
+    hall += [[X0 + 100, Z0 + D - 90, F, 150, 35, 45, BENCH], [X0 + W - 250, Z0 + D - 90, F, 150, 35, 45, BENCH],
+             [X0 + W // 2 - 45, Z0 + D - 70, F, 90, 50, 55, CHEST],
+             [X0 + 30, Z0 + 30, F, 10, 10, 120, TORCH], [X0 + W - 40, Z0 + D - 40, F, 10, 10, 120, TORCH],
+             [X0 + dx - 30, Z0 - 40, G, 10, 10, 120, TORCH], [X0 + dx + 110, Z0 - 40, G, 10, 10, 120, TORCH]]
+
+    return hall
+
+
+# THE TOWER (#195; operator 2026-11-12: "the townhall is a nice building but it should be tall to be visible from far
+# away", "people should be able to enter the town hall"): a square stone tower on the hall's west side, five storeys of
+# 3.2 m and a belfry, its spire ~26 m over the square — about five times the hall's ridge, the proportion of Siena's
+# Torre del Mangia over its Palazzo Pubblico (land research townhall/: the photograph; the tower 102 m, l.6). Entered
+# from inside the hall by a door cut into its west wall; a ladder (the game's own) runs up the shaft to the belfry, which
+# has an opening on every side — the lookout. Plank floors a storey, with the ladder's well left open; slit windows on
+# the outer faces; a gable roof of tiles like the hall's; a beam spire post with a torch at the lookout. Every number
+# here is a DESIGN CHOICE in the hall's own units (cm); the pieces are the game's blocks, paid from the town's bag.
+TOWER = dict(X0=30, Z0=480, S=280, T=20, STOREY=320, N=5, SPIRE=500, LADDER_X=100)   # (x 30..310: clear of the hall roof's overhang at 320; the ladder in column x 100..200)
+def tower_pieces(G):
+    """(adds, removes, ladder cells) for the hall's plot: the pieces to set, the hall wall to take out for the door, and
+    the ladder's cells [du, dv, h] in plot columns (0..15) and grid heights."""
+    X0, Z0, S, T, ST, N, SP = (TOWER[k] for k in ("X0", "Z0", "S", "T", "STOREY", "N", "SPIRE"))
+    F = G + 45
+    adds, removes = [], []
+    adds.append([X0 - 20, Z0 - 20, G - 25, S + 20, S + 40, 65, SB])                          # footing, up to the floor (to the hall's own at x = X0 + S)
+    adds.append([X0, Z0, F - 5, S, S, 5, PL])                                                 # the ground floor
+    top = F + ST * N
+    for k in range(N):
+        y = F + ST * k
+        belfry = k == N - 1
+        # four walls a storey; the outer (west, north) faces carry a slit each, the belfry an opening on every side,
+        # the east wall of the ground floor a door gap toward the hall (z 90 wide in the middle)
+        def wall(x, z, w, d, slit, h0=0, hh=None):
+            adds.append([x, z, y + h0, w, d, (hh if hh is not None else ST), SB])
+        def slitted(x, z, w, d, along_x, big):
+            # a wall with a window in its middle: two wall pieces, a lintel over the window, a sill under it. A window is
+            # the game's unit piece, 100 x 10 x 120 cm (the server refuses any other size), set in the wall's middle
+            # 5 cm from its face; the belfry's sit low (a lookout to lean out of), the storeys' at chest height
+            ww, wh, sill = 100, 120, (60 if big else 110)
+            if along_x:
+                m = x + w // 2 - ww // 2
+                adds.extend([[x, z, y, m - x, d, ST, SB], [m + ww, z, y, x + w - m - ww, d, ST, SB],
+                             [m, z, y, ww, d, sill, SB], [m, z, y + sill + wh, ww, d, ST - sill - wh, SB], [m, z + 5, y + sill, ww, 10, wh, WIN]])
+            else:
+                m = z + d // 2 - ww // 2
+                adds.extend([[x, z, y, w, m - z, ST, SB], [x, m + ww, y, w, z + d - m - ww, ST, SB],
+                             [x, m, y, w, ww, sill, SB], [x, m, y + sill + wh, w, ww, ST - sill - wh, SB], [x + 5, m, y + sill, 10, ww, wh, WIN]])
+        slitted(X0, Z0, S, T, True, belfry)                                                    # north wall
+        slitted(X0, Z0 + T, T, S - 2 * T, False, belfry)                                       # west wall (between the corners)
+        if belfry:
+            slitted(X0, Z0 + S - T, S, T, True, True)                                          # south
+            slitted(X0 + S - T, Z0 + T, T, S - 2 * T, False, True)                             # east
+        else:
+            wall(X0, Z0 + S - T, S, T, False)                                                  # south wall, blank
+            if k == 0:
+                # the east wall with the door gap (z: the hall wall's door at Z0h + 120 .. + 210)
+                gz0, gz1 = HALL["Z0"] + 120, HALL["Z0"] + 210
+                adds += [[X0 + S - T, Z0 + T, y, T, gz0 - Z0 - T, ST, SB], [X0 + S - T, gz1, y, T, Z0 + S - T - gz1, ST, SB],
+                         [X0 + S - T, gz0, y + 200, T, gz1 - gz0, ST - 200, SB]]
+            else:
+                wall(X0 + S - T, Z0 + T, T, S - 2 * T, False)                                  # east wall, blank
+        if k > 0:
+            # the storey's floor in two pieces, the ladder's column (LADDER_X .. + 100) left open as its well
+            LX = TOWER["LADDER_X"]
+            adds.append([X0 + T, Z0 + T, y - 10, LX - (X0 + T), S - 2 * T, 10, PL])
+            adds.append([LX + 100, Z0 + T, y - 10, X0 + S - T - (LX + 100), S - 2 * T, 10, PL])
+        if k == 0:
+            adds += [[X0 + 30, Z0 + 30, F, 10, 10, 120, TORCH]]
+    # the belfry's roof: a gable of tiles over the top, as the hall's; the spire post from the ridge; a torch at the lookout
+    ry, half = top, S // 2 + 30
+    adds += [[X0 - 20, Z0 - 30, ry, S + 40, half, 150, TI, 3], [X0 - 20, Z0 + S // 2, ry, S + 40, half, 150, TI, 4]]
+    adds.append([X0 + S // 2 - 20, Z0 + S // 2 - 20, ry + 150, 40, 40, SP, BM])                # the spire post
+    adds.append([X0 + 30, Z0 + 30, top - ST, 10, 10, 120, TORCH])
+    # the door from the hall: its west wall's first piece gives way to two pieces, a lintel and a door; a short covered
+    # passage (plaster walls, a plank floor, under the hall roof's overhang) bridges the 40 cm to the tower's east wall
+    hx, hz, WH = HALL["X0"], HALL["Z0"], HALL["WH"]
+    gz0, gz1 = hz + 120, hz + 210
+    removes.append([hx, hz + 20, F, 12, 290, WH, PS])
+    adds += [[hx, hz + 20, F, 12, 100, WH, PS], [hx, hz + 210, F, 12, 100, WH, PS],
+             [hx, gz0, F + 200, 12, 90, WH - 200, PS], [hx + 3, gz0, F, 5, 90, 200, DOOR]]
+    px, pw, ph = X0 + S, hx - (X0 + S), (G + 340) - F                        # (the passage's walls stop under the roof's overhang)
+    adds += [[px, gz0 - 20, F, pw, 20, ph, PS], [px, gz1, F, pw, 20, ph, PS], [px, gz0, F + 200, pw, 90, ph - 200, PS],
+             [px, gz0, F - 5, pw, 90, 5, PL]]
+    # the ladder: a column of ladder cells inside the shaft (the floors' well), from the floor to the belfry
+    lu, lv = TOWER["LADDER_X"] // 100, (Z0 + S // 2) // 100
+    # (from the first whole cell over the ground floor's planks — the cell the floor lies in is not air — to the belfry)
+    ladder = [[lu, lv, h] for h in range(F // 100 + 1, (top - ST) // 100 + 1)]
+    return adds, removes, ladder
+def tower_present(boxes):
+    """Does the hall's plot already carry the tower? Its spire post, nowhere else in the town."""
+    X0, Z0, S = TOWER["X0"], TOWER["Z0"], TOWER["S"]
+    return any(b[6] == BM and b[3] == 40 and b[4] == 40 and b[5] == TOWER["SPIRE"] and b[0] == X0 + S // 2 - 20 and b[1] == Z0 + S // 2 - 20 for b in boxes)
+
+
+async def build_tower(world, pl):
+    """The tower on the hall's plot (#195): the ground's top G read from the hall's plank floor (F - 5 = G + 40), the hall
+    wall for the door taken out, the pieces set, the ladder's cells placed — once; a second run reports it standing."""
+    p = plot_at(ROWS[1], COLS[1])
+    boxes = (world.plots.get(p) or {}).get("boxes", [])
+    if tower_present(boxes):
+        print(f"plot {p}: the tower stands already"); return
+    floors = [b for b in boxes if b[6] == PL and b[3] == HALL["W"] and b[4] == HALL["D"] and b[5] == 5]
+    if not floors:
+        sys.exit(f"plot {p}: no hall floor found — build the town first")
+    G = floors[0][2] + 5 - 45
+    adds, removes, ladder = tower_pieces(G)
+    missing = [b for b in removes if b not in boxes]
+    if missing:
+        sys.exit(f"plot {p}: the hall wall to take out is not there: {missing}")
+    if DRY:
+        print(f"plot {p}: would take out {len(removes)}, set {len(adds)} pieces and {len(ladder)} ladder cells (G {G})"); return
+    _, removed, ref = await world.boxes(WHO, p, [], removes)
+    added, _, ref2 = await world.boxes(WHO, p, adds, [])
+    _, row, col = S.plot_coords(p)
+    cells = [[0, col * S.PLOT + du, row * S.PLOT + dv, h, S.B_LADDER if hasattr(S, "B_LADDER") else 53] for du, dv, h in ladder]
+    _, ref3, _ = await world.apply(WHO, cells)
+    print(f"plot {p}: {len(removed)} wall piece out, {len(added)} tower pieces set, {len(cells) - len(ref3)} ladder cells placed"
+          + (f"; refused: {(ref + ref2)[:4]} {ref3[:3]}" if ref or ref2 or ref3 else ""))
+    print("the server wallet keeps:", {k: pl["items"].get(k, 0) for k in ("stonebrick", "planks", "beam", "tiles", "plaster", "window", "door", "ladder", "torch")})
+
+
 async def green(world, town, until):
     """The town's bare earth greens over by the game's own rule (World.spread: earth under open air turns to grass, fast
     beside grass), fast-forwarded until none is left — only on the town's plots."""
@@ -206,6 +365,8 @@ async def main():
         if k not in pl["tools"]:
             pl["tools"].append(k)
     endow = {"dirt": 400} if REPAIR else ENDOW            # the repair's earth: what levelling exactly takes, at most
+    if TOWER_MODE:                                         # the tower's stone, planks, tiles, a beam, windows, a door, a ladder, torches
+        endow = {"stonebrick": 500, "planks": 40, "beam": 6, "tiles": 40, "plaster": 12, "window": 14, "door": 1, "ladder": 20, "torch": 2}
     if LIGHTS:
         endow = dict(endow, lamppost=endow.get("lamppost", 0) + 12)
     if GARDEN:                                             # the garden's plants, water and stone — all things a player gets
@@ -215,6 +376,12 @@ async def main():
         pl["items"][k] = pl["items"].get(k, 0) + n
     print("endowed the server wallet with", json.dumps(endow))
 
+    if TOWER_MODE:
+        await build_tower(world, pl)
+        world.flush()
+        world.oracle.kill(); await world.oracle.wait()
+        await world.http.close()
+        return
     # 1. level the site at the median ground top T: clear everything above (trees, litter, ground), fill dips with earth
     t = terrain()
     tops = sorted(x[2] for x in t["tops"])
@@ -268,44 +435,8 @@ async def main():
             put(r, c, [kx, (200 if north else 0), G - 25, 10, 1400, 35, COB])
             kz = 200 if north else 1390
             put(r, c, [(210 if west else 0), kz, G - 25, 1390, 10, 35, COB])   # stops short of the other kerb
-    # the town hall: in the quarter of plot (5000, 3440), facing the E-W street to its north
     hr, hc = ROWS[1], COLS[1]
-    X0, Z0, W, D, WH = 350, 450, 1000, 800, 280
-    hall = []
-    hall.append([X0 - 20, Z0 - 20, G - 25, W + 40, D + 40, 65, SB])               # stone footing, up to the floor
-    F = G + 45                                                                   # the hall's floor level
-    hall.append([X0, Z0, F - 5, W, D, 5, PL])                                     # plank floor (on the footing)
-    for cx, cz in ((0, 0), (W - 20, 0), (0, D - 20), (W - 20, D - 20)):
-        hall.append([X0 + cx, Z0 + cz, F, 20, 20, WH, BM])                        # corner posts
-    # front wall (z = Z0) with a door in the middle and a window either side
-    dx = W // 2 - 45
-    hall += [[X0 + 20, Z0, F, 110, 12, WH, PS], [X0 + 230, Z0, F, dx - 230, 12, WH, PS],
-             [X0 + dx + 90, Z0, F, W - 230 - dx - 90, 12, WH, PS], [X0 + W - 130, Z0, F, 110, 12, WH, PS]]
-    for wx in (130, W - 230):
-        hall += [[X0 + wx, Z0, F, 100, 12, 80, PS], [X0 + wx, Z0, F + 200, 100, 12, WH - 200, PS],
-                 [X0 + wx, Z0 + 1, F + 80, 100, 10, 120, WIN]]
-    hall += [[X0 + dx, Z0, F + 200, 90, 12, WH - 200, PS], [X0 + dx, Z0 + 3, F, 90, 5, 200, DOOR]]
-    # back wall with two windows, side walls with one each
-    hall += [[X0 + 20, Z0 + D - 12, F, 160, 12, WH, PS], [X0 + 280, Z0 + D - 12, F, W - 560, 12, WH, PS],
-             [X0 + W - 180, Z0 + D - 12, F, 160, 12, WH, PS]]
-    for wx in (180, W - 280):
-        hall += [[X0 + wx, Z0 + D - 12, F, 100, 12, 80, PS], [X0 + wx, Z0 + D - 12, F + 200, 100, 12, WH - 200, PS],
-                 [X0 + wx, Z0 + D - 11, F + 80, 100, 10, 120, WIN]]
-    for sxw in (0, W - 12):
-        hall += [[X0 + sxw, Z0 + 20, F, 12, 290, WH, PS], [X0 + sxw, Z0 + 410, F, 12, D - 430, WH, PS],
-                 [X0 + sxw, Z0 + 310, F, 12, 100, 80, PS], [X0 + sxw, Z0 + 310, F + 200, 12, 100, WH - 200, PS],
-                 [X0 + sxw + 1, Z0 + 310, F + 80, 10, 100, 120, WIN]]
-    hall.append([X0, Z0, F + WH, W, D, 15, BM])                                   # the tie-beam floor of the roof
-    ry, half = F + WH + 15, D // 2 + 40
-    hall += [[X0 - 30, Z0 - 40, ry, W + 60, half, 170, TI, 3], [X0 - 30, Z0 + D // 2, ry, W + 60, half, 170, TI, 4]]
-    # furniture: two long tables with chairs and benches, a chest at the back, torches inside and at the door
-    for tx in (X0 + 150, X0 + 600):
-        hall.append([tx, Z0 + 330, F, 120, 80, 76, TABLE])
-        hall += [[tx + 35, Z0 + 270, F, 50, 45, 95, CHAIR], [tx + 35, Z0 + 420, F, 50, 45, 95, CHAIR]]
-    hall += [[X0 + 100, Z0 + D - 90, F, 150, 35, 45, BENCH], [X0 + W - 250, Z0 + D - 90, F, 150, 35, 45, BENCH],
-             [X0 + W // 2 - 45, Z0 + D - 70, F, 90, 50, 55, CHEST],
-             [X0 + 30, Z0 + 30, F, 10, 10, 120, TORCH], [X0 + W - 40, Z0 + D - 40, F, 10, 10, 120, TORCH],
-             [X0 + dx - 30, Z0 - 40, G, 10, 10, 120, TORCH], [X0 + dx + 110, Z0 - 40, G, 10, 10, 120, TORCH]]
+    hall = hall_pieces(G)
     for b in hall:
         put(hr, hc, b)
     # benches and torches along the streets in the other three quarters
