@@ -91,9 +91,15 @@ check("a plot's border says whose it is: none in the wilderness, owner unknown, 
       K.get("a") == [None, "titled", "mine", "sale", "owned", "mine", "build"], (K, r.stderr[-300:]))
 check("…and photo mode outlines only the plot it photographs", K.get("b") == [None, "shot"], K)
 check("plots of one holder share one outline, plots on sale keep each their own",
-      'k !== "sale" && holder && n >= 0 && (titles.get(n) || {}).holder === holder && borderKind(n) === k) continue;' in page)
+      'return !(SHOT === null && k !== "sale" && holder && n >= 0 && (titles.get(n) || {}).holder === holder && borderKind(n) === k);' in page)
 check("a border follows the drawn ground and the pieces on it, never a tree",
-      "const g = earthAt(q.face, u, v), t = pieceTopAt(p," in page and "const inside = (y) => fieldAt(f, u, v, y) > 0;" in page)
+      "const at = (u, v) => Math.max(earthAt(q.face, u, v), pieceTopAt(p," in page and "const inside = (y) => fieldAt(f, u, v, y) > 0;" in page)
+# THE OUTLINE IS CACHED A PLOT AT A TIME (#150: a 358 ms rebuild at every plot line crossed, measured 2026-11-12): a
+# plot's part is keyed by its kind, pieces, edits, width and which of its edges are drawn, kept in planet metres, and
+# a rebuild only concatenates — the key carries everything the sampling depends on, or a stale outline would stay
+check("a plot's outline is built once for its (kind, pieces, edits, width, edges drawn) and kept; a rebuild concatenates",
+      'const key = [k, nb, ne, wd, drawn.map((d) => (d ? 1 : 0)).join("")].join("|");' in page and "let part = borderCache.get(p);" in page
+      and "if (!part || part.key !== key) {" in page and "for (const p of [...borderCache.keys()]) if (!keep.has(p)) borderCache.delete(p);" in page)
 check("borders are on by default, and a setting turns them off", "borders: 1," in page and "borders: [0, 1]," in page
       and "const on = SHOT !== null || SET.borders;" in page)
 check("the page asks whose every outlined plot is (its colour), not only the one underfoot",

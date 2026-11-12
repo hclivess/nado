@@ -943,7 +943,7 @@ function startWorkers() {
   for (let i = 0; i < n; i++) {
     const w = new Worker("/static/land-mesher.js", { type: "module" });
     w.busy = false;
-    w.onmessage = (e) => { w.busy = false; pt("mesh", () => done(e.data)); pump(); };
+    w.onmessage = (e) => { w.busy = false; finished.push(e.data); pump(); };   // applied within the frame's mesh budget (applyFinished)
     w.onerror = () => { w.busy = false; pump(); };
     workers.push(w);
   }
@@ -1015,6 +1015,18 @@ function geom(part) {
   g.setIndex(new THREE.BufferAttribute(part.idx, 1));
   g.computeBoundingSphere();
   return g;
+}
+// THE MESH BUDGET (#150; operator 2026-11-12: "the performance varies, there are severe staggers"; measured on the live
+// page: "mesh 31.8 ms" in one frame): every worker that finished in the same frame had its chunk — several geometries,
+// a chunk of grass blades among them — built and handed to the GPU in that one frame. Finished results now wait in
+// `finished` and are applied one after another until MESH_BUDGET_MS of the frame is spent (always at least one), the
+// rest next frame: the same work, spread so no frame carries three chunks at once. A result for a chunk no longer
+// wanted is dropped by done() as before.
+const finished = [], MESH_BUDGET_MS = 6;                   // ms a frame — DESIGN CHOICE (a third of a 60 Hz frame)
+function applyFinished() {
+  const t0 = performance.now();
+  let n = 0;
+  while (finished.length && (n === 0 || performance.now() - t0 < MESH_BUDGET_MS)) { done(finished.shift()); n++; }
 }
 function done(m) {
   const k = inflight.get(m.id); inflight.delete(m.id);
@@ -4107,6 +4119,7 @@ function frame(now) {
   const gap = lastT ? now - lastT : 0;
   const dt = Math.min(FRAME_MAX, (now - lastT) / 1000 || 0); lastT = now;
   govTick(now, gap);                                       // the graphics governor (#166), decided before this frame
+  pt("mesh", applyFinished);                               // finished chunks and forest tiles, within the mesh budget (#150)
   pt("step", () => { for (let left = dt; left > 1e-6; left -= STEP_DT) step(Math.min(STEP_DT, left)); });
   pt("break", () => { breakTick(dt); levelTick(now); });
   const cam = eyePos(), { fr, fw } = look();
@@ -4188,6 +4201,7 @@ let tick = 0;
 const BORDER = { mine: 0x3ddc84, build: 0x4aa3ff, sale: 0xffd24a, owned: 0xff8a3d, titled: 0xbdbdbd, shot: 0xfff1b0 };
 const BORDER_R = 3;                                         // plots around the player's that show their borders
 let borderMesh = null, borderOwn = "", borderSig = "", borderAt = 0;
+const borderCache = new Map();                              // plot -> { key, pos (planet metres), col } (#150)
 function borderKind(plot) {
   if (SHOT !== null) return plot === SHOT ? "shot" : null;
   const t = titles.get(plot);
@@ -4235,37 +4249,62 @@ function updateBorders() {
   borderOwn = own; borderSig = sig; borderAt = performance.now();
   if (borderMesh) { scene.remove(borderMesh); borderMesh.geometry.dispose(); borderMesh = null; }
   if (!list.length) return;
-  const anchor = Wd.posOf(here.face, here.u0, here.v0, Wd.SEA), pos = [], col = [], idx = [];
+  // THE OUTLINES ARE CACHED A PLOT AT A TIME (#150; measured 2026-11-12 on the live page at the town: this rebuild took
+  // 358 ms in one frame — every plot's four edges re-sampled against the ground and the pieces, 49 plots, at every plot
+  // line the player crossed and every piece anyone placed). A plot's outline is built once for its (kind, pieces,
+  // edits, neighbours' kinds) and kept in planet coordinates; a rebuild concatenates the kept ones and samples only the
+  // plots that changed.
   const wd = SHOT !== null ? 0.18 : 0.09, e = 0.04, STEP_M = 0.5;
-  for (const [p, k] of list) {
-    const q = Wd.plotCoords(p), c = new THREE.Color(BORDER[k]);
-    const at = (u, v) => {
-      const g = earthAt(q.face, u, v), t = pieceTopAt(p, (u - q.u0) * Wd.CM, (v - q.v0) * Wd.CM);
-      return Math.max(g, t) + 0.04;
-    };
+  const keep = new Set(), parts = [];
+  for (const [p, k, nb, ne] of list) {
+    const q = Wd.plotCoords(p), holder = (titles.get(p) || {}).holder;
     const edges = [[[q.u0 + e, q.v0 + e], [1, 0], [0, 1], [-1, 0]], [[q.u0 + 16 - e, q.v0 + e], [0, 1], [-1, 0], [0, 1]],
                    [[q.u0 + 16 - e, q.v0 + 16 - e], [-1, 0], [0, -1], [1, 0]], [[q.u0 + e, q.v0 + 16 - e], [0, -1], [1, 0], [0, -1]]];
     // no border between two plots of one holder: their edge is no border at all (the town's four plots draw one outline,
-    // not a double line down the middle of its street)
-    const holder = (titles.get(p) || {}).holder;
-    for (const [[u0, v0], [du, dv], [iu, iv], [nr, nc]] of edges) {
+    // not a double line down the middle of its street); (plots on sale keep each their own: the market escrows them all,
+    // and a buyer needs to see each one's edges)
+    const drawn = edges.map(([, , , [nr, nc]]) => {
       const n = q.prow + nr >= 0 && q.pcol + nc >= 0 && q.prow + nr < Wd.FACE_N && q.pcol + nc < Wd.FACE_N ? Wd.plotId(q.face, q.prow + nr, q.pcol + nc) : -1;
-      // (plots on sale keep each their own: the market escrows them all, and a buyer needs to see each one's edges)
-      if (SHOT === null && k !== "sale" && holder && n >= 0 && (titles.get(n) || {}).holder === holder && borderKind(n) === k) continue;
-      for (let s0 = 0; s0 < 16 - 2 * e - 1e-6; s0 += STEP_M) {
-        const s1 = Math.min(16 - 2 * e, s0 + STEP_M), n = pos.length / 3;
-        for (const [ss, inn] of [[s0, 0], [s1, 0], [s1, wd], [s0, wd]]) {
-          const u = u0 + du * ss + iu * inn, v = v0 + dv * ss + iv * inn, x = Wd.posOf(q.face, u, v, at(u0 + du * ss, v0 + dv * ss));
-          pos.push(x[0] - anchor[0], x[1] - anchor[1], x[2] - anchor[2]); col.push(c.r, c.g, c.b);
+      return !(SHOT === null && k !== "sale" && holder && n >= 0 && (titles.get(n) || {}).holder === holder && borderKind(n) === k);
+    });
+    const key = [k, nb, ne, wd, drawn.map((d) => (d ? 1 : 0)).join("")].join("|");
+    keep.add(p);
+    let part = borderCache.get(p);
+    if (!part || part.key !== key) {
+      const c = new THREE.Color(BORDER[k]), pos = [], col = [];
+      const at = (u, v) => Math.max(earthAt(q.face, u, v), pieceTopAt(p, (u - q.u0) * Wd.CM, (v - q.v0) * Wd.CM)) + 0.04;
+      edges.forEach(([[u0, v0], [du, dv], [iu, iv]], ei) => {
+        if (!drawn[ei]) return;
+        let hPrev = at(u0, v0);
+        for (let s0 = 0; s0 < 16 - 2 * e - 1e-6; s0 += STEP_M) {
+          const s1 = Math.min(16 - 2 * e, s0 + STEP_M), h1 = at(u0 + du * s1, v0 + dv * s1);   // (the ground sampled once a segment end, not once a corner)
+          for (const [ss, inn, hh] of [[s0, 0, hPrev], [s1, 0, h1], [s1, wd, h1], [s0, wd, hPrev]]) {
+            const x = Wd.posOf(q.face, u0 + du * ss + iu * inn, v0 + dv * ss + iv * inn, hh);
+            pos.push(x[0], x[1], x[2]); col.push(c.r, c.g, c.b);
+          }
+          hPrev = h1;
         }
-        idx.push(n, n + 1, n + 2, n, n + 2, n + 3);
-      }
+      });
+      part = { key, pos: new Float64Array(pos), col: new Float32Array(col) };
+      borderCache.set(p, part);
     }
+    parts.push(part);
+  }
+  for (const p of [...borderCache.keys()]) if (!keep.has(p)) borderCache.delete(p);
+  const anchor = Wd.posOf(here.face, here.u0, here.v0, Wd.SEA);
+  let nV = 0; for (const part of parts) nV += part.pos.length / 3;
+  const pos = new Float32Array(nV * 3), col = new Float32Array(nV * 3), idx = nV * 1.5 > 65535 ? new Uint32Array(nV * 1.5) : new Uint16Array(nV * 1.5);
+  let o = 0, oi = 0;
+  for (const part of parts) {
+    for (let i = 0; i < part.pos.length; i += 3) { pos[o + i] = part.pos[i] - anchor[0]; pos[o + i + 1] = part.pos[i + 1] - anchor[1]; pos[o + i + 2] = part.pos[i + 2] - anchor[2]; }
+    col.set(part.col, o);
+    for (let v = o / 3; v < (o + part.pos.length) / 3; v += 4) { idx[oi++] = v; idx[oi++] = v + 1; idx[oi++] = v + 2; idx[oi++] = v; idx[oi++] = v + 2; idx[oi++] = v + 3; }
+    o += part.pos.length;
   }
   const g = new THREE.BufferGeometry();
-  g.setAttribute("position", new THREE.Float32BufferAttribute(pos, 3));
-  g.setAttribute("color", new THREE.Float32BufferAttribute(col, 3));
-  g.setIndex(idx);
+  g.setAttribute("position", new THREE.BufferAttribute(pos, 3));
+  g.setAttribute("color", new THREE.BufferAttribute(col, 3));
+  g.setIndex(new THREE.BufferAttribute(idx, 1));
   borderMesh = new THREE.Mesh(g, new THREE.MeshBasicMaterial({ vertexColors: true, transparent: true, opacity: 0.85, depthWrite: false, side: THREE.DoubleSide }));
   borderMesh.userData.anchor = anchor;
   borderMesh.renderOrder = 2;
@@ -4307,6 +4346,7 @@ function shotSetup() {
 // browser draws in software, and every frame drawn while loading only slowed the meshing (a photo took ~10 minutes)
 function shotTick(now) {
   if (SHOT === null || document.title === "shot-ready") return false;
+  applyFinished();                                          // (the frame returns early below while chunks are in flight: their results must still land)
   if (queue.length || inflight.size || !chunks.size) { shotBusyAt = now; return true; }
   if (now - shotBusyAt < 4000) return true;
   if (++shotFrames > 3) document.title = "shot-ready";             // a few frames drawn first: shaders compiled, shadows cast
