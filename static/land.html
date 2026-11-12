@@ -160,6 +160,10 @@
      turn, no fire, no wardrobe): the thumb that walks reaches them beside the stick */
   #tChat{left:18px;bottom:162px}#tRun{left:84px;bottom:162px}#tTurn{left:150px;bottom:162px}#tFire{left:18px;bottom:228px}#tWard{left:84px;bottom:228px}
   body.touch #hotwrap{bottom:8px}
+  /* the HUD text took the top third of a 480-px phone (#139): smaller, tighter, and the plot card's explanations
+     (the wilderness sentence, the NADO sentence) folded away — the pill and the buttons stay */
+  body.touch #hudInfo{font-size:11px;line-height:1.3;max-width:min(380px,calc(100vw - 130px))}
+  body.touch #hudPlot .dim{display:none}
   @media (max-width:620px){header h1{font-size:15px}.hs{width:34px;height:34px}.hs canvas{width:24px;height:24px}}
 </style>
 </head>

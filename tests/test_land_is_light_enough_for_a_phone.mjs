@@ -64,6 +64,7 @@ ok(["tChat", "tRun", "tTurn", "tFire", "tWard"].every((id) => new RegExp(`<butto
 ok(/\$\("tChat"\)\.onclick = \(\) => conShow\(!conOpen\);/.test(page) && /hold\("tRun", "run"\);/.test(page) && /\$\("tTurn"\)\.onclick = \(\) => turnPiece\(\);/.test(page) && /\$\("tFire"\)\.onclick = \(\) => ignite\(\);/.test(page) && /\$\("tWard"\)\.onclick = \(\) => wardrobe\(true\);/.test(page), "…each wired: the console, run while held, the piece turned, fire, the wardrobe");
 ok(/const fast = keys\.has\("ShiftLeft"\) \|\| keys\.has\("ShiftRight"\) \|\| !!\(touch && touch\.run\);/.test(page), "…and Run held is the walk's own Shift");
 const I2 = JSON.parse(readFileSync(join(ROOT, "static", "i18n_games", "land.json"), "utf8"));
+ok(/body\.touch #hudInfo\{font-size:11px;line-height:1\.3;max-width:min\(380px,calc\(100vw - 130px\)\)\}/.test(html) && /body\.touch #hudPlot \.dim\{display:none\}/.test(html), "on a phone the HUD text is smaller and tighter and the plot card's explanations are folded away (it took the top third of a 480-px screen)");
 ok(["land.tChat", "land.tRun", "land.tTurn", "land.tFire", "land.tWard"].every((k) => Object.keys(I2).length === 17 && Object.keys(I2).every((l) => typeof I2[l][k] === "string" && I2[l][k].length > 0)), "the five labels are in all 17 languages");
 
 console.log(fails ? `${fails} FAILED` : "ALL PASS");
