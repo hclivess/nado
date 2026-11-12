@@ -131,5 +131,27 @@ ok(worst < 1e-9, `the map's bent rows come back to their elevation (worst ${wors
 const dv = (el) => (C.mapV(el + 1e-4) - C.mapV(el)) / 1e-4;
 ok(dv(0.01) > 1.9 * dv(1.5), `the map spends more rows a degree at the horizon than at the zenith (${(dv(0.01) / dv(1.5)).toFixed(2)}×)`);
 
+// ---- 8. the sun under the clouds (#183 step 4) --------------------------------------------------------------------------
+{
+  const upv = col ? col.map((x) => x / C.RB) : null;
+  if (upv) {
+    const ground = upv.map((x) => x * (Wd.R0 + Wd.SEA + 30)), dr = [1, 0];
+    const under = C.sunLit(vol, ground, upv, dr);                        // the sun straight overhead, a full heap over the player
+    ok(under < 0.3, `under a full heap with the sun overhead ${(100 * under).toFixed(0)} % of the direct sun reaches the ground (a cumulus blocks it; the page keeps a floor and the sky's own light)`);
+    // clear sky: a ground point whose sun ray crosses the layer where no heap stands (the ray's own stretch, span)
+    let clear = null;
+    for (let az = 0; az < 2 * Math.PI && clear === null; az += 0.15) for (let k = 1; k < 8 && clear === null; k++) {
+      const d0 = [0, 1, 2].map((i) => fr.up[i] * 0.8 + (fr.east[i] * Math.sin(az) + fr.north[i] * Math.cos(az)) * 0.6), dl = Math.hypot(...d0), d = d0.map((x) => x / dl);
+      const q = [0, 1, 2].map((i) => col[i] + fr.east[i] * 700 * k * Math.sin(az + k) + fr.north[i] * 700 * k * Math.cos(az + k)), ql = Math.hypot(...q);
+      const g = q.map((x) => (x / ql) * (Wd.R0 + Wd.SEA + 30)), r = Math.hypot(...g), mu = (g[0] * d[0] + g[1] * d[1] + g[2] * d[2]) / r, sp = C.span(r, mu);
+      if (!sp) continue;
+      const free = [0, 0.25, 0.5, 0.75, 1].every((f) => C.heapTop(vol, [0, 1, 2].map((i) => g[i] + d[i] * (sp[0] + (sp[1] - sp[0]) * f))) === 0);
+      if (free) clear = C.sunLit(vol, g, d, dr);
+    }
+    ok(clear === 1, `under clear sky all of it does (${clear})`);
+    ok(C.sunLit(vol, ground, upv.map((x) => -x), dr) === 1, "with the sun below the horizon nothing is shaded (the night is the night)");
+  }
+}
+
 console.log(fails ? `${fails} FAILED` : "all passed");
 process.exit(fails ? 1 : 0);

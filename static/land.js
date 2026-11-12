@@ -3825,6 +3825,7 @@ function buildPipeline() {
 const SKY = { zenith: new THREE.Color(0x2f6fc8), horizon: new THREE.Color(0xb7d6ef), nightZ: new THREE.Color(0x03060d),
   nightH: new THREE.Color(0x0b1424), moonFill: new THREE.Color(0x4a5f8a), dusk: new THREE.Color(0xf0874a), duskZ: new THREE.Color(0x29386d), white: new THREE.Color(0xfff8ee) };
 let moon, dome, sunDisc, sunGlow, sunHalo, stars, skyAt = 0, satPts = null;
+let cloudLitAt = 0, cloudLitWant = 1, cloudLitNow = 1, cloudLitStep = 0;   // the sun through the clouds over the player (#183 step 4)
 const SKY_R = 3200;                          // the dome's radius: everything celestial is drawn at its true ANGLE on it
 const smooth01 = (a, b, x) => { const t = Math.max(0, Math.min(1, (x - a) / (b - a))); return t * t * (3 - 2 * t); };
 function glowTexture() {
@@ -3895,7 +3896,16 @@ function sky(fr) {
   torchNight = 1 - day;
   sun.position.copy(sd).multiplyScalar(150);
   sun.color.setRGB(1, 0.62 + 0.35 * smooth01(0, 0.4, elev), 0.38 + 0.55 * smooth01(0, 0.5, elev));
-  sun.intensity = 2.4 * Math.min(1.6, star.flux) * day;
+  // THE SUN UNDER THE CLOUDS (#183 step 4): while a cloud passes over the player the sun dims to what the layer lets
+  // through (land-clouds.js sunLit, read four times a second, eased over a second — a cloud's edge takes seconds to
+  // cross at the breeze's pace), and the sky's fill with it a little; off with the clouds. The light on the ground is one
+  // value for the whole scene: cast cloud shadows, moving over the land, are owed (#183).
+  if (SET.clouds && performance.now() - cloudLitAt > 250) {
+    cloudLitAt = performance.now();
+    cloudLitWant = Clouds.sunLit(Clouds.noiseVolume(), Wd.posOf(P.face, P.u, P.v, P.h), star.dir);
+  }
+  cloudLitNow += ((SET.clouds ? cloudLitWant : 1) - cloudLitNow) * Math.min(1, (performance.now() - cloudLitStep) / 1000); cloudLitStep = performance.now();
+  sun.intensity = 2.4 * Math.min(1.6, star.flux) * day * (0.35 + 0.65 * cloudLitNow);
   // shadows only once the sun is well up: at a grazing sun the shadow map streaks the ground (acne), and real dusk
   // shadows are long and faint anyway
   sun.castShadow = elev > 0.12 && !!SET.shadows;
@@ -3905,7 +3915,7 @@ function sky(fr) {
   // 2026-11-08). Moonlight and a blue sky fill now light it the way a game's night reads: dim, blue, readable.
   moon.intensity = 0.9 * (1 - day);
   hemi.position.copy(up);                                   // three's hemisphere light assumes +Y; here "up" is radial
-  hemi.intensity = 1.1 + 1.1 * day;                         // the sky lights what the sun does not reach: a wall in its own
+  hemi.intensity = (1.1 + 1.1 * day) * (0.85 + 0.15 * cloudLitNow);   // the sky lights what the sun does not reach: a wall in its own
                                                             // shade is dim, never black (the first house render was)
   hemi.color.copy(SKY.moonFill).lerp(SKY.horizon, day);
   const zen = SKY.nightZ.clone().lerp(SKY.zenith, day).lerp(SKY.duskZ, dusk * 0.5);

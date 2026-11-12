@@ -186,6 +186,27 @@ export function light(sunDir, sun, hor, zen) {
   return { sunDir, sun: sun.map((c) => c * 0.95), hi: hor.map((c, i) => 0.62 * c + 0.3 * zen[i]), lo: hor.map((c, i) => 0.42 * c + 0.08 * zen[i]), haze: hor };
 }
 
+/** THE SUN UNDER THE CLOUDS (#183 step 4): how much of the sun reaches ground point `eye` (m, planet frame) through
+ *  the layer along `sunDir` — the march's own light path from the point where the sun's ray enters the layer: samples of
+ *  the heap body between the base and the top, the light that went straight through and the light that found its way
+ *  round. 1 in clear sky, ~0.3 under a full heap, 1 with the sun below the horizon (nothing to shade). The page dims
+ *  the sun by it while a cloud passes over the player — the whole scene, not a cast shadow: a shadow drawn on the
+ *  ground would need every material to sample the layer, owed on #183. */
+export function sunLit(vol, eye, sunDir, dr = drift()) {
+  const r = Math.hypot(eye[0], eye[1], eye[2]), mu = (eye[0] * sunDir[0] + eye[1] * sunDir[1] + eye[2] * sunDir[2]) / r;
+  if (mu <= 0.02 || r >= RT) return 1;
+  const sp = span(r, mu);
+  if (!sp) return 1;
+  const n = 8, dt = (sp[1] - sp[0]) / n;
+  let tau = 0;
+  for (let i = 0; i < n; i++) {
+    const t = sp[0] + dt * (i + 0.5);
+    tau += body(vol, undrift([eye[0] + sunDir[0] * t, eye[1] + sunDir[1] * t, eye[2] + sunDir[2] * t], dr)) * dt * K.deep;
+  }
+  tau *= K.sigma;
+  return 0.65 * Math.exp(-tau) + 0.35 * Math.exp(-tau * 0.25);
+}
+
 // ---- the march (the reference: cloudLayer's TSL is these lines again) -------------------------------------------------
 /** The stretch [t0, t1] (m) of the ray from an eye at radius `r` (m from the planet's centre), `mu` = the sine of its
  *  elevation, that lies in the layer — or null. An eye below the base sees no cloud through the ground; an eye above
