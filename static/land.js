@@ -3534,12 +3534,18 @@ function groundMaterial() {
   const rock = TSL.texture(tex[2], TSL.vec2(uvw.y, uvw.z).div(4.5)).rgb.mul(tw.x)
     .add(TSL.texture(tex[2], TSL.vec2(uvw.x, uvw.z).div(4.5)).rgb.mul(tw.y))
     .add(TSL.texture(tex[2], near.mul(3.2 / 4.5)).rgb.mul(tw.z)).div(tws);
+  // GRASS AND EARTH ON A SLOPE (#181 item 5, playtest 2026-11-11: "steep slopes smear the ground texture — stretched
+  // along the slope"): the two layers a hillside is made of take the rock's three projections too, the side ones
+  // weighted in as the face turns from the sky (the flat meadow still costs its two samples' worth: the side weights
+  // are ~0 there); sand, snow and clay stay mapped from above
+  const tri = (t) => TSL.mix(TSL.texture(t, near).rgb.mul(tw.z).add(TSL.texture(t, TSL.vec2(uvw.y, uvw.z).div(3.2)).rgb.mul(tw.x)).add(TSL.texture(t, TSL.vec2(uvw.x, uvw.z).div(3.2)).rgb.mul(tw.y)).div(tws),
+    TSL.texture(t, far).rgb, 0.35);
   // the scanned grass is a forest floor (brown-green); under the blades it is tinted to a living meadow's green
   // the meadow's own colour, varying over tens of metres — lusher, drier, darker patches — so from above it reads as a
   // living field, not one pale wash ("bland untextured marches", operator 2026-11-06)
   const patch = TSL.mx_noise_float(uvw.xy.mul(0.021)).mul(0.5).add(TSL.mx_noise_float(uvw.xy.mul(0.083)).mul(0.25)).add(0.5).clamp(0, 1);
   const meadow = TSL.mix(TSL.vec3(0.46, 0.78, 0.30), TSL.vec3(0.80, 0.86, 0.38), patch).mul(TSL.float(0.82).add(TSL.mx_noise_float(uvw.xy.mul(0.31)).mul(0.12)));
-  const color = two(tex[0]).mul(meadow).mul(w1.x).add(two(tex[1]).mul(w1.y)).add(rock.mul(w1.z)).add(two(tex[3]).mul(w1.w))
+  const color = tri(tex[0]).mul(meadow).mul(w1.x).add(tri(tex[1]).mul(w1.y)).add(rock.mul(w1.z)).add(two(tex[3]).mul(w1.w))
     .add(two(tex[4]).mul(w2.x)).add(two(tex[5]).mul(w2.y));
   const m = new THREE.MeshStandardNodeMaterial({ metalness: 0 });
   m.colorNode = color.mul(TSL.attribute("color", "vec3"));
