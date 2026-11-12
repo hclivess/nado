@@ -1738,6 +1738,12 @@ function applyPlot(plot, list) {
   }
   if (old) for (let ch = Wd.DEEP_MIN / CHUNK; ch < H / CHUNK; ch++) { const k = q.face + ":" + q.u0 / CHUNK + ":" + q.v0 / CHUNK + ":" + ch; if (chunks.has(k)) request(k); }
 }
+/** The town's plots — the hall's and the ring around it — asked for at once, each on its own (one slow answer holds
+ *  no other back); the first frame is not waited on them, they just usually win the race. */
+function prefetchTown() {
+  const q = Wd.plotCoords(TOWN_HALL_PLOT);
+  for (let dr = -1; dr <= 1; dr++) for (let dc = -1; dc <= 1; dc++) resync(Wd.plotId(q.face, q.prow + dr, q.pcol + dc));
+}
 async function resync(plot) {
   try { const r = await (await fetch("/land/api/plot?plot=" + plot, { cache: "no-store", credentials: "same-origin" })).json(); applyPlot(plot, r.edits || []); setPlotBoxes(plot, r.boxes || []); } catch (e) {}
 }
@@ -4468,6 +4474,11 @@ async function start() {
   viewDist = SET.view;                                      // the view distance setting (#166); a photo shot takes its own
   if (SHOT !== null) shotSetup();
   RULES = await (await fetch("/static/land-recipes.json", { cache: "no-cache" })).json();
+  // THE TOWN WITH THE FIRST FRAME (#178): the hall's plot and its eight neighbours are fetched now, while the renderer
+  // starts and the first chunks mesh, so the first picture holds the hall — not bare ground where it will be (the
+  // playtest's newcomer watched the town arrive seconds after the terrain, by the world server's own order of plots).
+  // The same records come over the socket later and replace these alike (setPlotBoxes / applyPlot are idempotent).
+  prefetchTown();
   const canvas = $("world");
   renderer = new THREE.WebGPURenderer({ canvas, antialias: true });
   renderer.setPixelRatio(basePR() * SET.res / 100);          // render resolution (#166): a share of the screen's pixels
