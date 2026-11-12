@@ -208,7 +208,7 @@ def _row(r):
 def trades(db, ns, cid, pid=None, limit=LIMIT_DEFAULT, before=None, trader=None):
     """Newest first. `before` = [cursor, seq] of the last row a page showed. Returns (rows, next_before or None)."""
     limit = max(1, min(int(limit), LIMIT_MAX))
-    q, a = f"SELECT {_COLS} FROM dex_trades WHERE ns=? AND cid=?", [ns, cid]
+    q, a = f"SELECT {_COLS} FROM dex_trades WHERE ns=? AND cid=?", [ns, cid]  # nosec B608 # _COLS is a constant column list; ns and cid are bound
     if pid is not None:
         q += " AND pid=?"; a.append(int(pid))
     if trader:

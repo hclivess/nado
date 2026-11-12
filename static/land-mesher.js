@@ -807,7 +807,7 @@ function placeModel(m, face, cu, cv, base, rot, sc, phase, place, bark, foliage,
   }
 }
 
-const GRASS_DENSITY = 6;                                   // clumps per m² of meadow
+const GRASS_DENSITY = 10;                                  // clumps per m² of meadow (cards, #183 step 3b: 12 triangles a clump; was 6 clumps of 54)
 function scatterGrass(g, density, under) {
   const P = g.pos, N = g.nor, I = g.idx, W1 = g.w1, U = g.uvw, out = [], kinds = [];
   for (let t = 0; t < I.length; t += 3) {

@@ -40,7 +40,7 @@ def main():
         for kind, tag in (("Diffuse", "col"), ("nor_gl", "nor")):
             url, size, md5 = plan[asset][kind]
             data = open(os.path.join(src, f"{asset}__{kind}.jpg"), "rb").read()
-            if hashlib.md5(data).hexdigest() != md5:
+            if hashlib.md5(data, usedforsecurity=False).hexdigest() != md5:   # (Poly Haven publishes MD5s: a download check, not security)
                 raise SystemExit(f"{asset} {kind}: the original does not match Poly Haven's MD5")
             lines.append(f"{url} {md5}")
             im = Image.open(os.path.join(src, f"{asset}__{kind}.jpg")).convert("RGB").resize((px, px), Image.LANCZOS)

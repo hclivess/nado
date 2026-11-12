@@ -3455,7 +3455,51 @@ function groundMaterial() {
 // a dark root to a yellow-green tip, every clump carries its own tint (an instance colour), and a flower clump is one
 // in twelve with heads of white, yellow or purple (the meadow photographs, land research meadow/). Judged side by side
 // with the concept picture, not with the earlier render.
-let clumpGeo = null, flowerGeo = null, matGrass = null, matFlower = null;
+// STEP 3b — GRASS CARDS: a grass clump is three crossed cards carrying a PAINTED cluster of blades (grassCardTexture:
+// sixteen tapered blades fanning from the root, dark below and light at the tip, on a clear ground, alpha-tested) —
+// twelve triangles a clump against the fifty-four of the nine modelled blades, so the mesher scatters nearly twice the
+// clumps (GRASS_DENSITY) at a third of the triangles, and the blanket closes the way the concept picture's does. The
+// flower clump keeps its modelled blades and heads (they must stand out from the cards).
+let clumpGeo = null, flowerGeo = null, matGrass = null, matFlower = null, cardTex = null;
+function grassCardTexture() {
+  const N = 256, cv = document.createElement("canvas"); cv.width = cv.height = N;
+  const g = cv.getContext("2d");
+  let seed = 4242;
+  const rnd = () => { seed = (seed * 16807) % 2147483647; return seed / 2147483647; };
+  g.clearRect(0, 0, N, N);
+  for (let i = 0; i < 16; i++) {
+    const x0 = N / 2 + (rnd() - 0.5) * 120, h = 120 + rnd() * 130, lean = (rnd() - 0.5) * 90, w = 7 + rnd() * 8;
+    const segs = 6;
+    for (let k = 0; k < segs; k++) {
+      const t0 = k / segs, t1 = (k + 1) / segs;                     // the blade as a bent, tapering strip: six strips of a gradient
+      const xa = x0 + lean * t0 * t0, ya = N - h * t0, xb = x0 + lean * t1 * t1, yb = N - h * t1, wa = w * (1 - t0), wb = w * (1 - t1);
+      const L = 0.22 + 0.5 * t1 ** 0.8;                             // dark at the root (0.22) to light at the tip (0.72)
+      g.fillStyle = `rgb(${Math.round(255 * L * 0.72)}, ${Math.round(255 * L)}, ${Math.round(255 * L * 0.3)})`;
+      g.beginPath(); g.moveTo(xa - wa / 2, ya); g.lineTo(xa + wa / 2, ya); g.lineTo(xb + wb / 2, yb); g.lineTo(xb - wb / 2, yb); g.closePath(); g.fill();
+    }
+  }
+  const t = new THREE.CanvasTexture(cv); t.colorSpace = THREE.SRGBColorSpace; t.minFilter = THREE.LinearMipmapLinearFilter; t.magFilter = THREE.LinearFilter; t.anisotropy = 4;
+  return t;
+}
+/** Three crossed cards, each `wide` x `tall` metres, their uv the whole card texture; indexed from both sides. */
+function cardClump(wide, tall) {
+  const pos = [], uv = [], nor = [], col = [], head = [], idx = [];
+  for (let c = 0; c < 3; c++) {
+    const a = (c * Math.PI) / 3, dx = Math.cos(a) * wide / 2, dz = Math.sin(a) * wide / 2, base = pos.length / 3;
+    pos.push(-dx, 0, -dz, dx, 0, dz, dx, tall, dz, -dx, tall, -dz);
+    uv.push(0, 0, 1, 0, 1, 1, 0, 1);
+    for (let k = 0; k < 4; k++) { nor.push(0, 1, 0); col.push(1, 1, 1); head.push(0); }
+    idx.push(base, base + 1, base + 2, base, base + 2, base + 3, base, base + 2, base + 1, base, base + 3, base + 2);
+  }
+  const g = new THREE.BufferGeometry();
+  g.setAttribute("position", new THREE.Float32BufferAttribute(pos, 3));
+  g.setAttribute("uv", new THREE.Float32BufferAttribute(uv, 2));
+  g.setAttribute("normal", new THREE.Float32BufferAttribute(nor, 3));
+  g.setAttribute("color", new THREE.Float32BufferAttribute(col, 3));
+  g.setAttribute("head", new THREE.Float32BufferAttribute(head, 1));
+  g.setIndex(idx);
+  return g;
+}
 function bladeClump(blades, flower) {
   const pos = [], col = [], nor = [], idx = [], head = [];
   let seed = flower ? 7 : 3;
@@ -3494,18 +3538,21 @@ function bladeClump(blades, flower) {
 const FLOWER_HEADS = [[0.9, 0.9, 0.82], [0.95, 0.72, 0.1], [0.55, 0.3, 0.8], [0.9, 0.9, 0.82]];
 function grassMeshes(gr) {
   if (!clumpGeo) {
-    clumpGeo = bladeClump(9, false); flowerGeo = bladeClump(4, true);
+    cardTex = grassCardTexture();
+    clumpGeo = cardClump(0.7, 0.55); flowerGeo = bladeClump(4, true);
     // wind: the tip sways most, the root not at all; each clump in its own phase
     const lp = TSL.positionLocal, sway = TSL.sin(TSL.time.mul(1.7).add(TSL.instanceIndex.toFloat().mul(0.731))).mul(0.06)
       .add(TSL.sin(TSL.time.mul(0.45).add(TSL.instanceIndex.toFloat().mul(0.113))).mul(0.05));
     // the sway's strength comes from the blade's OWN height (the geometry's vertex), not from positionLocal: by here
     // that already includes the instance's place in the chunk, metres up — squared, it threw the grass into the sky
-    const tipness = TSL.attribute("position", "vec3").y.div(0.75).clamp(0, 1).pow(2);
+    const tipness = TSL.attribute("position", "vec3").y.div(0.55).clamp(0, 1).pow(2);
     const swayed = lp.add(TSL.vec3(sway, 0, sway.mul(0.6)).mul(tipness));
     // a grass clump: its blades' colours in the clump's own tint (instanceColor); a flower clump: green blades, heads
     // in the instance's colour (head = 1)
-    matGrass = new THREE.MeshStandardNodeMaterial({ roughness: 0.85, metalness: 0 });
-    matGrass.colorNode = TSL.attribute("color", "vec3").mul(TSL.instanceColor);
+    matGrass = new THREE.MeshStandardNodeMaterial({ roughness: 0.9, metalness: 0, alphaTest: 0.5 });
+    const card = TSL.texture(cardTex, TSL.uv());
+    matGrass.colorNode = card.rgb.mul(TSL.instanceColor);            // the painted blades in the clump's own tint
+    matGrass.opacityNode = card.a;
     matGrass.positionNode = swayed;
     matFlower = new THREE.MeshStandardNodeMaterial({ roughness: 0.85, metalness: 0 });
     matFlower.colorNode = TSL.attribute("color", "vec3").mul(TSL.mix(TSL.vec3(1), TSL.instanceColor, TSL.attribute("head", "float")));
