@@ -153,7 +153,7 @@ class AssetHistoryStore:
                     else:
                         _log(f"ns={ns}: gap {m[1] + 1}..{h - 1} — history restarts at {h}")
                         for t in _NS_TABLES:
-                            db.execute(f"DELETE FROM {t} WHERE ns=?", (ns,))
+                            db.execute(f"DELETE FROM {t} WHERE ns=?", (ns,))  # nosec B608 # t is one of _NS_TABLES (constant names); the values are bound
                         new_dex.pop(ns, None)              # the DEX history restarts here too
                         frm = h
                     if recs:
@@ -201,7 +201,7 @@ class AssetHistoryStore:
                 db = self._db
                 db.execute("BEGIN")
                 for t in _NS_TABLES:
-                    db.execute(f"DELETE FROM {t} WHERE ns=? AND cursor>?", (ns, cursor))
+                    db.execute(f"DELETE FROM {t} WHERE ns=? AND cursor>?", (ns, cursor))  # nosec B608 # t is one of _NS_TABLES (constant names); the values are bound
                 ds = self._dex_start.get(ns)
                 if ds is not None and ds > cursor + 1:
                     db.execute("UPDATE dex_meta SET start=? WHERE ns=?", (cursor + 1, ns))
@@ -238,7 +238,7 @@ class AssetHistoryStore:
             self._pending_dex.pop(ns, None)
             if ns not in self._meta:
                 try:
-                    if all(self._db.execute(f"SELECT 1 FROM {t} WHERE ns=? LIMIT 1", (ns,)).fetchone() is None
+                    if all(self._db.execute(f"SELECT 1 FROM {t} WHERE ns=? LIMIT 1", (ns,)).fetchone() is None  # nosec B608 # t is one of _NS_TABLES (constant names); the values are bound
                            for t in _NS_TABLES):
                         return             # nothing indexed: the common case on a pruned cold start, kept cheap
                 except Exception as e:
@@ -248,7 +248,7 @@ class AssetHistoryStore:
                 db = self._db
                 db.execute("BEGIN")
                 for t in _NS_TABLES:
-                    db.execute(f"DELETE FROM {t} WHERE ns=?", (ns,))
+                    db.execute(f"DELETE FROM {t} WHERE ns=?", (ns,))  # nosec B608 # t is one of _NS_TABLES (constant names); the values are bound
                 db.execute("DELETE FROM meta WHERE ns=?", (ns,))
                 db.execute("DELETE FROM dex_meta WHERE ns=?", (ns,))
                 db.execute("COMMIT")

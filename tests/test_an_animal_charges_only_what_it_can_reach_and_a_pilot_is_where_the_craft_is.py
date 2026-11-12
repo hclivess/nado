@@ -155,7 +155,9 @@ async def main():
         # a "pos" from beside the craft (the pilot's own report, metres from the boarding spot) is paced from the craft
         got = []
         await ws.send_json({"t": "pos", "p": [cp[0], cp[1] + 1, cp[2], h, 0.0]}); await asyncio.sleep(0.4)
-        while True:
+        # (drained with a bound: the hub sends the players around five times a second, so a loop that reads "until
+        # nothing arrives for 0.3 s" never ends — this test hung 600 s in CI twice, 2026-11-12)
+        for _ in range(40):
             try:
                 got.append(await ws.receive_json(timeout=0.3))
             except Exception:
