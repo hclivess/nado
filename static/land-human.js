@@ -277,7 +277,9 @@ export class HumanView {
       // file's ETag — but a new wear.bin is a new URL for its textures too, past any edge cache)
       const tu = new URL("/static/human/" + it.tex, "http://x/"); if (this.stamp) tu.searchParams.set("v", this.stamp);
       const map = loader.load(tu.pathname + tu.search); map.colorSpace = THREE.SRGBColorSpace; map.anisotropy = 4;
-      const lift = clothes ? (it.name.startsWith("shoes") ? 0.006 : 0.02) : it.kind === "eyebrows" ? 0.004 : 0;   // (a garment clear of the skin, brows clear of the brow)
+      // the fit is resolved against the drawn body offline (build_wear.py clear_of_body: 15 mm an outfit, 8 mm shoes,
+      // 3 mm the brows); this is a small safety on top — the clearance test measures both
+      const lift = clothes ? (it.name.startsWith("shoes") ? 0 : 0.003) : it.kind === "eyebrows" ? 0.002 : 0;   // (shoes none: at the opening their normals point into the shin, and the offline 12 mm already holds)
       const m = new THREE.Mesh(instanced(attrs, it.idx), wearMaterial(this.tex, map, it.lum, it.kind === "eyebrows" ? 0.55 : 1, clothes, it.lums, lift));   // (brows a shade darker than the hair)
       m.frustumCulled = false; m.castShadow = it.kind !== "eyebrows"; m.receiveShadow = true; m.matrixAutoUpdate = false; m.visible = false;
       this.scene.add(m); return { it, mesh: m };

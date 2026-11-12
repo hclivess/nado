@@ -87,6 +87,48 @@ for (vname, _), V in zip(VARIANTS, VB):
     shift.append(head_joint[vname] - j)                 # what build_crew added to the base coordinates (its floor and centring)
 shift = np.array(shift)
 
+# ---- CLEAR OF THE BODY (operator's real-GPU screenshot 2026-11-12: the shirt gone, the trousers patchy — a garment
+# fitted to the base mesh lies at, and inside, the DECIMATED body the page draws, and loses the depth test to it; a
+# uniform 2 cm lift in the shader still left 5–26 % of an outfit's vertices inside on the three builds, measured by
+# tests/test_every_garment_vertex_stands_outside…). So the fit is resolved against the drawn body itself: every
+# garment vertex nearer than `margin` to the nearest body vertex's tangent plane (or inside it) is moved out along that
+# body normal to `margin`. The test measures the result the same way, independently.
+crew_pos = [np.array(v["pos"], dtype=np.float64) if "pos" in v else None for v in crew["variants"]]
+def crew_body(vi):
+    """The drawn body of build vi: positions (metres) and area-weighted normals, from crew.bin's own buffers."""
+    with open(crew_path, "rb") as f:
+        head = f.read(8); n = struct.unpack("<I", head[4:])[0]; hdr = json.loads(f.read(n)); base_off = 8 + n
+        f.seek(0); raw = f.read()
+    v = hdr["variants"][vi]
+    off, ln = v["pos"]; q = np.frombuffer(raw, dtype=np.int16, count=ln // 2, offset=base_off + off).astype(np.float64) * hdr["posScale"]
+    P = q.reshape(-1, 3)
+    off, ln = hdr["buf"]["lod0"]; idx = np.frombuffer(raw, dtype=np.uint16, count=ln // 2, offset=base_off + off).astype(np.int64).reshape(-1, 3)
+    N = np.zeros_like(P)
+    fn = np.cross(P[idx[:, 1]] - P[idx[:, 0]], P[idx[:, 2]] - P[idx[:, 0]])
+    for k in range(3): np.add.at(N, idx[:, k], fn)
+    N /= np.maximum(np.linalg.norm(N, axis=1, keepdims=True), 1e-9)
+    return P, N
+_body_cache = {}
+def clear_of_body(G, vi, margin, passes=4):
+    """Moved out of the body to `margin`, in passes: a vertex pushed along one body vertex's normal can land nearer
+    another's plane (a fold — an armpit, the crotch, a sole), so it is measured again until it stays clear."""
+    if vi not in _body_cache: _body_cache[vi] = crew_body(vi)
+    P, N = _body_cache[vi]
+    out = G.copy()
+    for _ in range(passes):
+        moved = 0
+        for s0 in range(0, len(out), 256):                              # chunks: 256 × 2634 distances at a time
+            g = out[s0:s0 + 256]
+            d2 = ((g[:, None, :] - P[None, :, :]) ** 2).sum(-1)
+            bi = d2.argmin(1)
+            sd = ((g - P[bi]) * N[bi]).sum(1)                            # signed distance to the nearest vertex's plane
+            push = np.clip(margin - sd, 0, None)
+            moved += int((push > 1e-6).sum())
+            out[s0:s0 + 256] = g + N[bi] * push[:, None]
+        if not moved:
+            break
+    return out
+
 # ---- the items
 def fit(pxy, V):
     """The proxy's vertices on base mesh V: Σ weights·V[refs] + diag(scale)·offset (MakeHuman's getCoords)."""
@@ -134,14 +176,17 @@ for kind, name in ITEMS:
     skinI = top.astype(np.uint8); skinW = np.take_along_axis(Wv, top, axis=1); skinW /= np.maximum(skinW.sum(1, keepdims=True), 1e-9)
     skinW8 = np.clip(np.round(skinW * 255), 0, 255).astype(np.uint8)
     variants, scale = [], 0.0
-    posv = []
+    posv, raw0 = [], None
     for vi, (vname, _) in enumerate(VARIANTS):
         P = fit(pxy, VB[vi])[src_v] * DM + shift[vi]
+        if vi == 0: raw0 = P.copy()                                   # (the part is read off the garment's own fit, before the resolve)
+        if kind == "clothes" or kind == "eyebrows":
+            P = clear_of_body(P, vi, 0.012 if name.startswith("shoes") else 0.003 if kind == "eyebrows" else 0.015, passes=8 if name.startswith("shoes") else 4)   # (a sole is a fold: more margin, more passes)
         posv.append(P); scale = max(scale, float(np.abs(P).max()))
     # the part each vertex belongs to: an outfit splits at the waist — a vertex under the hips joint less 8 cm (the
     # jeans' waistband; the shirt's hem hangs over it) is the trousers, over it the shirt; shoes are shoes; hair none
     if kind == "clothes" and name.startswith("shoes"): part = np.full(nV, PART_SHOES, np.uint8)
-    elif kind == "clothes": part = np.where(posv[0][:, 1] < hips_joint["male"][1] - 0.08, PART_LEGS, PART_TOP).astype(np.uint8)
+    elif kind == "clothes": part = np.where(raw0[:, 1] < hips_joint["male"][1] - 0.08, PART_LEGS, PART_TOP).astype(np.uint8)
     else: part = np.full(nV, PART_NONE, np.uint8)
     posScale = scale / 32000.0
     for vi, (vname, _) in enumerate(VARIANTS):

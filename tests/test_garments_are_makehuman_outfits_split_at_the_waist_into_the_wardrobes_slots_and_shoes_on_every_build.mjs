@@ -63,7 +63,7 @@ ok(share(shoes, feet, null) > 0.9, `shoes: the weight is on the feet and shins (
 // normal — 2 cm for an outfit, 6 mm for shoes, 4 mm for the brows — so it never loses the depth test to the body under it
 const hv = readFileSync(join(ROOT, "static", "land-human.js"), "utf8");
 ok(/function wearMaterial\(tex, map, lum, dark, clothes, lums, lift = 0\)/.test(hv) && /m\.positionNode = lift \? skinned\(T, false\)\.add\(nrm\.mul\(float\(lift\)\)\) : skinned\(T, false\);/.test(hv), "a worn item's position is its skinned position pushed out along its skinned normal by `lift`");
-ok(/const lift = clothes \? \(it\.name\.startsWith\("shoes"\) \? 0\.006 : 0\.02\) : it\.kind === "eyebrows" \? 0\.004 : 0;/.test(hv), "an outfit is lifted 2 cm, shoes 6 mm, the brows 4 mm, hair not at all");
+ok(/const lift = clothes \? \(it\.name\.startsWith\("shoes"\) \? 0 : 0\.003\) : it\.kind === "eyebrows" \? 0\.002 : 0;/.test(hv), "the page adds a 3 mm safety over the offline clearance (2 mm the brows; none for shoes, whose opening's normals point into the shin), hair none — the clearance test measures the fit itself");
 ok(/clamp\(dot\(tx\.rgb, vec3\(0\.2126, 0\.7152, 0\.0722\)\)\.div\(float\(Math\.max\(0\.05, lum\)\)\), 0\.25, 1\.6\)/.test(hv), "hair keeps its texture's light and dark: never black, never blown out");
 
 console.log(fails ? `${fails} FAILED` : "all passed");
