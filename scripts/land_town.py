@@ -219,7 +219,11 @@ def hall_pieces(G):
 # (100 x 10 x 120, the server refuses any other size) on the outer faces; a gable roof of tiles like the hall's; a beam
 # spire post; a torch below and one at the lookout. Every number here is a DESIGN CHOICE in the hall's own units (cm);
 # the pieces are the game's blocks, paid from the town's bag.
-TOWER = dict(X0=760, Z0=1290, S=280, T=20, STOREY=320, N=5, SPIRE=500, LADDER_X=900, door="north")   # (z 1290: against the hall roof's overhang; the gable ends at the plot's edge)
+TOWER = dict(X0=760, Z0=1290, S=280, T=20, STOREY=320, N=5, SPIRE=500, LADDER_X=840, WELL=120, CELL_X=900, door="north")   # (z 1290: against the hall roof's overhang; the gable ends at the plot's edge)
+# THE WELL IS CENTRED ON THE DOORWAY, A BODY AND A HAND WIDER (#195, walked as the agent 2026-11-12): the door is x 855..945,
+# the first build's well x 900..1000 with the ladder at 925..975 — a player walking in straight (x 900) climbed 1.3 m and
+# stopped, their head (HALF 0.3 wide) under the first floor's west piece. Now the well is 840..960, the ladder 875..925.
+TOWER_V2 = dict(TOWER, LADDER_X=900, WELL=100)                                                              # (the second build, live 2026-11-12 until this; its floors and ladder are replaced)
 # the first build's place (in the west street, 2026-11-12): what --untower takes down
 TOWER_V1 = dict(X0=30, Z0=480, S=280, T=20, STOREY=320, N=5, SPIRE=500, LADDER_X=100, door="east")
 def tower_pieces(G, P=None):
@@ -230,6 +234,7 @@ def tower_pieces(G, P=None):
     solid column nobody could climb (the agent stood at its foot). ladder_cells names that column for clearing."""
     P = P or TOWER
     X0, Z0, S, T, ST, N, SP, LX, door = (P[k] for k in ("X0", "Z0", "S", "T", "STOREY", "N", "SPIRE", "LADDER_X", "door"))
+    WELL = P.get("WELL", 100)
     F = G + 45
     hx, hz, hw, hd, WH = HALL["X0"], HALL["Z0"], HALL["W"], HALL["D"], HALL["WH"]
     adds, removes = [], []
@@ -286,9 +291,9 @@ def tower_pieces(G, P=None):
                 if k == 0: gapped_z(X0 + S - T, Z0 + T, T, S - 2 * T, gz0, gz1)
                 else: wall(X0 + S - T, Z0 + T, T, S - 2 * T)
         if k > 0:
-            # the storey's floor in two pieces, the ladder's column (LX .. + 100) left open as its well
+            # the storey's floor in two pieces, the ladder's column (LX .. + WELL) left open as its well
             adds.append([X0 + T, Z0 + T, y - 10, LX - (X0 + T), S - 2 * T, 10, PL])
-            adds.append([LX + 100, Z0 + T, y - 10, X0 + S - T - (LX + 100), S - 2 * T, 10, PL])
+            adds.append([LX + WELL, Z0 + T, y - 10, X0 + S - T - (LX + WELL), S - 2 * T, 10, PL])
         if k == 0:
             adds.append([X0 + 30, Z0 + 30, F, 10, 10, 120, TORCH])
     # the belfry's roof: a gable of tiles over the top, as the hall's; the spire post from the ridge; a torch at the lookout
@@ -317,14 +322,15 @@ def tower_pieces(G, P=None):
     # the ladder: unit pieces (50 x 8 x 300) stacked up the floors' well against the shaft's south inner wall (the north
     # wall's ground floor is the doorway), from the ground floor to the belfry — each within the 1.5 m the page reaches
     # under a piece's foot, so the climb never breaks between two
-    ladder = [[LX + 25, Z0 + S - T - 8, y, 50, 8, 300, LADDER] for y in range(F, top - ST, 300)]
+    ladder = [[LX + (WELL - 50) // 2, Z0 + S - T - 8, y, 50, 8, 300, LADDER] for y in range(F, top - ST, 300)]
     adds += ladder
     return adds, removes, ladder
 def ladder_cells(G, P=None):
     """The first build's ladder: BLOCK cells [du, dv, h] (plot columns 0..15, grid heights) up the well — what --tower
     clears before setting the pieces, and what --untower clears of the v1 build."""
     P = P or TOWER
-    X0, Z0, S, ST, N, LX = (P[k] for k in ("X0", "Z0", "S", "STOREY", "N", "LADDER_X"))
+    X0, Z0, S, ST, N = (P[k] for k in ("X0", "Z0", "S", "STOREY", "N"))
+    LX = P.get("CELL_X", P["LADDER_X"])                                  # (the column stood at the first build's LADDER_X)
     F = G + 45
     top = F + ST * N
     lu, lv = LX // 100, (Z0 + S // 2) // 100
@@ -356,13 +362,16 @@ async def build_tower(world, pl):
         held = [S.chest_key(b) for b in chest_old if (world.plots[p].get("chests") or {}).get(S.chest_key(b))]
         if held:
             sys.exit(f"plot {p}: the chest in the doorway holds items ({held}) — empty it first")
-        want = [b for b in adds if (b[6] == LADDER or b[6] == CHEST) and b not in boxes]
+        # the floors and ladder of an earlier build (TOWER_V2's narrower well) come out for this one's
+        X0, Z0, Sz = TOWER["X0"], TOWER["Z0"], TOWER["S"]                 # (Sz: S is the world server module here)
+        stale = [b for b in boxes if ((b[6] == PL and b[5] == 10) or b[6] == LADDER) and X0 <= b[0] and b[0] + b[3] <= X0 + Sz and Z0 <= b[1] and b[1] + b[4] <= Z0 + Sz and b not in adds]
+        want = [b for b in adds if (b[6] == LADDER or b[6] == CHEST or (b[6] == PL and b[5] == 10)) and b not in boxes]
         if DRY:
-            print(f"plot {p}: the tower stands; would clear {len(cells)} block cells of the old ladder, take out {len(chest_old)} chest and set {len(want)} pieces"); return
+            print(f"plot {p}: the tower stands; would clear {len(cells)} block cells of the old ladder, take out {len(chest_old)} chest and {len(stale)} stale floor/ladder pieces, set {len(want)} pieces"); return
         _, ref3, _ = await world.apply(WHO, cells)
-        _, gone, ref1 = await world.boxes(WHO, p, [], chest_old)
+        _, gone, ref1 = await world.boxes(WHO, p, [], chest_old + stale)
         added, _, ref2 = await world.boxes(WHO, p, want, [])
-        print(f"plot {p}: the tower stands already; {len(cells) - len(ref3)} old ladder cells cleared, {len(gone)} chest out of the doorway, {len(added)} pieces set"
+        print(f"plot {p}: the tower stands already; {len(cells) - len(ref3)} old ladder cells cleared, {len(gone)} pieces out (chest, stale floors and ladder), {len(added)} pieces set"
               + (f"; refused: {(ref1 + ref2)[:4]}" if ref1 or ref2 else "")); return
     missing = [b for b in removes if b not in boxes]
     if missing:
