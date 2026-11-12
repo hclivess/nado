@@ -612,7 +612,9 @@
   "land.tRun": "Run",
   "land.tTurn": "Turn",
   "land.tFire": "Fire",
-  "land.tWard": "Wear"
+  "land.tWard": "Wear",
+  "land.traderStand": "The nearest trading stand is {m} m away, bearing {b}° — stand at it to make an offer.",
+  "land.traderNoStand": "No trading stand is built yet — make one at a workbench and set it on your plot."
  },
  "cs": {
   "land.notYours": "Pozemek {p} patří někomu jinému. Kupte si pozemek, nebo požádejte jeho vlastníka o pozvání.",
@@ -1227,7 +1229,9 @@
   "land.tRun": "Běh",
   "land.tTurn": "Otočit",
   "land.tFire": "Oheň",
-  "land.tWard": "Šatna"
+  "land.tWard": "Šatna",
+  "land.traderStand": "Nejbližší obchodní stánek je {m} m daleko, azimut {b}° — postav se k němu a nabídni.",
+  "land.traderNoStand": "Žádný obchodní stánek zatím nestojí — vyrob ho na ponku a postav na své parcele."
  },
  "es": {
   "land.notYours": "La parcela {p} pertenece a otra persona. Compra una parcela o pide a su dueño que te invite.",
@@ -1842,7 +1846,9 @@
   "land.tRun": "Correr",
   "land.tTurn": "Girar",
   "land.tFire": "Fuego",
-  "land.tWard": "Ropa"
+  "land.tWard": "Ropa",
+  "land.traderStand": "El puesto de comercio más cercano está a {m} m, rumbo {b}° — ponte junto a él para hacer una oferta.",
+  "land.traderNoStand": "Aún no hay ningún puesto de comercio — haz uno en un banco de trabajo y colócalo en tu parcela."
  },
  "pt": {
   "land.notYours": "O lote {p} pertence a outra pessoa. Compre um lote ou peça ao dono que convide você.",
@@ -2457,7 +2463,9 @@
   "land.tRun": "Correr",
   "land.tTurn": "Rodar",
   "land.tFire": "Fogo",
-  "land.tWard": "Roupa"
+  "land.tWard": "Roupa",
+  "land.traderStand": "A banca de comércio mais próxima fica a {m} m, rumo {b}° — fica junto dela para fazer uma oferta.",
+  "land.traderNoStand": "Ainda não há nenhuma banca de comércio — faz uma na bancada e põe-na no teu lote."
  },
  "fr": {
   "land.notYours": "La parcelle {p} appartient à quelqu'un d'autre. Achetez une parcelle ou demandez à son propriétaire de vous inviter.",
@@ -3072,7 +3080,9 @@
   "land.tRun": "Courir",
   "land.tTurn": "Tourner",
   "land.tFire": "Feu",
-  "land.tWard": "Tenue"
+  "land.tWard": "Tenue",
+  "land.traderStand": "L'étal le plus proche est à {m} m, cap {b}° — place-toi devant pour faire une offre.",
+  "land.traderNoStand": "Aucun étal n'est encore bâti — fabrique-en un à l'établi et pose-le sur ta parcelle."
  },
  "de": {
   "land.notYours": "Grundstück {p} gehört jemand anderem. Kauf dir ein Grundstück oder bitte den Besitzer um eine Einladung.",
@@ -3687,7 +3697,9 @@
   "land.tRun": "Rennen",
   "land.tTurn": "Drehen",
   "land.tFire": "Feuer",
-  "land.tWard": "Kleidung"
+  "land.tWard": "Kleidung",
+  "land.traderStand": "Der nächste Handelsstand ist {m} m entfernt, Peilung {b}° — stell dich daran, um ein Angebot zu machen.",
+  "land.traderNoStand": "Noch steht kein Handelsstand — bau einen an der Werkbank und stell ihn auf deine Parzelle."
  },
  "it": {
   "land.notYours": "Il lotto {p} appartiene a qualcun altro. Compra un lotto o chiedi al proprietario di invitarti.",
@@ -4302,7 +4314,9 @@
   "land.tRun": "Corri",
   "land.tTurn": "Ruota",
   "land.tFire": "Fuoco",
-  "land.tWard": "Abiti"
+  "land.tWard": "Abiti",
+  "land.traderStand": "Il banco di scambio più vicino è a {m} m, rotta {b}° — mettiti lì per fare un'offerta.",
+  "land.traderNoStand": "Nessun banco di scambio è ancora costruito — fanne uno al banco da lavoro e mettilo sul tuo lotto."
  },
  "ru": {
   "land.notYours": "Участок {p} принадлежит другому игроку. Купите участок или попросите владельца пригласить вас.",
@@ -4917,7 +4931,9 @@
   "land.tRun": "Бег",
   "land.tTurn": "Повернуть",
   "land.tFire": "Огонь",
-  "land.tWard": "Одежда"
+  "land.tWard": "Одежда",
+  "land.traderStand": "Ближайший торговый прилавок в {m} м, азимут {b}° — встань у него, чтобы сделать предложение.",
+  "land.traderNoStand": "Торгового прилавка ещё нет — сделай его на верстаке и поставь на своём участке."
  },
  "zh": {
   "land.notYours": "地块 {p} 属于别人。购买一块地，或请它的所有者邀请你。",
@@ -5532,7 +5548,9 @@
   "land.tRun": "奔跑",
   "land.tTurn": "旋转",
   "land.tFire": "点火",
-  "land.tWard": "衣装"
+  "land.tWard": "衣装",
+  "land.traderStand": "最近的交易摊位在 {m} 米外，方位 {b}° — 站到摊位旁即可出价。",
+  "land.traderNoStand": "还没有交易摊位 — 在工作台做一个，放到你的地块上。"
  },
  "ja": {
   "land.notYours": "区画 {p} は他の人のものです。区画を購入するか、所有者に招待してもらいましょう。",
@@ -6147,7 +6165,9 @@
   "land.tRun": "走る",
   "land.tTurn": "回転",
   "land.tFire": "火",
-  "land.tWard": "衣装"
+  "land.tWard": "衣装",
+  "land.traderStand": "いちばん近い交易台は {m} m 先、方位 {b}° — そこに立てば取引を出せる。",
+  "land.traderNoStand": "交易台はまだ無い — 作業台で作って自分の区画に置こう。"
  },
  "ko": {
   "land.notYours": "구역 {p}은(는) 다른 사람의 땅입니다. 구역을 사거나 소유자에게 초대를 요청하세요.",
@@ -6762,7 +6782,9 @@
   "land.tRun": "달리기",
   "land.tTurn": "회전",
   "land.tFire": "불",
-  "land.tWard": "옷"
+  "land.tWard": "옷",
+  "land.traderStand": "가장 가까운 거래대는 {m} m 거리, 방위 {b}° — 그 앞에 서면 제안할 수 있습니다.",
+  "land.traderNoStand": "아직 거래대가 없습니다 — 작업대에서 만들어 당신의 구획에 놓으세요."
  },
  "ar": {
   "land.notYours": "القطعة {p} ملك لشخص آخر. اشترِ قطعة، أو اطلب من مالكها أن يدعوك.",
@@ -7377,7 +7399,9 @@
   "land.tRun": "ركض",
   "land.tTurn": "تدوير",
   "land.tFire": "نار",
-  "land.tWard": "ملابس"
+  "land.tWard": "ملابس",
+  "land.traderStand": "أقرب منصة تجارة على بعد {m} م، اتجاه {b}° — قف عندها لتقديم عرض.",
+  "land.traderNoStand": "لا توجد منصة تجارة بعد — اصنع واحدة على طاولة العمل وضعها في قطعتك."
  },
  "hi": {
   "land.notYours": "प्लॉट {p} किसी और का है। कोई प्लॉट खरीदें, या उसके मालिक से आपको आमंत्रित करने को कहें।",
@@ -7992,7 +8016,9 @@
   "land.tRun": "दौड़",
   "land.tTurn": "घुमाओ",
   "land.tFire": "आग",
-  "land.tWard": "पोशाक"
+  "land.tWard": "पोशाक",
+  "land.traderStand": "सबसे पास की व्यापार दुकान {m} मीटर दूर है, दिशा {b}° — वहाँ खड़े होकर पेशकश करो।",
+  "land.traderNoStand": "अभी कोई व्यापार दुकान नहीं है — कार्यपीठ पर एक बनाओ और अपने भूखंड पर रखो।"
  },
  "tr": {
   "land.notYours": "{p} arsası başkasına ait. Bir arsa satın al ya da sahibinden seni davet etmesini iste.",
@@ -8607,7 +8633,9 @@
   "land.tRun": "Koş",
   "land.tTurn": "Döndür",
   "land.tFire": "Ateş",
-  "land.tWard": "Giysi"
+  "land.tWard": "Giysi",
+  "land.traderStand": "En yakın ticaret tezgâhı {m} m uzakta, kerteriz {b}° — teklif vermek için yanında dur.",
+  "land.traderNoStand": "Henüz ticaret tezgâhı yok — tezgâhta bir tane yap ve parseline koy."
  },
  "id": {
   "land.notYours": "Petak {p} milik orang lain. Beli sebuah petak, atau minta pemiliknya mengundangmu.",
@@ -9222,7 +9250,9 @@
   "land.tRun": "Lari",
   "land.tTurn": "Putar",
   "land.tFire": "Api",
-  "land.tWard": "Pakaian"
+  "land.tWard": "Pakaian",
+  "land.traderStand": "Lapak dagang terdekat {m} m jauhnya, arah {b}° — berdirilah di sana untuk menawar.",
+  "land.traderNoStand": "Belum ada lapak dagang — buat satu di meja kerja dan pasang di petakmu."
  },
  "vi": {
   "land.notYours": "Mảnh đất {p} thuộc về người khác. Hãy mua một mảnh, hoặc nhờ chủ của nó mời bạn.",
@@ -9837,7 +9867,9 @@
   "land.tRun": "Chạy",
   "land.tTurn": "Xoay",
   "land.tFire": "Lửa",
-  "land.tWard": "Trang phục"
+  "land.tWard": "Trang phục",
+  "land.traderStand": "Quầy giao dịch gần nhất cách {m} m, hướng {b}° — đứng tại đó để ra giá.",
+  "land.traderNoStand": "Chưa có quầy giao dịch nào — làm một cái ở bàn thợ rồi đặt lên lô của bạn."
  },
  "pl": {
   "land.notYours": "Działka {p} należy do kogoś innego. Kup działkę albo poproś jej właściciela o zaproszenie.",
@@ -10452,6 +10484,8 @@
   "land.tRun": "Bieg",
   "land.tTurn": "Obróć",
   "land.tFire": "Ogień",
-  "land.tWard": "Ubiór"
+  "land.tWard": "Ubiór",
+  "land.traderStand": "Najbliższe stoisko handlowe jest {m} m stąd, azymut {b}° — stań przy nim, by złożyć ofertę.",
+  "land.traderNoStand": "Nie ma jeszcze stoiska handlowego — zrób je na warsztacie i postaw na swojej działce."
  }
 }

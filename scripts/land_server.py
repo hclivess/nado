@@ -939,12 +939,25 @@ class World:
         return bool(n and pos and int(pos[0]) == n["at"][0]
                     and math.hypot(pos[1] - n["at"][1], pos[2] - n["at"][2]) <= RULES["quests"]["talk"])
 
-    def _new_quest(self, giver):
+    @staticmethod
+    def hand_bring():
+        """The bring templates a bare-handed newcomer can fill: the quest book's own `hand` list (land-recipes.json
+        quests.hand — sticks, stone, fibre, berries, flax: what the wild gives without a tool or a field; grain needs a
+        field, planks an axe, cobble a pick, clay a shovel's class). Data, not a derivation: a breaking rule with no `needs` also covers
+        wild wheat and a plank piece taken down by hand, which are not a newcomer's to gather."""
+        hand = set(RULES["quests"].get("hand", []))
+        return [t for t in RULES["quests"]["bring"] if t[0] in hand]
+
+    def _new_quest(self, giver, level=1):
+        """A quest from the world's templates. LEVEL 1 IS OFFERED WHAT IT CAN REACH (#165, playtest 2026-11-11: "Bring 6 ×
+        Grain" to a level-1 player with empty hands — grain needs a hoe, a field and a season): under level 2 a bring is
+        one of hand_bring() and there is no hunt (a weapon is needed); from level 2 the whole book is open."""
         Q = RULES["quests"]
-        kind = self.rng.choice(["bring", "bring", "hunt", "deliver"])
+        kinds = ["bring", "bring", "deliver"] if level < 2 else ["bring", "bring", "hunt", "deliver"]
+        kind = self.rng.choice(kinds)
         q = {"id": secrets.token_hex(4), "kind": kind, "giver": giver}
         if kind == "bring":
-            q["item"], q["n"] = self.rng.choice(Q["bring"])
+            q["item"], q["n"] = self.rng.choice(self.hand_bring() if level < 2 else Q["bring"])
         elif kind == "hunt":
             q["what"], q["n"] = self.rng.choice(Q["hunt"])
             q["got"] = 0
@@ -959,8 +972,9 @@ class World:
             return []
         pl = self.player(who)
         offers = pl.setdefault("offered", {}).setdefault(nid, [])
+        level = self.level_of(pl.get("xp", 0))
         while len(offers) < RULES["quests"]["offered"]:
-            offers.append(self._new_quest(nid))
+            offers.append(self._new_quest(nid, level))
             self.pdirty.add(who)
         return offers
 
@@ -973,7 +987,18 @@ class World:
             return None, "too far away — go up to them"
         pl = self.player(who)
         ends = [dict(q, ready=self._ready(pl, q)) for q in pl.get("quests", []) if (q.get("to") or q["giver"]) == nid]
-        return {"npc": nid, "name": n["name"], "role": n["role"], "offers": self.offered(who, nid), "ends": ends}, None
+        out = {"npc": nid, "name": n["name"], "role": n["role"], "offers": self.offered(who, nid), "ends": ends}
+        # THE TRADER TRADES (#165, playtest: "Tobin says one line and nothing else — no trade, no pointer to the stands"):
+        # he says where the nearest trading stand is — metres and bearing (0° north, 90° east) from where the player
+        # stands — or that none is built yet; the page puts it over his greeting
+        if n["role"] == "trader":
+            near = self.stands_near(pos, RULES["market"]["reach"])
+            if near:
+                du, dv = near[0][2][1] - pos[1], near[0][2][2] - pos[2]
+                out["stand"] = {"m": round(math.hypot(du, dv)), "bearing": round(math.degrees(math.atan2(du, dv))) % 360}
+            else:
+                out["stand"] = None
+        return out, None
 
     def _ready(self, pl, q):
         if q["kind"] == "bring":

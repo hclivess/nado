@@ -4691,6 +4691,13 @@
     4
    ]
   ],
+  "hand": [
+   "sticks",
+   "stone",
+   "fiber",
+   "berries",
+   "flax"
+  ],
   "hunt": [
    [
     "rabbit",

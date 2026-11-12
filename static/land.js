@@ -2086,7 +2086,10 @@ function renderNpc(m) {
   const g = $("npcGrid");
   if (m.error) { g.textContent = m.error === "too far away — go up to them" ? T("qFar", "Too far — go up to them.") : m.error; return; }
   const greet = { elder: T("npcElderSays", "Work for willing hands — the town pays from its treasury."), trader: T("npcTraderSays", "Trade at the stands; I keep an eye on the prices."), smith: T("npcSmithSays", "Bring me metal and I will show you what it can become.") }[m.role] || "";
-  g.innerHTML = `<p class="dim">${esc(greet)}</p>
+  // the trader's word (#165): the nearest stand, or that none is built yet (the server's `stand`)
+  const stand = m.stand === undefined ? "" : m.stand ? T("traderStand", "The nearest trading stand is {m} m away, bearing {b}° — stand at it to make an offer.", { m: m.stand.m, b: m.stand.bearing })
+    : T("traderNoStand", "No trading stand is built yet — make one at a workbench and set it on your plot.");
+  g.innerHTML = `<p class="dim">${esc(greet)}${stand ? " " + esc(stand) : ""}</p>
     ${m.ends.length ? `<h3>${esc(T("qEnds", "Your quests here"))}</h3>` + m.ends.map((q) => `<div class="rcp"><div>${esc(questText(q))}</div>
       <button class="ghost" data-turnin="${q.id}" ${q.ready ? "" : "disabled"}>${esc(q.ready ? T("qTurnIn", "Hand in") : T("qNotYet", "Not done yet"))}</button></div>`).join("") : ""}
     ${m.offers.length ? `<h3>${esc(T("qOffers", "Work offered"))}</h3>` + m.offers.map((q) => `<div class="rcp"><div>${esc(questText(q))}<div class="dim">${esc(T("qPays", "+{x} experience", { x: RULES.quests.xp[q.kind] }))}</div></div>
