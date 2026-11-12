@@ -256,7 +256,7 @@ function boxAt(f, u, v, h) {
 }
 function setPlotBoxes(plot, list) {
   const old = plotBoxes.get(plot);
-  plotBoxes.set(plot, { list, idx: indexBoxes(list) }); topSeq++;
+  plotBoxes.set(plot, { list, idx: indexBoxes(list), gadgets: old && old.gadgets || {} }); topSeq++;   // (the gadgets' keys stay)
   const ys = [...list, ...(old ? old.list : [])];
   const ab = ys.map((b) => Wd.boxAabb(b));                    // a turned piece reaches higher and lower than its box (#169)
   if (ys.length) remeshPlotRange(plot, Math.min(...ab.map((b) => b[2])), Math.max(...ab.map((b) => b[2] + b[5])));
@@ -454,9 +454,9 @@ function flyStep(dt, fwd, side) {
     const open = (keys.has("KeyW") || keys.has("ArrowUp") || (touch && touch.my > 0.5) || (tUp && !vert)), shut = (keys.has("KeyS") || keys.has("ArrowDown") || (touch && touch.my < -0.5) || (tDown && !vert));
     c.throttle = Math.max(0, Math.min(1, (c.throttle || 0) + (open ? 0.5 : shut ? -0.5 : 0) * dt));
     input = { pitch: Math.max(-1, Math.min(1, stick.y)), roll: Math.max(-1, Math.min(1, stick.x)), yaw: side, throttle: c.throttle,
-      up: vert && (upK || tUp), down: vert && (downK || tDown) };
+      up: vert && (upK || tUp), down: vert && (downK || tDown), slots: heldSlots() };
     const k = Math.exp(-STICK_RELAX * dt); stick.x *= k; stick.y *= k;
-  } else input = { fwd, side, yaw: P.yaw, up: upK, down: downK };
+  } else input = { fwd, side, yaw: P.yaw, up: upK, down: downK, slots: heldSlots() };
   craftStep(c, input, dt, F, (u, v) => craftGround(c.pose[0], u, v) - 0.05, (pose) => craftHits(c, pose));
   if (c.aero && c.aero.winged) {
     P.yaw = c.pose[4]; P.pitch = c.pose[5] || 0;             // the camera looks along the nose
@@ -641,7 +641,8 @@ function craftsSeen(list) {
   for (const o of list || []) {
     seen.add(o.id);
     let c = crafts.get(o.id);
-    if (!c) { if (!o.pieces) continue; c = { pieces: o.pieces, mesh: craftMesh(o.pieces) }; scene.add(c.mesh); crafts.set(o.id, c); }
+    if (!c) { if (!o.pieces) continue; c = { pieces: o.pieces, slots: o.slots || [], mesh: craftMesh(o.pieces) }; scene.add(c.mesh); crafts.set(o.id, c); }
+    else if (o.pieces) { c.pieces = o.pieces; c.slots = o.slots || []; }   // sent again (a key set at a gadget): the slots are new
     Object.assign(c, { owner: o.owner, pilot: o.pilot, mass: o.mass, thrust: o.thrust, eng: o.eng || null });
     if (!(flying && flying.id === o.id)) c.pose = o.pose;        // the craft I fly goes where I fly it
   }
@@ -717,15 +718,18 @@ function leaveCraft() {
   P.u = spot.u; P.v = spot.v; P.h = spotH(P.u, P.v); P.vh = 0; P.eyeH = P.h;
   trace("leave", { craft: c.id, from: tracePose(c.pose), to: tracePose([P.face, P.u, P.v, P.h, P.yaw]), tried: spot.tried });
   notify(T("fParked", "Parked. Use it again to fly; /dock sets it down here as pieces."));
-  hud();
+  hud(); hotbar();                                                          // (the bar goes back to the placeable things)
 }
 function startFlying(c) {
   const bottom = Math.min(0, ...c.pieces.map((b) => Wd.boxAabb(b)[2])) / Wd.CM;   // a turned piece: its lowest reach
   flying = { id: c.id, pose: c.pose.slice(), vel: [0, 0, 0], mass: c.mass, thrust: c.thrust, bottom, grounded: true,
     body: craftBody(c.pieces, Wd.boxAabb),                                // what of it meets the world (#171)
     area: craftArea(c.pieces, Wd.boxAabb),                                // what the air pushes on (#174)
-    aero: aeroOf(c.pieces, Wd.boxAabb, (b) => (b[6] === B.thruster ? Wd.engineCount(b) * FLIGHT().thrust_kn : 0)),   // wings and engines (#191)
+    aero: aeroOf(c.pieces, Wd.boxAabb, (b) => (b[6] === B.thruster ? Wd.engineCount(b) * FLIGHT().thrust_kn : 0), c.slots),   // wings and engines (#191); the gadgets' keys
     throttle: 0 };
+  // GADGET KEYS: the thrust the hovering model lifts by is the automatic thrust alone — a bound thruster pushes only on its key
+  flying.thrust = Math.max(0, c.thrust - Object.values(flying.aero.gadgets || {}).reduce((m, g) => m + Math.hypot(g[0], g[1], g[2]), 0));
+  hotbar();                                                                 // the bar shows the gadgets' keys at the controls
   stick.x = stick.y = 0;
   flying.bodyLow = Math.min(0, ...flying.body.map((p) => p[2]));
   // a NAV UNIT among its pieces (#173): dead reckoning from here, the place it took off from — its fix — with an error
@@ -741,9 +745,14 @@ function startFlying(c) {
   if (flying.aero.winged) {
     P.pitch = flying.pose[5] || 0;
     const vs = stallSpeed(flying, FLIGHT());
-    notify(T("fBoardWing", "At the controls of an aircraft — mouse: pitch and roll · A D: rudder · W S: throttle · Use: leave. Its wings carry it from about {v} m/s: throttle up, roll, then pull.", { v: Math.round(isFinite(vs) ? vs : 0) }), 9000);
-  } else notify(f.lifts ? T("fBoard", "At the controls — look to steer, stick/W A S D to push, Jump to climb, Down to sink, Use to leave.")
-    : T("fHeavy", "Too heavy to lift: {t} kN of thrust against {w} kN of weight — add thrusters or make it lighter.", { t: Math.round(c.thrust), w: Math.round(f.weight) }), 6000);
+    notify(T("fBoardWing", "At the controls of an aircraft — mouse: pitch and roll · A D: rudder · W S: throttle · Use: leave. Its wings carry it from about {v} m/s: throttle up, roll, then pull.", { v: Math.round(isFinite(vs) ? vs : 0) }) + gadgetKeysLine(), 9000);
+  } else notify((f.lifts ? T("fBoard", "At the controls — look to steer, stick/W A S D to push, Jump to climb, Down to sink, Use to leave.")
+    : T("fHeavy", "Too heavy to lift: {t} kN of thrust against {w} kN of weight — add thrusters or make it lighter.", { t: Math.round(flying.thrust), w: Math.round(f.weight) })) + gadgetKeysLine(), 6000);
+}
+/** " · Keys 1, 3 fire the gadgets you bound." for the craft flown, or "" when none is bound (GADGET KEYS). */
+function gadgetKeysLine() {
+  const ks = Object.keys(flying && flying.aero && flying.aero.gadgets || {}).map(Number).sort();
+  return !ks.length ? "" : " · " + (ks.length === 1 ? T("fKey1", "Key {k} fires the gadgets you bound to it.", { k: ks[0] }) : T("fKeysN", "Keys {k} fire the gadgets you bound to them.", { k: ks.join(", ") }));
 }
 
 // ---- aiming: a march along the look direction --------------------------------------------------------------------
@@ -1598,6 +1607,16 @@ function connect() {
     } else if (m.t === "plot") {
       applyPlot(m.plot, m.edits || []);
       if ((m.boxes || []).length || plotBoxes.has(m.plot)) setPlotBoxes(m.plot, m.boxes || []);
+      { const rec = plotBoxes.get(m.plot); if (rec) rec.gadgets = m.gadgets || {}; }   // the keys its gadgets carry (GADGET KEYS)
+    } else if (m.t === "bind_ok") {
+      // GADGET KEYS: the world server set (or refused) a gadget's key — the aim line reads it from the plot or the craft
+      if (m.error) notify(String(m.error));
+      else {
+        if (m.plot !== undefined) { const rec = plotBoxes.get(m.plot); if (rec) { rec.gadgets = rec.gadgets || {}; if (m.slot) rec.gadgets[m.box.join(",")] = m.slot; else delete rec.gadgets[m.box.join(",")]; } }
+        if (m.craft !== undefined) { const c = crafts.get(m.craft); if (c) { c.slots = c.slots || []; c.slots[m.i] = m.slot; } }
+        const g = gadgetAimed(), what = g ? blockLabel(g.b[6]) : T("gadget", "gadget");
+        notify(m.slot ? T("bindSet", "{what} fires on key {n}.", { what, n: m.slot }) : T("bindClear", "{what} fires on no key.", { what }));
+      }
     } else if (m.t === "boxes") {
       const cur = plotBoxes.get(m.plot), rm = new Set((m.remove || []).map((b) => b.join(",")));
       // idempotent: the placer's own piece is already shown (optimistically) when the server's echo arrives
@@ -2064,6 +2083,16 @@ function aimText(a) {
   if (n) { const r = npcs.get(n); return T("aimFmt", "{what} — {k} {v}", { what: r ? r.name : n, k, v: T("v.talk", "talk") }); }
   const an = animalAimed(8);
   if (an) { const r = animals.get(an); return T("aimFmt2", "{what} — {v}", { what: animalName(r ? r.kind : "deer"), v: T("v.hunt", "a weapon hunts it") }); }
+  { // GADGET KEYS: a thruster or an engine, on a plot or on my parked craft, says the key that fires it and how to set one
+    const g = gadgetAimed(a);
+    if (g) {
+      // CONFIGURE AND ACTIVATE (operator 2026-11-12: "everything should have a configure and activate"): every gadget
+      // says what activates it (its key, at the controls) and how it is configured (1–9 at the gadget; a phone: the hotbar)
+      const what = blockLabel(g.b[6]), how = touch ? T("v.keyTap", "configure: tap a hotbar key, the same key again clears it") : T("v.keySet", "configure: 1–9, the same key again clears it");
+      return g.slot ? T("aimGadget", "{what} — key {n} activates · {how} · {k} {v}", { what, n: g.slot, k, v: T("v.board", "board"), how })
+        : T("aimGadgetNone", "{what} — no key activates it yet · {how} · {k} {v}", { what, k, v: T("v.board", "board"), how });
+    }
+  }
   if (!a) return "";
   // (a titled plot whose holder is not known yet says "Titled", not "Owned by —": the photo of 2026-11-12)
   const notYours = (what, plot) => { const t = titles.get(plot); return T("aimFmt2", "{what} — {v}", { what: what + " · " + (t && t.sale ? T("forSale", "For sale · {p} NADO", { p: rawToNado(t.sale.price.toString()) }) : t && t.holder ? T("owned", "Owned by {o}", { o: disp(t.holder) }) : T("titled", "Titled")), v: T("v.notYours", "not yours to gather here") }); };
@@ -2076,6 +2105,65 @@ function aimText(a) {
   }
   const [u, v, h] = a.hit, what = blockLabel(blockAt(P.face, u, v, h)), plot = Wd.plotOf(P.face, u, v);
   return mayBuild(plot) ? T("aimFmt2", "{what} — {v}", { what, v: T("v.gather", "hold {b} to gather", { b }) }) : notYours(what, plot);
+}
+// ---- GADGET KEYS (operator 2026-11-12, in an aircraft on a roof with no run to lift from: "maybe add some thrusters and
+// bind them to some keys", "the binding goes to block activation of a particular gadget, it must be universal",
+// "configurable at the gadget"): a gadget — any piece that does something: every thruster block and engine part (the
+// world server's is_gadget) — takes a KEY at the gadget itself: aim at it and press 1–9 (0 for none; on a phone, tap the
+// hotbar's key). At the controls that key fires it, full on, as long as it is held (land-flight.js heldThrust); the
+// unbound ones stay automatic. The key is kept by the world server with the piece, on the plot or on the craft.
+const isGadget = (b) => Wd.engineCount(b) > 0;
+/** The gadget under the crosshair: a plot piece { plot, box, b, slot } or a piece of my parked craft { craft, i, b, slot }; null. */
+function gadgetAimed(a) {
+  a = a === undefined ? aim() : a;
+  if (a && a.box && isGadget(a.box.b)) { const rec = plotBoxes.get(a.box.plot); return { plot: a.box.plot, box: a.box.b, b: a.box.b, slot: rec && rec.gadgets && rec.gadgets[a.box.b.join(",")] || 0 }; }
+  if (flying) return null;
+  const hit = craftPieceAimed();
+  return hit && isGadget(hit.b) ? hit : null;
+}
+/** The nearest piece of one of my parked crafts along the look, within 8 m: { craft, i, b, slot }, or null. The look
+ *  is taken into the craft's own frame (yaw only: a parked craft stands level) and tested against each piece's box. */
+function craftPieceAimed() {
+  const { fr, fw } = look();
+  const d = [fr.east, fr.north, fr.up].map((ax) => fw[0] * ax[0] + fw[1] * ax[1] + fw[2] * ax[2]);
+  const o = [P.u, P.v, P.h + EYE];
+  let best = null;
+  for (const [id, c] of crafts) {
+    if (c.owner !== net.me || c.pilot || !c.pose || c.pose[0] !== P.face || !c.pieces) continue;
+    if (Math.hypot(c.pose[1] - P.u, c.pose[2] - P.v) > 20) continue;
+    const yaw = c.pose[4] || 0, sy = Math.sin(yaw), cy = Math.cos(yaw);
+    // world (east, north, up) -> the craft's (right, nose, up): x = e·cos − n·sin, z = e·sin + n·cos (land_server turn_pieces)
+    const loc = (e, n, h) => [e * cy - n * sy, e * sy + n * cy, h];
+    const ro = loc(o[0] - c.pose[1], o[1] - c.pose[2], o[2] - c.pose[3]), rd = loc(d[0], d[1], d[2]);
+    for (let i = 0; i < c.pieces.length; i++) {
+      const a = Wd.boxAabb(c.pieces[i]).map((x) => x / Wd.CM);     // [x, z, y, w, d, h]: right, nose, up from the seat
+      const lo = [a[0], a[1], a[2]], hi = [a[0] + a[3], a[1] + a[4], a[2] + a[5]];
+      let t0 = 0, t1 = 8;
+      for (let k = 0; k < 3 && t0 <= t1; k++) {
+        if (Math.abs(rd[k]) < 1e-9) { if (ro[k] < lo[k] || ro[k] > hi[k]) { t0 = 9; } continue; }
+        let ta = (lo[k] - ro[k]) / rd[k], tb = (hi[k] - ro[k]) / rd[k];
+        if (ta > tb) [ta, tb] = [tb, ta];
+        t0 = Math.max(t0, ta); t1 = Math.min(t1, tb);
+      }
+      if (t0 <= t1 && (!best || t0 < best.t)) best = { craft: id, i, b: c.pieces[i], slot: c.slots && c.slots[i] || 0, t: t0 };
+    }
+  }
+  return best;
+}
+/** Give the aimed gadget key n (0: none): the world server keeps it with the piece. */
+function bindAimed(n) {
+  const g = gadgetAimed();
+  if (!g) return false;
+  if (!net.online || !net.me) { notify(T("signInFirst", "Sign in first.")); return true; }
+  if (n && g.slot === n) n = 0;                                            // its own key again: the key is taken away
+  net.send(g.craft !== undefined ? { t: "bind", craft: g.craft, i: g.i, slot: n, req: ++net.req } : { t: "bind", plot: g.plot, box: g.box, slot: n, req: ++net.req });
+  return true;
+}
+/** The key slots held right now: the digits on a keyboard, the hotbar's keys on a phone. */
+function heldSlots() {
+  const out = new Set();
+  for (let n = 1; n <= 9; n++) if (keys.has("Digit" + n) || (touch && touch.slots && touch.slots.has(n))) out.add(n);
+  return out;
 }
 /** The NPC under the crosshair within talking reach: its id, or null. */
 function npcAimed() {
@@ -2520,6 +2608,19 @@ function goalLine() {
 function hotbar() {
   goalLine();
   const bar = $("hotbar");
+  if (flying && flying.aero && flying.aero.gadgets && Object.keys(flying.aero.gadgets).length) {
+    // GADGET KEYS at the controls: each bound key with its gadgets' thrust; held (a phone holds the cell) it fires them
+    const g = flying.aero.gadgets;
+    bar.innerHTML = Object.keys(g).map(Number).sort().map((n) => `<div class="hs gadget" data-n="${n}"><span>${n}</span><b>${Math.round(Math.hypot(g[n][0], g[n][1], g[n][2]))} kN</b></div>`).join("");
+    bar.querySelectorAll(".hs").forEach((el) => {
+      const n = Number(el.dataset.n);
+      el.addEventListener("touchstart", (e) => { if (touch) { touch.slots = touch.slots || new Set(); touch.slots.add(n); } e.preventDefault(); }, { passive: false });
+      el.addEventListener("touchend", () => { if (touch && touch.slots) touch.slots.delete(n); });
+      el.addEventListener("mousedown", () => keys.add("Digit" + n)); el.addEventListener("mouseup", () => keys.delete("Digit" + n)); el.addEventListener("mouseleave", () => keys.delete("Digit" + n));
+    });
+    $("hotName").textContent = T("hotGadgets", "Hold a key to fire its gadgets");
+    return;
+  }
   if (!RULES || !hot.length) {
     // the bar holds what can be placed; a bag of berries, sticks and fibre fills none of it, and "gather something"
     // over a full bag sent a newcomer gathering more (#178): say what the bag holds and where it opens
@@ -2532,7 +2633,7 @@ function hotbar() {
   bar.querySelectorAll(".hs").forEach((el) => {
     const i = Number(el.dataset.i);
     tileIcon(el.querySelector("canvas"), hot[i], 32);
-    el.onclick = (e) => { e.stopPropagation(); slot = i; hotbar(); };
+    el.onclick = (e) => { e.stopPropagation(); if (touch && bindAimed(i + 1)) return; slot = i; hotbar(); };   // (a phone sets an aimed gadget's key by its hotbar cell)
   });
   $("hotName").textContent = nameOf(hot[slot]);
   pieceInfo();
@@ -3341,7 +3442,7 @@ async function bench() {
 }
 const CMDS = {
   help: () => [["/help", T("cHelp", "this list")], ["/pos", T("cPos", "where you are")], ["/tp spawn | /tp bed", T("cTpTo", "go to the landing, or to your bed")],
-    ["/aim", T("cAim", "what you aim at, and where a block would go")], ["/prof", T("cProf", "the profiler: where each frame's time goes")], ["/trace", T("cTrace", "the last events: boarding, leaving, every teleport, hurt, errors")], ["/dock", T("cDock", "set your landed craft down as pieces")], ["/planet", T("cPlanet", "the planet: its size, gravity, mass, orbits and air")], ["/map", T("cMap", "your map: the land you have surveyed (also M)")], ["/crafts", T("cCrafts", "where your crafts are: distance, bearing, height")], ["/handover <player>", T("cGive", "give your craft to a player — they take its controls")], ["/fly", T("cFly", "fly or walk")], ["/settings", T("cSettings", "your settings")], ["/bench", T("cBench", "measure this device and pick its graphics")], ["/tilt <yaw> <pitch> <roll>", T("cTilt", "turn the piece in hand, in degrees")], ["/set <name> <value>", T("cSet", "change one (e.g. /set fov 90)")],
+    ["/aim", T("cAim", "what you aim at, and where a block would go")], ["1–9", T("cKeys", "aimed at a thruster or an engine: its key; at the controls: fire the gadgets bound to that key")], ["/prof", T("cProf", "the profiler: where each frame's time goes")], ["/trace", T("cTrace", "the last events: boarding, leaving, every teleport, hurt, errors")], ["/dock", T("cDock", "set your landed craft down as pieces")], ["/planet", T("cPlanet", "the planet: its size, gravity, mass, orbits and air")], ["/map", T("cMap", "your map: the land you have surveyed (also M)")], ["/crafts", T("cCrafts", "where your crafts are: distance, bearing, height")], ["/handover <player>", T("cGive", "give your craft to a player — they take its controls")], ["/fly", T("cFly", "fly or walk")], ["/settings", T("cSettings", "your settings")], ["/bench", T("cBench", "measure this device and pick its graphics")], ["/tilt <yaw> <pitch> <roll>", T("cTilt", "turn the piece in hand, in degrees")], ["/set <name> <value>", T("cSet", "change one (e.g. /set fov 90)")],
     ["/clear", T("cClear", "clear this log")], ["…", T("cChat", "anything else is chat to the players around you")]].forEach(([c, d]) => conLine(c + " — " + d)),
   pos: () => conLine(`${T("cFace", "face")} ${P.face} · u ${Math.floor(P.u)} · v ${Math.floor(P.v)} · h ${P.h.toFixed(1)} · ${T("cPlot", "plot")} ${Wd.plotOf(P.face, Math.floor(P.u), Math.floor(P.v))}`),
   // /tp (#167): to the landing or to your own bed — nowhere else; going far is walking, flying, or a craft. Signed in, the
@@ -3536,7 +3637,12 @@ function wireInput(canvas) {
     if (!conOpen && e.code === "Slash") { e.preventDefault(); keys.clear(); return conShow(true, "/"); }
     if (!conOpen && (e.code === "Enter" || e.code === "NumpadEnter") && $("palette").classList.contains("hidden")) { e.preventDefault(); keys.clear(); return conShow(true, ""); }
     keys.add(e.code);
-    if (/^Digit[1-9]$/.test(e.code) && Number(e.code.slice(5)) <= hot.length) { slot = Number(e.code.slice(5)) - 1; hotbar(); }
+    if (/^Digit[0-9]$/.test(e.code)) {
+      const n = Number(e.code.slice(5));
+      if (flying) { /* GADGET KEYS: held digits fire the gadgets bound to them (flyStep heldSlots) */ }
+      else if (bindAimed(n)) { /* aimed at a gadget: its key is set */ }
+      else if (n >= 1 && n <= hot.length) { slot = n - 1; hotbar(); }
+    }
     if (e.code === "KeyR") { const i = PRESETS.findIndex((x) => x[0] === piece.w && x[1] === piece.d && x[2] === piece.h); [piece.w, piece.d, piece.h] = PRESETS[(i + 1) % PRESETS.length]; pieceInfo(true); }
     if (e.code === "KeyT") turnPiece();
     if (e.code === "KeyQ") useDoor();

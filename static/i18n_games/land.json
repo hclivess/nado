@@ -617,7 +617,18 @@
   "land.traderNoStand": "No trading stand is built yet — make one at a workbench and set it on your plot.",
   "land.qBringFrom": "Bring {n} × {i} — found as {b}",
   "land.gSound": "Sound (steps, a hit, a charge, a pickup)",
-  "land.cLod": "Chunks by level of detail (0 near, 1 middle, 2 far) — bark and foliage triangles each:"
+  "land.cLod": "Chunks by level of detail (0 near, 1 middle, 2 far) — bark and foliage triangles each:",
+  "land.gadget": "gadget",
+  "land.bindSet": "{what} fires on key {n}.",
+  "land.bindClear": "{what} fires on no key.",
+  "land.v.keyTap": "configure: tap a hotbar key, the same key again clears it",
+  "land.v.keySet": "configure: 1–9, the same key again clears it",
+  "land.aimGadget": "{what} — key {n} activates · {how} · {k} {v}",
+  "land.aimGadgetNone": "{what} — no key activates it yet · {how} · {k} {v}",
+  "land.fKey1": "Key {k} fires the gadgets you bound to it.",
+  "land.fKeysN": "Keys {k} fire the gadgets you bound to them.",
+  "land.hotGadgets": "Hold a key to fire its gadgets",
+  "land.cKeys": "aimed at a thruster or an engine: its key; at the controls: fire the gadgets bound to that key"
  },
  "cs": {
   "land.notYours": "Pozemek {p} patří někomu jinému. Kupte si pozemek, nebo požádejte jeho vlastníka o pozvání.",
@@ -1237,7 +1248,18 @@
   "land.traderNoStand": "Žádný obchodní stánek zatím nestojí — vyrob ho na ponku a postav na své parcele.",
   "land.qBringFrom": "Přines {n} × {i} — najdeš jako {b}",
   "land.gSound": "Zvuk (kroky, zásah, útok, sebrání)",
-  "land.cLod": "Chunky podle úrovně detailu (0 blízko, 1 střed, 2 daleko) — trojúhelníky kůry a listí v každé:"
+  "land.cLod": "Chunky podle úrovně detailu (0 blízko, 1 střed, 2 daleko) — trojúhelníky kůry a listí v každé:",
+  "land.gadget": "zařízení",
+  "land.bindSet": "{what} se spouští klávesou {n}.",
+  "land.bindClear": "{what} nemá žádnou klávesu.",
+  "land.v.keyTap": "nastavení: klepni na klávesu lišty, stejná znovu ji zruší",
+  "land.v.keySet": "nastavení: 1–9, stejná klávesa znovu ji zruší",
+  "land.aimGadget": "{what} — aktivuje klávesa {n} · {how} · {k} {v}",
+  "land.aimGadgetNone": "{what} — zatím žádná klávesa · {how} · {k} {v}",
+  "land.fKey1": "Klávesa {k} spouští zařízení, která jsi k ní přiřadil.",
+  "land.fKeysN": "Klávesy {k} spouštějí zařízení, která jsi k nim přiřadil.",
+  "land.hotGadgets": "Podrž klávesu a spustíš její zařízení",
+  "land.cKeys": "míříš-li na tryskový motor: jeho klávesa; u řízení: spustí zařízení s tou klávesou"
  },
  "es": {
   "land.notYours": "La parcela {p} pertenece a otra persona. Compra una parcela o pide a su dueño que te invite.",
@@ -1857,7 +1879,18 @@
   "land.traderNoStand": "Aún no hay ningún puesto de comercio — haz uno en un banco de trabajo y colócalo en tu parcela.",
   "land.qBringFrom": "Trae {n} × {i} — se encuentra como {b}",
   "land.gSound": "Sonido (pasos, un golpe, una carga, una recogida)",
-  "land.cLod": "Trozos por nivel de detalle (0 cerca, 1 medio, 2 lejos) — triángulos de corteza y follaje de cada uno:"
+  "land.cLod": "Trozos por nivel de detalle (0 cerca, 1 medio, 2 lejos) — triángulos de corteza y follaje de cada uno:",
+  "land.gadget": "dispositivo",
+  "land.bindSet": "{what} se activa con la tecla {n}.",
+  "land.bindClear": "{what} no tiene tecla asignada.",
+  "land.v.keyTap": "configurar: toca una tecla de la barra, la misma otra vez la quita",
+  "land.v.keySet": "configurar: 1–9, la misma tecla otra vez la quita",
+  "land.aimGadget": "{what} — la tecla {n} lo activa · {how} · {k} {v}",
+  "land.aimGadgetNone": "{what} — aún sin tecla que lo active · {how} · {k} {v}",
+  "land.fKey1": "La tecla {k} activa los dispositivos que le asignaste.",
+  "land.fKeysN": "Las teclas {k} activan los dispositivos que les asignaste.",
+  "land.hotGadgets": "Mantén una tecla para activar sus dispositivos",
+  "land.cKeys": "apuntando a un propulsor o motor: su tecla; a los mandos: activa los dispositivos de esa tecla"
  },
  "pt": {
   "land.notYours": "O lote {p} pertence a outra pessoa. Compre um lote ou peça ao dono que convide você.",
@@ -2477,7 +2510,18 @@
   "land.traderNoStand": "Ainda não há nenhuma banca de comércio — faz uma na bancada e põe-na no teu lote.",
   "land.qBringFrom": "Traz {n} × {i} — encontra-se como {b}",
   "land.gSound": "Som (passos, um golpe, uma investida, uma recolha)",
-  "land.cLod": "Blocos por nível de detalhe (0 perto, 1 médio, 2 longe) — triângulos de casca e folhagem de cada:"
+  "land.cLod": "Blocos por nível de detalhe (0 perto, 1 médio, 2 longe) — triângulos de casca e folhagem de cada:",
+  "land.gadget": "dispositivo",
+  "land.bindSet": "{what} dispara com a tecla {n}.",
+  "land.bindClear": "{what} não tem tecla.",
+  "land.v.keyTap": "configurar: toque numa tecla da barra, a mesma outra vez remove-a",
+  "land.v.keySet": "configurar: 1–9, a mesma tecla outra vez remove-a",
+  "land.aimGadget": "{what} — a tecla {n} ativa-o · {how} · {k} {v}",
+  "land.aimGadgetNone": "{what} — ainda sem tecla que o ative · {how} · {k} {v}",
+  "land.fKey1": "A tecla {k} dispara os dispositivos que lhe atribuíste.",
+  "land.fKeysN": "As teclas {k} disparam os dispositivos que lhes atribuíste.",
+  "land.hotGadgets": "Mantém uma tecla para disparar os seus dispositivos",
+  "land.cKeys": "a apontar a um propulsor ou motor: a sua tecla; aos comandos: dispara os dispositivos dessa tecla"
  },
  "fr": {
   "land.notYours": "La parcelle {p} appartient à quelqu'un d'autre. Achetez une parcelle ou demandez à son propriétaire de vous inviter.",
@@ -3097,7 +3141,18 @@
   "land.traderNoStand": "Aucun étal n'est encore bâti — fabrique-en un à l'établi et pose-le sur ta parcelle.",
   "land.qBringFrom": "Apporte {n} × {i} — se trouve sous forme de {b}",
   "land.gSound": "Son (pas, un coup, une charge, un ramassage)",
-  "land.cLod": "Blocs par niveau de détail (0 près, 1 milieu, 2 loin) — triangles d'écorce et de feuillage de chacun :"
+  "land.cLod": "Blocs par niveau de détail (0 près, 1 milieu, 2 loin) — triangles d'écorce et de feuillage de chacun :",
+  "land.gadget": "gadget",
+  "land.bindSet": "{what} se déclenche avec la touche {n}.",
+  "land.bindClear": "{what} n'a pas de touche.",
+  "land.v.keyTap": "configurer : touchez une touche de la barre, la même à nouveau l'efface",
+  "land.v.keySet": "configurer : 1–9, la même touche à nouveau l'efface",
+  "land.aimGadget": "{what} — la touche {n} l'active · {how} · {k} {v}",
+  "land.aimGadgetNone": "{what} — aucune touche ne l'active encore · {how} · {k} {v}",
+  "land.fKey1": "La touche {k} déclenche les gadgets que vous lui avez assignés.",
+  "land.fKeysN": "Les touches {k} déclenchent les gadgets que vous leur avez assignés.",
+  "land.hotGadgets": "Maintenez une touche pour déclencher ses gadgets",
+  "land.cKeys": "visant un propulseur ou un moteur : sa touche ; aux commandes : déclenche les gadgets de cette touche"
  },
  "de": {
   "land.notYours": "Grundstück {p} gehört jemand anderem. Kauf dir ein Grundstück oder bitte den Besitzer um eine Einladung.",
@@ -3717,7 +3772,18 @@
   "land.traderNoStand": "Noch steht kein Handelsstand — bau einen an der Werkbank und stell ihn auf deine Parzelle.",
   "land.qBringFrom": "Bring {n} × {i} — zu finden als {b}",
   "land.gSound": "Ton (Schritte, ein Treffer, ein Angriff, ein Aufheben)",
-  "land.cLod": "Chunks nach Detailstufe (0 nah, 1 mittel, 2 fern) — Rinden- und Laubdreiecke je Stufe:"
+  "land.cLod": "Chunks nach Detailstufe (0 nah, 1 mittel, 2 fern) — Rinden- und Laubdreiecke je Stufe:",
+  "land.gadget": "Gerät",
+  "land.bindSet": "{what} feuert mit Taste {n}.",
+  "land.bindClear": "{what} hat keine Taste.",
+  "land.v.keyTap": "einrichten: tippe eine Leistentaste, dieselbe noch einmal löscht sie",
+  "land.v.keySet": "einrichten: 1–9, dieselbe Taste noch einmal löscht sie",
+  "land.aimGadget": "{what} — Taste {n} aktiviert · {how} · {k} {v}",
+  "land.aimGadgetNone": "{what} — noch keine Taste aktiviert es · {how} · {k} {v}",
+  "land.fKey1": "Taste {k} feuert die Geräte, die du ihr zugewiesen hast.",
+  "land.fKeysN": "Die Tasten {k} feuern die Geräte, die du ihnen zugewiesen hast.",
+  "land.hotGadgets": "Taste halten, um ihre Geräte zu feuern",
+  "land.cKeys": "auf ein Triebwerk gezielt: seine Taste; am Steuer: feuert die Geräte dieser Taste"
  },
  "it": {
   "land.notYours": "Il lotto {p} appartiene a qualcun altro. Compra un lotto o chiedi al proprietario di invitarti.",
@@ -4337,7 +4403,18 @@
   "land.traderNoStand": "Nessun banco di scambio è ancora costruito — fanne uno al banco da lavoro e mettilo sul tuo lotto.",
   "land.qBringFrom": "Porta {n} × {i} — si trova come {b}",
   "land.gSound": "Suono (passi, un colpo, una carica, una raccolta)",
-  "land.cLod": "Chunk per livello di dettaglio (0 vicino, 1 medio, 2 lontano) — triangoli di corteccia e fogliame di ciascuno:"
+  "land.cLod": "Chunk per livello di dettaglio (0 vicino, 1 medio, 2 lontano) — triangoli di corteccia e fogliame di ciascuno:",
+  "land.gadget": "dispositivo",
+  "land.bindSet": "{what} si attiva con il tasto {n}.",
+  "land.bindClear": "{what} non ha alcun tasto.",
+  "land.v.keyTap": "configura: tocca un tasto della barra, lo stesso di nuovo lo toglie",
+  "land.v.keySet": "configura: 1–9, lo stesso tasto di nuovo lo toglie",
+  "land.aimGadget": "{what} — il tasto {n} lo attiva · {how} · {k} {v}",
+  "land.aimGadgetNone": "{what} — ancora nessun tasto lo attiva · {how} · {k} {v}",
+  "land.fKey1": "Il tasto {k} attiva i dispositivi che gli hai assegnato.",
+  "land.fKeysN": "I tasti {k} attivano i dispositivi che gli hai assegnato.",
+  "land.hotGadgets": "Tieni premuto un tasto per attivare i suoi dispositivi",
+  "land.cKeys": "mirando a un propulsore o motore: il suo tasto; ai comandi: attiva i dispositivi di quel tasto"
  },
  "ru": {
   "land.notYours": "Участок {p} принадлежит другому игроку. Купите участок или попросите владельца пригласить вас.",
@@ -4957,7 +5034,18 @@
   "land.traderNoStand": "Торгового прилавка ещё нет — сделай его на верстаке и поставь на своём участке.",
   "land.qBringFrom": "Принеси {n} × {i} — встречается как {b}",
   "land.gSound": "Звук (шаги, удар, атака, подбор)",
-  "land.cLod": "Чанки по уровню детализации (0 близко, 1 средне, 2 далеко) — треугольники коры и листвы в каждом:"
+  "land.cLod": "Чанки по уровню детализации (0 близко, 1 средне, 2 далеко) — треугольники коры и листвы в каждом:",
+  "land.gadget": "устройство",
+  "land.bindSet": "{what} включается клавишей {n}.",
+  "land.bindClear": "{what} не привязано ни к какой клавише.",
+  "land.v.keyTap": "настройка: коснись клавиши панели, та же ещё раз — убрать",
+  "land.v.keySet": "настройка: 1–9, та же клавиша ещё раз — убрать",
+  "land.aimGadget": "{what} — включает клавиша {n} · {how} · {k} {v}",
+  "land.aimGadgetNone": "{what} — клавиша пока не задана · {how} · {k} {v}",
+  "land.fKey1": "Клавиша {k} включает устройства, привязанные к ней.",
+  "land.fKeysN": "Клавиши {k} включают устройства, привязанные к ним.",
+  "land.hotGadgets": "Удерживай клавишу, чтобы включить её устройства",
+  "land.cKeys": "прицел на двигатель: его клавиша; за штурвалом: включает устройства этой клавиши"
  },
  "zh": {
   "land.notYours": "地块 {p} 属于别人。购买一块地，或请它的所有者邀请你。",
@@ -5577,7 +5665,18 @@
   "land.traderNoStand": "还没有交易摊位 — 在工作台做一个，放到你的地块上。",
   "land.qBringFrom": "带来 {n} × {i} — 以 {b} 的形式可以找到",
   "land.gSound": "声音（脚步、受击、冲锋、拾取）",
-  "land.cLod": "按细节层级统计的区块（0 近、1 中、2 远）— 各自的树皮和树叶三角形："
+  "land.cLod": "按细节层级统计的区块（0 近、1 中、2 远）— 各自的树皮和树叶三角形：",
+  "land.gadget": "装置",
+  "land.bindSet": "{what} 由按键 {n} 触发。",
+  "land.bindClear": "{what} 未绑定按键。",
+  "land.v.keyTap": "配置：点击快捷栏按键，再点同一键取消",
+  "land.v.keySet": "配置：1–9，再按同一键取消",
+  "land.aimGadget": "{what} — 按键 {n} 启动 · {how} · {k} {v}",
+  "land.aimGadgetNone": "{what} — 尚无启动按键 · {how} · {k} {v}",
+  "land.fKey1": "按键 {k} 触发你绑定到它的装置。",
+  "land.fKeysN": "按键 {k} 触发你绑定到它们的装置。",
+  "land.hotGadgets": "按住按键触发其装置",
+  "land.cKeys": "瞄准推进器或引擎时：设置其按键；操控时：触发绑定到该键的装置"
  },
  "ja": {
   "land.notYours": "区画 {p} は他の人のものです。区画を購入するか、所有者に招待してもらいましょう。",
@@ -6197,7 +6296,18 @@
   "land.traderNoStand": "交易台はまだ無い — 作業台で作って自分の区画に置こう。",
   "land.qBringFrom": "{i} を {n} 持ってくる — {b} として見つかる",
   "land.gSound": "音（足音、被弾、突進、拾得）",
-  "land.cLod": "詳細レベル別のチャンク（0 近、1 中、2 遠）— それぞれの樹皮と葉の三角形："
+  "land.cLod": "詳細レベル別のチャンク（0 近、1 中、2 遠）— それぞれの樹皮と葉の三角形：",
+  "land.gadget": "装置",
+  "land.bindSet": "{what} はキー {n} で作動します。",
+  "land.bindClear": "{what} はキーに割り当てられていません。",
+  "land.v.keyTap": "設定：ホットバーのキーをタップ、同じキーで解除",
+  "land.v.keySet": "設定：1–9、同じキーで解除",
+  "land.aimGadget": "{what} — キー {n} で作動 · {how} · {k} {v}",
+  "land.aimGadgetNone": "{what} — まだキー未設定 · {how} · {k} {v}",
+  "land.fKey1": "キー {k} で割り当てた装置が作動します。",
+  "land.fKeysN": "キー {k} で割り当てた装置が作動します。",
+  "land.hotGadgets": "キーを押し続けると装置が作動",
+  "land.cKeys": "スラスターやエンジンを狙って：そのキー設定；操縦中：そのキーの装置を作動"
  },
  "ko": {
   "land.notYours": "구역 {p}은(는) 다른 사람의 땅입니다. 구역을 사거나 소유자에게 초대를 요청하세요.",
@@ -6817,7 +6927,18 @@
   "land.traderNoStand": "아직 거래대가 없습니다 — 작업대에서 만들어 당신의 구획에 놓으세요.",
   "land.qBringFrom": "{i} {n}개 가져오기 — {b}(으)로 찾을 수 있음",
   "land.gSound": "소리 (발소리, 피격, 돌진, 줍기)",
-  "land.cLod": "세부 수준별 청크 (0 가까움, 1 중간, 2 멀음) — 각 수준의 나무껍질·잎 삼각형:"
+  "land.cLod": "세부 수준별 청크 (0 가까움, 1 중간, 2 멀음) — 각 수준의 나무껍질·잎 삼각형:",
+  "land.gadget": "장치",
+  "land.bindSet": "{what}은(는) 키 {n}으로 작동합니다.",
+  "land.bindClear": "{what}에 키가 없습니다.",
+  "land.v.keyTap": "설정: 핫바 키를 누름, 같은 키를 다시 누르면 해제",
+  "land.v.keySet": "설정: 1–9, 같은 키를 다시 누르면 해제",
+  "land.aimGadget": "{what} — 키 {n}로 작동 · {how} · {k} {v}",
+  "land.aimGadgetNone": "{what} — 아직 작동 키 없음 · {how} · {k} {v}",
+  "land.fKey1": "키 {k}은(는) 거기에 묶은 장치를 작동시킵니다.",
+  "land.fKeysN": "키 {k}은(는) 거기에 묶은 장치를 작동시킵니다.",
+  "land.hotGadgets": "키를 누르고 있으면 장치가 작동",
+  "land.cKeys": "추진기나 엔진을 겨눌 때: 그 키; 조종 중: 그 키에 묶인 장치 작동"
  },
  "ar": {
   "land.notYours": "القطعة {p} ملك لشخص آخر. اشترِ قطعة، أو اطلب من مالكها أن يدعوك.",
@@ -7437,7 +7558,18 @@
   "land.traderNoStand": "لا توجد منصة تجارة بعد — اصنع واحدة على طاولة العمل وضعها في قطعتك.",
   "land.qBringFrom": "أحضر {n} × {i} — يوجد على هيئة {b}",
   "land.gSound": "الصوت (خطوات، ضربة، هجوم، التقاط)",
-  "land.cLod": "الأجزاء بحسب مستوى التفصيل (0 قريب، 1 متوسط، 2 بعيد) — مثلثات اللحاء والأوراق لكل مستوى:"
+  "land.cLod": "الأجزاء بحسب مستوى التفصيل (0 قريب، 1 متوسط، 2 بعيد) — مثلثات اللحاء والأوراق لكل مستوى:",
+  "land.gadget": "جهاز",
+  "land.bindSet": "{what} يعمل بالمفتاح {n}.",
+  "land.bindClear": "{what} بلا مفتاح.",
+  "land.v.keyTap": "الإعداد: انقر مفتاحًا في الشريط، والمفتاح نفسه مجددًا يلغيه",
+  "land.v.keySet": "الإعداد: 1–9، والمفتاح نفسه مجددًا يلغيه",
+  "land.aimGadget": "{what} — المفتاح {n} يشغّله · {how} · {k} {v}",
+  "land.aimGadgetNone": "{what} — لا مفتاح يشغّله بعد · {how} · {k} {v}",
+  "land.fKey1": "المفتاح {k} يشغّل الأجهزة التي ربطتها به.",
+  "land.fKeysN": "المفاتيح {k} تشغّل الأجهزة التي ربطتها بها.",
+  "land.hotGadgets": "اضغط مطوّلًا على مفتاح لتشغيل أجهزته",
+  "land.cKeys": "مع التصويب على دافع أو محرك: مفتاحه؛ عند القيادة: تشغيل أجهزة ذلك المفتاح"
  },
  "hi": {
   "land.notYours": "प्लॉट {p} किसी और का है। कोई प्लॉट खरीदें, या उसके मालिक से आपको आमंत्रित करने को कहें।",
@@ -8057,7 +8189,18 @@
   "land.traderNoStand": "अभी कोई व्यापार दुकान नहीं है — कार्यपीठ पर एक बनाओ और अपने भूखंड पर रखो।",
   "land.qBringFrom": "{n} × {i} लाओ — {b} के रूप में मिलता है",
   "land.gSound": "आवाज़ (कदम, चोट, हमला, उठाना)",
-  "land.cLod": "विवरण स्तर के अनुसार चंक (0 पास, 1 मध्य, 2 दूर) — हर स्तर के छाल और पत्ते त्रिभुज:"
+  "land.cLod": "विवरण स्तर के अनुसार चंक (0 पास, 1 मध्य, 2 दूर) — हर स्तर के छाल और पत्ते त्रिभुज:",
+  "land.gadget": "उपकरण",
+  "land.bindSet": "{what} कुंजी {n} से चलता है।",
+  "land.bindClear": "{what} किसी कुंजी से नहीं जुड़ा।",
+  "land.v.keyTap": "सेट करें: हॉटबार की कुंजी छुएँ, वही कुंजी फिर से हटाती है",
+  "land.v.keySet": "सेट करें: 1–9, वही कुंजी फिर से हटाती है",
+  "land.aimGadget": "{what} — कुंजी {n} चलाती है · {how} · {k} {v}",
+  "land.aimGadgetNone": "{what} — अभी कोई कुंजी नहीं · {how} · {k} {v}",
+  "land.fKey1": "कुंजी {k} उससे जुड़े उपकरण चलाती है।",
+  "land.fKeysN": "कुंजियाँ {k} उनसे जुड़े उपकरण चलाती हैं।",
+  "land.hotGadgets": "उपकरण चलाने के लिए कुंजी दबाए रखें",
+  "land.cKeys": "थ्रस्टर या इंजन पर निशाना: उसकी कुंजी; नियंत्रण में: उस कुंजी के उपकरण चलाएँ"
  },
  "tr": {
   "land.notYours": "{p} arsası başkasına ait. Bir arsa satın al ya da sahibinden seni davet etmesini iste.",
@@ -8677,7 +8820,18 @@
   "land.traderNoStand": "Henüz ticaret tezgâhı yok — tezgâhta bir tane yap ve parseline koy.",
   "land.qBringFrom": "{n} × {i} getir — {b} olarak bulunur",
   "land.gSound": "Ses (adımlar, darbe, saldırı, toplama)",
-  "land.cLod": "Ayrıntı düzeyine göre parçalar (0 yakın, 1 orta, 2 uzak) — her birinin kabuk ve yaprak üçgenleri:"
+  "land.cLod": "Ayrıntı düzeyine göre parçalar (0 yakın, 1 orta, 2 uzak) — her birinin kabuk ve yaprak üçgenleri:",
+  "land.gadget": "aygıt",
+  "land.bindSet": "{what} {n} tuşuyla çalışır.",
+  "land.bindClear": "{what} için tuş yok.",
+  "land.v.keyTap": "ayarla: bir çubuk tuşuna dokun, aynısı tekrar kaldırır",
+  "land.v.keySet": "ayarla: 1–9, aynı tuş tekrar kaldırır",
+  "land.aimGadget": "{what} — {n} tuşu çalıştırır · {how} · {k} {v}",
+  "land.aimGadgetNone": "{what} — henüz çalıştıran tuş yok · {how} · {k} {v}",
+  "land.fKey1": "{k} tuşu ona bağladığın aygıtları çalıştırır.",
+  "land.fKeysN": "{k} tuşları onlara bağladığın aygıtları çalıştırır.",
+  "land.hotGadgets": "aygıtlarını çalıştırmak için tuşu basılı tut",
+  "land.cKeys": "bir itici veya motora nişan alınca: tuşu; kumandada: o tuşa bağlı aygıtları çalıştır"
  },
  "id": {
   "land.notYours": "Petak {p} milik orang lain. Beli sebuah petak, atau minta pemiliknya mengundangmu.",
@@ -9297,7 +9451,18 @@
   "land.traderNoStand": "Belum ada lapak dagang — buat satu di meja kerja dan pasang di petakmu.",
   "land.qBringFrom": "Bawa {n} × {i} — ditemukan sebagai {b}",
   "land.gSound": "Suara (langkah, pukulan, serbuan, pungutan)",
-  "land.cLod": "Chunk menurut tingkat detail (0 dekat, 1 tengah, 2 jauh) — segitiga kulit kayu dan dedaunan masing-masing:"
+  "land.cLod": "Chunk menurut tingkat detail (0 dekat, 1 tengah, 2 jauh) — segitiga kulit kayu dan dedaunan masing-masing:",
+  "land.gadget": "perangkat",
+  "land.bindSet": "{what} menyala dengan tombol {n}.",
+  "land.bindClear": "{what} tidak punya tombol.",
+  "land.v.keyTap": "atur: ketuk tombol hotbar, tombol yang sama lagi menghapus",
+  "land.v.keySet": "atur: 1–9, tombol yang sama lagi menghapus",
+  "land.aimGadget": "{what} — tombol {n} mengaktifkan · {how} · {k} {v}",
+  "land.aimGadgetNone": "{what} — belum ada tombol yang mengaktifkan · {how} · {k} {v}",
+  "land.fKey1": "Tombol {k} menyalakan perangkat yang kau ikat padanya.",
+  "land.fKeysN": "Tombol {k} menyalakan perangkat yang kau ikat padanya.",
+  "land.hotGadgets": "tahan tombol untuk menyalakan perangkatnya",
+  "land.cKeys": "membidik pendorong atau mesin: tombolnya; di kemudi: menyalakan perangkat tombol itu"
  },
  "vi": {
   "land.notYours": "Mảnh đất {p} thuộc về người khác. Hãy mua một mảnh, hoặc nhờ chủ của nó mời bạn.",
@@ -9917,7 +10082,18 @@
   "land.traderNoStand": "Chưa có quầy giao dịch nào — làm một cái ở bàn thợ rồi đặt lên lô của bạn.",
   "land.qBringFrom": "Mang {n} × {i} — tìm thấy dưới dạng {b}",
   "land.gSound": "Âm thanh (bước chân, bị đánh, lao tới, nhặt)",
-  "land.cLod": "Khối theo mức chi tiết (0 gần, 1 giữa, 2 xa) — tam giác vỏ cây và tán lá của mỗi mức:"
+  "land.cLod": "Khối theo mức chi tiết (0 gần, 1 giữa, 2 xa) — tam giác vỏ cây và tán lá của mỗi mức:",
+  "land.gadget": "thiết bị",
+  "land.bindSet": "{what} kích hoạt bằng phím {n}.",
+  "land.bindClear": "{what} không gắn phím nào.",
+  "land.v.keyTap": "cấu hình: chạm một phím trên thanh, chạm lại phím đó để bỏ",
+  "land.v.keySet": "cấu hình: 1–9, bấm lại phím đó để bỏ",
+  "land.aimGadget": "{what} — phím {n} kích hoạt · {how} · {k} {v}",
+  "land.aimGadgetNone": "{what} — chưa có phím kích hoạt · {how} · {k} {v}",
+  "land.fKey1": "Phím {k} kích hoạt các thiết bị bạn đã gắn vào nó.",
+  "land.fKeysN": "Các phím {k} kích hoạt các thiết bị bạn đã gắn vào chúng.",
+  "land.hotGadgets": "giữ một phím để kích hoạt thiết bị của nó",
+  "land.cKeys": "nhắm vào động cơ đẩy: phím của nó; khi điều khiển: kích hoạt thiết bị gắn phím đó"
  },
  "pl": {
   "land.notYours": "Działka {p} należy do kogoś innego. Kup działkę albo poproś jej właściciela o zaproszenie.",
@@ -10537,6 +10713,17 @@
   "land.traderNoStand": "Nie ma jeszcze stoiska handlowego — zrób je na warsztacie i postaw na swojej działce.",
   "land.qBringFrom": "Przynieś {n} × {i} — znajdziesz jako {b}",
   "land.gSound": "Dźwięk (kroki, cios, szarża, podniesienie)",
-  "land.cLod": "Chunki według poziomu szczegółów (0 blisko, 1 średnio, 2 daleko) — trójkąty kory i listowia każdego:"
+  "land.cLod": "Chunki według poziomu szczegółów (0 blisko, 1 średnio, 2 daleko) — trójkąty kory i listowia każdego:",
+  "land.gadget": "urządzenie",
+  "land.bindSet": "{what} odpala się klawiszem {n}.",
+  "land.bindClear": "{what} nie ma klawisza.",
+  "land.v.keyTap": "konfiguruj: stuknij klawisz paska, ten sam ponownie usuwa",
+  "land.v.keySet": "konfiguruj: 1–9, ten sam klawisz ponownie usuwa",
+  "land.aimGadget": "{what} — klawisz {n} aktywuje · {how} · {k} {v}",
+  "land.aimGadgetNone": "{what} — jeszcze żaden klawisz nie aktywuje · {how} · {k} {v}",
+  "land.fKey1": "Klawisz {k} odpala urządzenia, które do niego przypisałeś.",
+  "land.fKeysN": "Klawisze {k} odpalają urządzenia, które do nich przypisałeś.",
+  "land.hotGadgets": "przytrzymaj klawisz, by odpalić jego urządzenia",
+  "land.cKeys": "celując w silnik: jego klawisz; przy sterach: odpala urządzenia tego klawisza"
  }
 }

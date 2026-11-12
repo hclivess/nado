@@ -71,10 +71,19 @@ export function tiltDir(b, d) {
 /** What a craft's parts make of it in the air: { winged, S (m² of wing), b (m span), AR, T: [right, nose, up] kN of thrust
  *  by direction in the craft's frame, side (m² the body shows the side wind), len (m nose to tail) }. `thrustOf(b)` gives a
  *  piece's thrust in kN (land.js: the thruster count × thrust_kn; a test passes its own). */
-export function aeroOf(pieces, boxAabb, thrustOf) {
+// A GADGET BOUND TO A KEY (operator 2026-11-12, stuck on a roof in an aircraft that needs a run to lift: "maybe add some
+// thrusters and bind them to some keys", "the binding goes to block activation of a particular gadget, it must be
+// universal", "configurable at the gadget"): any piece that does something — today every thruster block and engine part —
+// can carry a KEY SLOT 1..9, set at the piece itself (aim at it, press the digit; the world server keeps it with the
+// piece, through docking and boarding). A bound thruster fires ONLY while its key is held, at full thrust, whatever
+// else the pilot does; the unbound ones stay the craft's automatic thrust (the throttle along the nose, Up and Down on
+// the vertical ones). slots[i]: piece i's slot, 0 none. The result's T is the automatic thrust; gadgets[n] the thrust
+// vector (kN, in the craft's frame: right, nose, up) that key n fires.
+export function aeroOf(pieces, boxAabb, thrustOf, slots) {
   let S = 0, lo = Infinity, hi = -Infinity, T = [0, 0, 0], ylo = Infinity, yhi = -Infinity, zlo = Infinity, zhi = -Infinity;
-  for (const b of pieces) {
-    const a = boxAabb(b), part = b.length > 7 ? Shapes.decode(b[7]) : null;
+  const gadgets = {};
+  for (let i = 0; i < pieces.length; i++) {
+    const b = pieces[i], a = boxAabb(b), part = b.length > 7 ? Shapes.decode(b[7]) : null;
     ylo = Math.min(ylo, a[1]); yhi = Math.max(yhi, a[1] + a[4]); zlo = Math.min(zlo, a[2]); zhi = Math.max(zhi, a[2] + a[5]);
     if (part && part.type === Shapes.WING) {
       const t = (part.v + 1) / 10;                                 // Shapes.tapered: variant = taper × 10 − 1
@@ -84,11 +93,23 @@ export function aeroOf(pieces, boxAabb, thrustOf) {
     const kn = thrustOf(b);
     if (kn > 0) {
       const d = part && part.type === Shapes.ENGINE ? tiltDir(b, [0, 1, 0]) : [0, 0, 1];   // an engine along its length; a thruster block up
-      T[0] += kn * d[0]; T[1] += kn * d[1]; T[2] += kn * d[2];
+      const n = slots && slots[i] > 0 ? slots[i] : 0;
+      const into = n ? (gadgets[n] = gadgets[n] || [0, 0, 0]) : T;
+      into[0] += kn * d[0]; into[1] += kn * d[1]; into[2] += kn * d[2];
     }
   }
   const b = S > 0 ? (hi - lo) / 100 : 0, len = isFinite(yhi) ? (yhi - ylo) / 100 : 0, tall = isFinite(zhi) ? (zhi - zlo) / 100 : 0;
-  return { winged: S > 0 || Math.abs(T[1]) > 1e-9, S, b, AR: S > 0 ? (b * b) / S : 0, T, side: len * tall, len };
+  // a craft is winged — an aircraft — by its wings or by a thrust along its nose, bound or not
+  const noseKn = Math.abs(T[1]) + Object.values(gadgets).reduce((m, g) => m + Math.abs(g[1]), 0);
+  return { winged: S > 0 || noseKn > 1e-9, S, b, AR: S > 0 ? (b * b) / S : 0, T, gadgets, side: len * tall, len };
+}
+/** The thrust (kN, the craft's frame: right, nose, up) of the gadgets whose keys are held — input.slots: an iterable of
+ *  slot numbers, or nothing. */
+export function heldThrust(aero, slots) {
+  const t = [0, 0, 0];
+  if (!aero || !aero.gadgets || !slots) return t;
+  for (const n of slots) { const g = aero.gadgets[n]; if (g) { t[0] += g[0]; t[1] += g[1]; t[2] += g[2]; } }
+  return t;
 }
 /** The craft's axes in the local frame (east, north, up) for yaw ψ (from north toward east), pitch θ (nose up), roll φ
  *  (right wing down): { nose, right, up } as [e, n, u] unit vectors. */
@@ -181,6 +202,10 @@ export function aircraftStep(c, input, dt, F, groundAt, hits) {
   const Tn = ae.T[1] * 1000 * c.throttle, Tr = ae.T[0] * 1000 * c.throttle;
   const Tu = ae.T[2] * 1000 * (input.up ? 1 : input.down ? 0 : (c.grounded ? 0 : Math.min(1, W / Math.max(1, ae.T[2] * 1000))));
   Fv = add(Fv, ax.nose, Tn); Fv = add(Fv, ax.right, Tr); Fv = add(Fv, ax.up, Tu);
+  // the gadgets whose keys are held: full thrust, in the craft's frame (a bottom thruster bound to a key lifts an
+  // aircraft straight off a roof — the operator's X fighter, 2026-11-12)
+  const held = heldThrust(ae, input.slots);
+  Fv = add(Fv, ax.right, held[0] * 1000); Fv = add(Fv, ax.nose, held[1] * 1000); Fv = add(Fv, ax.up, held[2] * 1000);
   let alpha = 0, beta = 0, CL = 0, n = 0, stalled = false;
   if (vhat && rho > 0) {
     alpha = Math.atan2(-dot(vhat, ax.up), dot(vhat, ax.nose));
@@ -202,7 +227,7 @@ export function aircraftStep(c, input, dt, F, groundAt, hits) {
   // projecting the velocity onto a pitched nose bounced it off the strip every other step and ate the thrust (the first
   // run froze at 46 m/s, 2026-11-11)
   if (c.grounded) {
-    const nh = norm([ax.nose[0], ax.nose[1], 0]), along = dot(v, nh), fr = (c.throttle > 0.05 ? 0.3 : A.gear_brake) * dt;
+    const nh = norm([ax.nose[0], ax.nose[1], 0]), along = dot(v, nh), fr = (c.throttle > 0.05 || held[1] > 0 ? 0.3 : A.gear_brake) * dt;
     const kept = Math.sign(along) * Math.max(0, Math.abs(along) - fr);
     v = [nh[0] * kept, nh[1] * kept, Fv[2] > 0 ? v[2] : 0];
   }
@@ -238,7 +263,7 @@ export function aircraftStep(c, input, dt, F, groundAt, hits) {
   c.air = { V, alpha, beta, n, stalled, auth, q };
   // the engines' work, for the exhaust everyone sees (#171): the throttle, and the thrust's direction in the ground plane
   const dir = Math.hypot(ax.nose[0], ax.nose[1]) > 1e-6 ? norm([ax.nose[0], ax.nose[1], 0]) : [0, 0, 0];
-  const lift = ae.T[2] > 0 ? Tu / (ae.T[2] * 1000) : 0, push = Math.abs(ae.T[1]) > 0 ? c.throttle : 0;
+  const lift = Math.max(ae.T[2] > 0 ? Tu / (ae.T[2] * 1000) : 0, held[2] > 0 ? 1 : 0), push = Math.max(Math.abs(ae.T[1]) > 0 ? c.throttle : 0, Math.abs(held[1]) > 0 ? 1 : 0);
   c.engine = { lift, push, throttle: Math.min(1, lift + push), dir: [dir[0], dir[1]] };
   return c;
 }
@@ -369,11 +394,17 @@ export function craftStep(c, input, dt, F, groundAt, hits) {
     vv += (cu * fwd - su * side) * push * dt;
   }
   if (c.grounded) { const f = Math.exp(-4 * dt); vu *= f; vv *= f; }   // on the ground: it slides to a stop (friction, not air)
+  // the gadgets whose keys are held (bound thrusters, aeroOf): their thrust over the mass, turned by the yaw — a craft
+  // whose automatic thrust cannot lift it still rises on a bound thruster that can
+  const held = heldThrust(c.aero, input.slots), hm = c.mass > 0 ? 1 / c.mass : 0;
+  const hu = (Math.sin(yaw) * held[1] + Math.cos(yaw) * held[0]) * hm, hv = (Math.cos(yaw) * held[1] - Math.sin(yaw) * held[0]) * hm, hh = held[2] * hm;
+  vu += hu * dt; vv += hv * dt;
   // vertical
   if (input.up && lifts) vh += (acc - gr) * dt;
   else if (input.down) vh -= gr * 0.8 * dt;
-  else if (lifts && airborne) vh *= Math.exp(-2.5 * dt);              // hovering: the thrusters hold it
+  else if (lifts && airborne && !hh) vh *= Math.exp(-2.5 * dt);       // hovering: the thrusters hold it
   else vh -= gr * dt;                                                  // falling, or resting on the ground
+  vh += hh * dt;
   // the air: ½ρv²c_dA against its velocity, as 1 / (1 + k v dt) — the implicit step, stable however thick the air
   // the air at its height above the sea (the game's heights run from the planet's RADIUS; the sea is at SEA_LEVEL)
   const k = (0.5 * airAt(c.pose[3] - SEA_LEVEL).rho * FLAT_PLATE_CD * (c.area || AREA_DEFAULT)) / (c.mass * 1000), sp0 = Math.hypot(vu, vv, vh);
@@ -428,7 +459,7 @@ export function craftStep(c, input, dt, F, groundAt, hits) {
   // the engines' work this step, as shares of full thrust (acc is thrust / mass; g / acc is the weight's share)
   const wShare = acc > 0 ? Math.min(1, gr / acc) : 0;
   let lift = 0;
-  if (input.up) lift = 1;                                              // climbing — or straining at a load it cannot lift
+  if (input.up || held[2] > 0) lift = 1;                               // climbing — or straining at a load it cannot lift
   else if (c.grounded) lift = 0;                                       // resting: the engines idle
   else if (input.down) lift = lifts ? wShare * 0.2 : 0;                // sinking under a fifth of its weight held
   else if (lifts) lift = wShare;                                       // hovering: holding exactly its weight

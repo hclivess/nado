@@ -223,6 +223,23 @@ def is_engine(b):
     return len(b) > 7 and b[6] == THRUSTER and (part_of(b[7]) or (None,))[0] == P_ENGINE
 
 
+# A GADGET BOUND TO A KEY (operator 2026-11-12, in an aircraft on a roof with no run to lift from: "maybe add some
+# thrusters and bind them to some keys", "THE BINDING GOES TO BLOCK ACTIVATION OF A PARTICULAR GADGET IT MUST BE
+# UNIVERSAL", "configurable at the gadget"): a gadget is any piece that does something — every thruster block and
+# engine part today; is_gadget is the one place a new kind joins — and it may carry a key slot 1..9, set AT THE PIECE
+# (the page: aim at it, press the digit) by whoever may build there. The slot lives beside the piece, never inside its
+# box (the box's spelling is consensus between page and server — land-world.js boxOk, box_ok — and every reader counts
+# its numbers): on a plot in rec["gadgets"] {gadget_key(box): slot}, on a craft in c["slots"] (one int a piece, 0 none).
+# Boarding carries a plot's slots onto the craft and docking carries them back; a piece taken down loses its slot.
+# What a slot DOES is the page's (land-flight.js aeroOf, heldThrust): a bound thruster fires only while its key is held.
+SLOTS = 9
+def is_gadget(b):
+    return engine_count(b) > 0
+def gadget_key(b):
+    """A gadget's identity on its plot: its whole box (a piece never moves; turned, its tilt is part of it)."""
+    return ",".join(str(int(x)) for x in b)
+
+
 def part_fill(s):
     """land-shapes.js fill: the thousandths of its box a part fills. Whole numbers only, the same sums in the same order."""
     t, v = part_of(s)
@@ -637,6 +654,7 @@ class World:
                                                "grow": {tuple(map(int, k.split(":"))): t for k, t in d.get("grow", {}).items()},
                                                "chests": {k: {i: int(n) for i, n in v.items()} for k, v in d.get("chests", {}).items()},
                                                "boxes": [list(b) for b in d.get("boxes", [])],
+                                               "gadgets": {k: int(v) for k, v in (d.get("gadgets") or {}).items() if int(v)},
                                                "machines": d.get("machines") or {}, "gens": d.get("gens") or {}}
                     rec = self.plots[int(f[:-5])]
                     for k in [k for k, b in rec["edits"].items() if b == FIRE]:      # a restart puts every fire out
@@ -658,6 +676,7 @@ class World:
                     "exp": {f"{x}:{z}:{y}": t for (x, z, y), t in (rec.get("exp") or {}).items()},
                     "grow": {f"{x}:{z}:{y}": t for (x, z, y), t in (rec.get("grow") or {}).items()},
                     "chests": {k: v for k, v in (rec.get("chests") or {}).items() if v}, "boxes": rec.get("boxes", []),
+                    "gadgets": {k: v for k, v in (rec.get("gadgets") or {}).items() if v},
                     # FACTORIES (#148): each machine's recipe and status, each generator's charge (not in the commitment)
                     "machines": rec.get("machines") or {}, "gens": {k: v for k, v in (rec.get("gens") or {}).items() if v}}
             self._write(f"{p}.json", body)
@@ -2075,6 +2094,7 @@ class World:
                 refused.append([b, "too fast — taking a piece down takes time"]); continue
             rec["boxes"].remove(b)
             idx.remove(b)
+            (rec.get("gadgets") or {}).pop(gadget_key(b), None)     # a piece taken down loses its key slot
             if unit:                                                # a door comes back as the door it was
                 pl["items"][places[b[6]]] = pl["items"].get(places[b[6]], 0) + n
             else:
@@ -2355,14 +2375,16 @@ class World:
         face, row, col = plot_coords(p)
         sx, sz, sy = b[0] + b[3] / 2, b[1] + b[4] / 2, b[2]
         pieces = [[x[0] - sx, x[1] - sz, x[2] - sy] + list(x[3:]) for x in parts]
+        gadgets = rec.get("gadgets") or {}
+        slots = [gadgets.get(gadget_key(x), 0) for x in parts]            # each piece's key slot comes along (is_gadget)
         cid = secrets.token_hex(6)
-        c = self.crafts[cid] = {"id": cid, "owner": who, "pilot": who, "pieces": pieces,
+        c = self.crafts[cid] = {"id": cid, "owner": who, "pilot": who, "pieces": pieces, "slots": slots,
                                 "pose": [face, col * PLOT + sx / CM, row * PLOT + sz / CM, sy / CM, 0.0], "at": time.time(),
                                 "mass": round(craft_mass(pieces), 3), "thrust": craft_thrust(pieces)}
         if "index" not in rec:
             rec["index"] = BoxIndex(rec["boxes"])
         for x in parts:
-            rec["boxes"].remove(x); rec["index"].remove(x)
+            rec["boxes"].remove(x); rec["index"].remove(x); gadgets.pop(gadget_key(x), None)
         rec["ver"] += 1
         self.dirty.add(p); self.cdirty = True
         return c, parts, None
@@ -2447,12 +2469,57 @@ class World:
             rec["index"] = BoxIndex(rec["boxes"])
         if any(rec["index"].overlaps(x) for x in add):
             return None, [], "it would overlap a piece here"
-        for x in add:
+        slots = c.get("slots") or []
+        for i, x in enumerate(add):
             rec["boxes"].append(x); rec["index"].add(x)
+            if i < len(slots) and slots[i]:                                 # its key slot stays with the piece (is_gadget)
+                rec.setdefault("gadgets", {})[gadget_key(x)] = int(slots[i])
         rec["ver"] += 1
         del self.crafts[cid]
         self.dirty.add(p); self.cdirty = True
         return p, add, None
+
+    async def bind(self, who, p, b, slot):
+        """Set a gadget piece's key slot AT THE PIECE on plot p (is_gadget above): whoever may build there; slot 1..SLOTS,
+        0 takes the key away. Returns error or None."""
+        rec = self.plots.get(p)
+        b = list(b) if isinstance(b, (list, tuple)) else b
+        if not isinstance(slot, int) or isinstance(slot, bool) or not 0 <= slot <= SLOTS:
+            return f"a key is 1 to {SLOTS}, 0 for none"
+        if not rec or not isinstance(b, list) or b not in rec.get("boxes", []):
+            return "no such piece here"
+        if not is_gadget(b):
+            return "that does nothing a key could fire — a thruster or an engine takes a key"
+        if not await self.may_build(p, who):
+            return "not yours to set — only the plot's builders bind its gadgets"
+        g = rec.setdefault("gadgets", {})
+        if slot:
+            g[gadget_key(b)] = slot
+        else:
+            g.pop(gadget_key(b), None)
+        rec["ver"] += 1
+        self.dirty.add(p)
+        return None
+
+    def bind_craft(self, who, cid, i, slot):
+        """Set piece i's key slot on a craft (its owner, parked or flown by them) — the same rule as bind, on a craft."""
+        c = self.crafts.get(cid)
+        if not isinstance(slot, int) or isinstance(slot, bool) or not 0 <= slot <= SLOTS:
+            return f"a key is 1 to {SLOTS}, 0 for none"
+        if not c or c["owner"] != who:
+            return "not your craft"
+        if c["pilot"] and c["pilot"] != who:
+            return "someone is flying it"
+        if not isinstance(i, int) or isinstance(i, bool) or not 0 <= i < len(c["pieces"]):
+            return "no such piece on it"
+        if not is_gadget(c["pieces"][i]):
+            return "that does nothing a key could fire — a thruster or an engine takes a key"
+        slots = c.get("slots") or [0] * len(c["pieces"])
+        slots = (slots + [0] * len(c["pieces"]))[:len(c["pieces"])]
+        slots[i] = slot
+        c["slots"] = slots; c["ver"] = int(c.get("ver", 0)) + 1
+        self.cdirty = True
+        return None
 
     # THE EVENT TRACE (#194): what a page saw happen to its player — boarding, leaving, every move of the body the player
     # did not make, hurt, death, errors — appended to trace/<address>.jsonl, the newest TRACE_KEEP bytes kept (the file
@@ -2950,7 +3017,7 @@ class Hub:
                     o = {"id": c["id"], "owner": c["owner"], "pilot": c["pilot"], "pose": c["pose"], "mass": c["mass"], "thrust": c["thrust"],
                          "eng": c.get("eng")}                          # the engines' work, for its exhaust (#171)
                     if c["id"] not in seen:
-                        o["pieces"] = c["pieces"]; seen.add(c["id"])
+                        o["pieces"] = c["pieces"]; o["slots"] = c.get("slots") or []; seen.add(c["id"])
                     crafts.append(o)
             animals = world.animals_near(me, self.NEAR) if world else []
             npcs = world.npcs_for(st["who"], me, self.NEAR) if world else []
@@ -3074,7 +3141,7 @@ def make_app(world, hub, site_origin, wallet_url, secure_cookies=True, shot_page
     def plot_json(p, addr, may):
         rec = world.plots.get(p) or {"edits": {}, "ver": 0}
         out = {"plot": p, "ver": rec["ver"], "edits": [[x, z, y, b] for (x, z, y), b in sorted(rec["edits"].items())],
-               "boxes": sorted(rec.get("boxes", []))}
+               "boxes": sorted(rec.get("boxes", [])), "gadgets": {k: v for k, v in (rec.get("gadgets") or {}).items() if v}}
         if may and p in world.plots:
             out["salt"] = rec["salt"].hex()
             out["commitment"] = commitment(p, rec["salt"], out["edits"], out["boxes"])
@@ -3469,6 +3536,21 @@ def make_app(world, hub, site_origin, wallet_url, secure_cookies=True, shot_page
                     await ws.send_json({"t": "done", "req": m.get("req"), "error": err})
                     if not err:
                         await hub.boxes(m.get("plot"), [nb], [ob], addr)
+                elif t == "bind":
+                    # A GADGET'S KEY, set at the gadget (is_gadget): on a plot piece {plot, box, slot}, or on a craft's
+                    # piece {craft, i, slot}; every page redraws a craft whose slots changed (its pieces go out again)
+                    if not addr:
+                        await ws.send_json({"t": "bind_ok", "req": m.get("req"), "error": "sign in first"})
+                        continue
+                    if m.get("craft") is not None:
+                        err = world.bind_craft(addr, m.get("craft"), m.get("i"), m.get("slot"))
+                        if not err:
+                            for s2 in hub.socks.values():
+                                s2.get("crafts_seen", set()).discard(m.get("craft"))
+                        await ws.send_json({"t": "bind_ok", "req": m.get("req"), "error": err, "craft": m.get("craft"), "i": m.get("i"), "slot": m.get("slot")})
+                    else:
+                        err = await world.bind(addr, m.get("plot"), m.get("box"), m.get("slot"))
+                        await ws.send_json({"t": "bind_ok", "req": m.get("req"), "error": err, "plot": m.get("plot"), "box": m.get("box"), "slot": m.get("slot")})
                 elif t == "machine":
                     # FACTORIES (#148): read a machine (what it makes, its status, what it can make) or choose its recipe
                     if not addr:
