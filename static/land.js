@@ -279,6 +279,29 @@ function plotTop(plot) {
   plotTops.set(plot, { seq: topSeq, top });
   return top;
 }
+// CLOUD SHADOWS (#183 step 4, "soft long shadows", the far ground mottled in the concept picture): a map of Clouds.sunLit
+// over the ground round the player — each texel how much of the sun the layer lets through to that point, the reference's
+// own formula marched on the GPU (buildClouds: shadowFn) — rendered every CLOUD_SHADOW_MS, or once the eye has moved an
+// eighth of its span, and read by every lit material of the land (shadeByClouds) as mix(1, lit, share): share is the
+// sun's part of the light on level ground this frame (sky()), so under a thick heap the sun's part goes and the sky's
+// stays, and in the clear nothing changes. The sun's intensity itself is no longer dimmed for the player's own spot: the
+// shadows move over the land as the clouds drift, and a field a kilometre off is sunlit while the player stands in shade.
+// NOT in it: the sun's cast shadows (the shadow map's box) do not fade under a cloud; the map is flat over its span (the
+// planet drops 54 m across 6 km: a shadow's edge is placed to a few metres, finer than a heap's 150 m).
+const CLOUD_SHADOW_N = 256, CLOUD_SHADOW_SPAN = 6000, CLOUD_SHADOW_MS = 1500;   // texels a side; m a side; ms between renders
+const shadowBlank = new THREE.DataTexture(new Uint8Array([255, 255, 255, 255]), 1, 1); shadowBlank.needsUpdate = true;   // until the first map: full sun
+const shadowO = { share: TSL.uniform(0), shift: TSL.uniform(new THREE.Vector3()), east: TSL.uniform(new THREE.Vector3(1, 0, 0)), north: TSL.uniform(new THREE.Vector3(0, 0, 1)) };
+const shadowTex = [];                                        // every material's texture node of the map (its value is swapped in once the map exists)
+let shadowRT = null, shadowScene = null, shadowU = null, shadowCentre = null, shadowAt = 0, shadowMaps = 0;
+/** A lit material's colour under the cloud shadow at the fragment: positionWorld is eye-relative and the map was
+ *  rendered about shadowCentre (the ground under the player), so the fragment's place in the map's frame is
+ *  positionWorld + shift (eye − centre); east and north drop the height. */
+function shadeByClouds(color) {
+  const d = TSL.positionWorld.add(shadowO.shift);
+  const uv = TSL.vec2(TSL.dot(d, shadowO.east), TSL.dot(d, shadowO.north)).div(CLOUD_SHADOW_SPAN).add(0.5);
+  const n = TSL.texture(shadowRT ? shadowRT.texture : shadowBlank, uv); shadowTex.push(n);
+  return color.mul(TSL.mix(TSL.float(1), n.r, shadowO.share));
+}
 /** The ground under a craft's seat (#171): the ground itself, never the top of something built — that is its body's to
  *  meet. groundAt rises out of whatever the point is buried in, so a seat that came to a wall was put on top of it and the
  *  craft hopped over the wall (the page walk, 2026-11-10). Lower than the untouched planet (a pit, the levelled town) is
@@ -1264,7 +1287,7 @@ async function bakeForest() {
   const m = new THREE.MeshStandardNodeMaterial({ roughness: 0.85, metalness: 0, alphaTest: 0.4 }), s = TSL.texture(tex, TSL.uv());
   const show = seenShow();
   m.positionNode = TSL.positionLocal.add(TSL.attribute("off", "vec3").mul(show));
-  m.colorNode = s.rgb.mul(TSL.attribute("color", "vec3"));
+  m.colorNode = shadeByClouds(s.rgb.mul(TSL.attribute("color", "vec3")));
   m.opacityNode = s.a;
   matForest = m;
 }
@@ -1391,7 +1414,7 @@ function buildFarBoxes() {
   const nl = TSL.normalLocal;
   const nn = E.mul(nl.x).add(N.mul(nl.y)).add(U.mul(nl.z));
   m.setupPosition = function (builder) { TSL.normalLocal.assign(nn); return Object.getPrototypeOf(this).setupPosition.call(this, builder); };
-  m.colorNode = TSL.attribute("col", "vec3");
+  m.colorNode = shadeByClouds(TSL.attribute("col", "vec3"));
   farBoxMesh = new THREE.Mesh(g, m); farBoxMesh.frustumCulled = false; farBoxMesh.userData.anchor = anchor; farBoxMesh.renderOrder = 0;
   scene.add(farBoxMesh);
 }
@@ -3796,7 +3819,7 @@ function groundMaterial() {
   const color = tri(tex[0]).mul(meadow).mul(w1.x).add(tri(tex[1]).mul(w1.y)).add(rock.mul(w1.z)).add(two(tex[3]).mul(w1.w))
     .add(two(tex[4]).mul(w2.x)).add(two(tex[5]).mul(w2.y));
   const m = new THREE.MeshStandardNodeMaterial({ metalness: 0 });
-  m.colorNode = color.mul(TSL.attribute("color", "vec3"));
+  m.colorNode = shadeByClouds(color.mul(TSL.attribute("color", "vec3")));
   m.roughnessNode = w1.x.mul(GROUND_ROUGH[0]).add(w1.y.mul(GROUND_ROUGH[1])).add(w1.z.mul(GROUND_ROUGH[2])).add(w1.w.mul(GROUND_ROUGH[3]))
     .add(w2.x.mul(GROUND_ROUGH[4])).add(w2.y.mul(GROUND_ROUGH[5]));
   return m;
@@ -3907,11 +3930,11 @@ function grassMeshes(gr) {
     // in the instance's colour (head = 1)
     matGrass = new THREE.MeshStandardNodeMaterial({ roughness: 0.9, metalness: 0, alphaTest: 0.5 });
     const card = TSL.texture(cardTex, TSL.uv());
-    matGrass.colorNode = card.rgb.mul(TSL.instanceColor);            // the painted blades in the clump's own tint
+    matGrass.colorNode = shadeByClouds(card.rgb.mul(TSL.instanceColor));            // the painted blades in the clump's own tint
     matGrass.opacityNode = card.a;
     matGrass.positionNode = swayed;
     matFlower = new THREE.MeshStandardNodeMaterial({ roughness: 0.85, metalness: 0 });
-    matFlower.colorNode = TSL.attribute("color", "vec3").mul(TSL.mix(TSL.vec3(1), TSL.instanceColor, TSL.attribute("head", "float")));
+    matFlower.colorNode = shadeByClouds(TSL.attribute("color", "vec3").mul(TSL.mix(TSL.vec3(1), TSL.instanceColor, TSL.attribute("head", "float"))));
     matFlower.positionNode = swayed;
   }
   const n = gr.kind.length, nf = gr.kind.reduce((a, x) => a + x, 0);
@@ -4032,12 +4055,12 @@ function treeMaterials() {
   const lin = (name) => { const x = loadTex(name); x.colorSpace = THREE.NoColorSpace; return x; };
   const uv = TSL.uv(), birch = TSL.attribute("tile", "float");
   const bark = new THREE.MeshStandardNodeMaterial({ roughness: 0.92, metalness: 0 });
-  bark.colorNode = TSL.mix(TSL.texture(loadTex("bark_col"), uv).rgb, TSL.texture(loadTex("birch_col"), uv).rgb, birch).mul(TSL.attribute("color", "vec3"));
+  bark.colorNode = shadeByClouds(TSL.mix(TSL.texture(loadTex("bark_col"), uv).rgb, TSL.texture(loadTex("birch_col"), uv).rgb, birch).mul(TSL.attribute("color", "vec3")));
   bark.normalNode = TSL.normalMap(TSL.mix(TSL.texture(lin("bark_nor"), uv), TSL.texture(lin("birch_nor"), uv), birch));
   bark.positionNode = sway;
   const leafTex = paintLeaves(), s = TSL.texture(leafTex, uv);
   const leaves = new THREE.MeshStandardNodeMaterial({ roughness: 0.7, metalness: 0, side: THREE.DoubleSide, alphaTest: 0.42 });
-  leaves.colorNode = s.rgb.mul(TSL.attribute("color", "vec3"));
+  leaves.colorNode = shadeByClouds(s.rgb.mul(TSL.attribute("color", "vec3")));
   leaves.opacityNode = s.a;
   // leaves flutter on top of the sway: a quick small motion along each card's normal
   const flutter = TSL.sin(t.mul(9).add(ph.mul(3)).add(TSL.positionLocal.x.mul(4)).add(TSL.positionLocal.z.mul(3))).mul(wind.xyz.length().mul(0.22));
@@ -4078,7 +4101,7 @@ function pieceMaterial(blk) {
     m = new THREE.MeshStandardNodeMaterial({ roughness: rough, metalness: 0 });
     const uv = TSL.uv(), col = name === "thatch" ? thatchTexture() : name === "steel" ? steelTexture() : name === "paint" ? paintTexture() : loadTex(name + "_col");
     const hue = typeof tint === "string" ? new THREE.Color(tint) : null;       // a colour (paint) or a plain brightness
-    m.colorNode = TSL.texture(col, uv).rgb.mul(hue ? TSL.vec3(hue.r, hue.g, hue.b) : tint).mul(TSL.attribute("color", "vec3"));
+    m.colorNode = shadeByClouds(TSL.texture(col, uv).rgb.mul(hue ? TSL.vec3(hue.r, hue.g, hue.b) : tint).mul(TSL.attribute("color", "vec3")));
     if (name === "steel") m.metalness = 0.55;                                 // metal: it takes the sky's colour a little
     if (name === "paint") m.metalness = 0.12;
     if (name !== "thatch" && name !== "steel" && name !== "paint") { const nor = loadTex(name + "_nor"); nor.colorSpace = THREE.NoColorSpace; m.normalNode = TSL.normalMap(TSL.texture(nor, uv)); }
@@ -4257,16 +4280,17 @@ function sky(fr) {
   torchNight = 1 - day;
   sun.position.copy(sd).multiplyScalar(150);
   sun.color.setRGB(1, 0.62 + 0.35 * smooth01(0, 0.4, elev), 0.38 + 0.55 * smooth01(0, 0.5, elev));
-  // THE SUN UNDER THE CLOUDS (#183 step 4): while a cloud passes over the player the sun dims to what the layer lets
-  // through (land-clouds.js sunLit, read four times a second, eased over a second — a cloud's edge takes seconds to
-  // cross at the breeze's pace), and the sky's fill with it a little; off with the clouds. The light on the ground is one
-  // value for the whole scene: cast cloud shadows, moving over the land, are owed (#183).
+  // THE SUN UNDER THE CLOUDS (#183 step 4): the sun's light on the land is shaded per point by the cloud shadow map
+  // (shadeByClouds: the sun's share of the light goes where a heap stands between, the sky's stays), so the sun itself is
+  // no longer dimmed for the player's spot alone — that darkened a sunlit field a kilometre off along with the shade the
+  // player stood in. The sky's fill still eases a little with the cloud over the player (land-clouds.js sunLit, read
+  // four times a second, eased over a second — a cloud's edge takes seconds to cross at the breeze's pace).
   if (SET.clouds && performance.now() - cloudLitAt > 250) {
     cloudLitAt = performance.now();
     cloudLitWant = Clouds.sunLit(Clouds.noiseVolume(), Wd.posOf(P.face, P.u, P.v, P.h), star.dir);
   }
   cloudLitNow += ((SET.clouds ? cloudLitWant : 1) - cloudLitNow) * Math.min(1, (performance.now() - cloudLitStep) / 1000); cloudLitStep = performance.now();
-  sun.intensity = 2.4 * Math.min(1.6, star.flux) * day * (0.35 + 0.65 * cloudLitNow);
+  sun.intensity = 2.4 * Math.min(1.6, star.flux) * day;
   // shadows only once the sun is well up: at a grazing sun the shadow map streaks the ground (acne), and real dusk
   // shadows are long and faint anyway
   sun.castShadow = elev > 0.12 && !!SET.shadows;
@@ -4279,6 +4303,9 @@ function sky(fr) {
   hemi.intensity = (1.1 + 1.1 * day) * (0.85 + 0.15 * cloudLitNow);   // the sky lights what the sun does not reach: a wall in its own
                                                             // shade is dim, never black (the first house render was)
   hemi.color.copy(SKY.moonFill).lerp(SKY.horizon, day);
+  // the sun's share of the light on level ground: its irradiance (intensity × the sine of its height) against the sky's
+  // fill — what a cloud takes away where it stands between (shadeByClouds); nothing with the clouds off or before a map
+  { const D = sun.intensity * Math.max(0.05, elev), S = hemi.intensity; shadowO.share.value = SET.clouds && shadowCentre && day > 0 ? D / (D + S) : 0; }
   const zen = SKY.nightZ.clone().lerp(SKY.zenith, day).lerp(SKY.duskZ, dusk * 0.5);
   const hor = SKY.nightH.clone().lerp(SKY.horizon, day).lerp(SKY.dusk, dusk * 0.6);
   scene.fog.color.copy(hor); waterSky.copy(hor);
@@ -4428,6 +4455,35 @@ function buildClouds() {
   cloudTile = new THREE.Mesh(new THREE.PlaneGeometry(1 / CLOUD_TILES[0], 1 / CLOUD_TILES[1]), tm); cloudTile.frustumCulled = false;
   cloudScene = new THREE.Scene(); cloudScene.add(cloudTile);
   cloudCam = new THREE.OrthographicCamera(0, 1, 1, 0, -1, 1);
+  // CLOUD SHADOWS: the map's texel is Clouds.sunLit, line for line, at the ground point CLOUD_SHADOW_SPAN·(uv − ½) east and
+  // north of the map's centre — the GROUND under the player, never the eye: a pilot 400 m up hangs in the layer itself
+  // (the base is 419 m over the sea), and a map laid through the eye there read full sun at every texel (the first page
+  // measurement, 2026-11-13). The sun's ray from the point through the layer (Clouds.span for a point under the base),
+  // eight samples of the body along it, tau·sigma, and the reference's two-term transmittance. Its own uniforms: the map
+  // is rendered at the frame's sun and drift, not the sky map's latched ones.
+  shadowU = { at: uniform(new THREE.Vector3()), east: uniform(new THREE.Vector3()), north: uniform(new THREE.Vector3()), sunDir: uniform(new THREE.Vector3()), dr: uniform(new THREE.Vector2(1, 0)) };
+  const shUndrift = (p) => vec3(p.x.mul(shadowU.dr.x).sub(p.z.mul(shadowU.dr.y)), p.y, p.x.mul(shadowU.dr.y).add(p.z.mul(shadowU.dr.x)));
+  const shadowFn = Fn(([uv]) => {
+    const P = shadowU.at.add(shadowU.east.mul(uv.x.sub(0.5).mul(CLOUD_SHADOW_SPAN))).add(shadowU.north.mul(uv.y.sub(0.5).mul(CLOUD_SHADOW_SPAN)));
+    const r = P.length(), mu = dot(P, shadowU.sunDir).div(r), b = r.mul(mu), rr = r.mul(r);
+    const Db = b.mul(b).sub(rr.sub(Clouds.RB * Clouds.RB)), Dt = b.mul(b).sub(rr.sub(Clouds.RT * Clouds.RT));
+    const t0 = b.negate().add(sqrt(max(Db, 0))), t1 = min(b.negate().add(sqrt(max(Dt, 0))), t0.add(K.path));
+    const lit = float(1).toVar();
+    If(mu.greaterThan(0.02).and(r.lessThan(Clouds.RB)).and(t1.greaterThan(t0)), () => {
+      const dt = t1.sub(t0).div(8), tau = float(0).toVar();
+      Loop(8, ({ i }) => { const t = t0.add(dt.mul(float(i).add(0.5))); tau.addAssign(body(shUndrift(P.add(shadowU.sunDir.mul(t)))).mul(dt.mul(K.deep))); });
+      tau.mulAssign(K.sigma);
+      lit.assign(exp(tau.negate()).mul(0.65).add(exp(tau.negate().mul(0.25)).mul(0.35)));
+    });
+    return lit;
+  });
+  const sm = new THREE.MeshBasicNodeMaterial({ depthTest: false, depthWrite: false, blending: THREE.NoBlending });
+  sm.outputNode = vec4(shadowFn(TSL.screenUV), 0, 0, 1);
+  shadowRT = new THREE.RenderTarget(CLOUD_SHADOW_N, CLOUD_SHADOW_N, { depthBuffer: false });
+  shadowRT.texture.name = "lit";
+  const shadowQuad = new THREE.Mesh(new THREE.PlaneGeometry(1, 1), sm); shadowQuad.position.set(0.5, 0.5, 0); shadowQuad.frustumCulled = false;
+  shadowScene = new THREE.Scene(); shadowScene.add(shadowQuad);
+  for (const n of shadowTex) n.value = shadowRT.texture;
   // the overlay: the front map, read by direction in the frame it was marched in — and from the eye it was marched
   // from: Clouds.reproject, line for line, three times over (the first distance read at the direction itself; a heap
   // 150–350 m wide stands 3–10° across a kilometre off, and the first guess from clear sky's distance lands within 5°)
@@ -4459,6 +4515,17 @@ function cloudsFrame(cam, fr) {
     U.sun.value.set(...L.sun); U.hi.value.set(...L.hi); U.lo.value.set(...L.lo); U.haze.value.set(...L.haze);
     cloudLatch = { up: fr.up.slice(), east: fr.east.slice(), north: fr.north.slice(), eye: [cam[0], cam[1], cam[2]] };
   }
+  // CLOUD SHADOWS: the map over the ground, every CLOUD_SHADOW_MS or once the eye has moved an eighth of its span
+  if (shadowScene && (!shadowCentre || performance.now() - shadowAt > CLOUD_SHADOW_MS || Math.hypot(cam[0] - shadowCentre[0], cam[1] - shadowCentre[1], cam[2] - shadowCentre[2]) > CLOUD_SHADOW_SPAN / 8)) {
+    shadowAt = performance.now();
+    const dr = Clouds.drift(), at = Wd.posOf(P.face, P.u, P.v, colAt(P.face, Math.floor(P.u), Math.floor(P.v)).height);   // the ground under the player
+    shadowU.at.value.set(at[0], at[1], at[2]); shadowU.east.value.set(...fr.east); shadowU.north.value.set(...fr.north);
+    shadowU.sunDir.value.copy(cloudLit.sd); shadowU.dr.value.set(dr[0], dr[1]);
+    const was0 = renderer.getRenderTarget();
+    renderer.setRenderTarget(shadowRT); renderer.render(shadowScene, cloudCam); renderer.setRenderTarget(was0);
+    shadowCentre = at; shadowO.east.value.set(...fr.east); shadowO.north.value.set(...fr.north); shadowMaps++;
+  }
+  if (shadowCentre) shadowO.shift.value.set(cam[0] - shadowCentre[0], cam[1] - shadowCentre[1], cam[2] - shadowCentre[2]);
   const [tx, ty] = CLOUD_TILES, back = cloudRT[1 - cloudFront];
   cloudTile.position.set(((cloudTileI % tx) + 0.5) / tx, (Math.floor(cloudTileI / tx) + 0.5) / ty, 0);
   const was = renderer.getRenderTarget(), ac = renderer.autoClear;
@@ -4534,7 +4601,7 @@ function statsTick(now) {
   const gpu = renderer.backend && renderer.backend.isWebGPUBackend ? "WebGPU" : "WebGL2";
   if (!SET.stats) { $("hudGpu").textContent = gpu; return; }
   const r = renderer.info.render;
-  $("hudGpu").textContent = `${gpu} · ${fps} fps · ${Math.round(r.triangles / 1000)}k tris · ${r.drawCalls ?? r.calls} calls · ${chunks.size} chunks · ${forestTrees} far trees · ${farBoxes} far boxes · ${humanDrawn} people${human && human.walking ? ` (${human.walking} in a gait)` : ""}${human && human.hairDrawn ? ` · ${human.hairDrawn} heads of hair` : ""}${human && human.dressed ? ` · ${human.dressed} dressed` : ""} · ${cloudMaps} sky maps${cloudTileI ? ` +${cloudTileI}/${CLOUD_TILES[0] * CLOUD_TILES[1]}` : ""}`;
+  $("hudGpu").textContent = `${gpu} · ${fps} fps · ${Math.round(r.triangles / 1000)}k tris · ${r.drawCalls ?? r.calls} calls · ${chunks.size} chunks · ${forestTrees} far trees · ${farBoxes} far boxes · ${humanDrawn} people${human && human.walking ? ` (${human.walking} in a gait)` : ""}${human && human.hairDrawn ? ` · ${human.hairDrawn} heads of hair` : ""}${human && human.dressed ? ` · ${human.dressed} dressed` : ""} · ${cloudMaps} sky maps · ${shadowMaps} shadow maps${cloudTileI ? ` +${cloudTileI}/${CLOUD_TILES[0] * CLOUD_TILES[1]}` : ""}`;
 }
 // ---- THE PROFILER (` the key left of 1, ?prof=1, or /prof; "work on performance, take a hint from true wind", operator
 // 2026-11-09 — True Wind's js/profiler.js, "measure performance; don't guess"): where the frame's time goes, live — the
@@ -4899,7 +4966,7 @@ async function start() {
     TSL.float(1).sub(tileA.div(TCOLS).floor().add(1).mul(th)).add(ev).add(f.y.mul(th - 2 * ev)));
   const sample = TSL.texture(atlasTex, atlasUV), shade = TSL.attribute("color", "vec3");
   matPieces = new THREE.MeshStandardNodeMaterial({ roughness: 0.85, metalness: 0 });
-  matPieces.colorNode = sample.rgb.mul(shade);
+  matPieces.colorNode = shadeByClouds(sample.rgb.mul(shade));
   // GLASS ("windows on the house look weird": a flat blue tile with its frame lines): clear, faintly green-grey, and more
   // of a mirror the more glancing the view (fresnel), so a pane shows the room behind it head-on and the sky at an angle
   // FIRE (#124): flames are light, not lit — additive, both sides, fading from a white-yellow base to red tips, flickering
