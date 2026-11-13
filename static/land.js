@@ -4323,23 +4323,31 @@ function sky(fr) {
 //  * the overlay is drawn after the sun, its glow and the stars (renderOrder −0.5 > −1) and before anything else
 //    transparent: a cloud hides the sun, and water or glass in front of a cloud is drawn over it;
 //  * above the cloud tops the overlay comes in front of the ground (renderOrder 10, a radius under the clouds' depth) —
-//    looking down on the clouds from a craft, the land is under them, not over them.
+//    looking down on the clouds from a craft, the land is under them, not over them;
+//  * the map is READ BACK FROM WHERE ITS EYE WAS (operator 2026-11-13: "at high speeds clouds really stutter" — at 290 m/s
+//    every swap moved every cloud by the 150 m flown in the cycle, at once): each texel carries its cloud's mean distance
+//    in a second target, and the dome reads the map reprojected from the latched eye to this frame's (Clouds.reproject,
+//    line for line, twice over), so the clouds stand still as the eye moves and a swap shows them where they already were.
+//    The shift is the difference of two planet-frame eyes taken in doubles here; only the metres go to the GPU.
 const CLOUD_MAP = PHONE ? [1024, 512] : [2048, 1024], CLOUD_TILES = [8, 4];   // texels (a design choice), tiles a cycle
 let cloudSky = null, cloudRT = [], cloudFront = 0, cloudTileI = 0, cloudTile = null, cloudScene = null, cloudCam = null;
-let cloudU = null, cloudO = null, cloudTex = null, cloudLit = null, cloudMaps = 0, cloudLatch = null;
+let cloudU = null, cloudO = null, cloudTex = [], cloudLit = null, cloudMaps = 0, cloudLatch = null, cloudMRT = null, cloudEye = null;
 function buildClouds() {
   const { Fn, vec2, vec3, vec4, float, uniform, Loop, If, Break, dot, sqrt, max, min, clamp, exp, pow, sin, cos, asin, atan, smoothstep, select } = TSL;
   const K = Clouds.K, S = Clouds.SIZE, vol = new THREE.Data3DTexture(Clouds.noiseVolume(), S, S, S);
   vol.format = THREE.RGFormat; vol.type = THREE.UnsignedByteType; vol.minFilter = vol.magFilter = THREE.LinearFilter;
   vol.wrapS = vol.wrapT = vol.wrapR = THREE.RepeatWrapping; vol.unpackAlignment = 1; vol.generateMipmaps = false; vol.needsUpdate = true;
   const [mw, mh] = CLOUD_MAP;
-  for (let i = 0; i < 2; i++) cloudRT.push(new THREE.RenderTarget(mw, mh, { type: THREE.HalfFloatType, depthBuffer: false, generateMipmaps: false,
-    minFilter: THREE.LinearFilter, magFilter: THREE.LinearFilter, wrapS: THREE.RepeatWrapping, wrapT: THREE.ClampToEdgeWrapping }));
+  for (let i = 0; i < 2; i++) cloudRT.push(new THREE.RenderTarget(mw, mh, { count: 2, type: THREE.HalfFloatType, depthBuffer: false, generateMipmaps: false,
+    minFilter: THREE.LinearFilter, magFilter: THREE.LinearFilter, wrapS: THREE.RepeatWrapping, wrapT: THREE.ClampToEdgeWrapping }));   // [0] the light, [1] the distance
+  // the MRT node finds a target BY ITS TEXTURE'S NAME (three MRTNode.setup getTextureIndex): unnamed, the distance was
+  // never written, every texel read 0, the reprojection divided by it and the sky lost its clouds (the page test, 2026-11-13)
+  for (const rt of cloudRT) { rt.textures[0].name = "output"; rt.textures[1].name = "dist"; }
   const v3u = () => uniform(new THREE.Vector3());
   // the march's uniforms (latched at a cycle's first tile) and the overlay's (copied from them at the swap)
   cloudU = { eye: v3u(), eyeN: v3u(), r: uniform(0), c: v3u(), kase: uniform(0), up: v3u(), east: v3u(), north: v3u(),
     dr: uniform(new THREE.Vector2(1, 0)), sunU: v3u(), sunDir: v3u(), sun: v3u(), hi: v3u(), lo: v3u(), haze: v3u() };
-  cloudO = { up: v3u(), east: v3u(), north: v3u() };
+  cloudO = { up: v3u(), east: v3u(), north: v3u(), shift: v3u() };
   const U = cloudU, row = (m, i) => vec3(m[i * 3], m[i * 3 + 1], m[i * 3 + 2]);
   const rot = (m, x, per) => vec3(dot(row(m, 0), x), dot(row(m, 1), x), dot(row(m, 2), x)).div(per);
   const vol3 = (q) => TSL.texture3D(vol, q).level(0);
@@ -4355,6 +4363,7 @@ function buildClouds() {
     const e = float(1).sub(vol3(p.div(Clouds.BILLOW)).g).mul(K.erode * 1).mul(fine);
     return clamp(body(p).sub(e).div(float(1).sub(e)), 0, 1);
   };
+  const CloudTexel = TSL.struct({ color: "vec4", dist: "float" }, "CloudTexel");
   const march = Fn(([dir, jit]) => {
     // Clouds.span: the stretch of the ray in the layer, for an eye below (kase 0), inside (1) or above (2) it
     const mu = dot(U.eyeN, dir), b = U.r.mul(mu), bb = b.mul(b);
@@ -4364,7 +4373,7 @@ function buildClouds() {
     const t1a = select(below, b.negate().add(sDt), select(down.and(Db.greaterThan(0)), b.negate().sub(sDb), b.negate().add(sDt)));
     const t1 = min(t1a, t0.add(K.path));
     const ok = select(below, down.and(Dg.greaterThan(0)).not(), select(U.kase.equal(1), TSL.bool(true), down.and(Dt.greaterThan(0)))).and(t1.greaterThan(t0));
-    const T = float(1).toVar(), C = vec3(0).toVar();
+    const T = float(1).toVar(), C = vec3(0).toVar(), D = float(0).toVar(), dist = float(Clouds.FAR).toVar();
     If(ok, () => {
       const dt = t1.sub(t0).div(K.steps), t = t0.add(dt.mul(jit)).toVar();
       const toward = pow(max(dot(dir, U.sunDir), 0), 8).mul(K.silver);
@@ -4379,12 +4388,16 @@ function buildClouds() {
           const hN = clamp(p.length().sub(Clouds.RB).div(Clouds.THICK), 0, 1), a = float(1).sub(exp(d.mul(K.sigma).mul(dt).negate()));
           const own = U.sun.mul(lit).add(U.lo).add(U.hi.sub(U.lo).mul(hN));
           C.addAssign(U.haze.add(own.sub(U.haze).mul(far)).mul(a).mul(T));
+          D.addAssign(t.mul(a).mul(T));
           T.mulAssign(float(1).sub(a));
         });
         t.addAssign(dt);
       });
+      // Clouds.march's dist: the light-weighted mean distance; no cloud met: the middle of the stretch
+      const al = float(1).sub(T);
+      dist.assign(min(float(Clouds.FAR), select(al.greaterThan(0.001), D.div(max(al, 1e-6)), t0.add(t1).mul(0.5))));
     });
-    return vec4(C, float(1).sub(T));
+    return CloudTexel(vec4(C, float(1).sub(T)), dist);
   });
   // a map texel's direction: u the azimuth from north toward east, v the bent elevation (Clouds.mapEl)
   const dirOf = (uv, B) => {
@@ -4395,17 +4408,31 @@ function buildClouds() {
   // a texel's map uv is three's own screenUV in the target, NOT the tile's position: three samples a render target's
   // texture flipped on one backend and not the other, and screenUV is the coordinate its own passes write and read by —
   // marched at the tile's world y, the map was read upside down on WebGL2 and the sky stayed clear (2026-11-11)
-  tm.fragmentNode = march(dirOf(TSL.screenUV, U), TSL.interleavedGradientNoise(TSL.screenCoordinate.xy));
+  const texel = march(dirOf(TSL.screenUV, U), TSL.interleavedGradientNoise(TSL.screenCoordinate.xy));
+  // the tile writes BOTH targets, by name: the light and the distance. The colour is the material's outputNode, NOT its
+  // fragmentNode: three's NodeMaterial applies a renderer MRT only on its lit path (setup: the `fragmentNode === null`
+  // branch), so with a fragmentNode the second target was never written and the first held nothing either — the sky lost
+  // every cloud ("mean change 9.7 of 255" against a baseline of 44, the page cloud test, 2026-11-13; measured on a tiny
+  // page reading the targets back: outputNode writes both, fragmentNode neither). The colour goes into the MRT explicitly
+  // too: `TSL.output` is assigned on that path only after the MRT is read.
+  tm.outputNode = texel.get("color");
+  cloudMRT = TSL.mrt({ output: texel.get("color"), dist: vec4(texel.get("dist"), 0, 0, 1) });
   cloudTile = new THREE.Mesh(new THREE.PlaneGeometry(1 / CLOUD_TILES[0], 1 / CLOUD_TILES[1]), tm); cloudTile.frustumCulled = false;
   cloudScene = new THREE.Scene(); cloudScene.add(cloudTile);
   cloudCam = new THREE.OrthographicCamera(0, 1, 1, 0, -1, 1);
-  // the overlay: the front map, read by direction in the frame it was marched in
+  // the overlay: the front map, read by direction in the frame it was marched in — and from the eye it was marched
+  // from: Clouds.reproject, line for line, three times over (the first distance read at the direction itself; a heap
+  // 150–350 m wide stands 3–10° across a kilometre off, and the first guess from clear sky's distance lands within 5°)
   const om = new THREE.MeshBasicNodeMaterial({ transparent: true, depthWrite: false, fog: false, side: THREE.BackSide });
-  const d = TSL.positionWorld.normalize(), el = asin(clamp(dot(d, cloudO.up), -1, 1)).div(Math.PI / 2);
-  const B = Clouds.BEND, sv = sqrt(TSL.abs(el).mul(4 * (1 - B)).add(B * B)).sub(B).div(2 * (1 - B));
-  const uv = vec2(atan(dot(d, cloudO.east), dot(d, cloudO.north)).div(2 * Math.PI).add(0.5), TSL.sign(el).mul(sv).mul(0.5).add(0.5));
-  cloudTex = TSL.texture(cloudRT[0].texture, uv);
-  om.colorNode = cloudTex.rgb.div(max(cloudTex.a, 1e-4)); om.opacityNode = cloudTex.a;
+  const B = Clouds.BEND;
+  const uvOf = (u) => {
+    const el = asin(clamp(dot(u, cloudO.up), -1, 1)).div(Math.PI / 2), sv = sqrt(TSL.abs(el).mul(4 * (1 - B)).add(B * B)).sub(B).div(2 * (1 - B));
+    return vec2(atan(dot(u, cloudO.east), dot(u, cloudO.north)).div(2 * Math.PI).add(0.5), TSL.sign(el).mul(sv).mul(0.5).add(0.5));
+  };
+  const read = (i, u) => { const n = TSL.texture(cloudRT[0].textures[i], uvOf(u)); cloudTex.push([i, n]); return n; };   // (every node's value is swapped with the map)
+  const d = TSL.positionWorld.normalize(), reproject = (dist) => d.mul(max(dist, 1)).add(cloudO.shift).normalize();   // (a distance of 0 would be NaN)
+  const u1 = reproject(read(1, d).r), u2 = reproject(read(1, u1).r), u3 = reproject(read(1, u2).r), lit = read(0, u3);
+  om.colorNode = lit.rgb.div(max(lit.a, 1e-4)); om.opacityNode = lit.a;
   cloudSky = new THREE.Mesh(new THREE.SphereGeometry(1, 48, 24), om); cloudSky.frustumCulled = false; cloudSky.visible = false;
   scene.add(cloudSky);
 }
@@ -4422,19 +4449,22 @@ function cloudsFrame(cam, fr) {
     U.up.value.set(...fr.up); U.east.value.set(...fr.east); U.north.value.set(...fr.north);
     U.dr.value.set(dr[0], dr[1]); U.sunU.value.set(...Clouds.undrift(L.sunDir, dr)); U.sunDir.value.set(...L.sunDir);
     U.sun.value.set(...L.sun); U.hi.value.set(...L.hi); U.lo.value.set(...L.lo); U.haze.value.set(...L.haze);
-    cloudLatch = { up: fr.up.slice(), east: fr.east.slice(), north: fr.north.slice() };
+    cloudLatch = { up: fr.up.slice(), east: fr.east.slice(), north: fr.north.slice(), eye: [cam[0], cam[1], cam[2]] };
   }
   const [tx, ty] = CLOUD_TILES, back = cloudRT[1 - cloudFront];
   cloudTile.position.set(((cloudTileI % tx) + 0.5) / tx, (Math.floor(cloudTileI / tx) + 0.5) / ty, 0);
   const was = renderer.getRenderTarget(), ac = renderer.autoClear;
   renderer.autoClear = false;                               // the other tiles of the back map stay as they were marched
+  const mrt0 = renderer.getMRT(); renderer.setMRT(cloudMRT);   // both targets: the light and the distance
   renderer.setRenderTarget(back); renderer.render(cloudScene, cloudCam); renderer.setRenderTarget(was);
-  renderer.autoClear = ac;
+  renderer.setMRT(mrt0); renderer.autoClear = ac;
   if (++cloudTileI === tx * ty) {                           // the back map is whole: it is the sky now
     cloudTileI = 0; cloudFront = 1 - cloudFront; cloudMaps++;
-    cloudTex.value = cloudRT[cloudFront].texture;
+    for (const [i, n] of cloudTex) n.value = cloudRT[cloudFront].textures[i];
     cloudO.up.value.set(...cloudLatch.up); cloudO.east.value.set(...cloudLatch.east); cloudO.north.value.set(...cloudLatch.north);
+    cloudEye = cloudLatch.eye;                                // the map on the dome was marched from here
   }
+  if (cloudEye) cloudO.shift.value.set(cam[0] - cloudEye[0], cam[1] - cloudEye[1], cam[2] - cloudEye[2]);   // (doubles, then metres)
   cloudSky.visible = cloudMaps > 0;
   // below or in the layer: behind everything on the ground; above its top: over the ground, under what is near
   const above = rr - Clouds.RT;

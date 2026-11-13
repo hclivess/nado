@@ -62,6 +62,8 @@ export const K = {
 /** How the sky map spends its rows: elevation = 90° · s · (BEND + (1 − BEND)·|s|) for s in −1..1 — twice the rows a
  *  degree at the horizon, where the far clouds are small, for two thirds at the zenith, where they are near and large. */
 export const BEND = 0.5;
+export const FAR = 60000;                        // m: the distance a map texel with no cloud carries (past any cloud of this
+                                                 // planet's sky — the horizon from 10 km up is 41 km); a half float holds it
 export const mapV = (el) => { const e = el / (Math.PI / 2), s = (-BEND + Math.sqrt(BEND * BEND + 4 * (1 - BEND) * Math.abs(e))) / (2 * (1 - BEND)); return 0.5 + 0.5 * Math.sign(e) * s; };
 export const mapEl = (v) => { const s = 2 * v - 1; return (Math.PI / 2) * s * (BEND + (1 - BEND) * Math.abs(s)); };
 
@@ -225,16 +227,19 @@ export function span(r, mu) {
   }
   return t1 > t0 ? [t0, Math.min(t1, t0 + K.path)] : null;
 }
-/** What a ray shows of the clouds: [r, g, b, a] — the light it gathers, already weighted by how much cloud it met
- *  (premultiplied), and a = how much of the sky behind is hidden. `eye` (m, planet frame), `dir` unit, `L` the light:
- *  { sunDir, sun [rgb], hi [rgb] (the sky's light on a heap's top), lo [rgb] (on its belly), haze [rgb] }, `dr` drift(),
- *  `jit` 0..1 where in its first step the march starts. */
+/** What a ray shows of the clouds: [r, g, b, a, dist] — the light it gathers, already weighted by how much cloud it met
+ *  (premultiplied), a = how much of the sky behind is hidden, and dist (m) WHERE along the ray the cloud it shows is: the
+ *  mean of the march's distances weighted as the light is (the same T·a each step), so a texel of the sky map can be
+ *  read back from another eye (reproject); a ray that met no cloud carries the middle of its stretch through the layer
+ *  (a cloud's edge, where the next texel has one, then reads from about the right place), one that never enters it FAR.
+ *  `eye` (m, planet frame), `dir` unit, `L` the light: { sunDir, sun [rgb], hi [rgb] (the sky's light on a heap's top),
+ *  lo [rgb] (on its belly), haze [rgb] }, `dr` drift(), `jit` 0..1 where in its first step the march starts. */
 export function march(vol, eye, dir, L, dr = drift(), jit = 0.5) {
   const r = Math.hypot(eye[0], eye[1], eye[2]), mu = (eye[0] * dir[0] + eye[1] * dir[1] + eye[2] * dir[2]) / r, sp = span(r, mu);
-  if (!sp) return [0, 0, 0, 0];
+  if (!sp) return [0, 0, 0, 0, FAR];
   const dt = (sp[1] - sp[0]) / K.steps, cs = dir[0] * L.sunDir[0] + dir[1] * L.sunDir[1] + dir[2] * L.sunDir[2];
   const toward = K.silver * Math.pow(Math.max(0, cs), 8);
-  let T = 1, t = sp[0] + dt * jit;
+  let T = 1, t = sp[0] + dt * jit, D = 0;
   const C = [0, 0, 0];
   for (let i = 0; i < K.steps && T > 0.01; i++, t += dt) {
     const p = undrift([eye[0] + dir[0] * t, eye[1] + dir[1] * t, eye[2] + dir[2] * t], dr), far = Math.exp(-t / K.haze);
@@ -254,7 +259,20 @@ export function march(vol, eye, dir, L, dr = drift(), jit = 0.5) {
       const own = L.sun[c] * lit + L.lo[c] + (L.hi[c] - L.lo[c]) * hN;
       C[c] += T * a * (L.haze[c] + (own - L.haze[c]) * far);
     }
+    D += T * a * t;
     T *= 1 - a;
   }
-  return [C[0], C[1], C[2], 1 - T];
+  const al = 1 - T;
+  return [C[0], C[1], C[2], al, Math.min(FAR, al > 0.001 ? D / al : (sp[0] + sp[1]) / 2)];
+}
+/** READING A SKY MAP FROM ANOTHER EYE (operator 2026-11-13: "at high speeds clouds really stutter" — the map is marched
+ *  from the eye latched at a cycle's start and swapped in whole, so at 290 m/s every swap moved every cloud by the 150 m
+ *  flown since at once). The map's texel for direction `d` from the CURRENT eye is the one the LATCHED eye saw the same
+ *  cloud in: the cloud stands at the current eye + d·dist, and from the latched eye that point lies along
+ *  (shift + d·dist), `shift` = current eye − latched eye. The page's dome reads this twice over — the first dist from the
+ *  texel at d itself, then from the texel found — so the clouds stand still as the eye moves and the swap shows them
+ *  where they already were. Returns the unit direction in the latched eye's frame. */
+export function reproject(d, shift, dist) {
+  const p = [d[0] * dist + shift[0], d[1] * dist + shift[1], d[2] * dist + shift[2]], n = Math.hypot(p[0], p[1], p[2]) || 1;
+  return [p[0] / n, p[1] / n, p[2] / n];
 }
