@@ -4103,12 +4103,13 @@ function treeMaterials() {
   // a bush's far-side cards — what a viewer sees inside it — stayed black at noon (three live photographs, with the
   // occlusion pass off and with the cast shadows off alike, 2026-11-13).
   const sunV = TSL.cameraViewMatrix.mul(TSL.vec4(leafSun.dir, 0)).xyz.normalize();
-  // the normal of the side the viewer sees: TSL's normalView is the geometric one, flipped here on a back face. Measured
-  // in the page at a broadleaf, the leaves' lift against the sun and with the sun behind the viewer: this term 19 and 12
-  // of 255; without the flip 25 and 25 (a back face lit by the sun got its transmission on top: double); the first,
-  // forward-scatter term 35 and 5 (it lit sun-facing sides too). Only this one lifts more against the sun than with it.
-  const seen = TSL.normalView.mul(TSL.select(TSL.frontFacing, 1, -1));
-  const through = TSL.clamp(seen.dot(sunV).negate(), 0, 1);                   // the sun on the far side of the side seen
+  // TSL's normalView ALREADY faces the camera on a back face (measured on the WebGL2 backend with one two-sided card
+  // read back from both sides, 2026-11-13: on the back, frontFacing 0 and normalView.z +1). So the sun on the far side
+  // of the side seen is max(0, −normalView·s) as it stands: 1 for a back seen with the sun behind it, 1 for a front with
+  // the sun behind it, 0 with the sun on the viewer's side — all four cases read back. A build that flipped normalView
+  // by frontFacing turned it back on back faces and got every back wrong: the backs of a bush's far cards, lit from
+  // behind, got nothing — the black bush cores that three live photographs counted alike.
+  const through = TSL.clamp(TSL.normalView.dot(sunV).negate(), 0, 1);
   leaves.emissiveNode = shadeByClouds(s.rgb.mul(TSL.attribute("color", "vec3")).mul(leafSun.rgb).mul(through.mul(LEAF_THROUGH)));
   // leaves flutter on top of the sway: a quick small motion along each card's normal
   const flutter = TSL.sin(t.mul(9).add(ph.mul(3)).add(TSL.positionLocal.x.mul(4)).add(TSL.positionLocal.z.mul(3))).mul(wind.xyz.length().mul(0.22));
