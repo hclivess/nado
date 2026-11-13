@@ -300,7 +300,14 @@ function craftHits(c, pose) {
  *  ground with no block or piece there is air without the ground field's eight-cell sum. */
 function craftSolid(f, u, v, h) {
   if (boxAt(f, u, v, h)) return true;
-  const cu = Math.floor(u), cv = Math.floor(v), b = blockAt(f, cu, cv, Math.floor(h));
+  const cu = Math.floor(u), cv = Math.floor(v), ch = Math.floor(h), b = blockAt(f, cu, cv, ch);
+  // A CRAFT TEARS THROUGH TREES (tearCells): the planet's own trunk and crown cells are no wall to a flown craft where
+  // its pilot may build — they are noted here and torn after the step. An edit (a log someone placed) and a stranger's
+  // plot's trees stay what they are to it: solid, through the field below.
+  if (tearing && Wd.isTree(b) && ch >= 0) {
+    const k = key(f, cu, cv, ch);
+    if (!edits.has(k) && mayBuild(Wd.plotOf(f, cu, cv))) { tearing.add(k); return false; }
+  }
   if (crispB(b)) return BLOCKS[b].solid;
   if (b === B.air && h > colAt(f, cu, cv).height + 2) return false;
   if (b === B.air && edits.get(key(f, cu, cv, Math.floor(h))) === B.air) return false;   // dug out (solidAt)
@@ -443,6 +450,28 @@ const PILOT_SIT = 0.6;                  // m the pilot's feet sit below the seat
 // The camera then looks along the nose (P.yaw, P.pitch follow the craft) and rolls with it (craftUp).
 const stick = { x: 0, y: 0 }, STICK_PX = 160, STICK_RELAX = 3;
 let craftUp = null;                      // the flown aircraft's up in the planet frame, for the camera; null: the ground's
+/** A CRAFT TEARS THROUGH TREES (operator 2026-11-13, the X fighter wedged in a broadleaf after a landing: "x fighter
+ *  should tear trees down through sheer force (minor damage perhaps)"): the planet's own trunk and crown cells its body
+ *  meets are no wall to it (craftSolid) — they are TORN: taken out here at once and sent to the world server as the
+ *  craft's set (land_server.py apply craft=: no tool, no time, nothing gathered; a torn trunk brings its tree down), which
+ *  puts them back if it refuses (set_ok). The minor damage: each cell costs speed — a trunk TEAR_COST[0], a crown cell
+ *  TEAR_COST[1] of it — so a grove slows a craft and never stops it (at least half the speed is kept a step). Only where
+ *  the pilot may build: a stranger's plot keeps its trees, and to the craft they stand as walls. */
+const TEAR_COST = [0.04, 0.01];
+let tearing = null;                                        // while the flown craft steps: the tree cells it met (keys)
+function tearCells(c, torn) {
+  const byPlot = new Map(); let wood = 0, crown = 0;
+  for (const k of torn) {
+    const [f, u, v, h] = k.split(":").map(Number), b = blockAt(f, u, v, h);
+    if (Wd.TREE_WOOD.has(b)) wood++; else crown++;
+    const plot = Wd.plotOf(f, u, v);
+    putCell(f, u, v, h, B.air);
+    (byPlot.get(plot) || byPlot.set(plot, []).get(plot)).push([f, u, v, h, B.air]);
+  }
+  for (const [plot, cells] of byPlot) { net.send({ t: "set", cells, craft: c.id, req: ++net.req }); net.pending.set(net.req, plot); }
+  const k = Math.max(0.5, 1 - TEAR_COST[0] * wood - TEAR_COST[1] * crown);
+  c.vel = c.vel.map((x) => x * k);
+}
 function flyStep(dt, fwd, side) {
   const c = flying, F = FLIGHT();
   const upK = keys.has("Space") || !!(touch && touch.up), downK = keys.has("KeyC") || keys.has("ControlLeft") || !!(touch && touch.down);
@@ -457,7 +486,10 @@ function flyStep(dt, fwd, side) {
       up: vert && (upK || tUp), down: vert && (downK || tDown), slots: heldSlots() };
     const k = Math.exp(-STICK_RELAX * dt); stick.x *= k; stick.y *= k;
   } else input = { fwd, side, yaw: P.yaw, up: upK, down: downK, slots: heldSlots() };
+  tearing = new Set();                                       // the tree cells its body meets this step (craftSolid)
   craftStep(c, input, dt, F, (u, v) => craftGround(c.pose[0], u, v) - 0.05, (pose) => craftHits(c, pose));
+  const torn = tearing; tearing = null;
+  if (torn.size) tearCells(c, torn);
   if (c.aero && c.aero.winged) {
     P.yaw = c.pose[4]; P.pitch = c.pose[5] || 0;             // the camera looks along the nose
     const fr = Wd.frameOf(c.pose[0], c.pose[1], c.pose[2]), ax = axesOf(c.pose[4], c.pose[5] || 0, c.pose[6] || 0);

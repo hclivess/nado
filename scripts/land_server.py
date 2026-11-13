@@ -61,6 +61,17 @@ CHEST = 54                        # static/land-world.js B.chest: a piece that k
 CHEST_MAX = 2000                  # items one chest holds
 TREE_WOOD = {7, 31}                # static/land-world.js TREE_WOOD (log, birchlog): cutting one fells its tree above
 TREE_LEAVES = {8, 32, 33}         # static/land-world.js TREE_LEAVES (leaves, needles, fronds) — a test checks they agree
+TEAR_SLACK = 4.0                  # m past a craft's body a torn cell may lie (the pose the page sent is up to 200 ms old)
+
+
+def craft_reach(pieces):
+    """How far (m) a craft's body reaches from its pose: the farthest corner of any piece (cm boxes [x, z, y, w, d, h, ...]
+    about the seat). A cell a craft TEARS (apply, craft=) must lie within this of the pose it last sent."""
+    r = 0.0
+    for b in pieces:
+        x, z, y, w, d, h = (float(v) for v in b[:6])
+        r = max(r, math.hypot(max(abs(x), abs(x + w)), max(abs(z), abs(z + d)), max(abs(y), abs(y + h))) / CM)
+    return r
 UNBUILDABLE = {30}                # bedrock: never placed (no item in land-recipes.json places it either)
 # WATER is carried in a bucket (land-recipes.json: a bucket scoops a cell of it, a bucketful places one) and placed only
 # where something holds it — on a block or on more water — so a pond, a basin or a fountain holds; it does not flow.
@@ -1578,16 +1589,27 @@ class World:
         self.workb[who] = [t - seconds, time.time()]
         return True
 
-    async def apply(self, who, cells, at=False):
+    async def apply(self, who, cells, at=False, craft=None):
         """Apply [face, u, v, h, block] cells: block 0 BREAKS (gathering: its yield goes to the caller's inventory),
         any other id PLACES one item from the inventory. Returns (applied by plot, refused, inventory changed).
         `at` is where the caller stands ([face, u, v, h, ...]) and each break — and each place off a plot they may build
         on — must be within REACH_M of their eye (#167); None: nobody knows where they are, so nothing within reach;
-        False (the server's own work and tests that call this directly): not checked."""
+        False (the server's own work and tests that call this directly): not checked.
+        `craft`: the id of a craft the caller is FLYING THROUGH A TREE (operator 2026-11-13, the X fighter wedged in a
+        broadleaf: "x fighter should tear trees down through sheer force"): every cell must be the planet's own trunk or
+        crown (TREE_WOOD, TREE_LEAVES) within the craft's body's reach of its pose; no tool, no breaking time, no reach
+        from the pilot's eye, and NOTHING GATHERED — torn, not felled for its wood; a torn trunk still brings its tree
+        down (the felling below). A plot the pilot may not build on keeps its trees (its page treats them as walls)."""
         if not isinstance(cells, list) or len(cells) > MAX_CELLS:
             return {}, [[None, f"at most {MAX_CELLS} cells per call"]], False
         if not self.take(who, len(cells)):
             return {}, [[None, "rate limited — slow down"]], False
+        tear = None
+        if craft is not None:
+            tear = self.crafts.get(craft)
+            if not tear or tear["pilot"] != who:
+                return {}, [[None, "you are not flying that"]], False
+            tear_reach = craft_reach(tear["pieces"]) + TEAR_SLACK
         parsed, refused = [], []
         for c in cells:
             try:
@@ -1596,6 +1618,8 @@ class World:
                 refused.append([c, "a cell is [face, u, v, h, block]"]); continue
             if not (0 <= face < 6 and 0 <= u < W and 0 <= v < W and DEEP_MIN <= h < H and 0 <= b < N_BLOCKS) or b in UNBUILDABLE:
                 refused.append([c, "out of the world, or not a block you can place"]); continue
+            if tear is not None and b != 0:
+                refused.append([c, "a craft tears, it places nothing"]); continue
             parsed.append((face, u, v, h, b, c))
         # what is there now: an edit, else the untouched planet
         keys = []
@@ -1618,7 +1642,8 @@ class World:
             if h < 0:                                               # THE DEEP: nobody's, and it does not grow back
                 titled, may = False, True
             # REACH (#167): broken only beside the breaker; placed from afar only on a plot they may build on
-            if at is not False and (b == 0 or not (titled and may)):
+            # (a craft's tearing is measured from the craft, below)
+            if at is not False and tear is None and (b == 0 or not (titled and may)):
                 if at is None:
                     refused.append([c, "stand in the world first — open the game, or say where you are (/land/api/move)"]); continue
                 if int(at[0]) != face or math.dist((u + 0.5, v + 0.5, h + 0.5), (at[1], at[2], at[3] + EYE)) > REACH_M:
@@ -1631,7 +1656,17 @@ class World:
                 self.dirty.add(p)
                 applied.setdefault(p, []).append([face, u, v, h, 0])
                 continue
-            if b == 0:                                              # ---- break: gather
+            if b == 0 and tear is not None:                         # ---- TORN by a craft: the planet's own tree, nothing gathered
+                if cur not in TREE_WOOD and cur not in TREE_LEAVES:
+                    refused.append([c, "a craft tears through trees, nothing else"]); continue
+                if rec and k in rec["edits"]:
+                    refused.append([c, "a craft tears through the planet's own trees, not what someone built"]); continue
+                if titled and not may:
+                    refused.append([c, "not your plot — only its owner and the builders they invite take from it"]); continue
+                if int(tear["pose"][0]) != face or math.dist((u + 0.5, v + 0.5, h + 0.5), tear["pose"][1:4]) > tear_reach:
+                    refused.append([c, "out of the craft's reach"]); continue
+                rec = self.plot(p)
+            elif b == 0:                                            # ---- break: gather
                 rule = RULES["breaking"].get(str(cur))
                 if not rule:
                     refused.append([c, "nothing here that can be gathered"]); continue
@@ -1653,6 +1688,7 @@ class World:
                     pl["items"][rule["bonus"][0]] = pl["items"].get(rule["bonus"][0], 0) + 1
                 changed = True
                 rec = self.plot(p)
+            if b == 0:                                              # ---- the cell goes (broken or torn), its tree with a cut trunk
                 rec["edits"][k] = 0
                 (rec.get("grow") or {}).pop(k, None)               # a sapling pulled up grows no more
                 if not titled and h >= 0:                          # the commons regrows (not the deep: a mine stays)
@@ -1666,8 +1702,8 @@ class World:
                         fk = (fu - (p % FACE_N) * PLOT, fv - ((p // FACE_N) % FACE_N) * PLOT, fh)
                         if fk in rec["edits"]:
                             continue
-                        for item, n in (RULES["breaking"].get(str(fb)) or {"yields": []})["yields"]:
-                            pl["items"][item] = pl["items"].get(item, 0) + n
+                        for item, n in (RULES["breaking"].get(str(fb)) or {"yields": []})["yields"] if tear is None else []:
+                            pl["items"][item] = pl["items"].get(item, 0) + n   # (a craft tearing a trunk gathers nothing of the crown either)
                         rec["edits"][fk] = 0
                         if not titled:
                             rec.setdefault("exp", {})[fk] = time.time() + RULES["wilderness_regrow_s"]
@@ -3490,7 +3526,7 @@ def make_app(world, hub, site_origin, wallet_url, secure_cookies=True, shot_page
                     if not addr:
                         await ws.send_json({"t": "set_ok", "applied": 0, "refused": [[None, "sign in to build"]], "req": m.get("req")})
                         continue
-                    applied, refused, changed = await world.apply(addr, m.get("cells"), at=st["pos"] or hub.where(world, addr))
+                    applied, refused, changed = await world.apply(addr, m.get("cells"), at=st["pos"] or hub.where(world, addr), craft=m.get("craft"))
                     await ws.send_json({"t": "set_ok", "applied": sum(len(c) for c in applied.values()), "refused": refused, "req": m.get("req")})
                     await hub.edits(applied, addr)
                     if changed:
