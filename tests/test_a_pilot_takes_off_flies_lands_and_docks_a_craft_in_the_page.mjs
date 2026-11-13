@@ -209,6 +209,10 @@ try {
   ok(h1 > h0 + 3, `…and the world server holds it higher (${h0.toFixed(2)} -> ${h1.toFixed(2)} m)`);
   // 3b. RELOADED IN THE AIR ("on respawn i fell out of the x and cannot reenter it … by respawn i mean browser reload",
   // operator 2026-11-10): the page comes back at the controls of the craft it was flying, where the world server holds it
+  // from the reload on, the page's socket messages about pieces are kept (window.__boxes): step 6 waits for the wall to
+  // REACH the page before driving at it — on a slow page it came seconds late, the hull's front already past its line,
+  // and the sweep rightly treated a wall built through the hull as no wall to it (the seat stopped it 30 cm later)
+  await send(B, "Page.addScriptToEvaluateOnNewDocument", { source: "(() => { window.__boxes = []; const W0 = window.WebSocket; window.WebSocket = function (...a) { const w = new W0(...a); w.addEventListener('message', (e) => { try { const m = JSON.parse(e.data); if (m.t === 'boxes') window.__boxes.push(m); } catch (err) {} }); return w; }; window.WebSocket.prototype = W0.prototype; })();" });
   await send(B, "Page.reload", {});
   await until(B, "document.getElementById('loading') && document.getElementById('loading').classList.contains('hidden')", 30000);
   ok(await until(B, "/Flying/.test(document.getElementById('hudPos').textContent)", 20000), "reloaded in the air, the page is back at the controls: " + await hudText(B));
@@ -278,7 +282,8 @@ try {
   const wallB = await (await fetch(base + "/land/api/boxes", { method: "POST", headers: { "Content-Type": "application/json", Authorization: "Bearer " + token },
     body: JSON.stringify({ plot: PAid, add: [[hullN[0] - 200, wallZ, wallY, hullN[3] + 400, 20, 420, 64]] }) })).json();
   ok(wallB.added === 1 || (Array.isArray(wallB.added) && wallB.added.length === 1), "a wall is built 2 m ahead of the craft's hull: " + JSON.stringify(wallB).slice(0, 120));
-  await sleep(8000);                                             // the page has the wall (it came 1.5-2.5 s later on a slow page)
+  ok(await until(B, `window.__boxes && window.__boxes.some((m) => m.plot === ${PAid} && (m.add || []).some((b) => b[2] === ${wallY} && b[4] === 20))`, 60000), "…and the wall has reached the pilot's page");
+  await sleep(1000);
   const seatV0 = (await getJ(`/land/api/crafts?face=${q.face}&u=${su}&v=${sv}`)).crafts[0].pose[2];
   await send(B, "Input.dispatchKeyEvent", { type: "keyDown", code: "KeyW", key: "w", windowsVirtualKeyCode: 87 });
   await sleep(5000);
@@ -331,7 +336,7 @@ try {
   ok(errors.length === 0, "no page errors" + (errors.length ? ": " + errors.join(" | ") : ""));
   // the pilot sees their craft: flying, the camera hangs behind and above it (from the seat it was never in view)
   const page = (await import("node:fs")).readFileSync(join(ROOT, "static", "land.js"), "utf8");
-  ok(/if \(!flying\) return e;[\s\S]{0,300}e\[i\] - fw\[i\] \* CHASE_BACK \+ fr\.up\[i\] \* CHASE_UP/.test(page), "flying, the view is a chase view behind and above the craft");
+  ok(/if \(!flying\) return e;[\s\S]{0,300}up = craftUp \|\| fr\.up;[\s\S]{0,200}e\[i\] - fw\[i\] \* CHASE_BACK \+ up\[i\] \* CHASE_UP/.test(page), "flying, the view is a chase view behind and above the craft");
 } catch (e) {
   ok(false, "harness: " + (e && e.message || e) + "\n" + fxOut.slice(-1500));
 } finally { cleanup(); }

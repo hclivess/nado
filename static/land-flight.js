@@ -365,10 +365,15 @@ export function bodyHits(body, pose, solid) {
   for (const [x, y, z] of body) if (solid(f, u + x * cy + y * sy, v + y * cy - x * sy, h + z)) n++;
   return n;
 }
-/** Which of the body's points (their indices, ascending) are inside something solid at pose — what craftStep's hits gives. */
+/** Which of the body's points are inside something solid at pose — what craftStep's hits gives: for point i inside,
+ *  i·4 + the KIND of what it is in (solid's value: 2 a built piece or a crisp block, anything else truthy 1, the ground).
+ *  The kind is part of the id so that a point standing in the ground's smooth rounding, which the sweep's base set
+ *  carries as "already inside", is NEW the moment it enters a wall: with the bare index the hull's row that sat a few cm
+ *  in the turf slid into a steel wall unnoticed and the seat, 30 cm behind, stopped the craft (the pilot's page walk,
+ *  2026-11-13: hull 33–40 cm past the face, 10 cm when no point was in the ground). */
 export function bodyInside(body, pose, solid) {
   const [f, u, v, h, yaw] = pose, cy = Math.cos(yaw), sy = Math.sin(yaw), out = [];
-  body.forEach(([x, y, z], i) => { if (solid(f, u + x * cy + y * sy, v + y * cy - x * sy, h + z)) out.push(i); });
+  body.forEach(([x, y, z], i) => { const s = solid(f, u + x * cy + y * sy, v + y * cy - x * sy, h + z); if (s) out.push(i * 4 + (s === 2 ? 2 : 1)); });
   return out;
 }
 

@@ -10,6 +10,8 @@
  *   6. its body meets the world (#171, "x has no collision in the air"): a wall stops it — by any piece, not only its
  *      seat, and turned with its yaw — it slides along a wall and under a roof, and a craft already inside something
  *      flies out of it;
+ *   6b. a point of its body standing in the ground's rounding is still stopped by a wall: bodyInside carries WHAT each
+ *      point is in, so the sweep's "already inside" set does not let it slide from the turf into steel;
  *   7. it lands on its FEET (#184): on a slope it comes to rest where the highest ground under any foot meets that foot,
  *      every foot clear of the ground and one touching, turned with its yaw — not where the ground under the seat meets
  *      its lowest piece, which sank the uphill feet into the hill; a craft with no feet measured lands as before.
@@ -177,6 +179,22 @@ ok(Math.abs(best.err - 50) < 1.5, `with the best accelerometers (10 micro-g) it 
 const fiveMin = navSays([0, 500, 500, 100, 0], 300, [0, 1], [500, 1500]);
 ok(Math.abs(fiveMin.err - 0.5 * NAV_BIAS * 300 * 300) < 1e-9 && fiveMin.err > 40 && Math.abs(fiveMin.est[1] - (500 + fiveMin.err)) < 1e-9,
   `the game's unit (ten times worse) is ${fiveMin.err.toFixed(0)} m out after five minutes, and believes itself that far along its error`);
+
+// 6b. a hull whose points stand in the turf's rounding is still stopped by a wall (the pilot's page walk, 2026-11-13)
+{
+  const hull = [[-150, -75, 0, 300, 150, 10, 64], [-40, -45, 10, 80, 90, 110, 66]];
+  const body = craftBody(hull, Wd.boxAabb);
+  const wallV = 502.0;                                                                   // a wall 1.25 m ahead of the hull's front (at v 500.75), 20 cm thick, 4 m tall
+  const solid = (f, u, v, h) => (v >= wallV && v <= wallV + 0.2 && h >= 99 && h <= 104) ? 2 : (h < 100.08 ? 1 : false);   // the turf's rounding reaches 8 cm up: the hull's points (5 cm) stand in it
+  const c = { pose: [0, 500, 500, 100, 0], vel: [0, 0, 0], mass: 1.6, thrust: 60, bottom: 0, grounded: true, body, bodyLow: 0 };
+  const hits = (pose) => bodyInside(body, pose, solid);
+  const inTurf = hits(c.pose);
+  ok(inTurf.length === body.filter((p) => p[2] < 0.08).length && inTurf.every((k) => k % 4 === 1), `at rest the hull's points stand in the turf (${inTurf.length} of ${body.length}, each marked as in the ground)`);
+  let front = -Infinity;
+  for (let t = 0; t < 4; t += 0.05) { craftStep(c, { fwd: 1, yaw: 0 }, 0.05, F, () => 100, hits); front = Math.max(front, c.pose[2] + 0.75); }
+  ok(front <= wallV + 0.13 && front > wallV - 0.3, `held forward, its hull stops at the wall (front ${(front - wallV).toFixed(3)} m past the face: within the body's inset), not its seat 30 cm behind`);
+  ok(/i \* 4 \+ \(s === 2 \? 2 : 1\)/.test(readFileSync(join(ROOT, "static", "land-flight.js"), "utf8")) && /if \(boxAt\(f, u, v, h\)\) return 2;/.test(readFileSync(join(ROOT, "static", "land.js"), "utf8")), "bodyInside keeps the kind, and the page's craftSolid tells a piece (2) from the ground (1)");
+}
 
 // 7. it lands on its FEET (#184): a 6 m plate with a skid under each end, the seat in the middle, on a 6 % slope rising east
 {

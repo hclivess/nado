@@ -298,8 +298,8 @@ function craftHits(c, pose) {
 }
 /** solidAt for a craft's body (#171): hundreds of points a step, most of them in open air — a point well over the smooth
  *  ground with no block or piece there is air without the ground field's eight-cell sum. */
-function craftSolid(f, u, v, h) {
-  if (boxAt(f, u, v, h)) return true;
+function craftSolid(f, u, v, h) {                                     // 2: a piece or a crisp block; 1 (true): the ground (bodyInside keeps the kind)
+  if (boxAt(f, u, v, h)) return 2;
   const cu = Math.floor(u), cv = Math.floor(v), ch = Math.floor(h), b = blockAt(f, cu, cv, ch);
   // A CRAFT TEARS THROUGH TREES (tearCells): the planet's own trunk and crown cells are no wall to a flown craft where
   // its pilot may build — they are noted here and torn after the step. An edit (a log someone placed) and a stranger's
@@ -308,7 +308,7 @@ function craftSolid(f, u, v, h) {
     const k = key(f, cu, cv, ch);
     if (!edits.has(k) && mayBuild(Wd.plotOf(f, cu, cv))) { tearing.add(k); return false; }
   }
-  if (crispB(b)) return BLOCKS[b].solid;
+  if (crispB(b)) return BLOCKS[b].solid ? 2 : false;
   if (b === B.air && h > colAt(f, cu, cv).height + 2) return false;
   if (b === B.air && edits.get(key(f, cu, cv, Math.floor(h))) === B.air) return false;   // dug out (solidAt)
   // the smooth ground holds a point only when it is still ground 30 cm over it: a craft resting on the ground, its belly
