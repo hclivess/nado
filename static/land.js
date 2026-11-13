@@ -4838,6 +4838,19 @@ let tick = 0;
 // seen where it runs. On by default (/set borders 0 hides it). Photo mode outlines only the plot it photographs (#127).
 const BORDER = { mine: 0x3ddc84, build: 0x4aa3ff, sale: 0xffd24a, owned: 0xff8a3d, titled: 0xbdbdbd, shot: 0xfff1b0 };
 const BORDER_R = 3;                                         // plots around the player's that show their borders
+// THE BORDERS FADE WITH DISTANCE (#181 item 2, playtest 2026-11-11: "thick yellow / orange lines across every meadow,
+// visible from the air as a grid"): a border is BORDER_W wide (it was 9 cm) and its opacity falls from 0.85 within
+// BORDER_NEAR m of the eye to nothing at BORDER_FAR — the edge of the plot one stands on and its neighbours read at once,
+// the meadow beyond is not ruled into squares, and from a craft or a roof the grid is gone. A plot photo (SHOT) keeps its
+// own full, wide outline.
+const BORDER_W = 0.06, BORDER_NEAR = 16, BORDER_FAR = 48;
+let borderMat = null;
+function borderMaterial() {
+  if (borderMat) return borderMat;
+  const m = new THREE.MeshBasicNodeMaterial({ vertexColors: true, transparent: true, depthWrite: false, side: THREE.DoubleSide });
+  m.opacityNode = SHOT !== null ? TSL.float(0.85) : TSL.float(0.85).mul(TSL.float(1).sub(TSL.smoothstep(BORDER_NEAR, BORDER_FAR, TSL.positionView.length())));
+  return (borderMat = m);
+}
 let borderMesh = null, borderOwn = "", borderSig = "", borderAt = 0;
 const borderCache = new Map();                              // plot -> { key, pos (planet metres), col } (#150)
 function borderKind(plot) {
@@ -4892,7 +4905,7 @@ function updateBorders() {
   // line the player crossed and every piece anyone placed). A plot's outline is built once for its (kind, pieces,
   // edits, neighbours' kinds) and kept in planet coordinates; a rebuild concatenates the kept ones and samples only the
   // plots that changed.
-  const wd = SHOT !== null ? 0.18 : 0.09, e = 0.04, STEP_M = 0.5;
+  const wd = SHOT !== null ? 0.18 : BORDER_W, e = 0.04, STEP_M = 0.5;
   const keep = new Set(), parts = [];
   for (const [p, k, nb, ne] of list) {
     const q = Wd.plotCoords(p), holder = (titles.get(p) || {}).holder;
@@ -4943,7 +4956,7 @@ function updateBorders() {
   g.setAttribute("position", new THREE.BufferAttribute(pos, 3));
   g.setAttribute("color", new THREE.BufferAttribute(col, 3));
   g.setIndex(new THREE.BufferAttribute(idx, 1));
-  borderMesh = new THREE.Mesh(g, new THREE.MeshBasicMaterial({ vertexColors: true, transparent: true, opacity: 0.85, depthWrite: false, side: THREE.DoubleSide }));
+  borderMesh = new THREE.Mesh(g, borderMaterial());
   borderMesh.userData.anchor = anchor;
   borderMesh.renderOrder = 2;
   scene.add(borderMesh);

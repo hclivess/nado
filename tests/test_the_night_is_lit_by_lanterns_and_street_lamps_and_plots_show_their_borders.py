@@ -106,4 +106,10 @@ check("the page asks whose every outlined plot is (its colour), not only the one
       "if (t && SHOT === null && !mine.has(p) && !t.asked) { t.asked = true; holderOf(p)" in page)
 tr = json.load(open(os.path.join(ROOT, "static", "i18n_games", "land.json"), encoding="utf-8"))
 check("the new names are in 17 languages", len(tr) == 17 and all(l.get("land.i.lantern") and l.get("land.i.lamppost") for l in tr.values()))
+# 4. the borders fade with distance (#181 item 2: "visible from the air as a grid"): 6 cm wide, full within 16 m of the eye,
+#    gone by 48 m — a plot photo keeps its own wide outline
+check("a border is 6 cm wide and fades from full within 16 m of the eye to nothing at 48 m; a plot photo keeps 18 cm and full",
+      "const BORDER_W = 0.06, BORDER_NEAR = 16, BORDER_FAR = 48;" in page
+      and "TSL.float(0.85).mul(TSL.float(1).sub(TSL.smoothstep(BORDER_NEAR, BORDER_FAR, TSL.positionView.length())))" in page
+      and "const wd = SHOT !== null ? 0.18 : BORDER_W," in page and "borderMesh = new THREE.Mesh(g, borderMaterial());" in page)
 _report.done()
