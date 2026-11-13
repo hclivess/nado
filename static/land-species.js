@@ -119,7 +119,11 @@ export const ADAPT = {
   // a fir's needles cover its whorl branches end to end (sprays along each branch, as a fir reads from afar); its side
   // shoots are not grown — on their own they were tiny cards on bare poles
   conifer: { recipe: "fir", top: (H0) => H0 + 1.6, span0: 0.22, card: [0.34, 0.55], tile: 2, girth: 0.28,
-             stems: { 0: [100], 2: [48] }, cards: { 0: 120, 2: 56 }, wood: [1, 0], sprays: true, segs: 2 },
+             // #150: the middle level keeps 70 of the 100 limbs and 110 of the 120 needle sprays — its needles still sit on
+             // wood and its crown stays full (photographed beside the near and far models: 60 limbs and the default 88
+             // sprays read sparse at the top). Its far depth, the bare trunk, is too bare beside a player on Low, where
+             // level 1 is the nearest level drawn. Bark is the cost (1,260 triangles at 100 limbs); a spray is cheap.
+             stems: { 0: [100], 1: [70], 2: [48] }, cards: { 0: 120, 1: 110, 2: 56 }, wood: [1, 0], sprays: true, segs: 2 },
   bush: { recipe: "bush", top: () => 1.15, span0: 0, card: [0.5, 0.8], tile: 0, girth: 0.03,
           stems: { 0: [22, 40], 2: [16] }, cards: { 0: 60, 2: 24 }, wood: [1, -1] },
 };
@@ -186,7 +190,7 @@ export function growPlant(kind, H0, R, lod) {
                      { upturn: 0.02, droop: 0, gnarl: sp.trunk.gnarl }, far ? 4 : 6);
   const stems = [{ ...trunk, depth: 0 }];
   let gen = [0];
-  const caps = A.stems[far ? 2 : 0];
+  const caps = A.stems[far ? 2 : lod === 1 && A.stems[1] ? 1 : 0];   // a kind may give its middle level a budget of its own (#150: the conifer)
   levels.slice(0, caps.length).forEach((lv, depth) => {
     // how many this level would have, all parents together — thinned evenly to its budget
     const span = lv.span[1] - lv.span[0];

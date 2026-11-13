@@ -93,7 +93,13 @@ for (const kind of ["broadleaf", "birch", "conifer"]) {
   const bl = [bark("broadleaf", 5, 0), bark("broadleaf", 5, 1)], bi = [bark("birch", 6, 0), bark("birch", 6, 1)];
   const co = [bark("conifer", 8, 0), bark("conifer", 8, 1)], bu = [bark("bush", 1, 0), bark("bush", 1, 1)];
   ok(bl[1] < bl[0] * 0.45 && bi[1] < bi[0] * 0.8, `#150: the middle broadleaf and birch drop their twigs (bark ${Math.round(bl[0])} → ${Math.round(bl[1])}, ${Math.round(bi[0])} → ${Math.round(bi[1])})`);
-  ok(co[1] > co[0] * 0.5 && bu[1] > bu[0] * 0.8, `…the middle conifer and bush keep their limbs (bark ${Math.round(co[0])} → ${Math.round(co[1])}, ${Math.round(bu[0])} → ${Math.round(bu[1])})`);
+  ok(bu[1] > bu[0] * 0.8, `…the middle bush keeps its stems (bark ${Math.round(bu[0])} → ${Math.round(bu[1])})`);
+  // the conifer's middle level has a budget of its own: 70 of its 100 limbs and 110 of its 120 needle sprays — its far
+  // depth (the bare trunk) would stand beside a player on Low; photographed beside the near and far models
+  const leaves = (kind, h, lod) => { let l = 0; for (let s = 1; s <= 6; s++) l += T2.treeModel(kind, h, s * 7919, lod).leaves.idx.length / 3; return l / 6; };
+  const cl = [leaves("conifer", 8, 1), leaves("conifer", 8, 2)];
+  ok(co[1] > co[0] * 0.35 && co[1] < co[0] * 0.6, `…the middle conifer keeps most of its limbs on a budget of its own (bark ${Math.round(co[0])} → ${Math.round(co[1])}, against 1,260 with every limb)`);
+  ok(cl[0] > cl[1] * 1.6, `…and a full crown of needles (${Math.round(cl[0])} triangles, against ${Math.round(cl[1])} at the far level)`);
 }
 console.log(fails ? `${fails} FAILED` : "ALL PASS");
 process.exit(fails ? 1 : 0);
