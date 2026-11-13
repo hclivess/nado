@@ -35,7 +35,7 @@ ok(perM2 > 7 && perM2 < 12, `about ${perM2.toFixed(1)} clumps a square metre (GR
 ok(perM2 * 12 < 6 * 54, `…at ${Math.round(perM2 * 12)} triangles a square metre, under the modelled blades' ${6 * 54}`);
 
 const page = readFileSync(join(ROOT, "static", "land.js"), "utf8");
-ok(page.includes("matGrass.colorNode = card.rgb.mul(TSL.instanceColor);"), "every grass clump is tinted by its instance colour (the painted blades in the clump's own tint)");
+ok(page.includes("matGrass.colorNode = shadeByClouds(card.rgb.mul(TSL.instanceColor));"), "every grass clump is tinted by its instance colour (the painted blades in the clump's own tint), under the cloud shadow (#183 step 4)");
 ok(page.includes("tan ? c.setRGB(1.05, 0.92, 0.55) : c.setRGB(0.8 + 0.4 * t, 0.95 + 0.08 * t, 0.85 - 0.4 * t)") && page.includes("tan = ((r * 613) % 1) < 0.17"), "…deeper green to warm yellow-green by the clump's own number, one in six the tan of grass gone to seed");
 ok(page.includes("h = 0.58 + rnd() * 0.22, s = 0.05") && page.includes("h = (flower ? 0.4 : 0.2) + rnd() * 0.3"), "a flower clump's heads stand over the cards' tops on taller stems");
 ok(/const FLOWER_HEADS = \[\[0\.9, 0\.9, 0\.82\], \[0\.95, 0\.72, 0\.1\], \[0\.55, 0\.3, 0\.8\]/.test(page) && page.includes('TSL.mix(TSL.vec3(1), TSL.instanceColor, TSL.attribute("head", "float"))'), "a flower clump's heads take one of white, yellow, purple; its blades stay green");

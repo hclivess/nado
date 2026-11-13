@@ -437,7 +437,7 @@ export function meshChunk(face, cu, cv, ch, edits, boxes, lod, grassOn = true) {
     if (!LITTER.has(b)) continue;
     // far away (lod 2) the meadow's small things — stones, sticks, flax, wild flowers — are too small to see and were most
     // of what a phone drew ("very laggy on a phone", 2026-11-08); a sapling someone planted is still drawn
-    if (lod >= 2 && b !== B.sapling) continue;
+    if (lod >= 2 && b !== B.sapling && b !== B.boulder) continue;   // (a boulder is big enough to see from afar: never pops)
     const gu = u0 + i, gv = v0 + j, gh = h0 + k, col0 = colCache(face, gu, gv);
     // what lies on the ground stands on the DRAWN ground: the column's own height where the ground under it is the
     // planet's, but the cell's floor where that ground was edited or it is not the column's top (levelled earth — the
@@ -458,6 +458,7 @@ export function meshChunk(face, cu, cv, ch, edits, boxes, lod, grassOn = true) {
                                                              col.height - 0.02, rot, 1, 0.001 + hash3(gv, gu, 41) * 6.28, place, bark, foliage, null);
     else if (b === B.berrybush) placeModel(berryBushModel(1 + Math.floor(hash3(gu, gv, 43) * 997)), face, gu + 0.5, gv + 0.5, col.height - 0.02, rot, 1,
                                            0.001 + hash3(gv, gu, 47) * 6.28, place, bark, foliage, null);
+    else if (b === B.boulder) pebble(stones, face, gu + 0.5, gv + 0.5, col.height, 0.45 + 0.35 * hash3(gv, gh, gu), hash3(gu, gv, 13), rot, place, true);
     else pebble(stones, face, gu + ou, gv + ov, col.height, 0.11 + 0.1 * hash3(gv, gh, gu), hash3(gu, gv, 11), rot, place);
   }
   // FIRE (#124): three crossed flame quads in a burning cell, its texture drawn by the page's flame material from uv
@@ -734,13 +735,19 @@ function sphere() {
  *  angular"): every triangle carries its own flat normal (its corners are its own vertices, nothing smoothed across
  *  faces), the vertex jitter is wide enough to break the sphere into facets, and the tint is a cool grey against the
  *  rock texture's warmth. */
-function pebble(out, face, cu, cv, base, r, seed, rot, place) {
+/** `big`: a BOULDER (#183 step 5, from the photographs in land research look/step5/OBSERVED.md — the Tahoe erratic): the
+ *  same rock a metre and a half across, pale grey where the pebble is cool grey, ROUNDED but for one FLAT split face (the
+ *  vertices past 0.55 of its half-width on one side are brought to that plane), sitting ON the ground (a tenth of its
+ *  radius in, not a fifth), and MOSS on its upper faces (a face whose normal points up more than 0.5, in patches by the
+ *  face's hash: yellow-green) and none on its sides. */
+function pebble(out, face, cu, cv, base, r, seed, rot, place, big = false) {
   const { V, F } = sphere(), fr = frameOf(face, cu, cv), first = out.n, cr = Math.cos(rot), sr = Math.sin(rot);
   const sid = Math.floor(seed * 1e6);
   const g = V.map(([x, y, z], i) => {
-    const k = r * (0.65 + 0.7 * hash3(i, sid, 7));
-    const lx = x * k * 1.15, ly = y * k * 0.9, lz = z * k * 0.65;
-    return [cu + lx * cr - ly * sr, cv + lx * sr + ly * cr, base - r * 0.2 + lz];
+    const k = r * (big ? 0.8 + 0.4 * hash3(i, sid, 7) : 0.65 + 0.7 * hash3(i, sid, 7));
+    let lx = x * k * 1.15, ly = y * k * 0.9, lz = z * k * (big ? 0.85 : 0.65);
+    if (big && lx > 0.55 * r) lx = 0.55 * r;                           // the split face
+    return [cu + lx * cr - ly * sr, cv + lx * sr + ly * cr, base - r * (big ? 0.1 : 0.2) + lz];
   });
   for (const [a, b, c] of F) {
     // the face's own normal in the grid frame (east, north, up), from its corners as placed on the sphere's local axes
@@ -748,11 +755,13 @@ function pebble(out, face, cu, cv, base, r, seed, rot, place) {
     let nx = e1[1] * e2[2] - e1[2] * e2[1], ny = e1[2] * e2[0] - e1[0] * e2[2], nz = e1[0] * e2[1] - e1[1] * e2[0];
     const L = Math.hypot(nx, ny, nz) || 1; nx /= L; ny /= L; nz /= L;
     const j = 0.78 + 0.22 * hash3(a, 3, sid);
+    const moss = big && nz > 0.5 && hash3(a * 131 + b, c, sid) < 0.55;   // moss on the upper faces, in patches (all three corners: a face's first corner repeats round a vertex)
+    const tint = moss ? [0.46, 0.56, 0.22] : big ? [0.72, 0.74, 0.70] : [0.58, 0.64, 0.76];
     for (const i of [a, b, c]) {
       const p = place(g[i][0], g[i][1], g[i][2]);
       out.pos.push(p[0], p[1], p[2]);
       out.nor.push(nx * fr.east[0] + ny * fr.north[0] + nz * fr.up[0], nx * fr.east[1] + ny * fr.north[1] + nz * fr.up[1], nx * fr.east[2] + ny * fr.north[2] + nz * fr.up[2]);
-      out.col.push(j * 0.58, j * 0.64, j * 0.76);                        // cool grey — the rock texture is a warm brown, so the tint leans hard to blue (photographed brown still at 0.86/0.88/0.94, 2026-11-12)
+      out.col.push(j * tint[0], j * tint[1], j * tint[2]);                        // cool grey — the rock texture is a warm brown, so the tint leans hard to blue (photographed brown still at 0.86/0.88/0.94, 2026-11-12)
       out.uvw.push(((g[i][0] % 4096) + 4096) % 4096, ((g[i][1] % 4096) + 4096) % 4096, g[i][2]);
       out.gn.push(nx, ny, nz);
       out.w1.push(0, 0, 1, 0); out.w2.push(0, 0);                      // all rock

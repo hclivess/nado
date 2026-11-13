@@ -273,6 +273,10 @@ export const BLOCKS = [
   { key: "proptank", solid: true, tex: [60, 60, 60] },
   { key: "satellite", solid: true, tex: [61, 61, 61] },
   { key: "launchpad", solid: true, tex: [62, 62, 62] },
+  // a BOULDER (#183 step 5, #181 "potato stones"): the planet's own rock lying on the meadow or the forest floor — drawn
+  // by the mesher as a rock of the pebble's kind a metre and a half across (litter: never a cube), SOLID to the player
+  // and to a craft (the cell), broken only with a pick (land-recipes.json breaking), never swept by a placed block
+  { key: "boulder", solid: true, see: true, tex: [4, 4, 4] },
 ];
 export const B = Object.fromEntries(BLOCKS.map((b, i) => [b.key, i]));
 export const ATLAS_TILES = 63;              // tiles 0..62 (0 unused; the farm's blocks reuse earth's and leaves')
@@ -443,7 +447,7 @@ export function treeCell(t, du, dv, dh) {
 // leaves, which nobody could find without reading the source. A litter cell is the air cell just above the ground; it is
 // a function of place like everything else, and like every gathered cell in the commons it lies there again later.
 export const FLOWERS = [B.poppy, B.cornflower, B.daisy, B.buttercup];
-export const LITTER = new Set([B.pebble, B.twigs, B.flax, B.sapling, ...FLOWERS, B.berrybush, B.wheat, B.wheatyoung]);   // drawn as models, walked through
+export const LITTER = new Set([B.pebble, B.twigs, B.flax, B.sapling, ...FLOWERS, B.berrybush, B.wheat, B.wheatyoung, B.boulder]);   // drawn as models; walked through (a boulder: solid)
 // A BLOCK TAKES THE PLACE OF LOOSE LITTER (a pebble, twigs, flax, a wild flower) and the placer picks it up, as in every
 // block game's tall grass: they filled the meadow's air cells, so a block aimed at a flowery spot went into the empty
 // cell over it, a metre up ("sometimes it places it above", 2026-11-08). A planted sapling is someone's — never swept.
@@ -457,9 +461,15 @@ export const BURNS = new Map([[B.grass, B.dirt], [B.log, 0], [B.birchlog, 0], [B
   [B.berrybush, 0], [B.wheat, 0], [B.wheatyoung, 0]]);
 export const PIECE_BURNS = new Set([B.planks, B.darkwood, B.thatch, B.beam, B.door, B.window, B.table, B.chair, B.bench,
   B.bed, B.fence, B.torch, B.ladder, B.chest]);
-/** The litter on column (face, u, v): B.pebble, B.twigs, B.flax, a flower, wild grain, a berry bush or 0. */
+export const BOULDER_MEADOW = 1600, BOULDER_WOOD = 900;   // columns per boulder: one in a 40 m square of meadow, one in a 30 m square of wood
+/** The litter on column (face, u, v): B.boulder, B.pebble, B.twigs, B.flax, a flower, wild grain, a berry bush or 0. */
 export function litterAt(face, u, v, col) {
   if (col.top <= SEA) return 0;
+  // BOULDERS (#183 step 5: the concept picture's mossy boulder; land research look/step5/OBSERVED.md, the Tahoe erratic):
+  // one column in BOULDER_MEADOW of a meadow and one in BOULDER_WOOD of a wood carries the planet's own rock — a density
+  // chosen for the look (a design choice, not a measured one), a rock in sight from most of a meadow and none in a desert
+  const bh = hash32(face + 71, v, u);
+  if ((col.biome === "grass" && bh % BOULDER_MEADOW === 0) || (col.biome === "forest" && bh % BOULDER_WOOD === 0)) return B.boulder;
   const hh = hash32(face + 17, v, u);
   switch (col.biome) {
     // FLAX grows in STANDS, as a sown or wild crop does — a patch of meadow (one 8 m region in nine) thick with it, then

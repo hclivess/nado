@@ -918,6 +918,13 @@
     ]
    ]
   },
+  "85": {
+    "hard": 6.0,
+    "class": "pick",
+    "needs": "pick",
+    "yields": [["cobble", 3]],
+    "bonus": ["stone", 4]
+  },
   "34": {
    "hard": 0.2,
    "yields": [
