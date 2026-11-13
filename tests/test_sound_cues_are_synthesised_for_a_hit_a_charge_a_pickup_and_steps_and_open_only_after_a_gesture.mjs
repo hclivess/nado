@@ -6,6 +6,9 @@
  *      and dies away by the note's length; the hit carries a noise click; a charge is three rising pulses;
  *   2. Sound opens its context only on enable() (the first gesture) and plays nothing before; a cue repeated within its
  *      gap is dropped; the sound setting silences it;
+ *   2b. the WIND: windLevel from the height over the ground and the speed — a breath standing on the ground, more high
+ *      up, near full at a craft's 150 m/s — a looped noise through a low-pass that opens with it; silent with the setting
+ *      off; nothing before the context opens; the page sets it from the craft's airspeed when flying;
  *   3. the page enables it on the first click (lockPointer) and the first touch, cues a hit on `hurt`, a charge on
  *      `charge`, a pickup when an inventory count rose, a footfall every 0.35 m walked on the ground; the setting is
  *      on by default, in the Settings panel, named in 17 languages.
@@ -32,7 +35,9 @@ class FakeCtx {
   createGain() { const g = new GainNode(this); this.made.push(g); return g; }
   createBufferSource() { const s = new Src(this); this.made.push(s); return s; }
   createBuffer(ch, len, rate) { const d = new Float32Array(len); return { getChannelData: () => d, length: len }; }
+  createBiquadFilter() { const f = new Node(this); f.type = "lowpass"; f.frequency = new Param(); this.made.push(f); return f; }
 }
+Param.prototype.setTargetAtTime = function (v, t, k) { this.ramps.push(["target", v, t, k]); this.value = v; };
 
 // 1. the cues
 ok(["hit", "charge", "pickup", "step"].every((k) => Snd.CUES[k] && Snd.CUES[k].notes.length >= 1), "four cues: hit, charge, pickup, step");
@@ -60,7 +65,7 @@ ok(none.ctx === null && none.cue("hit") === false, "a browser without AudioConte
 
 // 3. the page
 const land = readFileSync(join(ROOT, "static", "land.js"), "utf8"), I = JSON.parse(readFileSync(join(ROOT, "static", "i18n_games", "land.json"), "utf8"));
-ok(/import \{ Sound \} from "\.\/land-sound\.js";/.test(land) && /const sound = new Sound\(\(\) => !!SET\.sound\);/.test(land), "the page makes one Sound bound to the setting");
+ok(/import \{ Sound(, windLevel)? \} from "\.\/land-sound\.js";/.test(land) && /const sound = new Sound\(\(\) => !!SET\.sound\);/.test(land), "the page makes one Sound bound to the setting");
 ok(/function lockPointer\(\) \{\n  sound\.enable\(\);/.test(land) && /document\.addEventListener\("touchstart", \(\) => sound\.enable\(\), \{ once: true, passive: true \}\);/.test(land), "it is enabled on the first click and the first touch");
 ok(/setTimeout\(\(\) => f\.classList\.remove\("on"\), 120\);\n      sound\.cue\("hit"\);/.test(land) && /m\.t === "charge"\) \{\n      sound\.cue\("charge", 1, 1500\);/.test(land), "a hit cues on `hurt`, a charge on `charge`");
 ok(/some\(\(\[k, n\]\) => n > \(inv\.items\[k\] \|\| 0\)\)\) sound\.cue\("pickup", 1, 150\);/.test(land), "a pickup cues when an inventory count rose");
@@ -68,5 +73,21 @@ ok(/if \(P\.ground && !P\.fly\) \{ stepDist \+= Math\.hypot\(P\.vu \|\| 0, P\.vv
 ok(/sound: 1 \}/.test(land.slice(land.indexOf("const SET_DEF"), land.indexOf("const SET_DEF") + 300)) && /sound: \[0, 1\]/.test(land) && /sel\("sound", T\("gSound"/.test(land), "the setting is on by default, bounded, and in the Settings panel");
 ok(Object.keys(I).length === 17 && Object.keys(I).every((l) => typeof I[l]["land.gSound"] === "string" && I[l]["land.gSound"].length > 3), "the setting's label is in all 17 languages");
 
+// 2b. the wind
+ok(Snd.windLevel(0, 0) < 0.06 && Snd.windLevel(80, 0) > Snd.windLevel(0, 0) + 0.1 && Snd.windLevel(0, 150) > 0.85 && Snd.windLevel(0, 300) <= 1 && Snd.windLevel(-5, -1) >= 0,
+  `the wind's level: ${Snd.windLevel(0, 0).toFixed(2)} standing, ${Snd.windLevel(80, 0).toFixed(2)} 80 m up, ${Snd.windLevel(0, 150).toFixed(2)} at 150 m/s, never past 1`);
+{
+  let won = true; const w = new Snd.Sound(() => won, FakeCtx);
+  ok(w.wind(0.5) === false, "no wind before the context opens");
+  w.enable(); w.wind(0.1);
+  const src = w.ctx.made.find((n) => n instanceof Src && n.loop), f = w.ctx.made.find((n) => n.frequency && n.type === "lowpass");
+  ok(src && f && src.to === f && f.to === w.windG && w.windG.to === w.ctx.destination && src.buffer, "the wind is a looped noise through a low-pass into its gain, built once");
+  const quiet = [w.windG.gain.value, f.frequency.value]; w.wind(0.9);
+  ok(w.windG.gain.value > quiet[0] * 5 && f.frequency.value > quiet[1] * 3 && w.ctx.made.filter((n) => n instanceof Src).length === 1, `at a craft's speed it is louder (${w.windG.gain.value.toFixed(3)} against ${quiet[0].toFixed(3)}) and brighter (${Math.round(f.frequency.value)} Hz against ${Math.round(quiet[1])})`);
+  won = false; w.wind(0.9);
+  ok(w.windG.gain.value === 0, "the sound setting off silences it");
+}
+const pageW = readFileSync(join(ROOT, "static", "land.js"), "utf8");
+ok(/const at = flying \? flying\.pose : \[P\.face, P\.u, P\.v, P\.h\], spd = flying \? Math\.hypot\(\.\.\.flying\.vel\)/.test(pageW) && /sound\.wind\(windLevel\(/.test(pageW), "the page sets the wind from the height and the craft's airspeed when flying");
 console.log(fails ? `${fails} FAILED` : "all passed");
 process.exit(fails ? 1 : 0);

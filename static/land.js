@@ -40,7 +40,7 @@ import * as Clouds from "./land-clouds.js";
 import { treeModel } from "./land-trees.js";
 import { craftStep, flightOf, craftBody, bodyInside, navSays, craftArea, craftFeet, restAt, aeroOf, axesOf, stallSpeed, stepOffSpot, surfaceBelow} from "./land-flight.js";
 import { HumanView } from "./land-human.js";
-import { Sound } from "./land-sound.js";
+import { Sound, windLevel } from "./land-sound.js";
 import { GFX_PRESETS, BENCH_ORDER, benchTarget, frameStats, holds, pickPreset, LADDER, governor, govStep } from "./land-gfx.js";
 import { NadoDapp, wireWallet, renderWallet, alertBar, notify, uiConfirm, uiPrompt, isAddress, esc, base, disp, rawToNado, nadoToRaw, randId, $ } from "./nadodapp.js";
 
@@ -4797,6 +4797,12 @@ function frame(now) {
   }
   humanDrawn = human ? human.flush() : 0;
   pt("sky", () => { sky(fr); torchTick(now, cam); cloudsFrame(cam, fr); farBuildTick(now); });
+  // THE WIND (#113): by the height over the ground and the speed — a craft's airspeed when flying, else the body's
+  if (sound.ctx && (!frame.windAt || now - frame.windAt > 100)) {
+    frame.windAt = now;
+    const at = flying ? flying.pose : [P.face, P.u, P.v, P.h], spd = flying ? Math.hypot(...flying.vel) : Math.hypot(P.vu || 0, P.vv || 0, P.vh || 0);
+    sound.wind(windLevel(at[3] - Wd.column(at[0], Math.floor(at[1]), Math.floor(at[2])).height, spd));
+  }
   // the aimed block's outline
   const a = pt("aim", () => aim());
   if (now - aimLineAt > 150) { aimLineAt = now; const s = aimText(a), el = $("aimLine"); if (el && el.textContent !== s) el.textContent = s; }   // (#177, ~6×/s)
