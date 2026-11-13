@@ -2779,6 +2779,20 @@ async function showPrices() {
     if (unit === priceUnit) draw(r);
   } catch (e) {}
 }
+// THE HUD UNDER THE HEADER (#139, measured on land.nadochain.com at 412 px wide: the header's wallet button wraps onto a
+// second line and covered the plot line, which sat at a fixed 52 px): the HUD block is placed 4 px under the lowest of
+// the header's contents, whenever the header's size changes (a wrap, a language, signing in), never above its old place.
+function hudUnderHeader() {
+  const h = document.querySelector("header"), info = $("hudInfo");
+  if (!h || !info) return;
+  // the lowest of the header's own contents (its box includes empty padding the HUD always sat in: 58 px at 1280 wide,
+  // where the HUD's 52 px was right)
+  const low = Math.max(0, ...[...h.children].map((e) => e.getBoundingClientRect().bottom));
+  info.style.top = Math.max(52, Math.ceil(low) + 4) + "px";
+}
+try { new ResizeObserver(hudUnderHeader).observe(document.querySelector("header")); } catch (e) {}
+addEventListener("resize", hudUnderHeader);
+
 // THE BAG IN TABS (#179 item 4, playtest 2026-11-11: "the Bag is everything at once, one long scroll" — what you hold,
 // quests, piece size, every recipe in the game and trade, one under the other): four tabs under the headings the sections
 // already had (You have · Piece size · Make · Trade, translated in all 17 languages). Every section is still rendered —
