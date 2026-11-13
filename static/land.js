@@ -37,7 +37,7 @@ import { groundWeights } from "./land-mesher.js";
 import * as Forest from "./land-forest.js";
 import * as Clouds from "./land-clouds.js";
 import { treeModel } from "./land-trees.js";
-import { craftStep, flightOf, craftBody, bodyInside, navSays, craftArea, aeroOf, axesOf, stallSpeed, stepOffSpot, surfaceBelow} from "./land-flight.js";
+import { craftStep, flightOf, craftBody, bodyInside, navSays, craftArea, craftFeet, restAt, aeroOf, axesOf, stallSpeed, stepOffSpot, surfaceBelow} from "./land-flight.js";
 import { HumanView } from "./land-human.js";
 import { Sound } from "./land-sound.js";
 import { GFX_PRESETS, BENCH_ORDER, benchTarget, frameStats, holds, pickPreset, LADDER, governor, govStep } from "./land-gfx.js";
@@ -756,6 +756,7 @@ function startFlying(c) {
   const bottom = Math.min(0, ...c.pieces.map((b) => Wd.boxAabb(b)[2])) / Wd.CM;   // a turned piece: its lowest reach
   flying = { id: c.id, pose: c.pose.slice(), vel: [0, 0, 0], mass: c.mass, thrust: c.thrust, bottom, grounded: true,
     body: craftBody(c.pieces, Wd.boxAabb),                                // what of it meets the world (#171)
+    feet: craftFeet(c.pieces, Wd.boxAabb),                                // what it stands on: it lands on the highest ground under them (#184)
     area: craftArea(c.pieces, Wd.boxAabb),                                // what the air pushes on (#174)
     aero: aeroOf(c.pieces, Wd.boxAabb, (b) => (b[6] === B.thruster ? Wd.engineCount(b) * FLIGHT().thrust_kn : 0), c.slots),   // wings and engines (#191); the gadgets' keys
     throttle: 0 };
@@ -2544,6 +2545,13 @@ function compassSays(yaw) {
   return T("compass", "compass {b}° {p}", { b, p: T(k, d) });
 }
 const plotLabel = (plot) => { const q = Wd.plotCoords(plot); return `${q.face}·${q.prow}·${q.pcol}`; };
+/** How far the flown craft is over where it would STAND (#184): its height less its resting height on its feet (restAt,
+ *  the same measure flyStep lands it by) — 0.0 at rest on a slope too, where the ground under the seat alone read a
+ *  craft standing on its uphill foot as hovering. */
+function flyingUp() {
+  const [f, u, v, , yaw] = flying.pose;
+  return flying.pose[3] - restAt(flying, u, v, yaw, (a, b) => craftGround(f, a, b) - 0.05);
+}
 function hud() {
   const w = Wd.wrap(P.face, Math.floor(P.u), Math.floor(P.v)), plot = Wd.plotOf(w.face, w.u, w.v), t = titles.get(plot);
   const changed = (plotEdit.get(plot) || new Map()).size;
@@ -2551,12 +2559,12 @@ function hud() {
     + (changed ? " · " + T("changed", "{n} {n|one:changed block|other:changed blocks}", { n: changed }) : "")
     + ((plotBoxes.get(plot) || { list: [] }).list.length ? " · " + T("pieces", "{n} {n|one:piece|other:pieces}", { n: plotBoxes.get(plot).list.length }) : "");
   if (flying && flying.aero && flying.aero.winged) {       // an aircraft (#191): airspeed, height, throttle, angle of attack, load
-    const sp = Math.hypot(...flying.vel), up = flying.pose[3] + flying.bottom - groundAt(flying.pose[0], flying.pose[1], flying.pose[2]), air = flying.air || {};
+    const sp = Math.hypot(...flying.vel), up = flyingUp(), air = flying.air || {};
     $("hudPos").textContent = T("fHudWing", "Flying · {s} m/s · {a} m up · throttle {t} % · attack {aoa}° · {n} g", { s: sp.toFixed(1), a: Math.max(0, up).toFixed(1), t: Math.round(100 * (flying.throttle || 0)), aoa: ((air.alpha || 0) * 180 / Math.PI).toFixed(0), n: (air.n || 0).toFixed(1) })
       + (air.stalled ? " · " + T("fStall", "STALL — nose down, throttle up") : "");
     if (flying.nav) $("hudPos").textContent += "\n" + navLine(flying);
   } else if (flying) {                                      // at the controls: speed, height over the ground, what lifts it
-    const sp = Math.hypot(...flying.vel), up = flying.pose[3] + flying.bottom - groundAt(flying.pose[0], flying.pose[1], flying.pose[2]);
+    const sp = Math.hypot(...flying.vel), up = flyingUp();
     $("hudPos").textContent = T("fHud", "Flying · {s} m/s · {a} m up · thrust {t} kN, weight {w} kN", { s: sp.toFixed(1), a: Math.max(0, up).toFixed(1), t: Math.round(flying.thrust), w: Math.round(flightOf(FLIGHT(), flying.mass, flying.thrust, Planet.gravityAt(flying.pose[3])).weight) })
       + " · " + T("fEngines", "engines {e} %", { e: Math.round(100 * ((flying.engine && flying.engine.throttle) || 0)) });   // the thrust in use (#171)
     if (flying.nav) $("hudPos").textContent += "\n" + navLine(flying);

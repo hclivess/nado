@@ -234,8 +234,8 @@ export function aircraftStep(c, input, dt, F, groundAt, hits) {
   const sp = Math.hypot(v[0], v[1], v[2]);
   if (sp > F.vmax) { const k = F.vmax / sp; v = [v[0] * k, v[1] * k, v[2] * k]; }
   let u = u0 + v[0] * dt, vv = v0 + v[1] * dt, h = h0 + v[2] * dt;
-  const g = groundAt(u, vv);
-  if (h + c.bottom <= g) { h = g - c.bottom; if (v[2] < 0) v[2] = 0; if (!c.grounded) { pitch = Math.max(0, pitch); } c.grounded = true; }
+  const rest = restAt(c, u, vv, yaw, groundAt);                      // on its FEET, the highest ground under any (#184)
+  if (h <= rest) { h = rest; if (v[2] < 0) v[2] = 0; if (!c.grounded) { pitch = Math.max(0, pitch); } c.grounded = true; }
   else c.grounded = false;
   // its body against the world: as craftStep (turned by yaw alone — a known limit)
   c.bumped = false;
@@ -306,6 +306,32 @@ export function craftArea(pieces, boxAabb) {
 }
 const AREA_DEFAULT = 4;                       // m²: a craft that has not been measured (tests' bare craft objects)
 
+const FOOT_SPAN = 0.5;                        // m: a piece whose underside lies within this of the craft's lowest is one of its FEET (#184)
+/** The craft's FEET (m, its frame: east, north, up from the seat's bottom): the four bottom corners of every piece whose
+ *  underside lies within FOOT_SPAN of the lowest — the gear, the lower cannons, a skid. A landing craft comes to rest
+ *  where the HIGHEST ground under any foot meets that foot (restAt), not where the ground under the SEAT's column meets
+ *  its lowest piece: on a slope that rule floated the downhill feet and sank the uphill ones into the hill (#184: plot
+ *  0·4999·3438 falls 1.8 m across the X-wing's 6.7 m stance; the nose foot hung 1.05 m up, the lower cannon was in the
+ *  turf). The craft still stands level — a tilted stand needs the pose's pitch and roll on the ground, not built. */
+export function craftFeet(pieces, boxAabb) {
+  const abs = pieces.map((b) => boxAabb(b).map((x) => x / 100));
+  const bottom = Math.min(0, ...abs.map((a) => a[2]));
+  const feet = [];
+  for (const a of abs) if (a[2] <= bottom + FOOT_SPAN) for (const x of [a[0], a[0] + a[3]]) for (const y of [a[1], a[1] + a[4]]) feet.push([x, y, a[2]]);
+  return feet;
+}
+/** The height the seat rests at when the craft stands on the ground at (u, v) turned by yaw: the highest meeting of a
+ *  foot and the ground under it. A craft with no feet measured (a test's bare object) rests as before: the ground under
+ *  the seat less its bottom. INVARIANT: both craftStep and aircraftStep land through this — the seat-column rule they
+ *  carried each is the #184 half-buried stand. */
+export function restAt(c, u, v, yaw, groundAt) {
+  if (!c.feet || !c.feet.length) return groundAt(u, v) - c.bottom;
+  const cy = Math.cos(yaw), sy = Math.sin(yaw);
+  let r = -Infinity;
+  for (const [x, y, z] of c.feet) r = Math.max(r, groundAt(u + x * cy + y * sy, v + y * cy - x * sy) - z);
+  return r;
+}
+
 const BODY_STEP = 1.0, BODY_INSET = 0.12, BODY_FLOOR = 0.3, SWEEP = 0.15;   // m: points no farther apart than this; kept this far inside
 // each piece (and this far above its bottom), so a craft resting on the ground, or a piece touching another, is not "in" it
 
@@ -371,7 +397,7 @@ export function stepOffSpot(u, v, yaw, free) {
 
 /**
  * Advance craft c by dt seconds. c = { pose: [face, u, v, h, yaw], vel: [vu, vv, vh], mass, thrust, bottom (m: its
- * lowest piece below the seat, ≤ 0), grounded }. input = { fwd: -1..1, side: -1..1, up: bool, down: bool, yaw }.
+ * lowest piece below the seat, ≤ 0), feet (craftFeet; absent: it lands by its bottom under the seat), grounded }. input = { fwd: -1..1, side: -1..1, up: bool, down: bool, yaw }.
  * groundAt(u, v): the surface height there. hits(pose), if given: which of its body's points are inside something solid
  * there (bodyInside).
  * Returns c.
@@ -414,8 +440,8 @@ export function craftStep(c, input, dt, F, groundAt, hits) {
   if (sp > F.vmax) { const k = F.vmax / sp; vu *= k; vv *= k; vh *= k; }
   let u = u0 + vu * dt, v = v0 + vv * dt, h = h0 + vh * dt;
   // the ground: never through it; on it, no falling
-  const g = groundAt(u, v);
-  if (h + c.bottom <= g) { h = g - c.bottom; if (vh < 0) vh = 0; c.grounded = true; }
+  const rest = restAt(c, u, v, yaw, groundAt);                       // on its FEET, the highest ground under any (#184)
+  if (h <= rest) { h = rest; if (vh < 0) vh = 0; c.grounded = true; }
   else c.grounded = false;
   // its body: a step into something solid is not taken — it slides along it, or stops (never once it is already inside)
   // SWEPT, in moves of at most SWEEP: a step at speed is longer than a plate is thick, and the points jumped clean over a

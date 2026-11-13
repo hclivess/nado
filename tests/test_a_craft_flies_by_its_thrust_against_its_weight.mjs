@@ -9,7 +9,10 @@
  *   5. the engines' work: the share of its thrust it uses, idle, climbing, hovering, pushing, sinking, straining;
  *   6. its body meets the world (#171, "x has no collision in the air"): a wall stops it — by any piece, not only its
  *      seat, and turned with its yaw — it slides along a wall and under a roof, and a craft already inside something
- *      flies out of it.
+ *      flies out of it;
+ *   7. it lands on its FEET (#184): on a slope it comes to rest where the highest ground under any foot meets that foot,
+ *      every foot clear of the ground and one touching, turned with its yaw — not where the ground under the seat meets
+ *      its lowest piece, which sank the uphill feet into the hill; a craft with no feet measured lands as before.
  *
  * Run: node tests/test_a_craft_flies_by_its_thrust_against_its_weight.mjs
  */
@@ -17,7 +20,7 @@ import { readFileSync } from "node:fs";
 import { join, dirname } from "node:path";
 import { fileURLToPath } from "node:url";
 const ROOT = join(dirname(fileURLToPath(import.meta.url)), "..");
-const { craftStep, flightOf, craftBody, bodyHits, bodyInside, navSays, NAV_BIAS, craftArea } = await import(join(ROOT, "static", "land-flight.js"));
+const { craftStep, flightOf, craftBody, bodyHits, bodyInside, navSays, NAV_BIAS, craftArea, craftFeet, restAt } = await import(join(ROOT, "static", "land-flight.js"));
 const Pl = await import(join(ROOT, "static", "land-planet.js"));
 const Wd = await import(join(ROOT, "static", "land-world.js"));
 const F = JSON.parse(readFileSync(join(ROOT, "static", "land-recipes.json"), "utf8")).flight;
@@ -174,6 +177,36 @@ ok(Math.abs(best.err - 50) < 1.5, `with the best accelerometers (10 micro-g) it 
 const fiveMin = navSays([0, 500, 500, 100, 0], 300, [0, 1], [500, 1500]);
 ok(Math.abs(fiveMin.err - 0.5 * NAV_BIAS * 300 * 300) < 1e-9 && fiveMin.err > 40 && Math.abs(fiveMin.est[1] - (500 + fiveMin.err)) < 1e-9,
   `the game's unit (ten times worse) is ${fiveMin.err.toFixed(0)} m out after five minutes, and believes itself that far along its error`);
+
+// 7. it lands on its FEET (#184): a 6 m plate with a skid under each end, the seat in the middle, on a 6 % slope rising east
+{
+  const skids = [[-300, -50, 0, 600, 100, 10, 64], [-40, -45, 10, 80, 90, 110, 66], [-300, -30, -40, 60, 60, 40, 64], [240, -30, -40, 60, 60, 40, 64]];
+  const feet = craftFeet(skids, Wd.boxAabb), low = feet.filter((p) => p[2] < -0.39);
+  ok(feet.length === 12 && low.length === 8 && low.every((p) => Math.abs(p[2] + 0.4) < 1e-9), `its feet are the two skids' bottom corners and the plate's, 40 cm over them (${feet.length} points, ${low.length} at ${low[0][2]} m)`);
+  const slope = (u, v) => 100 + 0.06 * (u - 500);
+  const land = (yaw) => {                                            // yaw 0: the craft's long axis (x) runs east, up the slope
+    const c = { pose: [0, 500, 500, 120, yaw], vel: [0, 0, 0], mass: 2, thrust: 0, bottom: -0.4, feet, grounded: false };
+    for (let t = 0; t < 8; t += 0.05) craftStep(c, {}, 0.05, F, slope);
+    const cy = Math.cos(yaw), sy = Math.sin(yaw);
+    const clear = low.map(([x, y, z]) => c.pose[3] + z - slope(c.pose[1] + x * cy + y * sy, c.pose[2] + y * cy - x * sy));
+    return { c, clear };
+  };
+  const along = land(0);                                             // the skids 3 m up and 3 m down the slope
+  ok(along.c.grounded && Math.min(...along.clear) > -1e-9 && Math.min(...along.clear) < 1e-6, `landed along the slope, every skid is clear of the ground and one touches it (lowest clearance ${Math.min(...along.clear).toExponential(1)} m)`);
+  ok(Math.max(...along.clear) > 0.3, `…the downhill skid stands in the air (${Math.max(...along.clear).toFixed(2)} m), the craft level`);
+  const seatRule = slope(along.c.pose[1], along.c.pose[2]) + 0.4;
+  ok(along.c.pose[3] > seatRule + 0.1, `…higher than the seat-column rule put it (${along.c.pose[3].toFixed(2)} against ${seatRule.toFixed(2)} m): that rule sank the uphill skid ${(along.c.pose[3] - seatRule).toFixed(2)} m into the hill`);
+  const across = land(Math.PI / 2);                                  // turned a quarter: both skids at one height along the slope
+  ok(across.c.grounded && Math.max(...across.clear) - Math.min(...across.clear) < 0.04 && Math.min(...across.clear) > -1e-9, `turned across the slope both skids touch (clearances within ${(Math.max(...across.clear) - Math.min(...across.clear)).toFixed(3)} m): the feet turn with the yaw`);
+  const bare = { pose: [0, 500, 500, 120, 0], vel: [0, 0, 0], mass: 2, thrust: 0, bottom: -0.4, grounded: false };
+  for (let t = 0; t < 8; t += 0.05) craftStep(bare, {}, 0.05, F, slope);
+  ok(Math.abs(bare.pose[3] - (slope(500, 500) + 0.4)) < 1e-9, "a craft with no feet measured lands by its bottom under the seat, as before");
+  ok(Math.abs(restAt({ feet, bottom: -0.4 }, 500, 500, 0, slope) - (slope(503, 500) + 0.4)) < 1e-9, "restAt: the seat's height is the highest foot-ground meeting plus that foot's depth");
+  const src = readFileSync(join(ROOT, "static", "land-flight.js"), "utf8");
+  ok((src.match(/const rest = restAt\(c, u, vv?, yaw, groundAt\)/g) || []).length === 2 && !/h \+ c\.bottom <= g/.test(src), "both the hovering and the winged model land through restAt (the seat-column rule is gone from each)");
+  const page = readFileSync(join(ROOT, "static", "land.js"), "utf8");
+  ok(/feet: craftFeet\(c\.pieces, Wd\.boxAabb\)/.test(page), "the page measures a craft's feet when the pilot takes the seat");
+}
 
 if (fails) { console.log(`${fails} FAILURES`); process.exit(1); }
 console.log("ALL PASS");

@@ -163,8 +163,12 @@ try {
   ok(crafts0.length === 1 && crafts0[0].pilot && crafts0[0].pieces.length === 4, "the world server holds one craft of four pieces, piloted");
   const h0 = crafts0[0].pose[3];
   // 2b. another player's page — a visitor, signed out, in a browser context of its own — is sent the craft, its pieces and
-  // its engines' work, to draw it and its exhaust (#171)
+  // its engines' work, to draw it and its exhaust (#171). A boarded craft stands on its feet with its engines idle (#184:
+  // it used to float a hand over the turf, engines at its weight), so it is lifted a moment first and left hovering.
   {
+    await evl(B, "document.getElementById('tJump').dispatchEvent(new Event('touchstart', { cancelable: true })), true");
+    await sleep(1500);
+    await evl(B, "document.getElementById('tJump').dispatchEvent(new Event('touchend')), true");
     const ctx = (await send(undefined, "Target.createBrowserContext", {})).result.browserContextId;
     const t = await send(undefined, "Target.createTarget", { url: "about:blank", browserContextId: ctx });
     const V = (await send(undefined, "Target.attachToTarget", { targetId: t.result.targetId, flatten: true })).result.sessionId;
@@ -265,8 +269,14 @@ try {
   // the craft goes up to the wall and no farther — its hull stops at it, not its seat (which was all that collided)
   await getJ("/fixture/seed?who=owner&items=" + encodeURIComponent(JSON.stringify({ steel_plate: 8 })));
   const hullN = boxes.find((b) => b[6] === 64), wallZ = hullN[1] + hullN[4] + 200;
+  // the wall is FOUNDED 20 cm into the ground under the resting hull: a boarded craft stands on its feet on the smooth
+  // ground (#184), a hand lower than the block grid the docked pieces sit on, and a wall built at the grid's height stood
+  // over a gap the 10 cm hull slid under — the seat stopped it 30 cm later (this walk, 2026-11-13)
+  const cRest = (await getJ(`/land/api/crafts?face=${q.face}&u=${su}&v=${sv}`)).crafts[0];
+  const restBottom = cRest.pose[3] + Math.min(0, ...cRest.pieces.map((b) => Wd.boxAabb(b)[2])) / 100;
+  const wallY = Math.floor(restBottom * 100) - 20;
   const wallB = await (await fetch(base + "/land/api/boxes", { method: "POST", headers: { "Content-Type": "application/json", Authorization: "Bearer " + token },
-    body: JSON.stringify({ plot: PAid, add: [[hullN[0] - 200, wallZ, hullN[2], hullN[3] + 400, 20, 400, 64]] }) })).json();
+    body: JSON.stringify({ plot: PAid, add: [[hullN[0] - 200, wallZ, wallY, hullN[3] + 400, 20, 420, 64]] }) })).json();
   ok(wallB.added === 1 || (Array.isArray(wallB.added) && wallB.added.length === 1), "a wall is built 2 m ahead of the craft's hull: " + JSON.stringify(wallB).slice(0, 120));
   await sleep(8000);                                             // the page has the wall (it came 1.5-2.5 s later on a slow page)
   const seatV0 = (await getJ(`/land/api/crafts?face=${q.face}&u=${su}&v=${sv}`)).crafts[0].pose[2];
