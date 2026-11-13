@@ -8,7 +8,8 @@
  *   1. the block: solid, litter (drawn as a rock, never a cube), never swept by a placed block, never burnt, not ground;
  *   2. the planet: over a meadow the boulders come about one per BOULDER_MEADOW columns, over a wood one per
  *      BOULDER_WOOD, none on a column at or under the sea, none in a desert;
- *   3. the mesh: a chunk holding a boulder draws it in the stones buffer, 0.9–1.6 m across, its faces pale grey, moss only
+ *   3. the mesh: a chunk holding a boulder draws it in its own boulders buffer (the page's boulder material: the rock
+ *      texture's brightness under the tint, since the ground's rock is a warm brown no tint makes grey), 0.9–1.6 m across, its faces pale grey, moss only
  *      on faces whose normal points up, a flat face on one side (several vertices on one plane), at every detail level;
  *   4. the rule: breaking a boulder needs a pick and yields cobble and stone.
  * Run: node tests/test_boulders_lie_in_the_meadow_and_the_wood_solid_grey_and_mossy_on_top.mjs
@@ -45,8 +46,8 @@ for (let v = 79000; v < 82000 && !at; v++) for (let u = 53000; u < 56500 && !at;
 ok(!!at, `a boulder is found at (${at && at.u}, ${at && at.v})`);
 for (const lod of [0, 1, 2]) {
   const cu = Math.floor(at.u / Wd.CHUNK), cv = Math.floor(at.v / Wd.CHUNK), ch = Math.floor((at.c.top + 1) / Wd.CHUNK);
-  const m = M.meshChunk(0, cu, cv, ch, new Map(), [], lod, false), st = m && m.stones;
-  if (!st || !st.pos || !st.pos.length) { ok(false, `lod ${lod}: the chunk's stones buffer holds the boulder`); continue; }
+  const m = M.meshChunk(0, cu, cv, ch, new Map(), [], lod, false), st = m && m.boulders;
+  if (!st || !st.pos || !st.pos.length) { ok(false, `lod ${lod}: the chunk's boulders buffer holds the boulder`); continue; }
   // the boulder's triangles: those within 1.5 m of its column's centre (a pebble is 0.2 m and lies off-centre)
   const anchor = m.anchor, fr = Wd.frameOf(0, at.u + 0.5, at.v + 0.5), centre = Wd.posOf(0, at.u + 0.5, at.v + 0.5, at.c.height);
   const pos = st.pos, nor = st.nor, col = st.col, n = pos.length / 3;
@@ -58,13 +59,13 @@ for (const lod of [0, 1, 2]) {
   let upMoss = 0, upAll = 0, sideMoss = 0, sideAll = 0, pale = 0;
   for (const [i] of mine) {
     const nz = nor[i * 3] * fr.up[0] + nor[i * 3 + 1] * fr.up[1] + nor[i * 3 + 2] * fr.up[2], r = col[i * 3], g = col[i * 3 + 1], bl = col[i * 3 + 2];
-    const moss = g > r * 1.5 && g > bl * 2;
+    const moss = g > r * 1.3 && g > bl * 2;
     if (nz > 0.5) { upAll++; if (moss) upMoss++; } else { sideAll++; if (moss) sideMoss++; }
-    if (!moss && r > 0.5 && bl > r && bl > 0.7) pale++;                      // pale and cool: the rock texture under it is warm brown
+    if (!moss && r > 0.55 && Math.abs(r - bl) < 0.06 && Math.abs(g - r) < 0.06) pale++;   // a plain pale grey: the page's boulder material draws the rock's brightness under it
   }
   ok(upAll > 0 && upMoss / upAll > 0.3 && upMoss / upAll < 0.85, `…moss in patches on its upper faces (${upMoss} of ${upAll} upward vertices)`);
   ok(sideAll > 0 && sideMoss === 0, `…and none on its sides (${sideAll} side vertices)`);
-  ok(pale > mine.length / 3, `…the rest pale and cool (it reads grey on the warm rock texture; ${pale} vertices)`);
+  ok(pale > mine.length / 3, `…the rest a plain pale grey (${pale} vertices)`);
   // the split face: along the rock's own x (turned by its rotation) a share of the vertices lie on one plane — found as the
   // most common projection on any of 36 directions, to the centimetre
   let best = 0;
@@ -75,5 +76,7 @@ for (const lod of [0, 1, 2]) {
 const R = JSON.parse(readFileSync(join(ROOT, "static", "land-recipes.json"), "utf8")).breaking[String(b)];
 ok(R && R.needs === "pick" && R.class === "pick" && R.yields.some(([k]) => k === "cobble") && R.bonus && R.bonus[0] === "stone" && R.hard >= 3, `breaking a boulder needs a pick and yields cobble and stone (${JSON.stringify(R)})`);
 ok(/N_BLOCKS = 86/.test(readFileSync(join(ROOT, "scripts", "land_server.py"), "utf8")) && Wd.BLOCKS.length === 86, "the world server counts the block");
+const page = readFileSync(join(ROOT, "static", "land.js"), "utf8");
+ok(/if \(m\.boulders\) \{ const me = new THREE\.Mesh\(geom\(m\.boulders\), boulderMaterial\(\)\); me\.castShadow = true;/.test(page) && /TSL\.luminance\(TSL\.texture\(col, uv\)\.rgb\)/.test(page) && /m\.normalNode = TSL\.normalMap\(TSL\.texture\(nor, uv\)/.test(page), "the page draws the boulders in their own material: the rock texture's brightness under the tint, with the rock's normal map, casting shadows");
 console.log(fails ? `${fails} FAILED` : "all passed");
 process.exit(fails ? 1 : 0);

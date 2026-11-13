@@ -1144,6 +1144,7 @@ function done(m) {
     if (m.bark) c.meshes.push(new THREE.Mesh(geom(m.bark), matBark));
     if (m.foliage) c.meshes.push(new THREE.Mesh(geom(m.foliage), matLeaves));
     if (m.stones) c.meshes.push(new THREE.Mesh(geom(m.stones), matGround));
+    if (m.boulders) { const me = new THREE.Mesh(geom(m.boulders), boulderMaterial()); me.castShadow = true; c.meshes.push(me); }   // (#183 step 5: a grey rock)
     if (m.flames) { const me = new THREE.Mesh(geom(m.flames), matFlame); me.renderOrder = 2; c.meshes.push(me); }
     if (m.water) { const me = new THREE.Mesh(geom(m.water), matWater); me.renderOrder = 1; c.meshes.push(me); }
     if (m.pieces) {
@@ -4102,13 +4103,33 @@ function treeMaterials() {
   // a bush's far-side cards — what a viewer sees inside it — stayed black at noon (three live photographs, with the
   // occlusion pass off and with the cast shadows off alike, 2026-11-13).
   const sunV = TSL.cameraViewMatrix.mul(TSL.vec4(leafSun.dir, 0)).xyz.normalize();
-  const seen = TSL.normalView.mul(TSL.select(TSL.frontFacing, 1, -1));       // the normal of the side the viewer sees
-  const through = TSL.clamp(seen.dot(sunV).negate(), 0, 1);                   // the sun on the far side of that
+  // the normal of the side the viewer sees: TSL's normalView is the geometric one, flipped here on a back face. Measured
+  // in the page at a broadleaf, the leaves' lift against the sun and with the sun behind the viewer: this term 19 and 12
+  // of 255; without the flip 25 and 25 (a back face lit by the sun got its transmission on top: double); the first,
+  // forward-scatter term 35 and 5 (it lit sun-facing sides too). Only this one lifts more against the sun than with it.
+  const seen = TSL.normalView.mul(TSL.select(TSL.frontFacing, 1, -1));
+  const through = TSL.clamp(seen.dot(sunV).negate(), 0, 1);                   // the sun on the far side of the side seen
   leaves.emissiveNode = shadeByClouds(s.rgb.mul(TSL.attribute("color", "vec3")).mul(leafSun.rgb).mul(through.mul(LEAF_THROUGH)));
   // leaves flutter on top of the sway: a quick small motion along each card's normal
   const flutter = TSL.sin(t.mul(9).add(ph.mul(3)).add(TSL.positionLocal.x.mul(4)).add(TSL.positionLocal.z.mul(3))).mul(wind.xyz.length().mul(0.22));
   leaves.positionNode = sway.add(TSL.attribute("normal", "vec3").mul(flutter));
   return [bark, leaves];
+}
+
+// ---- boulders (#183 step 5): a grey rock. The ground material's rock texture is a warm brown (124, 82, 49 on average,
+// and its gravel 80, 62, 44), and no tint that multiplies it makes a pale grey of it — a neutral pale tint and then a
+// blue-leaning one both photographed as a red-brown lump in the meadow (2026-11-13). So a boulder has its own material:
+// the rock texture's BRIGHTNESS (its luminance, the grain without the colour) under the vertex tint the mesher gives it
+// (pale grey; green where the moss is), with the rock's normal map, tiled once per 4.5 m as the ground's rock is.
+let matBoulder = null;
+function boulderMaterial() {
+  if (matBoulder) return matBoulder;
+  const col = loadTex("rock_col"), nor = loadTex("rock_nor"); nor.colorSpace = THREE.NoColorSpace;
+  const uvw = TSL.attribute("uvw", "vec3"), uv = TSL.vec2(uvw.x, uvw.y).div(4.5);
+  const m = new THREE.MeshStandardNodeMaterial({ roughness: 0.9, metalness: 0 });
+  m.colorNode = shadeByClouds(TSL.luminance(TSL.texture(col, uv).rgb).mul(1.35).clamp(0, 1).mul(TSL.attribute("color", "vec3")));
+  m.normalNode = TSL.normalMap(TSL.texture(nor, uv), TSL.float(0.6));
+  return (matBoulder = m);
 }
 
 // ---- built pieces in their real materials ("A REAL HOUSE"): the scanned CC0 textures (static/vendor/textures) with their

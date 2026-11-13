@@ -355,7 +355,7 @@ export function meshChunk(face, cu, cv, ch, edits, boxes, lod, grassOn = true) {
   // plot, so every tree lies within its own chunk column; each chunk it spans masks its own cells (still the tree's), and
   // the chunk holding its root's ground layer draws the model — once.
   const modelled = new Uint8Array(N * N * N);
-  const bark = mk(), foliage = mk(), stones = mk(), flames = mk();
+  const bark = mk(), foliage = mk(), stones = mk(), boulders = mk(), flames = mk();   // (boulders: their own material on the page, a grey rock)
   // roots up to 3 columns outside the chunk too: their crowns reach the one-cell border the cells are read over, and an
   // unmasked border cell was drawn a second time beside every neighbour's model (the first model render)
   for (let j = -3; j < CHUNK + 3; j++) for (let i = -3; i < CHUNK + 3; i++) {
@@ -458,7 +458,7 @@ export function meshChunk(face, cu, cv, ch, edits, boxes, lod, grassOn = true) {
                                                              col.height - 0.02, rot, 1, 0.001 + hash3(gv, gu, 41) * 6.28, place, bark, foliage, null);
     else if (b === B.berrybush) placeModel(berryBushModel(1 + Math.floor(hash3(gu, gv, 43) * 997)), face, gu + 0.5, gv + 0.5, col.height - 0.02, rot, 1,
                                            0.001 + hash3(gv, gu, 47) * 6.28, place, bark, foliage, null);
-    else if (b === B.boulder) pebble(stones, face, gu + 0.5, gv + 0.5, col.height, 0.45 + 0.35 * hash3(gv, gh, gu), hash3(gu, gv, 13), rot, place, true);
+    else if (b === B.boulder) pebble(boulders, face, gu + 0.5, gv + 0.5, col.height, 0.45 + 0.35 * hash3(gv, gh, gu), hash3(gu, gv, 13), rot, place, true);
     else pebble(stones, face, gu + ou, gv + ov, col.height, 0.11 + 0.1 * hash3(gv, gh, gu), hash3(gu, gv, 11), rot, place);
   }
   // FIRE (#124): three crossed flame quads in a burning cell, its texture drawn by the page's flame material from uv
@@ -566,9 +566,9 @@ export function meshChunk(face, cu, cv, ch, edits, boxes, lod, grassOn = true) {
   const grass = lod >= 2 || !grassOn ? null : scatterGrass(smooth, lod ? GRASS_DENSITY / 3 : GRASS_DENSITY, under);
   const pieces = mk(), glassy = mk();
   if (boxes && boxes.length) meshBoxes(boxes, u0, v0, h0, place, pieces, glassy, lod);
-  if (!smooth.idx.length && !trees.idx.length && !solid.n && !clear.n && !pieces.n && !glassy.n && !bark.n && !foliage.n && !stones.n && !water.n && !flames.n) return { empty: true };
+  if (!smooth.idx.length && !trees.idx.length && !solid.n && !clear.n && !pieces.n && !glassy.n && !bark.n && !foliage.n && !stones.n && !boulders.n && !water.n && !flames.n) return { empty: true };
   return { anchor, flames: pack(flames), smooth: pack(smooth), trees: pack(trees), solid: pack(solid), clear: pack(clear), pieces: pack(pieces), glassy: pack(glassy),
-           bark: pack(bark), foliage: pack(foliage), stones: pack(stones), water: pack(water), grass };
+           bark: pack(bark), foliage: pack(foliage), stones: pack(stones), boulders: pack(boulders), water: pack(water), grass };
 }
 
 // ---- a window (land-world B.window): a timber frame — two jambs, a sill, a head and a cross mullion, FRAME cm thick, the
@@ -756,10 +756,11 @@ function pebble(out, face, cu, cv, base, r, seed, rot, place, big = false) {
     const L = Math.hypot(nx, ny, nz) || 1; nx /= L; ny /= L; nz /= L;
     const j = 0.78 + 0.22 * hash3(a, 3, sid);
     const moss = big && nz > 0.5 && hash3(a * 131 + b, c, sid) < 0.55;   // moss on the upper faces, in patches (all three corners: a face's first corner repeats round a vertex)
-    // the rock texture is a warm brown: a tint that reads pale grey on it must lean hard to blue, as the pebble's does
-    // (the first boulder, tinted a neutral pale grey, photographed as a red-brown lump in the meadow, 2026-11-13); the
-    // moss the same: green against the warmth
-    const tint = moss ? [0.34, 0.72, 0.20] : big ? [0.66, 0.74, 0.92] : [0.58, 0.64, 0.76];
+    // a boulder is drawn by the page's own boulder material — the rock texture's BRIGHTNESS under this tint (land.js
+    // matBoulder) — so its tint is a plain pale grey and its moss a plain green: on the ground material's warm brown
+    // rock, a neutral pale tint and then a blue-leaning one both photographed as a red-brown lump (2026-11-13); the
+    // pebble keeps the ground material and its blue-leaning cool grey
+    const tint = moss ? [0.40, 0.58, 0.22] : big ? [0.78, 0.80, 0.78] : [0.58, 0.64, 0.76];
     for (const i of [a, b, c]) {
       const p = place(g[i][0], g[i][1], g[i][2]);
       out.pos.push(p[0], p[1], p[2]);
@@ -879,7 +880,7 @@ if (typeof self !== "undefined" && typeof window === "undefined" && typeof self.
     catch (err) { res = { error: String(err && err.message || err) }; }
     const tr = [];
     if (res.grass) tr.push(res.grass.inst.buffer, res.grass.kind.buffer);
-    for (const part of [res.smooth, res.trees, res.solid, res.clear, res.pieces, res.glassy, res.bark, res.foliage, res.stones, res.water]) if (part) for (const a of [part.pos, part.nor, part.col, part.idx, part.uv, part.tile, part.uvw, part.gn, part.w1, part.w2, part.wind]) if (a) tr.push(a.buffer);
+    for (const part of [res.smooth, res.trees, res.solid, res.clear, res.pieces, res.glassy, res.bark, res.foliage, res.stones, res.boulders, res.water]) if (part) for (const a of [part.pos, part.nor, part.col, part.idx, part.uv, part.tile, part.uvw, part.gn, part.w1, part.w2, part.wind]) if (a) tr.push(a.buffer);
     self.postMessage(Object.assign({ id: m.id }, res), tr);
   };
 }
