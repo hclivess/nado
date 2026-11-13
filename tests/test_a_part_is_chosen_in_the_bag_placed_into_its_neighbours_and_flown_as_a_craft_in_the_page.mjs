@@ -212,6 +212,16 @@ try {
   const size = (w, d, h) => evl(B, `(() => { for (const [id, v] of [["pzW", ${w}], ["pzD", ${d}], ["pzH", ${h}]]) { const e = document.getElementById(id); e.value = String(v); e.dispatchEvent(new Event("change")); } return true; })()`);
   const hold = async (name) => { await until(B, `!!document.querySelector('#hotbar .hs[title="${name}"]')`, 10000); await tap(`#hotbar .hs[title="${name}"]`); return until(B, `document.getElementById('hotName').textContent === '${name}'`, 5000); };
   await tap("#tPal"); await sleep(800);
+  // THE BAG IN TABS (#179 item 4): four tabs under the sections' own headings; one section shown at a time; the tab is
+  // kept across a re-render; the Make tab lists what can be made now first
+  const shown = () => evl(B, "[...document.querySelectorAll('#palGrid .bagsec')].filter((e) => !e.hidden).map((e) => e.dataset.sec).join(',')");
+  ok(await evl(B, "[...document.querySelectorAll('[data-bagtab]')].map((e) => e.dataset.bagtab).join(',')") === "have,build,make,trade" && await shown() === "have",
+    "the Bag opens in four tabs (You have · Piece size · Make · Trade), what you have shown alone: " + await shown());
+  await tap('[data-bagtab="make"]'); await sleep(400);
+  const firstOk = await evl(B, "(() => { const rows = [...document.querySelectorAll('[data-sec=make] .rcp')]; const i = rows.findIndex((r) => r.classList.contains('off')); return rows.length > 0 && (i === -1 || rows.slice(i).every((r) => r.classList.contains('off'))); })()");
+  ok(await shown() === "make" && firstOk, "the Make tab alone, what can be made now listed before what cannot");
+  await tap('[data-bagtab="build"]'); await sleep(400);
+  ok(await shown() === "build" && await evl(B, "!!document.getElementById('pzW') && document.querySelector('[data-bagtab=build]').getAttribute('aria-selected') === 'true'"), "the Piece size tab alone, its tab marked; the parts below are chosen there");
   const chips = await evl(B, "[...document.querySelectorAll('[data-part]')].map((e) => e.textContent)");
   ok(same(chips, Sh.TYPES), "the bag has the ten parts: " + chips.join(", "));
   await tap('[data-part="2"]'); await sleep(400);

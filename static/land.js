@@ -2779,6 +2779,13 @@ async function showPrices() {
     if (unit === priceUnit) draw(r);
   } catch (e) {}
 }
+// THE BAG IN TABS (#179 item 4, playtest 2026-11-11: "the Bag is everything at once, one long scroll" — what you hold,
+// quests, piece size, every recipe in the game and trade, one under the other): four tabs under the headings the sections
+// already had (You have · Piece size · Make · Trade, translated in all 17 languages). Every section is still rendered —
+// only the tab's is shown — so every button and its handler below exist whichever tab is open. The tab is remembered
+// in this browser (a convenience: it may come back empty). The Make tab lists what can be made now first.
+const BAG_TABS = ["have", "build", "make", "trade"];
+let bagTab = (() => { try { const t = localStorage.getItem("nado_land_bagtab"); return BAG_TABS.includes(t) ? t : "have"; } catch (e) { return "have"; } })();
 function renderBag() {
   if (!RULES) return;
   if (!net.me) { $("palGrid").innerHTML = `<p class="dim">${esc(T("bagSignIn", "Sign in to gather, make things and trade."))}</p>`; return; }
@@ -2786,7 +2793,15 @@ function renderBag() {
   const atStand = !!standNear(RULES.market ? RULES.market.at : 6);   // MARKETS (#161): trade is done at a trading stand
   // (a quest's parcel is carried, not traded)
   const opts = Object.keys(RULES.items).filter((id) => !RULES.items[id].quest).map((id) => `<option value="${id}">${esc(nameOf(id))}</option>`).join("");
+  const tabLabel = { have: T("have", "You have"), build: T("pieceSize", "Piece size"), make: T("make", "Make"), trade: T("trade", "Trade") };
+  const sec = (k) => `<section class="bagsec" data-sec="${k}"${k === bagTab ? "" : " hidden"}>`;
+  const recipes = RULES.recipes.map((r, i) => [r, i]).sort(([a, i], [b, j]) => {
+    const ok = (r) => canMake(r) && !r.makes.every(([id]) => inv.tools.includes(id) || inv.stations.includes(id));
+    return (ok(b) ? 1 : 0) - (ok(a) ? 1 : 0) || i - j;                         // what can be made now first, else the book's order
+  }).map(([r]) => r);
   $("palGrid").innerHTML = `
+    <div class="tradeform bagtabs" role="tablist">${BAG_TABS.map((k) => `<button class="chip pl${k === bagTab ? " tool" : ""}" role="tab" data-bagtab="${k}" aria-selected="${k === bagTab}">${esc(tabLabel[k])}</button>`).join("")}</div>
+    ${sec("have")}
     <h3>${esc(T("have", "You have"))}</h3>
     <div class="chips">${items.length ? items.map(([id, n]) => `<button class="chip${placeable(id) ? " pl" : ""}" data-pick="${id}">${n} × ${esc(nameOf(id))}</button>`).join("") : `<span class="dim">${esc(T("nothingYet", "Nothing yet — pick up the stones and sticks lying on the ground, and pull grass and leaves by hand."))}</span>`}
       ${inv.tools.map((t) => `<span class="chip tool">${esc(nameOf(t))}</span>`).join("")}${inv.stations.map((t) => `<span class="chip tool">${esc(nameOf(t))}</span>`).join("")}</div>
@@ -2796,6 +2811,7 @@ function renderBag() {
     <div class="dim">${esc(T("bagHint", "Click a block to put it on your hotbar. Tools work as soon as you have them."))}</div>
     ${(inv.quests || []).length ? `<h3>${esc(T("qLog", "Quests"))}</h3>` + inv.quests.map((q) => `<div class="rcp"><div>${esc(questText(q))}<div class="dim">${esc(q.ready ? T("qReady", "Done — hand it in") : T("qFrom", "for {who}", { who: (RULES.quests.npcs.find((n) => n.id === (q.to || q.giver)) || {}).name || "" }))}</div></div>
       <button class="ghost" data-qdrop="${q.id}">${esc(T("qDrop", "Drop"))}</button></div>`).join("") : ""}
+    </section>${sec("build")}
     <h3>${esc(T("pieceSize", "Piece size"))}</h3>
     <div class="tradeform">${PRESETS.map((x, i) => `<button class="chip pl" data-preset="${i}">${x.join("×")}</button>`).join("")}</div>
     <div class="tradeform"><span>W</span><input id="pzW" type="number" min="1" max="1600" value="${piece.w}"><span>D</span><input id="pzD" type="number" min="1" max="1600" value="${piece.d}">
@@ -2813,14 +2829,16 @@ function renderBag() {
       <span>${esc(T("tiltPitch", "Pitch"))}</span><input id="pzPitch" type="number" step="0.1" min="-179.9" max="180" value="${(piece.tilt || [0, 0, 0])[1] / 10}">
       <span>${esc(T("tiltRoll", "Roll"))}</span><input id="pzRoll" type="number" step="0.1" min="-179.9" max="180" value="${(piece.tilt || [0, 0, 0])[2] / 10}"><span>°</span>
       <button class="chip pl" id="pzSquare">${esc(T("tiltSquare", "Square"))}</button></div>
+    </section>${sec("make")}
     <h3>${esc(T("make", "Make"))}</h3>
-    <div class="recipes">${RULES.recipes.map((r) => {
+    <div class="recipes">${recipes.map((r) => {
       const out = r.makes.map(([id, n]) => (RULES.items[id] ? n + " " : "") + nameOf(id)).join(", ");
       const need = r.uses.map(([id, n]) => `${n} ${nameOf(id)}`).join(" + ") + ((r.with || []).length ? " · " + T("with", "with {w}", { w: r.with.map(nameOf).join(", ") }) : "");
       const own = r.makes.every(([id]) => inv.tools.includes(id) || inv.stations.includes(id));
       return `<div class="rcp${canMake(r) && !own ? "" : " off"}"><div><b>${esc(out)}</b><div class="dim">${esc(need)}</div></div>
         <button class="ghost" data-make="${r.id}" ${canMake(r) && !own ? "" : "disabled"}>${esc(own ? T("haveIt", "You have it") : T("makeGo", "Make"))}</button></div>`;
     }).join("")}</div>
+    </section>${sec("trade")}
     <h3>${esc(T("trade", "Trade"))}</h3>
     <div class="dim">${esc(atStand ? T("mkHere", "At a market: offers made here are seen at the stands within {m} m; the market keeps {p}% of what you receive.", { m: RULES.market.reach, p: Math.round(RULES.market.fee * 100) })
       : T("mkNoStand", "Offers are made and taken at a trading stand — build one (planks, beams and cordage, at a workbench), or go to a market."))}</div>
@@ -2836,8 +2854,9 @@ function renderBag() {
     <div class="tradeform">
       <span>${esc(T("giveTo", "Give"))}</span><input id="gvN" type="number" min="1" value="1"><select id="gvI">${opts}</select>
       <input id="gvTo" placeholder="${esc(T("inviteAddr", "NADO address"))}"><button class="ghost" id="gvGo">${esc(T("giveGo", "Give"))}</button>
-    </div>`;
+    </div></section>`;
   const g = $("palGrid"), req = (m) => net.send(Object.assign({ req: ++net.req }, m));
+  g.querySelectorAll("[data-bagtab]").forEach((b) => { b.onclick = () => { bagTab = b.dataset.bagtab; try { localStorage.setItem("nado_land_bagtab", bagTab); } catch (e) {} renderBag(); }; });
   g.querySelectorAll("[data-make]").forEach((b) => { b.onclick = () => req({ t: "craft", recipe: b.dataset.make }); });
   g.querySelectorAll("[data-eat]").forEach((b) => { b.onclick = () => req({ t: "eat", item: b.dataset.eat }); });
   g.querySelectorAll("[data-qdrop]").forEach((b) => { b.onclick = () => req({ t: "quest", op: "drop", id: b.dataset.qdrop }); });
