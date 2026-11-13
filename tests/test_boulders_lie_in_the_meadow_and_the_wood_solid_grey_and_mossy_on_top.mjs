@@ -58,13 +58,13 @@ for (const lod of [0, 1, 2]) {
   let upMoss = 0, upAll = 0, sideMoss = 0, sideAll = 0, pale = 0;
   for (const [i] of mine) {
     const nz = nor[i * 3] * fr.up[0] + nor[i * 3 + 1] * fr.up[1] + nor[i * 3 + 2] * fr.up[2], r = col[i * 3], g = col[i * 3 + 1], bl = col[i * 3 + 2];
-    const moss = g > r * 1.1 && g > bl * 1.6;
+    const moss = g > r * 1.5 && g > bl * 2;
     if (nz > 0.5) { upAll++; if (moss) upMoss++; } else { sideAll++; if (moss) sideMoss++; }
-    if (!moss && r > 0.5 && Math.abs(r - bl) < 0.08) pale++;
+    if (!moss && r > 0.5 && bl > r && bl > 0.7) pale++;                      // pale and cool: the rock texture under it is warm brown
   }
   ok(upAll > 0 && upMoss / upAll > 0.3 && upMoss / upAll < 0.85, `…moss in patches on its upper faces (${upMoss} of ${upAll} upward vertices)`);
   ok(sideAll > 0 && sideMoss === 0, `…and none on its sides (${sideAll} side vertices)`);
-  ok(pale > mine.length / 3, `…the rest pale grey, not the pebble's cool blue-grey (${pale} vertices)`);
+  ok(pale > mine.length / 3, `…the rest pale and cool (it reads grey on the warm rock texture; ${pale} vertices)`);
   // the split face: along the rock's own x (turned by its rotation) a share of the vertices lie on one plane — found as the
   // most common projection on any of 36 directions, to the centimetre
   let best = 0;

@@ -8,8 +8,9 @@
  *   1. the crown against the sun (the eye on the far side from it) and the crown with the sun behind the viewer are both
  *      photographed, the eye at the same distance, looking at the crown's middle;
  *   2. from each eye the view is photographed with the leaves lit through and with the setting off (Settings: Leaves lit
- *      through, /set leaves 0): against the sun the leaves are brighter by LEAF_LIFT_MIN of 255 at least (28 measured),
- *      and with the sun behind the viewer the setting changes nothing — the light through a leaf is seen toward the sun.
+ *      through, /set leaves 0): against the sun the leaves are brighter by LEAF_LIFT_MIN of 255 at least (19 measured),
+ *      and with the sun behind the viewer by less (12): a leaf transmits diffusely, so the far cards' backs seen inside a
+ *      crown glow from any angle, and most of all looking toward the sun.
  * SHOTS=<dir> writes both views.
  *
  * Run: node tests/test_a_crown_seen_against_the_sun_is_lit_through_not_black.mjs   (needs chrome, python3)
@@ -164,7 +165,7 @@ try {
   const A = leaves(shots.against.on, shots.against.off), F = leaves(shots.withSun.on, shots.withSun.off);
   ok(A.n > 300 && F.n > 300, `leaf pixels found in both views (${A.n} against the sun, ${F.n} with it)`);
   ok(A.d >= LEAF_LIFT_MIN, `against the sun the leaves are lit through: ${A.d.toFixed(1)} of 255 brighter than with the light through them off (at least ${LEAF_LIFT_MIN})`);
-  ok(Math.abs(F.d) < Math.max(12, A.d / 4), `with the sun behind the viewer the light through them is small: ${F.d.toFixed(1)} of 255, under a quarter of the lift against the sun (4 measured against 38)`);
+  ok(F.d >= 0 && F.d < A.d, `with the sun behind the viewer the leaves lift less (${F.d.toFixed(1)} of 255): the light through a crown is strongest looking toward the sun, and what the viewer sees inside it from the sun's side — the far cards' backs — glows too (12 against 19 measured; a forward-scatter term gave 5 against 35 and left a bush's inside black)`);
   ok(A.d < 80, `…and no glare: the lift stays under 80 of 255 (${A.d.toFixed(1)})`);
   ok(errors.length === 0, "no page error" + (errors.length ? ": " + errors.slice(0, 4).join(" | ") : ""));
 } catch (e) {

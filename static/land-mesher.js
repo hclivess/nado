@@ -756,7 +756,10 @@ function pebble(out, face, cu, cv, base, r, seed, rot, place, big = false) {
     const L = Math.hypot(nx, ny, nz) || 1; nx /= L; ny /= L; nz /= L;
     const j = 0.78 + 0.22 * hash3(a, 3, sid);
     const moss = big && nz > 0.5 && hash3(a * 131 + b, c, sid) < 0.55;   // moss on the upper faces, in patches (all three corners: a face's first corner repeats round a vertex)
-    const tint = moss ? [0.46, 0.56, 0.22] : big ? [0.72, 0.74, 0.70] : [0.58, 0.64, 0.76];
+    // the rock texture is a warm brown: a tint that reads pale grey on it must lean hard to blue, as the pebble's does
+    // (the first boulder, tinted a neutral pale grey, photographed as a red-brown lump in the meadow, 2026-11-13); the
+    // moss the same: green against the warmth
+    const tint = moss ? [0.34, 0.72, 0.20] : big ? [0.66, 0.74, 0.92] : [0.58, 0.64, 0.76];
     for (const i of [a, b, c]) {
       const p = place(g[i][0], g[i][1], g[i][2]);
       out.pos.push(p[0], p[1], p[2]);

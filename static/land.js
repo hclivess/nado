@@ -4094,12 +4094,17 @@ function treeMaterials() {
   leaves.colorNode = shadeByClouds(s.rgb.mul(TSL.attribute("color", "vec3")));
   leaves.opacityNode = s.a;
   leaves.maskShadowNode = s.a.greaterThan(0.42);             // the shadow of the leaves, not of their cards (see matForest)
-  // lit through (LEAF_THROUGH): the sun's light through the card — the more squarely it strikes the card (either face:
-  // the cards are two-sided) and the more the viewer looks toward the sun through it — in the leaf's own colour, under the
-  // cloud shadow as its reflected light is (the sun's cast shadows do not reach it: a limit)
+  // lit through (LEAF_THROUGH): the sun's light through the card, DIFFUSELY — a leaf scatters what it lets through, so a
+  // leaf lit on its far side glows on the side the viewer sees from any angle: the sun's strike on the side away from the
+  // viewer (the cards are two-sided: the normal the viewer faces is the front's, flipped on a back face), in the leaf's
+  // own colour, under the cloud shadow as its reflected light is (the sun's cast shadows do not reach it: a limit). The
+  // first term lit a leaf only when the viewer looked toward the sun through it, like forward scatter, and the backs of
+  // a bush's far-side cards — what a viewer sees inside it — stayed black at noon (three live photographs, with the
+  // occlusion pass off and with the cast shadows off alike, 2026-11-13).
   const sunV = TSL.cameraViewMatrix.mul(TSL.vec4(leafSun.dir, 0)).xyz.normalize();
-  const through = TSL.abs(TSL.normalView.dot(sunV)), toward = TSL.clamp(TSL.positionViewDirection.dot(sunV.negate()), 0, 1);
-  leaves.emissiveNode = shadeByClouds(s.rgb.mul(TSL.attribute("color", "vec3")).mul(leafSun.rgb).mul(through.mul(toward).mul(LEAF_THROUGH)));
+  const seen = TSL.normalView.mul(TSL.select(TSL.frontFacing, 1, -1));       // the normal of the side the viewer sees
+  const through = TSL.clamp(seen.dot(sunV).negate(), 0, 1);                   // the sun on the far side of that
+  leaves.emissiveNode = shadeByClouds(s.rgb.mul(TSL.attribute("color", "vec3")).mul(leafSun.rgb).mul(through.mul(LEAF_THROUGH)));
   // leaves flutter on top of the sway: a quick small motion along each card's normal
   const flutter = TSL.sin(t.mul(9).add(ph.mul(3)).add(TSL.positionLocal.x.mul(4)).add(TSL.positionLocal.z.mul(3))).mul(wind.xyz.length().mul(0.22));
   leaves.positionNode = sway.add(TSL.attribute("normal", "vec3").mul(flutter));
