@@ -85,5 +85,15 @@ for (const kind of ["broadleaf", "birch", "conifer"]) {
   ok(v[0][0] > v[1][0] && v[1][0] > v[2][0] && v[0][1] > v[1][1] && v[1][1] > v[2][1], `${kind}: LOD1 sits between LOD0 and LOD2 (bark ${v.map((x) => x[0]).join(" > ")}, leaves ${v.map((x) => x[1]).join(" > ")})`);
 }
 
+// #150: the middle level of a broadleaf and a birch drops the twig level (the far limb depth), a conifer's and a bush's
+// keep theirs (their far depth is a bare trunk or nothing, and on Low level 1 is drawn beside the player)
+{
+  const T2 = await import(join(ROOT, "static", "land-trees.js"));
+  const bark = (kind, h, lod) => { let b = 0; for (let s = 1; s <= 6; s++) b += T2.treeModel(kind, h, s * 7919, lod).bark.idx.length / 3; return b / 6; };
+  const bl = [bark("broadleaf", 5, 0), bark("broadleaf", 5, 1)], bi = [bark("birch", 6, 0), bark("birch", 6, 1)];
+  const co = [bark("conifer", 8, 0), bark("conifer", 8, 1)], bu = [bark("bush", 1, 0), bark("bush", 1, 1)];
+  ok(bl[1] < bl[0] * 0.45 && bi[1] < bi[0] * 0.8, `#150: the middle broadleaf and birch drop their twigs (bark ${Math.round(bl[0])} → ${Math.round(bl[1])}, ${Math.round(bi[0])} → ${Math.round(bi[1])})`);
+  ok(co[1] > co[0] * 0.5 && bu[1] > bu[0] * 0.8, `…the middle conifer and bush keep their limbs (bark ${Math.round(co[0])} → ${Math.round(co[1])}, ${Math.round(bu[0])} → ${Math.round(bu[1])})`);
+}
 console.log(fails ? `${fails} FAILED` : "ALL PASS");
 process.exit(fails ? 1 : 0);

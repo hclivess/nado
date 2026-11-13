@@ -113,7 +113,12 @@ function grownModel(kind, H0, R, lod) {
   for (const s of stems) {
     // the finest stems are carried by their leaves alone (a twig thinner than a pencil is not seen as wood), and a
     // stem's sides follow its girth — a trunk is round, a branch three-sided
-    if (s.depth > A.wood[far ? 1 : 0] || (s.depth === 2 && s.radii[0] < 0.012)) continue;
+    // THE MIDDLE LEVEL TAKES THE FAR LIMB DEPTH where that still keeps the limbs (#150: bark was the measured frame's
+    // biggest item, 58k of its 79k in the 45 near chunks at level 1, and the middle model saved almost no bark): a
+    // broadleaf or a birch loses its twig level (bark 747 → 284, 407 → 299 triangles). NOT a conifer or a bush: their
+    // far depth is the bare trunk or nothing, and on Low level 1 is the nearest level drawn — a pole of floating needles
+    // or a stemless bush beside the player
+    if (s.depth > A.wood[far || (mid && A.wood[1] >= 1) ? 1 : 0] || (s.depth === 2 && s.radii[0] < 0.012)) continue;
     const sides = s.depth === 0 ? (far || mid ? 5 : 7) : s.depth === 1 && s.radii[0] >= 0.05 && !far && !mid ? 5 : 3;
     const last = s.pts.length - 1;
     // A ROOT FLARE (#181, playtest 2026-11-11: "tree trunks end in a flat faceted cut standing on the grass — no root

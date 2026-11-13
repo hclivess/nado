@@ -165,7 +165,7 @@ try {
   const A = leaves(shots.against.on, shots.against.off), F = leaves(shots.withSun.on, shots.withSun.off);
   ok(A.n > 300 && F.n > 300, `leaf pixels found in both views (${A.n} against the sun, ${F.n} with it)`);
   ok(A.d >= LEAF_LIFT_MIN, `against the sun the leaves are lit through: ${A.d.toFixed(1)} of 255 brighter than with the light through them off (at least ${LEAF_LIFT_MIN})`);
-  ok(F.d >= 5 && A.d >= F.d * 0.8, `with the sun behind the viewer the leaves lift too (${F.d.toFixed(1)} of 255): the sun stands over the crown and the viewer under it, so its undersides are lit through from either side (25 and 25 measured; a build with the normal flipped once more read 19 and 12 and left a bush's inside black)`);
+  ok(F.d >= LEAF_LIFT_MIN && F.d < 80, `with the sun behind the viewer the leaves lift too (${F.d.toFixed(1)} of 255): the sun stands over the crown and the viewer under it, so its undersides are lit through from either side (25–35 measured; the ratio of the two views moves with the crown's shape; a build with the normal flipped once more read 12 and left a bush's inside black)`);
   ok(A.d < 80, `…and no glare: the lift stays under 80 of 255 (${A.d.toFixed(1)})`);
   ok(errors.length === 0, "no page error" + (errors.length ? ": " + errors.slice(0, 4).join(" | ") : ""));
 } catch (e) {
