@@ -113,13 +113,16 @@ FALL_REACH = 48                   # cells a column is settled over, below and ab
 # spreading: its gathered cells grow back whole (regrow). Both write ordinary edits, broadcast like any other.
 # FORESTS SPREAD (#110): on an owned plot each standing tree — the planet's or one grown from a sapling — now and then
 # drops a sapling on open grass two or three metres from its trunk (SEED_ODDS per SEED_S), never closer than two metres
-# to another trunk or sapling and never past TREE_CAP trees on the plot; the sapling then grows like a planted one. Bare
+# to another trunk or sapling, never within SEED_CLEAR of a built piece or a craft (#184: the forest grew into the parked
+# fighter's pad), and never past TREE_CAP trees on the plot; the sapling then grows like a planted one. Bare
 # earth greens over on its own too, slowly (LONE_ODDS per SPREAD_S), and fast beside grass. The same hash-of-the-cell-
 # and-tick answers as spread(): a restart changes nothing.
 SAPLING, GRASS, DIRT = 52, 1, 2   # static/land-world.js B
 GROW_S = 1200                     # a sapling's twenty minutes
 SPREAD_S = 60
 SEED_S, SEED_ODDS, TREE_CAP = 600, 36, 10       # a tree seeds about once in six hours: a meadow does not become a grove in a day
+SEED_CLEAR = 3                    # m from a built piece or a parked craft in which no sapling takes root (#184): the forest
+                                  # spread grew nine trees and five bushes into the fighter's pad, crowns through its wings
 LONE_ODDS = 40
 # CLOTHES (#111, "the crafted items should be what changes how you look"): a garment sewn from linen (land-recipes.json
 # items with "wear": its slot) is put ON from the bag and taken off back into it — one per slot, kept with the player and
@@ -1904,6 +1907,8 @@ class World:
                 trunks = [(a, b) for a, b, _ in roots] + sap
                 if any(max(abs(a - tu), abs(b - tv)) < 2 for a, b in trunks):
                     continue                                              # never crowding another tree
+                if self.built_near(p, rec, face, tu, tv, SEED_CLEAR):
+                    continue                                              # #184: never under a roof, a wall or a parked craft
                 cells = [[face, tu, tv, y] for y in range(t - 3, t + 5)]
                 at = await self.blocks_at(cells)
                 ground = next((y for y in range(t - 3, t + 3) if at[(face, tu, tv, y)] == GRASS
@@ -1919,6 +1924,24 @@ class World:
                 sap.append((tu, tv))
                 out.setdefault(p, []).append([face, tu, tv, ground + 1, SAPLING])
         return out
+
+    def built_near(self, p, rec, face, u, v, r):
+        """Whether a built piece on plot `p` or a craft (parked or flying) stands within `r` m, horizontally, of column
+        (face, u, v) — at any height: a tree grows up into whatever is over it. #184: a craft left parked for a few days
+        was found inside a tree (nine trees and five bushes had seeded onto the X fighter's pad on 0·4999·3438, ten leaf
+        cells pruned by hand before it could be set down again). A craft's footprint is its body's reach about its pose
+        (craft_reach, the same measure a torn cell is held to)."""
+        _, row, col = plot_coords(p)
+        x0, z0, rc = (u - col * PLOT) * CM, (v - row * PLOT) * CM, r * CM
+        for b in rec.get("boxes") or []:
+            a = box_aabb(b)
+            if a[0] < x0 + CM + rc and a[0] + a[3] > x0 - rc and a[1] < z0 + CM + rc and a[1] + a[4] > z0 - rc:
+                return True
+        for c in self.crafts.values():
+            pose = c["pose"]
+            if pose[0] == face and math.hypot(pose[1] - (u + 0.5), pose[2] - (v + 0.5)) <= craft_reach(c["pieces"]) + r:
+                return True
+        return False
 
     REGROW_CLEAR = 8                          # blocks around a player present in which nothing regrows yet
 

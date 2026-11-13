@@ -8,7 +8,9 @@ the grass", operator 2026-11-06), driven through the world server's own methods 
      sapling has its growth timer, so it becomes a tree like a planted one;
   3. never on an unowned plot (the commons grows back whole instead), and the same tick gives the same answer after a
      restart (no RNG);
-  4. bare earth with open air above greens over on an owned plot even with no grass beside it — slowly.
+  4. bare earth with open air above greens over on an owned plot even with no grass beside it — slowly;
+  5. (#184, 2026-11-13) no sapling takes root within SEED_CLEAR of a built piece or a craft: the forest had grown nine
+     trees and five bushes into the X fighter's pad while it stood parked.
 
 Run: python3 tests/test_forests_seed_themselves_and_bare_earth_greens_over_on_owned_plots.py
 """
@@ -87,6 +89,33 @@ async def main():
     for i in range(400):
         a += (await w2.seed(1_900_000_000 + i * S.SEED_S)).get(OWNED, [])
     check("the same ticks seed the same cells on another run (no RNG)", a == seeded, (a[:3], seeded[:3]))
+
+    # 5. #184: nothing seeds within SEED_CLEAR of a built piece or a parked craft — the forest grew into the fighter's pad.
+    #    The same ticks replayed on a fresh world with a plate laid beside the first seeded column and a craft parked at
+    #    the last one: those two stay bare, what the plate and the craft do not reach seeds as before.
+    s0, s1 = seeded[0], seeded[-1]                                     # [face, u, v, h, SAPLING]
+    U, V, H = 1, 2, 3
+    w3 = S.World(os.path.join(os.environ["HOME"], "land3"), "http://127.0.0.1:1", "")
+    w3.oracle, w3.oracle_lock = w.oracle, w.oracle_lock
+    w3.holder, w3.titles, w3.refresh_titles = holder, {OWNED: "1"}, w.refresh_titles
+    plate = [(s0[U] - col * S.PLOT + 2) * S.CM, (s0[V] - row * S.PLOT) * S.CM, (s0[H] + 3) * S.CM, 400, 100, 5, 64]   # 2 m east, 3 m up: a roof's edge
+    w3.plot(OWNED)["boxes"].append(plate)
+    pieces = [[-200, -75, 0, 400, 150, 5, 64], [-40, -45, 5, 80, 90, 110, 66]]                     # a plate and a seat
+    w3.crafts["c184"] = {"id": "c184", "owner": "ndoOWNER", "pilot": None, "pieces": pieces, "slots": [0, 0],
+                         "pose": [f, s1[U] + 0.5, s1[V] + 0.5, s1[H] + 0.0, 0.0], "at": 0, "mass": 1.0, "thrust": 0}
+    reach = S.craft_reach(pieces)
+    b3 = []
+    for i in range(400):
+        b3 += (await w3.seed(1_900_000_000 + i * S.SEED_S)).get(OWNED, [])
+    near_craft = lambda c: ((c[1] + 0.5 - (s1[U] + 0.5)) ** 2 + (c[2] + 0.5 - (s1[V] + 0.5)) ** 2) ** 0.5 <= reach + S.SEED_CLEAR
+    check("#184: the column beside a built plate (2 m off, 3 m up) is not seeded", not any(c[1:3] == s0[1:3] for c in b3), [c for c in b3 if c[1:3] == s0[1:3]])
+    check("…nor any column within the plate's clearance", not any(w3.built_near(OWNED, w3.plot(OWNED), f, c[1], c[2], S.SEED_CLEAR) for c in b3), [c for c in b3 if w3.built_near(OWNED, w3.plot(OWNED), f, c[1], c[2], S.SEED_CLEAR)])
+    check("…the column under the parked craft is not seeded", not any(c[1:3] == s1[1:3] for c in b3), [c for c in b3 if c[1:3] == s1[1:3]])
+    check("…nor any within the craft's reach and the clearance", not any(near_craft(c) for c in b3), [c for c in b3 if near_craft(c)])
+    kept = [c for c in seeded if not near_craft(c) and not w3.built_near(OWNED, w3.plot(OWNED), f, c[1], c[2], S.SEED_CLEAR)]
+    check("…and what neither reaches seeds as before", kept and all(c in b3 for c in kept), (len(seeded), len(kept), len(b3)))
+    check("…a built piece at 2 m blocks, one at 8 m does not (built_near, in a world with no craft)", w.built_near(OWNED, {"boxes": [plate]}, f, s0[U], s0[V], S.SEED_CLEAR)
+          and not w.built_near(OWNED, {"boxes": [[plate[0] + 600, *plate[1:]]]}, f, s0[U], s0[V], S.SEED_CLEAR) and not w.crafts)
 
     # 4. lone greening: a dug cell far from any grass (a 5 x 5 pit's centre, one down) greens over in time
     async def grass_top(cu, cv):
