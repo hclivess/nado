@@ -4128,7 +4128,7 @@ function boulderMaterial() {
   const col = loadTex("rock_col"), nor = loadTex("rock_nor"); nor.colorSpace = THREE.NoColorSpace;
   const uvw = TSL.attribute("uvw", "vec3"), uv = TSL.vec2(uvw.x, uvw.y).div(4.5);
   const m = new THREE.MeshStandardNodeMaterial({ roughness: 0.9, metalness: 0 });
-  m.colorNode = shadeByClouds(TSL.luminance(TSL.texture(col, uv).rgb).mul(1.35).clamp(0, 1).mul(TSL.attribute("color", "vec3")));
+  m.colorNode = shadeByClouds(TSL.luminance(TSL.texture(col, uv).rgb).mul(1.8).clamp(0, 1).mul(TSL.attribute("color", "vec3")));   // ×1.8: pale granite in the sun (the Tahoe erratic); the first build, ×1.35, photographed a notch dark
   m.normalNode = TSL.normalMap(TSL.texture(nor, uv), TSL.float(0.6));
   return (matBoulder = m);
 }

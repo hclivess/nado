@@ -12,6 +12,9 @@
  *      flies out of it;
  *   6b. a point of its body standing in the ground's rounding is still stopped by a wall: bodyInside carries WHAT each
  *      point is in, so the sweep's "already inside" set does not let it slide from the turf into steel;
+ *   8. it STANDS AT THE GROUND'S GRADE (#184): at rest on a slope its pitch and roll are the slope's along and across
+ *      its nose (the right side higher: the right wing up), capped at STAND_MAX, level on flat ground and level again
+ *      once it lifts; its pose carries the two angles;
  *   7. it lands on its FEET (#184): on a slope it comes to rest where the highest ground under any foot meets that foot,
  *      every foot clear of the ground and one touching, turned with its yaw — not where the ground under the seat meets
  *      its lowest piece, which sank the uphill feet into the hill; a craft with no feet measured lands as before.
@@ -22,7 +25,7 @@ import { readFileSync } from "node:fs";
 import { join, dirname } from "node:path";
 import { fileURLToPath } from "node:url";
 const ROOT = join(dirname(fileURLToPath(import.meta.url)), "..");
-const { craftStep, flightOf, craftBody, bodyHits, bodyInside, navSays, NAV_BIAS, craftArea, craftFeet, restAt } = await import(join(ROOT, "static", "land-flight.js"));
+const { craftStep, flightOf, craftBody, bodyHits, bodyInside, navSays, NAV_BIAS, craftArea, craftFeet, restAt, standOf, STAND_MAX } = await import(join(ROOT, "static", "land-flight.js"));
 const Pl = await import(join(ROOT, "static", "land-planet.js"));
 const Wd = await import(join(ROOT, "static", "land-world.js"));
 const F = JSON.parse(readFileSync(join(ROOT, "static", "land-recipes.json"), "utf8")).flight;
@@ -224,6 +227,25 @@ ok(Math.abs(fiveMin.err - 0.5 * NAV_BIAS * 300 * 300) < 1e-9 && fiveMin.err > 40
   ok((src.match(/const rest = restAt\(c, u, vv?, yaw, groundAt\)/g) || []).length === 2 && !/h \+ c\.bottom <= g/.test(src), "both the hovering and the winged model land through restAt (the seat-column rule is gone from each)");
   const page = readFileSync(join(ROOT, "static", "land.js"), "utf8");
   ok(/feet: craftFeet\(c\.pieces, Wd\.boxAabb\)/.test(page), "the page measures a craft's feet when the pilot takes the seat");
+}
+
+// 8. it stands at the ground's grade (#184)
+{
+  const skids = [[-300, -50, 0, 600, 100, 10, 64], [-40, -45, 10, 80, 90, 110, 66], [-300, -30, -40, 60, 60, 40, 64], [240, -30, -40, 60, 60, 40, 64]];
+  const feet = craftFeet(skids, Wd.boxAabb), deg = (a) => a * 180 / Math.PI;
+  const slope = (u, v) => 100 + 0.06 * (u - 500);                  // rising east
+  const stand = (yaw) => { const c = { pose: [0, 500, 500, 120, yaw], vel: [0, 0, 0], mass: 2, thrust: 0, bottom: -0.4, feet, grounded: false }; for (let t = 0; t < 8; t += 0.05) craftStep(c, {}, 0.05, F, slope); return c; };
+  const along = stand(0);                                            // the craft's x (its right) east, up the slope
+  ok(along.pose.length === 7 && Math.abs(deg(along.pose[6]) + 3.43) < 0.3 && Math.abs(deg(along.pose[5])) < 0.3, `across a 6 % slope its right side uphill, it rolls ${deg(along.pose[6]).toFixed(2)}° (the right wing up: −3.43°), no pitch`);
+  const nose = stand(Math.PI / 2);                                   // the nose east, up the slope
+  ok(Math.abs(deg(nose.pose[5]) - 3.43) < 0.3 && Math.abs(deg(nose.pose[6])) < 0.3, `nose up the slope it pitches ${deg(nose.pose[5]).toFixed(2)}° (3.43°), no roll`);
+  const flat = { pose: [0, 500, 500, 120, 0.7], vel: [0, 0, 0], mass: 2, thrust: 0, bottom: -0.4, feet, grounded: false }; for (let t = 0; t < 8; t += 0.05) craftStep(flat, {}, 0.05, F, () => 100);
+  ok(Math.abs(flat.pose[5]) < 1e-6 && Math.abs(flat.pose[6]) < 1e-6, "on flat ground it stands level");
+  const steep = stand.call(null, 0); for (let t = 0; t < 8; t += 0.05) craftStep(steep, {}, 0.05, F, (u, v) => 100 + 0.6 * (u - 500));
+  ok(Math.abs(Math.abs(steep.pose[6]) - STAND_MAX) < 1e-6, `on a 60 % slope the stand is capped at ${deg(STAND_MAX).toFixed(0)}°`);
+  const lift = stand(Math.PI / 2); lift.thrust = 2 * F.thrust_kn; for (let t = 0; t < 3; t += 0.05) craftStep(lift, { up: true }, 0.05, F, slope);
+  ok(!lift.grounded && Math.abs(deg(lift.pose[5])) < 0.2, `lifting off, it comes back to level (pitch ${deg(lift.pose[5]).toFixed(2)}° after 3 s)`);
+  ok(standOf({ feet: feet.slice(0, 2) }, 500, 500, 0, slope).every((a) => a === 0), "a craft with fewer than three feet stands level");
 }
 
 if (fails) { console.log(`${fails} FAILURES`); process.exit(1); }

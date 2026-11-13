@@ -258,6 +258,8 @@ export function aircraftStep(c, input, dt, F, groundAt, hits) {
     if (!keep[2] && dh < 0) c.grounded = true;
     u = pu; vv = pv; h = ph;
   }
+  // THE TILTED STAND (#184): at rest on the ground the attitude settles to the ground's grade under the feet
+  if (c.grounded && Math.hypot(v[0], v[1], v[2]) < 0.5) [pitch, roll] = settle(c, u, vv, yaw, pitch, roll, 0, dt, groundAt, [pitch, roll]);
   c.pose = [face, u, vv, h, yaw, pitch, roll];
   c.vel = v;
   c.air = { V, alpha, beta, n, stalled, auth, q };
@@ -330,6 +332,34 @@ export function restAt(c, u, v, yaw, groundAt) {
   let r = -Infinity;
   for (const [x, y, z] of c.feet) r = Math.max(r, groundAt(u + x * cy + y * sy, v + y * cy - x * sy) - z);
   return r;
+}
+
+export const STAND_MAX = 20 * Math.PI / 180, STAND_EASE = 4;   // the steepest stand (a craft on a steeper slope would slide), and how fast it settles (per s)
+/** THE TILTED STAND (#184): at rest a craft stands on its feet AT THE GROUND'S GRADE — a plane fitted (least squares)
+ *  to the ground under its feet in its own frame (x right, y nose), pitch the slope along the nose (up the hill: nose
+ *  up), roll the slope across it (the right side higher: the right wing up, which axesOf counts as negative roll) —
+ *  instead of level with two legs in the air (the X-wing on 0·4999·3438: 1.8 m of fall across its 6.7 m stance).
+ *  Capped at STAND_MAX. A craft with fewer than three feet, or feet in a line, stands level. */
+export function standOf(c, u, v, yaw, groundAt) {
+  if (!c.feet || c.feet.length < 3) return [0, 0];
+  const cy = Math.cos(yaw), sy = Math.sin(yaw);
+  let n = 0, sx = 0, sy2 = 0, sz = 0, sxx = 0, sxy = 0, syy = 0, sxz = 0, syz = 0;
+  for (const [x, y] of c.feet) {
+    const g = groundAt(u + x * cy + y * sy, v + y * cy - x * sy);
+    n++; sx += x; sy2 += y; sz += g; sxx += x * x; sxy += x * y; syy += y * y; sxz += x * g; syz += y * g;
+  }
+  const mx = sx / n, my = sy2 / n, mz = sz / n;
+  const A = sxx - n * mx * mx, B = sxy - n * mx * my, C = syy - n * my * my, D = sxz - n * mx * mz, E = syz - n * my * mz, det = A * C - B * B;
+  if (Math.abs(det) < 1e-6) return [0, 0];
+  const b = (D * C - E * B) / det, c2 = (A * E - B * D) / det;
+  const cap = (a) => Math.max(-STAND_MAX, Math.min(STAND_MAX, a));
+  return [cap(Math.atan(c2)), cap(-Math.atan(b))];
+}
+/** pitch and roll eased toward the stand at rest on the ground, and toward `free` (the flight's own, or level) otherwise. */
+function settle(c, u, v, yaw, pitch, roll, speed, dt, groundAt, free) {
+  const k = 1 - Math.exp(-STAND_EASE * dt);
+  const [sp, sr] = c.grounded && speed < 0.5 ? standOf(c, u, v, yaw, groundAt) : free;
+  return [pitch + (sp - pitch) * k, roll + (sr - roll) * k];
 }
 
 const BODY_STEP = 1.0, BODY_INSET = 0.12, BODY_FLOOR = 0.3, SWEEP = 0.15;   // m: points no farther apart than this; kept this far inside
@@ -485,7 +515,11 @@ export function craftStep(c, input, dt, F, groundAt, hits) {
     if (!keep[2] && dh < 0) c.grounded = true;
     u = pu; v = pv; h = ph; turned = yw;
   }
-  c.pose = [face, u, v, h, turned];
+  // THE TILTED STAND (#184): at rest on the ground it settles to the ground's grade under its feet; moving or in the
+  // air it comes back to level. Its pose carries pitch and roll from here on, as an aircraft's does (the page draws
+  // any craft in its attitude; the world server takes five values or seven).
+  const [stPitch, stRoll] = settle(c, u, v, turned, c.pose[5] || 0, c.pose[6] || 0, Math.hypot(vu, vv, vh), dt, groundAt, [0, 0]);
+  c.pose = [face, u, v, h, turned, stPitch, stRoll];
   c.vel = [vu, vv, vh];
   // the engines' work this step, as shares of full thrust (acc is thrust / mass; g / acc is the weight's share)
   const wShare = acc > 0 ? Math.min(1, gr / acc) : 0;
