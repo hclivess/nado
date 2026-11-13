@@ -293,6 +293,14 @@ const CLOUD_SHADOW_N = 256, CLOUD_SHADOW_SPAN = 6000, CLOUD_SHADOW_MS = 1500;   
 const shadowBlank = new THREE.DataTexture(new Uint8Array([255, 255, 255, 255]), 1, 1); shadowBlank.needsUpdate = true;   // until the first map: full sun
 const shadowO = { share: TSL.uniform(0), shift: TSL.uniform(new THREE.Vector3()), east: TSL.uniform(new THREE.Vector3(1, 0, 0)), north: TSL.uniform(new THREE.Vector3(0, 0, 1)) };
 const shadowTex = [];                                        // every material's texture node of the map (its value is swapped in once the map exists)
+// LEAVES LIT THROUGH (#183 step 4, "leaves lit through (translucency) instead of black cores"): a leaf is no shutter. It
+// absorbs ~85 % of the light between 400 and 700 nm and reflects ~10 % (Golden Delicious sun and shade leaves, mean
+// absorptance > 85 % over 400–700 nm), and lets the rest through — whole apple leaves up to 2 % of the incident PAR
+// (Notton & Blanke 1992, Scientia Horticulturae) — so a leaf seen against the sun shows the light coming THROUGH it, in
+// its own green, at LEAF_THROUGH of what a front-lit leaf reflects (2–5 % against 10 %). The first leaf cards were lit
+// by their normals alone and a crown's far side was black. The sun's direction and light are uniforms set by sky().
+const LEAF_THROUGH = 0.35;
+const leafSun = { dir: TSL.uniform(new THREE.Vector3(0, 1, 0)), rgb: TSL.uniform(new THREE.Vector3()) };   // toward the sun (world); its colour × intensity
 let shadowRT = null, shadowScene = null, shadowU = null, shadowCentre = null, shadowAt = 0, shadowMaps = 0;
 /** A lit material's colour under the cloud shadow at the fragment: positionWorld is eye-relative and the map was
  *  rendered about shadowCentre (the ground under the player), so the fragment's place in the map's frame is
@@ -3331,9 +3339,9 @@ function act(place, mouse) {
 // closes it. A line without a slash is chat to the players around you (the world server relays it to whoever watches
 // the plots you watch). SETTINGS are this viewer's own, remembered in this browser — a convenience, nothing shared.
 const LS_SET = "nado_land_settings";
-const SET_DEF = { fov: 72, sens: 1, invert: 0, grass: 1, shadows: 2, effects: 1, borders: 1, stats: 0, res: 100, view: 6, fps: 0, auto: 1, clouds: 1, sound: 1 };
+const SET_DEF = { fov: 72, sens: 1, invert: 0, grass: 1, shadows: 2, effects: 1, borders: 1, stats: 0, res: 100, view: 6, fps: 0, auto: 1, clouds: 1, leaves: 1, sound: 1 };
 const SET_RANGE = { fov: [50, 110], sens: [0.2, 4], invert: [0, 1], sound: [0, 1], grass: [0, 1], shadows: [0, 3], effects: [0, 1], borders: [0, 1], stats: [0, 1],
-  res: [50, 100], view: [2, 10], fps: [0, 60], auto: [0, 1], clouds: [0, 1] };
+  res: [50, 100], view: [2, 10], fps: [0, 60], auto: [0, 1], clouds: [0, 1], leaves: [0, 1] };
 // GRAPHICS (#166, operator 2026-11-10: "make graphical settings more configurable (resolution, shadows, etc)"): res is the
 // render resolution in % of the screen's pixels, shadows off / low / medium / high (the sun's shadow map size and reach),
 // view the chunks drawn around you, fps a frame-rate cap (0: none). A phone starts on what it can carry — no shadows,
@@ -3445,6 +3453,7 @@ function renderSettings() {
     + sel("fps", T("gFps", "Frame-rate cap"), [[0, T("gFpsNone", "None")], [30, "30"], [60, "60"]])
     + sel("grass", T("gGrass", "Grass"), onOff)
     + sel("clouds", T("gClouds", "Clouds"), onOff)
+    + sel("leaves", T("gLeaves", "Leaves lit through"), onOff)
     + sel("effects", T("gEffects", "Effects (bloom, ambient light)"), onOff)
     + sel("auto", T("gAuto", "Adjust automatically (presets only)"), onOff)
     + sel("fov", T("gFov", "Field of view"), [60, 66, 72, 80, 90, 100, 110].concat([SET.fov]).filter((v, i, a) => a.indexOf(v) === i).sort((a, b) => a - b).map((v) => [v, v + "°"]))
@@ -4085,6 +4094,12 @@ function treeMaterials() {
   leaves.colorNode = shadeByClouds(s.rgb.mul(TSL.attribute("color", "vec3")));
   leaves.opacityNode = s.a;
   leaves.maskShadowNode = s.a.greaterThan(0.42);             // the shadow of the leaves, not of their cards (see matForest)
+  // lit through (LEAF_THROUGH): the sun's light through the card — the more squarely it strikes the card (either face:
+  // the cards are two-sided) and the more the viewer looks toward the sun through it — in the leaf's own colour, under the
+  // cloud shadow as its reflected light is (the sun's cast shadows do not reach it: a limit)
+  const sunV = TSL.cameraViewMatrix.mul(TSL.vec4(leafSun.dir, 0)).xyz.normalize();
+  const through = TSL.abs(TSL.normalView.dot(sunV)), toward = TSL.clamp(TSL.positionViewDirection.dot(sunV.negate()), 0, 1);
+  leaves.emissiveNode = shadeByClouds(s.rgb.mul(TSL.attribute("color", "vec3")).mul(leafSun.rgb).mul(through.mul(toward).mul(LEAF_THROUGH)));
   // leaves flutter on top of the sway: a quick small motion along each card's normal
   const flutter = TSL.sin(t.mul(9).add(ph.mul(3)).add(TSL.positionLocal.x.mul(4)).add(TSL.positionLocal.z.mul(3))).mul(wind.xyz.length().mul(0.22));
   leaves.positionNode = sway.add(TSL.attribute("normal", "vec3").mul(flutter));
@@ -4330,6 +4345,8 @@ function sky(fr) {
   // fill — what a cloud takes away where it stands between (shadeByClouds); nothing with the clouds off or before a map
   { const D = sun.intensity * Math.max(0.05, elev), S = hemi.intensity; shadowO.share.value = SET.clouds && shadowCentre && day > 0 ? D / (D + S) : 0; }
   shadowStrength(SET.clouds ? cloudLitNow : 1);             // under a cloud the sun's cast shadows fade with the sun's part
+  const lt = SET.leaves ? 1 : 0;                            // the leaves lit through (a graphics setting, #166: a cost a phone may decline)
+  leafSun.dir.value.copy(sd); leafSun.rgb.value.set(lt * sun.color.r * sun.intensity, lt * sun.color.g * sun.intensity, lt * sun.color.b * sun.intensity);
   const zen = SKY.nightZ.clone().lerp(SKY.zenith, day).lerp(SKY.duskZ, dusk * 0.5);
   const hor = SKY.nightH.clone().lerp(SKY.horizon, day).lerp(SKY.dusk, dusk * 0.6);
   scene.fog.color.copy(hor); waterSky.copy(hor);
