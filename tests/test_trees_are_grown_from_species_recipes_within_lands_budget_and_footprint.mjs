@@ -101,5 +101,15 @@ for (const kind of ["broadleaf", "birch", "conifer"]) {
   ok(co[1] > co[0] * 0.35 && co[1] < co[0] * 0.6, `…the middle conifer keeps most of its limbs on a budget of its own (bark ${Math.round(co[0])} → ${Math.round(co[1])}, against 1,260 with every limb)`);
   ok(cl[0] > cl[1] * 1.6, `…and a full crown of needles (${Math.round(cl[0])} triangles, against ${Math.round(cl[1])} at the far level)`);
 }
+// #150: the meadow's field plants have a lite build from the middle level on — of the 51k bark in the landing's 45
+// middle chunks the planet's six trees made 2.6k, the rest was wheat, flax and berry bushes drawn as if near
+{
+  const T3 = await import(join(ROOT, "static", "land-trees.js"));
+  const b = (m) => m.bark.idx.length / 3;
+  const pairs = [["wheat", b(T3.wheatModel(500, true)), b(T3.wheatModel(500, true, true))], ["flax", b(T3.flaxModel(500)), b(T3.flaxModel(500, true))], ["berry bush", b(T3.berryBushModel(500)), b(T3.berryBushModel(500, true))]];
+  ok(pairs.every(([, f, l]) => l > 0 && l < f * 0.5), "the lite wheat, flax and berry bush carry under half the full build's triangles: " + pairs.map(([n, f, l]) => `${n} ${f} → ${l}`).join(", "));
+  const mesher = readFileSync(join(ROOT, "static", "land-mesher.js"), "utf8");
+  ok(/flaxModel\([^\n]*, lod >= 1\)/.test(mesher) && /wheatModel\([^\n]*b === B\.wheat, lod >= 1\)/.test(mesher) && /berryBushModel\([^\n]*, lod >= 1\)/.test(mesher), "…and the mesher draws the lite build from the middle level on");
+}
 console.log(fails ? `${fails} FAILED` : "ALL PASS");
 process.exit(fails ? 1 : 0);

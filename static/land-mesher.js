@@ -451,12 +451,12 @@ export function meshChunk(face, cu, cv, ch, edits, boxes, lod, grassOn = true) {
     // each clump its own wind phase: at one phase a whole stand swayed as a single sheet
     else if (FLOWERS.includes(b)) placeModel(flowerModel(1 + Math.floor(hash3(gu, gv, 29) * 997), FLOWERS.indexOf(b)), face, gu + 0.5, gv + 0.5,
                                              col.height - 0.02, rot, 1, 0.001 + hash3(gv, gu, 31) * 6.28, place, bark, foliage, null);
-    else if (b === B.flax) placeModel(flaxModel(1 + Math.floor(hash3(gu, gv, 13) * 997)), face, gu + 0.5, gv + 0.5, col.height - 0.02, rot, 1,
+    else if (b === B.flax) placeModel(flaxModel(1 + Math.floor(hash3(gu, gv, 13) * 997), lod >= 1), face, gu + 0.5, gv + 0.5, col.height - 0.02, rot, 1,
                                       0.001 + hash3(gv, gu, 21) * 6.28, place, bark, foliage, null);
     // FOOD (#153, #154): wild grain and a field's wheat (ripe, or still green and short), a berry bush
-    else if (b === B.wheat || b === B.wheatyoung) placeModel(wheatModel(1 + Math.floor(hash3(gu, gv, 37) * 997), b === B.wheat), face, gu + 0.5, gv + 0.5,
+    else if (b === B.wheat || b === B.wheatyoung) placeModel(wheatModel(1 + Math.floor(hash3(gu, gv, 37) * 997), b === B.wheat, lod >= 1), face, gu + 0.5, gv + 0.5,
                                                              col.height - 0.02, rot, 1, 0.001 + hash3(gv, gu, 41) * 6.28, place, bark, foliage, null);
-    else if (b === B.berrybush) placeModel(berryBushModel(1 + Math.floor(hash3(gu, gv, 43) * 997)), face, gu + 0.5, gv + 0.5, col.height - 0.02, rot, 1,
+    else if (b === B.berrybush) placeModel(berryBushModel(1 + Math.floor(hash3(gu, gv, 43) * 997), lod >= 1), face, gu + 0.5, gv + 0.5, col.height - 0.02, rot, 1,
                                            0.001 + hash3(gv, gu, 47) * 6.28, place, bark, foliage, null);
     else if (b === B.boulder) pebble(boulders, face, gu + 0.5, gv + 0.5, col.height, 0.45 + 0.35 * hash3(gv, gh, gu), hash3(gu, gv, 13), rot, place, true);
     else pebble(stones, face, gu + ou, gv + ov, col.height, 0.11 + 0.1 * hash3(gv, gh, gu), hash3(gu, gv, 11), rot, place);

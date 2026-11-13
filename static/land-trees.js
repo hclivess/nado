@@ -212,38 +212,46 @@ export function leafCellModel(tile) {
 /** A clump of flax (land-world B.flax): thin upright stems, 55-85 cm, each topped with a small sky-blue flower — it grows
  *  in stands on the meadows and is pulled up by hand for its fibre ("adding additional recipes and materials ... in a
  *  sensible, realistic yet engaging manner", operator 2026-11-07). Stems in the bark part, tinted green; flowers too. */
-export function flaxModel(seed) {
+// LITE (#150, measured 2026-11-13: of the 51k bark triangles in the 45 middle-level chunks round the landing, the
+// planet's own six trees made 2.6k — the rest were the meadow's field plants, wheat at 304 triangles a plant, flax at
+// 168, a berry bush at 360, drawn the same at every distance): from the middle level on, half the stalks (every other
+// one, kept a little stouter so the tuft holds its mass), three-sided ears, flowers and berries, and no awns.
+export function flaxModel(seed, lite = false) {
   const R = rng(seed), bark = part(), leaves = part(), n = 6 + Math.floor(R() * 4);
   for (let k = 0; k < n; k++) {
     const a = R() * Math.PI * 2, r = 0.05 + R() * 0.13, h = 0.55 + R() * 0.3, lean = (R() - 0.5) * 0.12;
+    if (lite && k % 2) continue;
     const b0 = [Math.cos(a) * r, Math.sin(a) * r, 0], top = [b0[0] + Math.cos(a) * lean, b0[1] + Math.sin(a) * lean, h];
     const mid = [(b0[0] + top[0]) / 2, (b0[1] + top[1]) / 2, h * 0.5];
     // the tints LIFT the bark texture (a dark brown) to a fresh green stem and a sky-blue flower — at 1x they drew black
-    tube(bark, [b0, mid, top], [0.009, 0.007, 0.005], 3, (i) => i * 0.35, 0, [1.3, 2.9, 1.1]);
-    tube(bark, [add(top, [0, 0, -0.01]), add(top, [0, 0, 0.035])], [0.03, 0.016], 6, () => 0.7, 0, [1.7, 2.7, 6.2]);   // the flower
+    const w = lite ? 1.4 : 1;
+    tube(bark, [b0, mid, top], [0.009 * w, 0.007 * w, 0.005 * w], 3, (i) => i * 0.35, 0, [1.3, 2.9, 1.1]);
+    tube(bark, [add(top, [0, 0, -0.01]), add(top, [0, 0, 0.035])], [0.03 * w, 0.016 * w], lite ? 3 : 6, () => 0.7, 0, [1.7, 2.7, 6.2]);   // the flower
   }
   return { bark, leaves };
 }
 /** WHEAT (land-world B.wheat, B.wheatyoung; #153, #154): a tuft of stems. Ripe (wild grain on the meadow, or a field's
  *  harvest) 70-100 cm, golden, each topped with a fat ear and its awns; sown and still growing, a short green tuft —
  *  the field is seen to ripen. Stems and ears in the bark part, tinted as flax's are (the tints lift the bark texture). */
-export function wheatModel(seed, ripe) {
+export function wheatModel(seed, ripe, lite = false) {
   const R = rng(seed), bark = part(), leaves = part(), n = ripe ? 7 + Math.floor(R() * 4) : 5 + Math.floor(R() * 3);
   const stem = ripe ? [5.2, 4.3, 1.5] : [1.3, 3.1, 1.0], ear = [5.8, 4.6, 1.7];
   for (let k = 0; k < n; k++) {
     const a = R() * Math.PI * 2, r = 0.04 + R() * 0.13, h = ripe ? 0.7 + R() * 0.3 : 0.22 + R() * 0.14, lean = (R() - 0.5) * (ripe ? 0.16 : 0.08);
     const b0 = [Math.cos(a) * r, Math.sin(a) * r, 0], top = [b0[0] + Math.cos(a) * lean, b0[1] + Math.sin(a) * lean, h];
-    tube(bark, [b0, [(b0[0] + top[0]) / 2, (b0[1] + top[1]) / 2, h * 0.5], top], [0.008, 0.006, 0.004], 3, (i) => i * 0.4, 0, stem);
+    if (lite && k % 2) continue;
+    const w = lite ? 1.4 : 1;
+    tube(bark, [b0, [(b0[0] + top[0]) / 2, (b0[1] + top[1]) / 2, h * 0.5], top], [0.008 * w, 0.006 * w, 0.004 * w], 3, (i) => i * 0.4, 0, stem);
     if (!ripe) continue;
     const nod = [Math.cos(a) * 0.03, Math.sin(a) * 0.03, 0.09];                  // the ear nods a little under its weight
-    tube(bark, [top, add(top, mul(nod, 0.5)), add(top, nod)], [0.012, 0.016, 0.006], 5, () => 0.8, 0, ear);
-    tube(bark, [add(top, nod), add(top, add(nod, [0, 0, 0.06]))], [0.002, 0.001], 3, () => 0.9, 0, ear);   // the awns
+    tube(bark, [top, add(top, mul(nod, 0.5)), add(top, nod)], [0.012 * w, 0.016 * w, 0.006 * w], lite ? 3 : 5, () => 0.8, 0, ear);
+    if (!lite) tube(bark, [add(top, nod), add(top, add(nod, [0, 0, 0.06]))], [0.002, 0.001], 3, () => 0.9, 0, ear);   // the awns
   }
   return { bark, leaves };
 }
 /** A BERRY BUSH (land-world B.berrybush; #153): a low round bush of leaves, half a metre to 80 cm, hung with red berries
  *  — what a forager looks for at the meadow's edge. Leaves as cards (the leaves part), berries small red beads. */
-export function berryBushModel(seed) {
+export function berryBushModel(seed, lite = false) {
   const R = rng(seed), bark = part(), leaves = part(), h = 0.5 + R() * 0.3, w = 0.35 + R() * 0.15;
   for (let k = 0; k < 5; k++) {
     const a = R() * Math.PI * 2;
@@ -255,7 +263,8 @@ export function berryBushModel(seed) {
   }
   for (let k = 0; k < 16; k++) {
     const a = R() * Math.PI * 2, z = h * (0.25 + R() * 0.7), d = w * (0.55 + R() * 0.5), c = [Math.cos(a) * d, Math.sin(a) * d, z];
-    tube(bark, [add(c, [0, 0, -0.018]), c, add(c, [0, 0, 0.018])], [0.004, 0.02, 0.004], 5, () => 0.3, 0, [6.4, 0.5, 0.8]);
+    if (lite && k % 2) continue;                                              // (the RNG drawn above all the same: the bush is the same bush)
+    tube(bark, [add(c, [0, 0, -0.018]), c, add(c, [0, 0, 0.018])], [0.004, lite ? 0.026 : 0.02, 0.004], lite ? 3 : 5, () => 0.3, 0, [6.4, 0.5, 0.8]);
   }
   return { bark, leaves };
 }
