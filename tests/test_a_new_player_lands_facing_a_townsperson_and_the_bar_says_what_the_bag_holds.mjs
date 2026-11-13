@@ -40,7 +40,7 @@ ok(ahead.length >= 1, `a townsperson stands in the landing's view, within 8 m an
 ok(npcs.every((n) => n.dist > 0.7), "…and none stands on the landing itself (a body's width clear)");
 
 // 2. the empty bar
-const hb = land.slice(land.indexOf("function hotbar()"), land.indexOf("function hotbar()") + 1200);
+const hb0 = land.indexOf("function hotbar()"), hb = land.slice(hb0, land.indexOf("\nfunction ", hb0 + 1));   // the whole function (a fixed 1200 chars missed the empty bar once the gadget keys' branch stood above it, #196)
 ok(/const held = net\.me && RULES \? Object\.values\(inv\.items \|\| \{\}\)\.filter\(\(n\) => n > 0\)\.length : 0;/.test(hb)
    && /held \? T\("bagHeld", "[^"]*\{n\}[^"]*", \{ n: held \}\) : T\("emptyHands"/.test(hb) && /!net\.me \? T\("signInGather"/.test(hb),
    "with unplaceable things in the bag the empty bar says land.bagHeld with the count; signed out, sign in; empty, gather");
