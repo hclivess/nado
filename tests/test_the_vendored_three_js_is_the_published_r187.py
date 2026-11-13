@@ -22,9 +22,10 @@ check = _report.check
 D = os.path.join(ROOT, "static", "vendor", "three")
 src = open(os.path.join(D, "SOURCE.txt")).read()
 pins = dict((name, h) for h, name in re.findall(r"^([0-9a-f]{64})  (\S+)$", src, re.M))
-check("SOURCE.txt pins the three build files, the licence and the post-processing add-ons",
+check("SOURCE.txt pins the three build files, the licence, the post-processing add-ons and the cascaded shadow maps",
       set(pins) == {"three.webgpu.js", "three.core.js", "three.tsl.js", "LICENSE", "addons/tsl/display/GTAONode.js",
-                    "addons/tsl/display/BloomNode.js", "addons/tsl/display/FXAANode.js"}, pins)
+                    "addons/tsl/display/BloomNode.js", "addons/tsl/display/FXAANode.js",
+                    "addons/csm/CSMShadowNode.js", "addons/csm/CSMFrustum.js"}, pins)
 for name, want in sorted(pins.items()):
     p = os.path.join(D, name)
     got = hashlib.sha256(open(p, "rb").read()).hexdigest() if os.path.exists(p) else None
@@ -35,7 +36,7 @@ for name in ("three.webgpu.js", "three.tsl.js"):
     check(f"every file {name} imports is vendored beside it", deps and all(os.path.exists(os.path.join(D, x)) for x in deps), deps)
 html = open(os.path.join(ROOT, "static", "land.html")).read()
 check("the page's import map points the add-ons' bare imports at this build (through the one-URL shims)",
-      '"three/webgpu":"/static/land-three-webgpu.js"' in html and '"three/tsl":"/static/land-three-tsl.js"' in html
+      '"three":"/static/land-three-webgpu.js"' in html and '"three/webgpu":"/static/land-three-webgpu.js"' in html and '"three/tsl":"/static/land-three-tsl.js"' in html
       and 'export * from "/static/vendor/three/three.webgpu.js"' in open(os.path.join(ROOT, "static", "land-three-webgpu.js")).read()
       and 'export * from "/static/vendor/three/three.tsl.js"' in open(os.path.join(ROOT, "static", "land-three-tsl.js")).read())
 land = open(os.path.join(ROOT, "static", "land.js")).read()

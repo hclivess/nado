@@ -19,3 +19,10 @@ e7a39bf41581b5ada6463dfd2e571c6fff27648e459cc0d7fd13d64bbcf0f6ea  addons/tsl/dis
 fe11c77f90f9eac220a382a6796b7ee8a49d41603c6813d9271b29dbe39469d5  addons/tsl/display/FXAANode.js
 
 three.webgpu.js imports ./three.core.js and ./three.tsl.js; three.tsl.js imports ./three.core.js. MIT licensed.
+
+Cascaded shadow maps, package/examples/jsm/csm/* from the same tarball, unmodified (CSMShadowNode imports "three/webgpu" and
+"three/tsl"; CSMFrustum imports "three", which land.html's import map sends to the same one-URL shim as "three/webgpu"
+— the WebGPU build re-exports the core). The sun's shadow reaches the meadow through them (#183 step 4, 2026-11-13):
+
+fe57b5b938b218a04fd815ae2a7f23b9fa9b2acef232bf458b95c01e97a1d6a7  addons/csm/CSMShadowNode.js
+3a86e523921a69159c2a5b6aa0269527d7b99875ceea9a2a6b71ac8e0fbdd408  addons/csm/CSMFrustum.js

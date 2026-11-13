@@ -26,6 +26,7 @@ import * as TSL from "three/tsl";
 import { ao } from "three/addons/tsl/display/GTAONode.js";
 import { bloom } from "three/addons/tsl/display/BloomNode.js";
 import { fxaa } from "three/addons/tsl/display/FXAANode.js";
+import { CSMShadowNode } from "three/addons/csm/CSMShadowNode.js";   // the sun's shadow in cascades, out to the meadow (#183 step 4)
 import * as Wd from "./land-world.js";
 import * as Shapes from "./land-shapes.js";
 import * as Cosmos from "./land-cosmos.js";
@@ -1289,6 +1290,10 @@ async function bakeForest() {
   m.positionNode = TSL.positionLocal.add(TSL.attribute("off", "vec3").mul(show));
   m.colorNode = shadeByClouds(s.rgb.mul(TSL.attribute("color", "vec3")));
   m.opacityNode = s.a;
+  // A CARD'S SHADOW IS ITS CUT-OUT, NOT ITS RECTANGLE: three's shadow pass takes a material's alpha from its colour node
+  // and its map, never from opacityNode, so a card with a three-channel colour cast its whole quad — every far tree a
+  // dark slab across the meadow (the first cascade shot, 2026-11-13). maskShadowNode discards in the shadow pass alone.
+  m.maskShadowNode = s.a.greaterThan(0.4);
   matForest = m;
 }
 function forestDone(k, m) {
@@ -1303,6 +1308,7 @@ function forestDone(k, m) {
   g.setIndex(new THREE.BufferAttribute(m.idx, 1));
   g.computeBoundingSphere(); g.boundingSphere.radius += 16;   // (position is each tree's ROOT: the cards reach up and out from it)
   f.mesh = new THREE.Mesh(g, matForest); f.mesh.userData.anchor = m.anchor; f.n = m.n; forestTrees += m.n;
+  f.mesh.castShadow = true;                                  // the far trees cast too: the long shadows across the far ground (#183 step 4)
   scene.add(f.mesh);
 }
 /** The forest tiles around the player, and which chunk columns the scene has meshed (their far trees hide). */
@@ -3333,7 +3339,12 @@ const SET_RANGE = { fov: [50, 110], sens: [0.2, 4], invert: [0, 1], sound: [0, 1
 // view the chunks drawn around you, fps a frame-rate cap (0: none). A phone starts on what it can carry — no shadows,
 // grass or effects, 4 chunks — and any of them can be turned on in the panel (they used to be refused on a touch screen).
 const SET_PHONE = { shadows: 0, grass: 0, effects: 0, view: 4 };
-const SHADOW_Q = [null, { map: 1024, box: 32 }, { map: 2048, box: 48 }, { map: 4096, box: 64 }];   // by SET.shadows
+// by SET.shadows: the map a cascade gets, how many cascades, and how far the last one reaches. SHADOWS REACH THE MEADOW
+// (#183 step 4, the concept picture's long tree shadows across the far ground): one box of 64 m round the player gave the
+// meadow no shadow at all past it; the sun's shadow is CASCADED now (three's CSMShadowNode, vendored: the camera's frustum
+// split 'practically' into cascades, each with its own map, the near one at a centimetre, the far one at the far trees).
+const SHADOW_Q = [null, { map: 1024, cascades: 2, far: 90 }, { map: 2048, cascades: 3, far: 200 }, { map: 4096, cascades: 3, far: 320 }];
+let csm = null;                                              // the sun's cascades (shadowQuality)
 const SET_VER = 2;                      // stored with the settings: 1 had shadows 0/1 (1 = today's medium), no phone choice
 const SET = (() => {
   let s = {};
@@ -3375,7 +3386,7 @@ function conShow(open, prefill) {
   if (open) $("help").classList.add("hidden");                          // shown once only (wireInput: THE WELCOME CARD, ONCE)
 }
 function applySetting(k) {
-  if (k === "fov" && camera) { camera.fov = SET.fov; camera.updateProjectionMatrix(); }
+  if (k === "fov" && camera) { camera.fov = SET.fov; camera.updateProjectionMatrix(); if (csm) csm.updateFrustums(); }
   if (k === "grass") for (const key of chunks.keys()) request(key);           // re-mesh with or without the blades
   if (!renderer) return;                                                       // before start(): start() applies them all
   if (k === "res") { renderer.setPixelRatio(basePR() * SET.res / 100); if (stars) stars.material.size = starPx(1.6); if (satPts) satPts.material.size = starPx(3.2); }
@@ -3383,15 +3394,25 @@ function applySetting(k) {
   if (k === "view") { viewDist = SET.view; if (scene && scene.fog) scene.fog.near = viewDist * CHUNK * 0.9; updateChunks(); buildFar(); updateForest(); }   // (the far trees' reach follows the preset, #150)
   if (k === "effects") pipeline = buildPipeline();                             // the post-processing is built again, or dropped
 }
-/** The sun's shadow map for SET.shadows: its size and the box it covers; the old map is let go so the next frame draws a
- *  new one at the new size. Off casts nothing (frame: sun.castShadow). */
+/** The sun's shadow for SET.shadows: the cascades' map size, count and reach. The cascades clone the sun's shadow when
+ *  they are built, so a new preset builds them again and has every material take the new node (needsUpdate). Off casts
+ *  nothing (frame: sun.castShadow). */
 function shadowQuality() {
   const q = SHADOW_Q[SET.shadows];
   if (!q || !sun) return;
   sun.shadow.mapSize.set(q.map, q.map);
-  Object.assign(sun.shadow.camera, { left: -q.box, right: q.box, top: q.box, bottom: -q.box });
-  sun.shadow.camera.updateProjectionMatrix();
   if (sun.shadow.map) { sun.shadow.map.dispose(); sun.shadow.map = null; }
+  if (csm) csm.dispose();
+  csm = new CSMShadowNode(sun, { cascades: q.cascades, maxFar: q.far, mode: "practical", lightMargin: 200 });
+  csm.fade = true;                                           // a cascade's edge blends into the next, not a seam across the ground
+  sun.shadow.shadowNode = csm;
+  if (scene) scene.traverse((o) => { if (o.material) o.material.needsUpdate = true; });
+}
+/** The sun's cast shadows fade under a cloud: the shadow's strength is what the layer lets through over the player
+ *  (cloudLitNow), on the sun's own shadow and on every cascade's clone of it. */
+function shadowStrength(v) {
+  sun.shadow.intensity = v;
+  if (csm) for (const l of csm.lights) l.shadow.intensity = v;
 }
 // ---- the graphics panel (#166): presets and each setting, applied at once and kept in this browser ------------------------
 const settingsOpen = () => !$("setPanel").classList.contains("hidden");
@@ -3931,6 +3952,7 @@ function grassMeshes(gr) {
     matGrass = new THREE.MeshStandardNodeMaterial({ roughness: 0.9, metalness: 0, alphaTest: 0.5 });
     const card = TSL.texture(cardTex, TSL.uv());
     matGrass.colorNode = shadeByClouds(card.rgb.mul(TSL.instanceColor));            // the painted blades in the clump's own tint
+    matGrass.maskShadowNode = card.a.greaterThan(0.5);     // a blade's shadow, not its card's (see matForest)
     matGrass.opacityNode = card.a;
     matGrass.positionNode = swayed;
     matFlower = new THREE.MeshStandardNodeMaterial({ roughness: 0.85, metalness: 0 });
@@ -4062,6 +4084,7 @@ function treeMaterials() {
   const leaves = new THREE.MeshStandardNodeMaterial({ roughness: 0.7, metalness: 0, side: THREE.DoubleSide, alphaTest: 0.42 });
   leaves.colorNode = shadeByClouds(s.rgb.mul(TSL.attribute("color", "vec3")));
   leaves.opacityNode = s.a;
+  leaves.maskShadowNode = s.a.greaterThan(0.42);             // the shadow of the leaves, not of their cards (see matForest)
   // leaves flutter on top of the sway: a quick small motion along each card's normal
   const flutter = TSL.sin(t.mul(9).add(ph.mul(3)).add(TSL.positionLocal.x.mul(4)).add(TSL.positionLocal.z.mul(3))).mul(wind.xyz.length().mul(0.22));
   leaves.positionNode = sway.add(TSL.attribute("normal", "vec3").mul(flutter));
@@ -4306,6 +4329,7 @@ function sky(fr) {
   // the sun's share of the light on level ground: its irradiance (intensity × the sine of its height) against the sky's
   // fill — what a cloud takes away where it stands between (shadeByClouds); nothing with the clouds off or before a map
   { const D = sun.intensity * Math.max(0.05, elev), S = hemi.intensity; shadowO.share.value = SET.clouds && shadowCentre && day > 0 ? D / (D + S) : 0; }
+  shadowStrength(SET.clouds ? cloudLitNow : 1);             // under a cloud the sun's cast shadows fade with the sun's part
   const zen = SKY.nightZ.clone().lerp(SKY.zenith, day).lerp(SKY.duskZ, dusk * 0.5);
   const hor = SKY.nightH.clone().lerp(SKY.horizon, day).lerp(SKY.dusk, dusk * 0.6);
   scene.fog.color.copy(hor); waterSky.copy(hor);
@@ -4933,8 +4957,8 @@ async function start() {
   camera = new THREE.PerspectiveCamera(SET.fov, innerWidth / innerHeight, 0.08, 4000);
   camera.position.set(0, 0, 0);
   sun = new THREE.DirectionalLight(0xfff4e0, 3);
-  Object.assign(sun.shadow.camera, { near: 10, far: 320 });
-  shadowQuality();                                          // map size and reach by SET.shadows (#166); off: medium's, unused
+  Object.assign(sun.shadow.camera, { near: 1, far: 1200 });   // (the cascades clone it: deep enough for the far cascade plus the light margin)
+  shadowQuality();                                          // the cascades by SET.shadows (#166); off: medium's, unused
   sun.shadow.bias = -0.0004; sun.shadow.normalBias = 0.04;
   scene.add(sun, sun.target);                               // the target stays at the origin: the player
   moon = new THREE.DirectionalLight(0x8fa8d8, 0.3); scene.add(moon, moon.target);
@@ -4993,7 +5017,7 @@ async function start() {
   scene.add(ghost);
   highlight = new THREE.LineSegments(new THREE.EdgesGeometry(new THREE.BoxGeometry(1.02, 1.02, 1.02)), new THREE.LineBasicMaterial({ color: 0x111111 }));
   scene.add(highlight);
-  addEventListener("resize", () => { renderer.setSize(innerWidth, innerHeight); camera.aspect = innerWidth / innerHeight; camera.updateProjectionMatrix(); });
+  addEventListener("resize", () => { renderer.setSize(innerWidth, innerHeight); camera.aspect = innerWidth / innerHeight; camera.updateProjectionMatrix(); if (csm) csm.updateFrustums(); });
   pipeline = buildPipeline();
   startWorkers();
   wireInput(canvas);
