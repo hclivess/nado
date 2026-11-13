@@ -41,6 +41,7 @@ export function play(ctx, name, vol = 1, at = null) {
 // roar at a craft's speed. windLevel gives its level 0..1 from the height over the ground (m) and the speed (m/s); the
 // filter opens with it (a gale is bright, a breeze dull). Synthesised: no sound file to choose.
 export const WIND = { base: 0.04, high: 0.12, highAt: 80, fast: 0.84, fastAt: 150, gain: 0.22, hz0: 250, hz1: 3000 };
+export const ENGINE = { hz0: 48, hz1: 130, gain: 0.14 };   // the drone's pitch idle and at full throttle (Hz), its level at full
 export function windLevel(above, speed) {
   const h = Math.min(1, Math.max(0, above) / WIND.highAt), v = Math.min(1, Math.max(0, speed) / WIND.fastAt);
   return Math.min(1, WIND.base + WIND.high * h + WIND.fast * v ** 1.5);
@@ -70,6 +71,24 @@ export class Sound {
     }
     this.windG.gain.setTargetAtTime(WIND.gain * lv, c.currentTime, 0.2);
     this.windF.frequency.setTargetAtTime(WIND.hz0 + (WIND.hz1 - WIND.hz0) * lv ** 0.8, c.currentTime, 0.2);
+    return true;
+  }
+  /** THE ENGINES (#113, #171: "the engines have 0 effects"): a low drone while the pilot's craft works — two detuned saws
+   *  through a low-pass, its pitch and level with the throttle (0..1, land-flight.js c.engine.throttle), silent at idle and
+   *  off the controls. Built on first use, eased over a tenth of a second. */
+  engine(throttle) {
+    if (!this.ctx || !this.ctx.createBiquadFilter) return false;
+    const c = this.ctx, th = this.on() ? Math.max(0, Math.min(1, throttle)) : 0;
+    if (!this.engG) {
+      this.engF = c.createBiquadFilter(); this.engF.type = "lowpass"; this.engF.frequency.value = ENGINE.hz0 * 4;
+      this.engG = c.createGain(); this.engG.gain.value = 0;
+      this.engO = [0, 1].map((k) => { const o = c.createOscillator(); o.type = "sawtooth"; o.frequency.value = ENGINE.hz0 * (1 + k * 0.012); o.connect(this.engF); o.start(); return o; });
+      this.engF.connect(this.engG); this.engG.connect(c.destination);
+    }
+    const hz = ENGINE.hz0 + (ENGINE.hz1 - ENGINE.hz0) * th;
+    this.engO.forEach((o, k) => o.frequency.setTargetAtTime(hz * (1 + k * 0.012), c.currentTime, 0.1));
+    this.engF.frequency.setTargetAtTime(hz * 4, c.currentTime, 0.1);
+    this.engG.gain.setTargetAtTime(ENGINE.gain * th, c.currentTime, 0.1);
     return true;
   }
   cue(name, vol = 1, gap = 60) {

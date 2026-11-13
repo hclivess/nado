@@ -4802,6 +4802,7 @@ function frame(now) {
     frame.windAt = now;
     const at = flying ? flying.pose : [P.face, P.u, P.v, P.h], spd = flying ? Math.hypot(...flying.vel) : Math.hypot(P.vu || 0, P.vv || 0, P.vh || 0);
     sound.wind(windLevel(at[3] - Wd.column(at[0], Math.floor(at[1]), Math.floor(at[2])).height, spd));
+    sound.engine(flying && flying.engine ? flying.engine.throttle : 0);   // the pilot's own engines (#171)
   }
   // the aimed block's outline
   const a = pt("aim", () => aim());

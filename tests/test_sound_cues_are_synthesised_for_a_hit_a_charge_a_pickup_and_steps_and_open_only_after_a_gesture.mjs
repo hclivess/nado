@@ -89,5 +89,18 @@ ok(Snd.windLevel(0, 0) < 0.06 && Snd.windLevel(80, 0) > Snd.windLevel(0, 0) + 0.
 }
 const pageW = readFileSync(join(ROOT, "static", "land.js"), "utf8");
 ok(/const at = flying \? flying\.pose : \[P\.face, P\.u, P\.v, P\.h\], spd = flying \? Math\.hypot\(\.\.\.flying\.vel\)/.test(pageW) && /sound\.wind\(windLevel\(/.test(pageW), "the page sets the wind from the height and the craft's airspeed when flying");
+// 2c. the engines: a drone that follows the throttle
+{
+  let eon = true; const e = new Snd.Sound(() => eon, FakeCtx);
+  ok(e.engine(1) === false, "no engine drone before the context opens");
+  e.enable(); e.engine(0);
+  const oscE = e.ctx.made.filter((n) => n instanceof Osc);
+  ok(oscE.length === 2 && oscE.every((o) => o.type === "sawtooth" && o.to === e.engF) && e.engF.to === e.engG && e.engG.to === e.ctx.destination && e.engG.gain.value === 0, "two detuned saws through a low-pass into a gain, silent at idle");
+  e.engine(1);
+  ok(Math.abs(e.engG.gain.value - Snd.ENGINE.gain) < 1e-9 && Math.abs(oscE[0].frequency.value - Snd.ENGINE.hz1) < 1e-9 && e.ctx.made.filter((n) => n instanceof Osc).length === 2, `at full throttle it drones at ${Snd.ENGINE.hz1} Hz, level ${Snd.ENGINE.gain}, the same two oscillators`);
+  eon = false; e.engine(1);
+  ok(e.engG.gain.value === 0, "the sound setting off silences it");
+}
+ok(/sound\.engine\(flying && flying\.engine \? flying\.engine\.throttle : 0\);/.test(readFileSync(join(ROOT, "static", "land.js"), "utf8")), "the page drives it from the flown craft's throttle, silent off the controls");
 console.log(fails ? `${fails} FAILED` : "all passed");
 process.exit(fails ? 1 : 0);
