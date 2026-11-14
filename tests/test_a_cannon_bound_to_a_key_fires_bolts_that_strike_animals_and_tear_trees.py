@@ -123,6 +123,14 @@ async def main():
     await asyncio.sleep(S.World.BOLT_EVERY + 0.05)
     res, _, err = await world.bolt(a, cid, north, None)
     check("…nor one with no cannon bound to a key", err == "no cannon bound to a key", err)
+    # the owner binds the cannon at the controls (World.bind_craft, the page's digit at the aimed piece), and a piece that
+    # is no gadget is refused with a message that names the cannon among what takes a key (it named a thruster and an
+    # engine only, 2026-11-14)
+    err = world.bind_craft(a, cid, gi, 1)
+    check("5. the owner binds the craft's cannon to key 1", err is None and c["slots"][gi] == 1, (err, c.get("slots")))
+    ngi = next(i for i, p in enumerate(c["pieces"]) if not S.is_gadget(p))
+    err = world.bind_craft(a, cid, ngi, 1)
+    check("…a piece that does nothing is refused, and the refusal names a cannon as a thing that takes a key", err and "a cannon takes a key" in err, err)
     c["slots"] = [1 if i == gi else 0 for i in range(len(c["pieces"]))]
     await asyncio.sleep(S.World.BOLT_EVERY + 0.05)
     res, _, err = await world.bolt(a, cid, north, None)

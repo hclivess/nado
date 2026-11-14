@@ -2674,7 +2674,7 @@ class World:
         if not rec or not isinstance(b, list) or b not in rec.get("boxes", []):
             return "no such piece here"
         if not is_gadget(b):
-            return "that does nothing a key could fire — a thruster or an engine takes a key"
+            return "that does nothing a key could fire — a thruster, an engine or a cannon takes a key"   # (a cannon is a gadget since #171: the message named only the first two)
         if not await self.may_build(p, who):
             return "not yours to set — only the plot's builders bind its gadgets"
         g = rec.setdefault("gadgets", {})
@@ -2698,7 +2698,7 @@ class World:
         if not isinstance(i, int) or isinstance(i, bool) or not 0 <= i < len(c["pieces"]):
             return "no such piece on it"
         if not is_gadget(c["pieces"][i]):
-            return "that does nothing a key could fire — a thruster or an engine takes a key"
+            return "that does nothing a key could fire — a thruster, an engine or a cannon takes a key"   # (a cannon is a gadget since #171: the message named only the first two)
         slots = c.get("slots") or [0] * len(c["pieces"])
         slots = (slots + [0] * len(c["pieces"]))[:len(c["pieces"])]
         slots[i] = slot
