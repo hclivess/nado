@@ -4371,10 +4371,19 @@ function satSky(at, opacity) {
   satPts.geometry.setDrawRange(0, k); pos.needsUpdate = true;
   satPts.material.opacity = opacity;
 }
+const TWI_LOW = Math.sin(-12 * Math.PI / 180), TWI_HIGH = Math.sin(2 * Math.PI / 180);   // the sky's light: from nautical twilight's end to 2° up
+const MOON_I = 1.3, NIGHT_FILL = 1.5;                      // a moonlit night: the moon and the sky's fill at full night (were 0.9, 1.1)
 function sky(fr) {
   const star = Cosmos.sunFrom(Wd.PLANET), sd = new THREE.Vector3(...star.dir), up = new THREE.Vector3(fr.up[0], fr.up[1], fr.up[2]);
   const elev = sd.dot(up);                                  // the sun's height over this player's horizon (-1..1)
-  const day = smooth01(-0.08, 0.22, elev), dusk = Math.max(0, 1 - Math.abs(elev) / 0.22);
+  // A LONGER DAY THAN NIGHT, AND A NIGHT ONE CAN SEE IN (#181 item 1, approved by the operator 2026-11-14): the sky's
+  // light follows TWILIGHT — civil twilight lasts while the sun is up to 6° under the horizon, nautical to 12°, and in
+  // civil twilight "enough illumination renders artificial sources unnecessary for most outdoor activities" (land
+  // research: wikipedia Twilight) — so the sky lights the land from 2° over the horizon down to 12° under it (`day`),
+  // where it went dark at 4.6° under. At the landing that makes 57 % of each 40-minute day light, against 50 %. The SUN's
+  // own light (`sunUp`) still ends at the horizon: a sun under the ground lights nothing. The night keeps a moonlit
+  // ground one can find one's way on (moon and sky fill raised below), and a hand torch is early in the recipes.
+  const day = smooth01(TWI_LOW, TWI_HIGH, elev), sunUp = smooth01(-0.02, 0.22, elev), dusk = Math.max(0, 1 - Math.abs(elev) / 0.22);
   dayNow = day;                                             // (the aim outline reads it: dark by day, light by night, #177)
   torchNight = 1 - day;
   sun.position.copy(sd).multiplyScalar(150);
@@ -4389,7 +4398,7 @@ function sky(fr) {
     cloudLitWant = Clouds.sunLit(Clouds.noiseVolume(), Wd.posOf(P.face, P.u, P.v, P.h), star.dir);
   }
   cloudLitNow += ((SET.clouds ? cloudLitWant : 1) - cloudLitNow) * Math.min(1, (performance.now() - cloudLitStep) / 1000); cloudLitStep = performance.now();
-  sun.intensity = 2.4 * Math.min(1.6, star.flux) * day;
+  sun.intensity = 2.4 * Math.min(1.6, star.flux) * sunUp;
   // shadows only once the sun is well up: at a grazing sun the shadow map streaks the ground (acne), and real dusk
   // shadows are long and faint anyway
   sun.castShadow = elev > 0.12 && !!SET.shadows;
@@ -4397,9 +4406,9 @@ function sky(fr) {
   // A NIGHT YOU CAN FIND YOUR WAY IN: half of every 40-minute day is night, and it was all but black — the ground at
   // 6 of 255 away from the town's lamps, no tree to be found to fell (walking the live page as the town agent,
   // 2026-11-08). Moonlight and a blue sky fill now light it the way a game's night reads: dim, blue, readable.
-  moon.intensity = 0.9 * (1 - day);
+  moon.intensity = MOON_I * (1 - sunUp);                 // the moon from sunset, not from twilight's end: 10° under was darker than midnight
   hemi.position.copy(up);                                   // three's hemisphere light assumes +Y; here "up" is radial
-  hemi.intensity = (1.1 + 1.1 * day) * (0.85 + 0.15 * cloudLitNow);   // the sky lights what the sun does not reach: a wall in its own
+  hemi.intensity = (NIGHT_FILL + (2.2 - NIGHT_FILL) * day) * (0.85 + 0.15 * cloudLitNow);   // the sky lights what the sun does not reach: a wall in its own
                                                             // shade is dim, never black (the first house render was)
   hemi.color.copy(SKY.moonFill).lerp(SKY.horizon, day);
   // the sun's share of the light on level ground: its irradiance (intensity × the sine of its height) against the sky's
@@ -4657,7 +4666,12 @@ const TORCH_LIGHTS = PHONE ? 2 : 8, torchLights = [];
 // (cm). A lantern lights a yard, a street lamp a street ("townhall disappears after walking 20 meters at night",
 // operator 2026-11-07); the pool is given to the sources whose light reaches the player soonest (distance / reach).
 const LIGHTS = { torch: { i: 3, d: 11, f: 1, y: 112 }, fire: { i: 3, d: 9, f: 1, y: 0 },      // (a torch reaches 11 m: the square's posts are ~9 m apart, #181)
-                 lantern: { i: 20, d: 18, f: 0.25, y: 18 }, lamppost: { i: 60, d: 26, f: 0.12, y: 297 } };
+                 lantern: { i: 20, d: 18, f: 0.25, y: 18 }, lamppost: { i: 60, d: 26, f: 0.12, y: 297 },
+                 carried: { i: 3, d: 11, f: 1, y: 0 } };   // a torch in the hand: a placed torch's flame, at the hand
+// A HAND TORCH (#181 item 1, approved 2026-11-14: "a hand torch early in the recipes"): a torch made by hand from a stick
+// and two fibre (land-recipes.json) lights the one who holds it — the selected hotbar item, on foot — as a placed torch
+// lights round it, its flame at the hand and moving with it (its place set every frame, below).
+const carryingTorch = () => !flying && hot[slot] === "torch" && (inv.items.torch || 0) > 0;
 let torchNear = [], torchAt = 0, torchNight = 0;
 function torchTick(now, cam) {
   if (now - torchAt > 500) {
@@ -4679,6 +4693,7 @@ function torchTick(now, cam) {
       const w = Wd.posOf(f, u + 0.5, v + 0.5, h + 0.6);
       all.push([Math.hypot(w[0] - cam[0], w[1] - cam[1], w[2] - cam[2]), w, "fire"]);
     }
+    if (carryingTorch()) all.push([0, null, "carried"]);
     torchNear = all.filter((t) => t[0] < LIGHTS[t[2]].d + 40).sort((a, b) => a[0] / LIGHTS[a[2]].d - b[0] / LIGHTS[b[2]].d)
       .slice(0, TORCH_LIGHTS).map((t) => [t[1], LIGHTS[t[2]]]);
   }
@@ -4686,7 +4701,9 @@ function torchTick(now, cam) {
     const n = torchNear[i];
     // a flame flickers (a lantern's glass steadies it); by day a light is no match for the sun, so it fades in at dusk
     if (!n) { l.intensity = 0; return; }
-    const [w, L] = n, flick = 1 + L.f * (0.2 * Math.sin(now / 90 + i * 1.7) + 0.13 * Math.sin(now / 37 + i));
+    const [w0, L] = n, flick = 1 + L.f * (0.2 * Math.sin(now / 90 + i * 1.7) + 0.13 * Math.sin(now / 37 + i));
+    const w = w0 || (carryingTorch() ? Wd.posOf(P.face, P.u, P.v, P.h + 1.45) : null);   // the carried torch: at the hand, every frame
+    if (!w) { l.intensity = 0; return; }
     l.intensity = L.i * flick * (0.15 + 0.85 * torchNight);
     l.distance = L.d;
     l.position.set(w[0] - cam[0], w[1] - cam[1], w[2] - cam[2]);

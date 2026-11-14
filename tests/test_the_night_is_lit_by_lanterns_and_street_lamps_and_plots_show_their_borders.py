@@ -112,4 +112,23 @@ check("a border is 6 cm wide and fades from full within 16 m of the eye to nothi
       "const BORDER_W = 0.06, BORDER_NEAR = 16, BORDER_FAR = 48;" in page
       and "TSL.float(0.85).mul(TSL.float(1).sub(TSL.smoothstep(BORDER_NEAR, BORDER_FAR, TSL.positionView.length())))" in page
       and "const wd = SHOT !== null ? 0.18 : BORDER_W," in page and "borderMesh = new THREE.Mesh(g, borderMaterial());" in page)
+# 5. a longer day than night and a night one can see in (#181 item 1, approved by the operator 2026-11-14): the sky's
+#    light follows twilight (2 degrees up to 12 under: civil twilight is enough light outdoors), the sun's own light ends
+#    at the horizon, the moon shines from sunset, the night's sky fill is raised; a hand torch from a stick and two
+#    fibre lights the one who holds it
+check("the sky's light follows twilight, from 2 degrees up to 12 under; the sun's own light ends at the horizon",
+      "const TWI_LOW = Math.sin(-12 * Math.PI / 180), TWI_HIGH = Math.sin(2 * Math.PI / 180);" in page
+      and "const day = smooth01(TWI_LOW, TWI_HIGH, elev), sunUp = smooth01(-0.02, 0.22, elev)," in page
+      and "sun.intensity = 2.4 * Math.min(1.6, star.flux) * sunUp;" in page)
+check("a moonlit night: the moon from sunset at 1.3, the sky's fill at full night 1.5 (were 0.9 and 1.1)",
+      "const MOON_I = 1.3, NIGHT_FILL = 1.5;" in page and "moon.intensity = MOON_I * (1 - sunUp);" in page
+      and "hemi.intensity = (NIGHT_FILL + (2.2 - NIGHT_FILL) * day)" in page)
+rules = json.load(open(os.path.join(ROOT, "static", "land-recipes.json")))
+tr = next(r for r in rules["recipes"] if r["id"] == "torch")
+check("a torch is made by hand from a stick and two fibre (no campfire, no charcoal)",
+      tr["uses"] == [["sticks", 1], ["fiber", 2]] and not tr.get("with") and tr["makes"] == [["torch", 1]], tr)
+check("a torch held (the selected hotbar item, on foot) lights the one who holds it, at the hand",
+      'const carryingTorch = () => !flying && hot[slot] === "torch" && (inv.items.torch || 0) > 0;' in page
+      and 'if (carryingTorch()) all.push([0, null, "carried"]);' in page
+      and "const w = w0 || (carryingTorch() ? Wd.posOf(P.face, P.u, P.v, P.h + 1.45) : null);" in page)
 _report.done()

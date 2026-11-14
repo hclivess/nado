@@ -2614,7 +2614,7 @@
    "makes": [
     [
      "torch",
-     2
+     1
     ]
    ],
    "uses": [
@@ -2625,14 +2625,7 @@
     [
      "fiber",
      2
-    ],
-    [
-     "charcoal",
-     1
     ]
-   ],
-   "with": [
-    "campfire"
    ]
   },
   {
