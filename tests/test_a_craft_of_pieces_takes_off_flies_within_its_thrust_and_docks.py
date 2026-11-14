@@ -110,6 +110,33 @@ async def main():
         world.fly(a, cid, ok_pose, bad)
     check("engine work out of range or not numbers is never stored", world.crafts[cid].get("eng") == [0.72, 0.72, 0.0, 0.0], world.crafts[cid].get("eng"))
 
+    # 3c. A FIGHTER AT SPEED AND HEIGHT (operator 2026-11-14: "at speed the craft gets stopped in place"; his trace: 70
+    #     refusals "not a place" at 656 m, the old ceiling, and "faster than it can fly" at 292 m/s on a bunched network)
+    real_time = S.time
+    class Clock:
+        t = real_time.time()
+        def time(self): return Clock.t
+        def __getattr__(self, n): return getattr(real_time, n)
+    S.time = Clock()
+    try:
+        cr = world.crafts[cid]; cr.pop("anc", None); base = list(cr["pose"]); vmax = S.FLIGHT["vmax"]
+        cr["pose"] = [base[0], base[1], base[2], S.H + 2000, 0.5]; cr.pop("anc", None)
+        Clock.t += 0.2; check("…a pose 2,000 m over the world's top is a place (the ceiling is the air's top, 30 km)", world.fly(a, cid, [base[0], base[1] + 10, base[2], S.H + 2000, 0.5]) is None, world.crafts[cid]["pose"])
+        check("…and over the air's top it is not", world.fly(a, cid, [base[0], base[1] + 10, base[2], S.H + 30001, 0.5]) == "not a place")
+        # at top speed, five reports a second, the network bunching two of them 10 ms apart
+        cr.pop("anc", None); u0 = cr["pose"][1]; h0 = cr["pose"][3]; errs = []
+        for k in range(1, 26):
+            Clock.t += 0.01 if k % 5 == 0 else 0.2475                  # every fifth report arrives right behind the last
+            errs.append(world.fly(a, cid, [base[0], u0 + vmax * 0.2 * k, base[2], h0, 0.5]))
+        check(f"at {vmax} m/s for five seconds, with reports bunched by the network, every pose is taken", errs == [None] * 25, errs)
+        Clock.t += 0.2
+        check("…and a jump of 2 km in a fifth of a second is still refused", world.fly(a, cid, [base[0], u0 + vmax * 5 + 2000, base[2], h0, 0.5]) == "faster than it can fly")
+        Clock.t += 3600; cr.pop("anc", None)
+        check("…and after an hour parked the anchor starts afresh: no jump of the hour's distance",
+              world.fly(a, cid, [base[0], cr["pose"][1] + 5000, base[2], h0, 0.5]) == "faster than it can fly")
+    finally:
+        S.time = real_time
+
     # 4. parked, and kept
     check("leaving parks it, and its engines stop", world.leave(a, cid) is None and world.crafts[cid]["pilot"] is None and world.crafts[cid].get("eng") is None)
     _, _, err = await world.board(b, cid=cid)

@@ -477,7 +477,13 @@ CRAFT_PAD = 2                     # cm: pieces this close count as touching (one
                                   # flush wing plates of odd width came out a centimetre apart — the X fighter docked at
                                   # 270° and took off again as 228 of its 267 pieces (2026-11-11). land.js craftSeat agrees.
 CRAFT_PIECES = 400                # pieces one craft holds at most
-CRAFT_SLACK = 12.0                # m a pose may run ahead of vmax x the time since the last (a slow network's bunching)
+CRAFT_SLACK = 12.0                # m a pose may run ahead of vmax x the time since the anchor (a slow network's bunching)
+# A CRAFT FLIES TO THE AIR'S TOP (operator 2026-11-14, flying the X fighter: "at speed the craft gets stopped in place";
+# his page's trace held 70 refusals "not a place" at 656.0 m): a craft's pose was held under H + 400, a walking body's
+# ceiling, and every pose above it was refused and the craft snapped back with its speed zeroed. Its ceiling is the
+# air's top over the world's height (land-planet.js ATM_TOP 30 km: where wings and air give out).
+CRAFT_CEIL = H + 30000
+CRAFT_LAG = 0.5                   # s of a network's lag at top speed a pose may run ahead (an anchor's own report arrived late)
 FAR_R = 2600.0                    # m: the farthest a page may ask for the built land's far view (#193; the page asks 2 km)
 CHARGE_RISE = 8.0                 # m above or below itself an animal still charges a player — DESIGN CHOICE (#192): a hillside
                                   # it runs up, never the air; the strike itself stays within 2.5 m (herd)
@@ -2457,15 +2463,25 @@ class World:
             return "you are not flying that"
         # a pose is [face, u, v, h, yaw] or, for an aircraft (#191), [face, u, v, h, yaw, pitch, roll] in radians
         if not (isinstance(pose, list) and len(pose) in (5, 7) and all(isinstance(x, (int, float)) and not isinstance(x, bool) and math.isfinite(x) for x in pose)
-                and pose[0] == c["pose"][0] and 0 <= pose[1] < W and 0 <= pose[2] < W and DEEP_MIN <= pose[3] < H + 400
+                and pose[0] == c["pose"][0] and 0 <= pose[1] < W and 0 <= pose[2] < W and DEEP_MIN <= pose[3] < CRAFT_CEIL
                 and all(abs(x) <= math.pi for x in pose[5:])):           # (pitch and roll within a half turn; the yaw is the page's own count of turns, unbounded)
             return "not a place"
         now = time.time()
-        far = math.dist(pose[1:4], c["pose"][1:4])
-        if far > FLIGHT["vmax"] * max(0.05, now - c["at"]) + CRAFT_SLACK:
+        # THE PACE OVER A WINDOW (the same trace: "faster than it can fly" at the fighter's 292 m/s): judged against the last
+        # pose alone, two reports a network delivered together (0.2 s of flight, 58 m, arriving 0.01 s apart) read as a
+        # jump, and the craft was snapped back. Judged, as a walking body's pace is (PACE_WIN), against an anchor that
+        # advances once it is PACE_WIN old: bunching passes, a jump across the map still does not. An anchor gone stale
+        # (the craft parked a while, boarded again) starts afresh at the held pose.
+        anc = c.get("anc")
+        if not anc or now - anc[1] > 2 * PACE_WIN:
+            anc = c["anc"] = (list(c["pose"][1:4]), now)
+        far = math.dist(pose[1:4], anc[0])
+        if far > FLIGHT["vmax"] * (now - anc[1] + CRAFT_LAG) + CRAFT_SLACK:
             return "faster than it can fly"
         c["pose"] = [int(pose[0]), round(float(pose[1]), 3), round(float(pose[2]), 3), round(float(pose[3]), 3)] + [round(float(x), 4) for x in pose[4:]]
         c["at"] = now; self.cdirty = True
+        if now - anc[1] >= PACE_WIN:
+            c["anc"] = (list(c["pose"][1:4]), now)
         self.survey_at(who, c["pose"])                              # a pilot carrying a map surveys from the air (#173)
         # THE ENGINES' WORK (#171): [throttle, lift, du, dv] as the pilot's page computes it (land-flight.js engine) —
         # only drawn (exhaust, dust, tremble), so it is kept as the pilot says it, within range

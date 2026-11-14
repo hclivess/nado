@@ -248,5 +248,14 @@ ok(Math.abs(fiveMin.err - 0.5 * NAV_BIAS * 300 * 300) < 1e-9 && fiveMin.err > 40
   ok(standOf({ feet: feet.slice(0, 2) }, 500, 500, 0, slope).every((a) => a === 0), "a craft with fewer than three feet stands level");
 }
 
+// the page's side of "at speed the craft gets stopped in place" (operator 2026-11-14): a refusal keeps the craft's speed,
+// "not flying that" steps the page out instead of flying on, and a held Q acts once a press
+{
+  const page = readFileSync(join(ROOT, "static", "land.js"), "utf8"), fix = page.slice(page.indexOf('} else if (m.t === "craft_fix") {'), page.indexOf("ws.onclose = () =>"));
+  ok(/else flying\.pose = m\.pose\.slice\(\);/.test(fix) && !/flying\.vel = \[0, 0, 0\]/.test(fix), "a refused pose puts the craft where the server holds it and keeps its speed (it was zeroed: the craft stopped dead)");
+  ok(/if \(m\.error === "you are not flying that"\) \{ flying = null;/.test(fix), "…and \"you are not flying that\" steps the page out of the controls");
+  ok(/if \(e\.code === "KeyQ" && !e\.repeat\) useDoor\(\);/.test(page), "a held Q boards or leaves once, not on every key repeat");
+}
+
 if (fails) { console.log(`${fails} FAILURES`); process.exit(1); }
 console.log("ALL PASS");

@@ -1827,8 +1827,15 @@ function connect() {
       if (!flying) board({ craft: m.craft });
     } else if (m.t === "craft_fix") {
       trace("craft_fix", { craft: m.craft, error: m.error, from: tracePose(flying && flying.pose), to: tracePose(m.pose) });
-      // the server held the craft somewhere else (a claim faster than it flies): back to where it holds it
-      if (flying && flying.id === m.craft) { flying.pose = m.pose.slice(); flying.vel = [0, 0, 0]; }
+      // the server held the craft somewhere else (a claim faster than it flies): back to where it holds it — KEEPING its
+      // speed (operator 2026-11-14: "at speed the craft gets stopped in place": every refusal zeroed the velocity, and a
+      // fighter refused at its ceiling or on a bunched network stopped dead in the air, again and again). And when the
+      // server says this page is not its pilot (a leave it took), the page steps out instead of flying on: his trace
+      // held 92 refusals in 20 s of a page that kept sending a craft it no longer flew.
+      if (flying && flying.id === m.craft) {
+        if (m.error === "you are not flying that") { flying = null; craftUp = null; P.pitch = 0; hotbar(); notify(T("fNotPilot", "You are no longer at the controls.")); }
+        else flying.pose = m.pose.slice();
+      }
     }
   };
   ws.onclose = () => {
@@ -3791,7 +3798,7 @@ function wireInput(canvas) {
     }
     if (e.code === "KeyR") { const i = PRESETS.findIndex((x) => x[0] === piece.w && x[1] === piece.d && x[2] === piece.h); [piece.w, piece.d, piece.h] = PRESETS[(i + 1) % PRESETS.length]; pieceInfo(true); }
     if (e.code === "KeyT") turnPiece();
-    if (e.code === "KeyQ") useDoor();
+    if (e.code === "KeyQ" && !e.repeat) useDoor();   // once a press: a held Q's key repeat boarded and left a craft eight times in a second (his trace, 2026-11-14)
     if (e.code === "Backquote") profToggle();                     // the profiler (True Wind's key)
     if (e.code === "KeyX") ignite();
     if (e.code === "KeyV") wardrobe($("wardPanel").classList.contains("hidden"));
