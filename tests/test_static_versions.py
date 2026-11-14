@@ -110,13 +110,10 @@ check("every module under static/ serves its existing relative imports versioned
 T = tempfile.mkdtemp(prefix="nado-static-")
 
 
-# the people's binary data (#172): the fetch literals in land-human.js are versioned like code, so a new crew.bin or
-# wear.bin is a new URL — and the fetch never says force-cache (which ignores the server's no-cache and kept the hair
-# build's wear.bin in every browser that had seen it, 2026-11-12)
-hum = open(os.path.join(ROOT, "static", "land-human.js"), "rb").read()
-refs = {m[3].decode() for m in scan_refs(hum, "js")}
-check("land-human.js's crew.bin and wear.bin fetches are version-stamped references", {"/static/human/crew.bin", "/static/human/wear.bin"} <= refs, sorted(refs))
-check("...and no human data fetch is force-cache", b"force-cache" not in hum)
+# a binary data file fetched by a literal in served JS is versioned like code (2026-11-12: a fixed URL kept a browser's
+# old copy of a data file; the people's data that taught it is gone, the rule stays)
+refs = {m[3].decode() for m in scan_refs(b'const r = await fetch("/static/data/crew.bin");', "js")}
+check("a .bin fetched by a literal in served JS is a version-stamped reference", "/static/data/crew.bin" in refs, sorted(refs))
 
 
 def w(rel, text):

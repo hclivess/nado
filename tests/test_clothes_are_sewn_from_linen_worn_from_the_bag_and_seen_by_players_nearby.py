@@ -99,7 +99,7 @@ check("a player near you comes with their look", got.get("id") == 1 and got.get(
 page = open(os.path.join(ROOT, "static", "land.js"), encoding="utf-8").read()
 html = open(os.path.join(ROOT, "static", "land.html"), encoding="utf-8").read()
 check("the page dresses players in their look, and again when it changes",
-      'r = { mesh: avatar(o.who || o.id, o.look, "p:" + o.id), who: o.who, sig }' in page and "if (r && r.sig !== sig) { scene.remove(r.mesh); dropFig(r); r = null; }" in page)
+      "r = { mesh: avatar(o.who || o.id, o.look), who: o.who, sig }" in page and "if (r && r.sig !== sig) { scene.remove(r.mesh); r = null; }" in page)
 fn = page.split("const SKIN = ", 1)[1].split("function avatar(", 1)[0]
 js = """
 class Color { setHSL(h, s, l) { this.v = Math.round(h * 1000) * 7 + 1; return this; } getHex() { return this.v; } }
@@ -117,15 +117,13 @@ check("the page's palettes are the server's", J.get("skin") == S.LOOK_SKIN and J
 _a0 = page.index("function avatar(")
 av = page[_a0:page.index("\nfunction ", _a0 + 1)]
 check("the avatar's own body is what is judged", 400 < len(av) < 12000 and "function animal" not in av, len(av))
-# the body is a person (#172, 2026-11-12): the MakeHuman figure of land-human.js, registered with the HumanView at its
-# first placement with the look's colours; no capsule, sphere or box body is built here any more
-check("a player is a MakeHuman body drawn by the HumanView, not capsules, spheres or boxes",
-      'import { HumanView } from "./land-human.js";' in page and "Object.assign(g.userData, { fig: id, look, col: lookColours(seed, look) });" in av
-      and "CapsuleGeometry" not in av and "SphereGeometry" not in av and "BoxGeometry" not in av
-      and "if (human && !human.figs.has(u.fig)) human.add(u.fig, u.look, u.col);" in page)
-hd = open(os.path.join(ROOT, "static", "land-human-data.js"), encoding="utf-8").read()
-check("the page draws the body type (body 1 the female build) and the wardrobe chooses body and face",
-      "export const variantOf = (look) => (look && look.body === 1 ? 1 : look && look.body === 2 ? 2 : 0);" in hd
+# the KAWAII FIGURE again (operator 2026-11-13: "swap them for those blocky characters with kawaii faces that were there
+# at the beginning"): rounded — capsule limbs and body, a sphere head with a drawn face — and no MakeHuman body behind it
+check("a player is the rounded kawaii figure, not boxes and not a MakeHuman body: capsule limbs and body, a sphere head, no box",
+      "new THREE.CapsuleGeometry(" in av and "new THREE.SphereGeometry(" in av and "BoxGeometry" not in av
+      and "land-human" not in page and "HumanView" not in page)
+check("the page draws the body type and the face, and the wardrobe chooses them",
+      "girl = (look && look.body) === 1" in av and "const tex = faceTexture((look && look.face) || 0);" in av
       and "data-body=" in page and "data-face=" in page and 'body: look.body, face: look.face' in page)
 d, b, W = J.get("dressed", {}), J.get("bare", {}), J.get("WEAR", {})
 check("what you wear is what is drawn: each garment's colour on its part, the chosen skin and hair",
@@ -133,9 +131,8 @@ check("what you wear is what is drawn: each garment's colour on its part, the ch
       and d.get("cloak") == W.get("linen_cloak") and d.get("skin") == J["SKIN"][2] and d.get("hair") == J["HAIR"][4], J)
 check("…and unclothed is plain: no cap, no cloak, an undershirt", b.get("cap") is None and b.get("cloak") is None and b.get("top") not in W.values(), b)
 check("…every wearable has a colour", all(g in W for g in GARMENTS))
-check("the 3D body and the wardrobe figure share one colouring", "col: lookColours(seed, look)" in av
-      and "c = lookColours(net.me || \"\", look)" in page
-      and "put(out, 0, c.skin, 0.6); put(out, 1, top, 0.55); put(out, 2, c.legs, 0.6);" in hd)   # (the look's colours onto the body's regions)
+check("the 3D body and the wardrobe figure share one colouring", "const c = lookColours(seed, look), g = new THREE.Group()" in av
+      and "c = lookColours(net.me || \"\", look)" in page)
 # 4
 check("the wardrobe opens with V and from the bag", 'if (e.code === "KeyV") wardrobe(' in page and 'id="wardOpen"' in html and 'id="wardPanel"' in html
       and '<kbd>V</kbd>' in html)

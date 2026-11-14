@@ -39,7 +39,6 @@ import * as Forest from "./land-forest.js";
 import * as Clouds from "./land-clouds.js";
 import { treeModel } from "./land-trees.js";
 import { craftStep, flightOf, craftBody, bodyInside, navSays, craftArea, craftFeet, restAt, aeroOf, axesOf, stallSpeed, stepOffSpot, surfaceBelow} from "./land-flight.js";
-import { HumanView } from "./land-human.js";
 import { Sound, windLevel } from "./land-sound.js";
 import { GFX_PRESETS, BENCH_ORDER, benchTarget, frameStats, holds, pickPreset, LADDER, governor, govStep } from "./land-gfx.js";
 import { NadoDapp, wireWallet, renderWallet, alertBar, notify, uiConfirm, uiPrompt, isAddress, esc, base, disp, rawToNado, nadoToRaw, randId, $ } from "./nadodapp.js";
@@ -450,7 +449,7 @@ function step(dt) {
     P.vh = up ? CLIMB : down && !P.ground ? -CLIMB : 0;
   }
   walk(P, [wu, wv], keys.has("Space") || !!(touch && touch.up), dt, collides, { GRAV, JUMP, STEP });
-  // a footfall every half gait cycle of ground covered (land-human-data WALK_CYCLE 0.7 m), on the ground only
+  // a footfall every 0.35 m of ground covered (half a 0.7 m gait cycle), on the ground only
   if (P.ground && !P.fly) { stepDist += Math.hypot(P.vu || 0, P.vv || 0) * dt; if (stepDist >= 0.35) { stepDist = 0; sound.cue("step", 0.8, 120); } } else stepDist = 0;
   // fell out of the world: only below the deep (#129) — it was "below layer 1", which threw a miner back to the surface
   if (P.h < Wd.DEEP_MIN + 1) { P.h = groundAt(P.face, P.u, P.v); P.vh = 0; }
@@ -1740,11 +1739,11 @@ function connect() {
         seen.add(o.id);
         let r = others.get(o.id);
         const sig = JSON.stringify(o.look || null);
-        if (r && r.sig !== sig) { scene.remove(r.mesh); dropFig(r); r = null; }      // they changed clothes: dress them again
-        if (!r) { r = { mesh: avatar(o.who || o.id, o.look, "p:" + o.id), who: o.who, sig }; scene.add(r.mesh); others.set(o.id, r); }
+        if (r && r.sig !== sig) { scene.remove(r.mesh); r = null; }      // they changed clothes: dress them again
+        if (!r) { r = { mesh: avatar(o.who || o.id, o.look), who: o.who, sig }; scene.add(r.mesh); others.set(o.id, r); }
         r.p = o.p;
       }
-      for (const [id, r] of others) if (!seen.has(id)) { scene.remove(r.mesh); dropFig(r); others.delete(id); }
+      for (const [id, r] of others) if (!seen.has(id)) { scene.remove(r.mesh); others.delete(id); }
       craftsSeen(m.crafts);
       animalsSeen(m.animals);
       npcsSeen(m.npcs);
@@ -1836,11 +1835,11 @@ function connect() {
     trace("net_close", { at: tracePose([P.face, P.u, P.v, P.h, P.yaw]) });
     const was = net.online;
     net.online = false; net.ws = null;
-    for (const r of others.values()) { scene.remove(r.mesh); dropFig(r); }
+    for (const r of others.values()) scene.remove(r.mesh);
     others.clear();
     for (const r of animals.values()) scene.remove(r.mesh);
     animals.clear();
-    for (const r of npcs.values()) { scene.remove(r.mesh); dropFig(r); }
+    for (const r of npcs.values()) scene.remove(r.mesh);
     npcs.clear();
     if (was) hud();
     setTimeout(connect, Math.min(30000, 1000 * 2 ** Math.min(5, net.tries++)));   // back off; a page without a server stays local
@@ -1893,22 +1892,46 @@ function lookColours(seed, look) {
 // figure — a big round head with one of FACES drawn kawaii faces on its front (faceCanvas, on a cap of the sphere), a
 // capsule body, rounded arms and legs with hands and shoes. Body type 0: a fringe of short hair; 1: longer hair, pigtails
 // and a skirt. Clothes keep their colours (lookColours): a soft cap, a cloak that drapes behind. ~1.75 m, front +Z.
-// THE BODY (#172; operator 2026-11-10: "the characters look total garbage nobody is gonna play this"): a person is the
-// MakeHuman figure of land-human.js, drawn by the HumanView in ONE instanced draw a LOD for everyone, posed by IK every
-// frame — standing, walking in a gait, breathing, looking at a player who comes near. The group returned here carries
-// the figure's place, its name plate and its quest mark; the body itself is the view's, keyed by `id`. The ball-headed
-// capsule figure with a painted face that stood here (#145) is gone: it was a vinyl toy in a world of physical truth.
-let human = null, humanDrawn = 0;
-function avatar(seed, look, id = seed) {
-  const g = new THREE.Group();
-  // the figure is registered with the view when it is first placed, not here: the first "players" message arrives
-  // while the renderer still starts (human is null then), and a figure registered only here was never drawn — the
-  // owner's page saw 0 people for as long as the townspeople stood still (the people page test, 2026-11-12)
-  Object.assign(g.userData, { fig: id, look, col: lookColours(seed, look) });
+// BACK TO THE KAWAII FIGURES (operator 2026-11-13: "can we replace the human make models in the game? swap them for
+// those blocky characters with kawaii faces that were there at the beginning and clean up after ourselves"): the
+// MakeHuman bodies of #172 (their module, its instanced view, the hair and garment meshes and their data) are gone, and
+// the chibi figure below is drawn again, as it was on 2026-11-09, one group per person.
+function avatar(seed, look) {
+  const c = lookColours(seed, look), g = new THREE.Group(), girl = (look && look.body) === 1;
+  const mat = (col) => new THREE.MeshLambertMaterial({ color: col });
+  const put = (geo, col, x, y, z, rx = 0, rz = 0) => { const m = new THREE.Mesh(geo, typeof col === "number" ? mat(col) : col); m.position.set(x, y, z); m.rotation.set(rx, 0, rz); g.add(m); return m; };
+  const capsule = (r, len) => new THREE.CapsuleGeometry(r, len, 4, 12);
+  const sphere = (r, ...cut) => new THREE.SphereGeometry(r, 24, 16, ...cut);
+  // legs and shoes
+  for (const x of [-0.09, 0.09]) { put(capsule(0.075, 0.42), c.legs, x, 0.33, 0); put(sphere(0.085), 0x3a2e2a, x, 0.06, 0.03).scale.set(1, 0.6, 1.4); }
+  if (girl) put(new THREE.CylinderGeometry(0.16, 0.29, 0.34, 20, 1, true), c.top, 0, 0.62, 0).material.side = THREE.DoubleSide;   // a skirt
+  // the body, a little narrower for body type 1; arms hang slightly out, hands in skin
+  put(capsule(girl ? 0.16 : 0.18, 0.34), c.top, 0, 0.92, 0).scale.set(1, 1, 0.82);
+  for (const s of [-1, 1]) {
+    const x = s * (girl ? 0.21 : 0.24);
+    put(capsule(0.06, 0.34), c.top, x, 0.94, 0, 0, s * 0.12);
+    put(sphere(0.065), c.skin, x + s * 0.03, 0.7, 0.01);
+  }
+  // the head: round and big, its face a cap of the sphere just over the skin (the drawn face is mirrored to read right)
+  const R = 0.25, hy = 1.42;
+  put(sphere(R), c.skin, 0, hy, 0);
+  const tex = faceTexture((look && look.face) || 0);
+  put(sphere(R + 0.003, Math.PI / 2 - 0.8, 1.6, 0.85, 1.25), new THREE.MeshLambertMaterial({ map: tex, transparent: true, depthWrite: false }), 0, hy, 0);
+  // hair: a cap over the top and back, a fringe in front; for body type 1 longer at the back and two pigtails
+  put(sphere(R + 0.03, 0, Math.PI * 2, 0, 1.0), c.hair, 0, hy, 0);                                   // the crown
+  put(sphere(R + 0.03, Math.PI * 1.5 - 1.75, 3.5, 0.9, girl ? 1.75 : 1.15), c.hair, 0, hy, 0);       // sides and back
+  put(sphere(R + 0.035, Math.PI / 2 - 0.85, 1.7, 0.55, 0.42), c.hair, 0, hy, 0);                      // a fringe
+  if (girl) for (const s of [-1, 1]) {                                                                // two pigtails, hanging
+    put(sphere(0.06), c.hair, s * 0.27, hy + 0.02, -0.02);
+    put(capsule(0.065, 0.26), c.hair, s * 0.31, hy - 0.18, -0.03, 0, s * 0.22);
+  }
+  if (c.cap != null) put(sphere(R + 0.045, 0, Math.PI * 2, 0, 1.0), c.cap, 0, hy + 0.03, 0).scale.set(1.05, 0.8, 1.05);   // a soft cap
+  if (c.cloak != null) {                                                                                                 // a cloak drapes behind
+    const cl = put(new THREE.CylinderGeometry(0.24, 0.36, 0.95, 20, 1, true, Math.PI * 0.6, Math.PI * 0.8), c.cloak, 0, 0.78, 0);
+    cl.material.side = THREE.DoubleSide;
+  }
   return g;
 }
-const figOf = (r) => { const u = r.mesh.userData; if (human && !human.figs.has(u.fig)) human.add(u.fig, u.look, u.col); return u.fig; };
-const dropFig = (r) => { if (human && r && r.mesh) human.remove(r.mesh.userData.fig); };
 // ---- ANIMALS (#156, "hunting", operator 2026-11-09): the world server keeps them near players (land_server.py herd) and
 // sends where each is with the players near; the page draws each kind — a deer, a boar, a rabbit — glides it to where
 // the server says, stands it on the drawn ground, and swings its legs while it moves. Break on one under the crosshair
@@ -2119,7 +2142,7 @@ function npcsSeen(list) {
       r.markSig = n.mark;
     }
   }
-  for (const [id, r] of npcs) if (!seen.has(id)) { scene.remove(r.mesh); dropFig(r); npcs.delete(id); }
+  for (const [id, r] of npcs) if (!seen.has(id)) { scene.remove(r.mesh); npcs.delete(id); }
 }
 function npcsFrame(cam, dt, now) {
   for (const r of npcs.values()) {
@@ -2131,8 +2154,6 @@ function npcsFrame(cam, dt, now) {
     const du = P.u - r.at[1], dv = P.v - r.at[2], near = Math.hypot(du, dv) < 8, yaw = near ? Math.atan2(du, dv) : 0;
     const sy = Math.sin(yaw), cy = Math.cos(yaw);
     r.mesh.lookAt(r.mesh.position.x + sy * ofr.east[0] + cy * ofr.north[0], r.mesh.position.y + sy * ofr.east[1] + cy * ofr.north[1], r.mesh.position.z + sy * ofr.east[2] + cy * ofr.north[2]);
-    // the body (#172): standing at its feet, facing as the group does, looking at the player near it (the eye is the origin)
-    if (human) human.place(figOf(r), [r.mesh.position.x, r.mesh.position.y, r.mesh.position.z], ofr, yaw, 0, dt || 1 / 60, (now || 0) / 1000, near ? [0, 0, 0] : null);
   }
 }
 /** A block or a piece kind by the item that places it, or the item of its own name (ores, clay, flax), or its own name
@@ -3662,8 +3683,6 @@ const CMDS = {
       const n = Math.round(per * inst);
       if (!n) return;
       let k = (names.find(([m]) => m && m === o.material) || [])[1];
-      if (!k && human && (human.meshes || []).includes(o)) k = "people";
-      if (!k && human && (human.wear || []).some((w) => w.mesh === o)) k = "hair, clothes";
       if (!k && o === farBoxMesh) k = "far boxes";
       if (!k) k = "other: " + (o.material && o.material.constructor ? o.material.constructor.name : "?");
       add(k, n);
@@ -4702,7 +4721,7 @@ function statsTick(now) {
   const gpu = renderer.backend && renderer.backend.isWebGPUBackend ? "WebGPU" : "WebGL2";
   if (!SET.stats) { $("hudGpu").textContent = gpu; return; }
   const r = renderer.info.render;
-  $("hudGpu").textContent = `${gpu} · ${fps} fps · ${Math.round(r.triangles / 1000)}k tris · ${r.drawCalls ?? r.calls} calls · ${chunks.size} chunks · ${forestTrees} far trees · ${farBoxes} far boxes · ${humanDrawn} people${human && human.walking ? ` (${human.walking} in a gait)` : ""}${human && human.hairDrawn ? ` · ${human.hairDrawn} heads of hair` : ""}${human && human.dressed ? ` · ${human.dressed} dressed` : ""} · ${cloudMaps} sky maps · ${shadowMaps} shadow maps${cloudTileI ? ` +${cloudTileI}/${CLOUD_TILES[0] * CLOUD_TILES[1]}` : ""}`;
+  $("hudGpu").textContent = `${gpu} · ${fps} fps · ${Math.round(r.triangles / 1000)}k tris · ${r.drawCalls ?? r.calls} calls · ${chunks.size} chunks · ${forestTrees} far trees · ${farBoxes} far boxes · ${cloudMaps} sky maps · ${shadowMaps} shadow maps${cloudTileI ? ` +${cloudTileI}/${CLOUD_TILES[0] * CLOUD_TILES[1]}` : ""}`;
 }
 // ---- THE PROFILER (` the key left of 1, ?prof=1, or /prof; "work on performance, take a hint from true wind", operator
 // 2026-11-09 — True Wind's js/profiler.js, "measure performance; don't guess"): where the frame's time goes, live — the
@@ -4787,15 +4806,7 @@ function frame(now) {
     r.mesh.up.set(ofr.up[0], ofr.up[1], ofr.up[2]);
     const fx = Math.sin(yaw) * ofr.east[0] + Math.cos(yaw) * ofr.north[0], fy = Math.sin(yaw) * ofr.east[1] + Math.cos(yaw) * ofr.north[1], fz = Math.sin(yaw) * ofr.east[2] + Math.cos(yaw) * ofr.north[2];
     r.mesh.lookAt(r.mesh.position.x + fx, r.mesh.position.y + fy, r.mesh.position.z + fz);
-    // the body (#172): its speed over the ground from the places reported (five a second), smoothed, drives the gait
-    if (human) {
-      const sp = r.prevQ ? Math.hypot(q[0] - r.prevQ[0], q[1] - r.prevQ[1], q[2] - r.prevQ[2]) / Math.max(0.05, (now - r.prevT) / 1000) : 0;
-      if (!r.prevQ || sp > 0 || now - r.prevT > 400) { r.prevQ = q; r.prevT = now; }
-      r.spd = (r.spd || 0) + (Math.min(sp, 8) - (r.spd || 0)) * Math.min(1, 4 * dt);
-      human.place(figOf(r), [r.mesh.position.x, r.mesh.position.y, r.mesh.position.z], ofr, yaw, r.spd, dt, now / 1000, null);
-    }
   }
-  humanDrawn = human ? human.flush() : 0;
   pt("sky", () => { sky(fr); torchTick(now, cam); cloudsFrame(cam, fr); farBuildTick(now); });
   // THE WIND (#113): by the height over the ground and the speed — a craft's airspeed when flying, else the body's
   if (sound.ctx && (!frame.windAt || now - frame.windAt > 100)) {
@@ -5049,7 +5060,6 @@ async function start() {
   $("hudGpu").textContent = renderer.backend && renderer.backend.isWebGPUBackend ? "WebGPU" : "WebGL2";
   $("hudGpu").onclick = () => { SET.stats = SET.stats ? 0 : 1; saveSet(); };
   scene = new THREE.Scene();
-  human = new HumanView(scene);                             // the people (#172): their body data loads beside the page
   scene.fog = new THREE.Fog(0xb7d6ef, viewDist * CHUNK * 0.9, 2900);
   camera = new THREE.PerspectiveCamera(SET.fov, innerWidth / innerHeight, 0.08, 4000);
   camera.position.set(0, 0, 0);
