@@ -478,11 +478,11 @@ CRAFT_PAD = 2                     # cm: pieces this close count as touching (one
                                   # 270° and took off again as 228 of its 267 pieces (2026-11-11). land.js craftSeat agrees.
 CRAFT_PIECES = 400                # pieces one craft holds at most
 CRAFT_SLACK = 12.0                # m a pose may run ahead of vmax x the time since the anchor (a slow network's bunching)
-# A CRAFT FLIES TO THE AIR'S TOP (operator 2026-11-14, flying the X fighter: "at speed the craft gets stopped in place";
-# his page's trace held 70 refusals "not a place" at 656.0 m): a craft's pose was held under H + 400, a walking body's
-# ceiling, and every pose above it was refused and the craft snapped back with its speed zeroed. Its ceiling is the
-# air's top over the world's height (land-planet.js ATM_TOP 30 km: where wings and air give out).
-CRAFT_CEIL = H + 30000
+# A CRAFT HAS NO CEILING (operator 2026-11-14, flying the X fighter: "at speed the craft gets stopped in place" — his
+# page's trace held 70 refusals "not a place" at 656.0 m, a walking body's ceiling H + 400; and then, to a ceiling at the
+# air's top: "no, aircraft can leave to another planet. no fucking limit"). A craft's height is any finite number from
+# the deep up: what holds it down is its weight against its thrust (land-flight.js), never a number here. A walking
+# body keeps its H + 400.
 CRAFT_LAG = 0.5                   # s of a network's lag at top speed a pose may run ahead (an anchor's own report arrived late)
 FAR_R = 2600.0                    # m: the farthest a page may ask for the built land's far view (#193; the page asks 2 km)
 CHARGE_RISE = 8.0                 # m above or below itself an animal still charges a player — DESIGN CHOICE (#192): a hillside
@@ -2463,7 +2463,7 @@ class World:
             return "you are not flying that"
         # a pose is [face, u, v, h, yaw] or, for an aircraft (#191), [face, u, v, h, yaw, pitch, roll] in radians
         if not (isinstance(pose, list) and len(pose) in (5, 7) and all(isinstance(x, (int, float)) and not isinstance(x, bool) and math.isfinite(x) for x in pose)
-                and pose[0] == c["pose"][0] and 0 <= pose[1] < W and 0 <= pose[2] < W and DEEP_MIN <= pose[3] < CRAFT_CEIL
+                and pose[0] == c["pose"][0] and 0 <= pose[1] < W and 0 <= pose[2] < W and DEEP_MIN <= pose[3]
                 and all(abs(x) <= math.pi for x in pose[5:])):           # (pitch and roll within a half turn; the yaw is the page's own count of turns, unbounded)
             return "not a place"
         now = time.time()

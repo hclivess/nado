@@ -121,8 +121,11 @@ async def main():
     try:
         cr = world.crafts[cid]; cr.pop("anc", None); base = list(cr["pose"]); vmax = S.FLIGHT["vmax"]
         cr["pose"] = [base[0], base[1], base[2], S.H + 2000, 0.5]; cr.pop("anc", None)
-        Clock.t += 0.2; check("…a pose 2,000 m over the world's top is a place (the ceiling is the air's top, 30 km)", world.fly(a, cid, [base[0], base[1] + 10, base[2], S.H + 2000, 0.5]) is None, world.crafts[cid]["pose"])
-        check("…and over the air's top it is not", world.fly(a, cid, [base[0], base[1] + 10, base[2], S.H + 30001, 0.5]) == "not a place")
+        Clock.t += 0.2; check("a pose 2,000 m over the world's top is a place (the walking ceiling is 656 m)", world.fly(a, cid, [base[0], base[1] + 10, base[2], S.H + 2000, 0.5]) is None, world.crafts[cid]["pose"])
+        cr["pose"] = [base[0], base[1], base[2], 5_000_000.0, 0.5]; cr.pop("anc", None)
+        Clock.t += 0.2; check("…and so is one 5,000 km up, on the way to another planet: a craft has no ceiling", world.fly(a, cid, [base[0], base[1] + 10, base[2], 5_000_000.0, 0.5]) is None, world.crafts[cid]["pose"])
+        check("…while a height that is not a number still is not a place", world.fly(a, cid, [base[0], base[1] + 10, base[2], float("inf"), 0.5]) == "not a place")
+        cr["pose"] = [base[0], base[1], base[2], S.H + 2000, 0.5]; cr.pop("anc", None)
         # at top speed, five reports a second, the network bunching two of them 10 ms apart
         cr.pop("anc", None); u0 = cr["pose"][1]; h0 = cr["pose"][3]; errs = []
         for k in range(1, 26):
