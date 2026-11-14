@@ -4548,6 +4548,10 @@
    }
   },
   "weapons": {
+   "cannon": {
+    "reach": 400,
+    "damage": 5
+   },
    "spear": {
     "reach": 3.5,
     "damage": 2

@@ -257,5 +257,16 @@ ok(Math.abs(fiveMin.err - 0.5 * NAV_BIAS * 300 * 300) < 1e-9 && fiveMin.err > 40
   ok(/if \(e\.code === "KeyQ" && !e\.repeat\) useDoor\(\);/.test(page), "a held Q boards or leaves once, not on every key repeat");
 }
 
+// THE ENERGY CANNON on the page (#171 item 3): a cannon is a gadget, bound keys fire it from the flight step, the bolt is
+// traced to the first animal or tree cell, drawn and named to the world server; the key bar marks a cannon key
+{
+  const page = readFileSync(join(ROOT, "static", "land.js"), "utf8"), W2 = await import(join(ROOT, "static", "land-world.js")), Sh2 = await import(join(ROOT, "static", "land-shapes.js"));
+  const gun = [0, 0, 0, 40, 200, 40, 64, Sh2.code(Sh2.CANNON, 0)];
+  ok(W2.isCannon(gun) && !W2.isCannon([0, 0, 0, 40, 200, 40, 64]) && /const isGadget = \(b\) => Wd\.engineCount\(b\) > 0 \|\| Wd\.isCannon\(b\);/.test(page), "a cannon part is a gadget on the page (it takes a key at the cannon)");
+  ok(/cannons: cannonsOf\(c\.pieces, c\.slots\),/.test(page) && /cannonTick\(c, input\.slots \|\| heldSlots\(\)\);/.test(page) && /boltsFrame\(now, cam\);/.test(page), "boarding finds the bound cannons, the flight step fires the held keys', the frame draws the bolts");
+  ok(/net\.send\(\{ t: "bolt", craft: c\.id, dir: d, target \}\);/.test(page) && /target = \{ animal: id \}/.test(page) && /target = \{ cell: \[f, cu, cv, ch\] \}/.test(page), "a bolt names the first animal or tree cell it meets to the world server");
+  ok(/gunKeys\.includes\(n\) \? " ⚡" : ""/.test(page), "the controls' key bar marks a key that fires cannons");
+}
+
 if (fails) { console.log(`${fails} FAILURES`); process.exit(1); }
 console.log("ALL PASS");

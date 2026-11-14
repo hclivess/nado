@@ -673,6 +673,8 @@ export function boxesOverlap(a, b) {
 export const isPart = (b) => b.length > 7 && Shapes.isPart(b[7]);
 /** Is the piece an engine: the engine part, in the thruster's material (boxOk allows it no other)? */
 export const isEngine = (b) => b.length > 7 && b[6] === B.thruster && Shapes.isPart(b[7]) && Shapes.decode(b[7]).type === Shapes.ENGINE;
+/** A cannon part, of any material (#171's weapon; scripts/land_server.py is_cannon). */
+export const isCannon = (b) => b.length > 7 && Shapes.isPart(b[7]) && Shapes.decode(b[7]).type === Shapes.CANNON;
 // the block a part's triangles of each tone (land-shapes.js MATERIAL, DARK, STEEL, GLOW) are drawn as: its own material,
 // black, steel plate, a lamp. scripts/land_server.py needs none of it: a tone is paint, not matter.
 export const toneBlock = (b, tone) => (tone === Shapes.DARK ? B.black : tone === Shapes.STEEL ? B.steelplate : tone === Shapes.GLOW ? B.lamp : b[6]);

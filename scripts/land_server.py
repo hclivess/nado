@@ -247,8 +247,13 @@ def is_engine(b):
 # Boarding carries a plot's slots onto the craft and docking carries them back; a piece taken down loses its slot.
 # What a slot DOES is the page's (land-flight.js aeroOf, heldThrust): a bound thruster fires only while its key is held.
 SLOTS = 9
+def is_cannon(b):
+    """land-world.js isCannon: a cannon part (#171's weapon), of any material."""
+    return len(b) > 7 and (part_of(b[7]) or (None,))[0] == P_CANNON
+
+
 def is_gadget(b):
-    return engine_count(b) > 0
+    return engine_count(b) > 0 or is_cannon(b)                      # a thruster, an engine part — or a cannon (#171)
 def gadget_key(b):
     """A gadget's identity on its plot: its whole box (a piece never moves; turned, its tilt is part of it)."""
     return ",".join(str(int(x)) for x in b)
@@ -1190,6 +1195,61 @@ class World:
             return None, "too fast"
         return self._strike(who, pl, a, Hn["weapons"]["spear"]["damage"]), None
 
+    # THE ENERGY CANNON (#171 item 3, approved by the operator 2026-11-14): a cannon part on a craft, bound to a key at the
+    # cannon (is_gadget), fires a bolt along its barrel while the pilot holds that key — no ammunition, the craft's own
+    # power. The pilot's page finds what the bolt meets (it holds the terrain and the animals) and names it; this checks
+    # it: the caller flies the craft, the craft carries a bound cannon, no faster than BOLT_EVERY a cannon, the target in
+    # front of the craft within BOLT_RANGE and within BOLT_SLACK of the bolt's line — then an animal is struck as by a heavy
+    # arrow (hunting.weapons.cannon.damage) and a tree cell is torn as the craft's body tears one (apply craft=, on the
+    # same plot rules, nothing gathered). Not built pieces, not other crafts: those wait for factions and war (#133, #136).
+    BOLT_RANGE, BOLT_SLACK, BOLT_EVERY = 400.0, 3.0, 0.25
+
+    async def bolt(self, who, cid, d, target):
+        """A bolt from the craft `cid` along `d` ([east, north, up] at its pose), at `target` ({"animal": id} or {"cell":
+        [face, u, v, h]}). Returns (result, applied cells by plot, error)."""
+        c = self.crafts.get(cid)
+        if not c or c["pilot"] != who:
+            return None, {}, "you are not flying that"
+        guns = sum(1 for b, n in zip(c["pieces"], c.get("slots") or []) if n and is_cannon(b))
+        if not guns:
+            return None, {}, "no cannon bound to a key"
+        if not (isinstance(d, list) and len(d) == 3 and all(isinstance(x, (int, float)) and not isinstance(x, bool) and math.isfinite(x) for x in d)):
+            return None, {}, "no direction"
+        n = math.hypot(*d)
+        if n < 1e-6:
+            return None, {}, "no direction"
+        d = [x / n for x in d]
+        now = time.time()
+        if now - c.get("bolt_at", 0) < self.BOLT_EVERY / guns:
+            return None, {}, "too fast"
+        face, u0, v0, h0 = c["pose"][:4]
+
+        def on_line(tu, tv, th):
+            w = (tu - u0, tv - v0, th - h0)                        # east, north, up from the craft (the frame is flat over 400 m)
+            along = w[0] * d[0] + w[1] * d[1] + w[2] * d[2]
+            off = math.dist(w, (along * d[0], along * d[1], along * d[2]))
+            return 0 < along <= self.BOLT_RANGE + craft_reach(c["pieces"]) and off <= self.BOLT_SLACK
+        t = target if isinstance(target, dict) else {}
+        if "animal" in t:
+            a = self.animals.get(t["animal"])
+            if not a or a["face"] != face or not on_line(a["u"], a["v"], a["h"] + 0.6):
+                return None, {}, "missed"
+            c["bolt_at"] = now
+            pl = self.player(who)
+            return self._strike(who, pl, a, RULES["hunting"]["weapons"]["cannon"]["damage"]), {}, None
+        if "cell" in t:
+            cell = t["cell"]
+            if not (isinstance(cell, list) and len(cell) == 4 and all(isinstance(x, int) and not isinstance(x, bool) for x in cell)) or cell[0] != face \
+                    or not on_line(cell[1] + 0.5, cell[2] + 0.5, cell[3] + 0.5):
+                return None, {}, "missed"
+            c["bolt_at"] = now
+            applied, refused, _ = await self.apply(who, [cell + [0]], craft=cid, reach=self.BOLT_RANGE + craft_reach(c["pieces"]) + TEAR_SLACK)
+            if refused:
+                return None, {}, refused[0][1]
+            return {"torn": sum(len(x) for x in applied.values())}, applied, None
+        c["bolt_at"] = now
+        return {"hit": None}, {}, None                            # a bolt into open air or the ground: fired, nothing struck
+
     def _strike(self, who, pl, a, damage):
         """`a` takes `damage` from `who`: it turns on them or runs; at 0 hp it is gone, a hunt quest counts it, and its
         drops go to the hunter — its butcher items (hide, bone) only to one with a knife (#157)."""
@@ -1648,7 +1708,7 @@ class World:
         self.workb[who] = [t - seconds, time.time()]
         return True
 
-    async def apply(self, who, cells, at=False, craft=None):
+    async def apply(self, who, cells, at=False, craft=None, reach=None):
         """Apply [face, u, v, h, block] cells: block 0 BREAKS (gathering: its yield goes to the caller's inventory),
         any other id PLACES one item from the inventory. Returns (applied by plot, refused, inventory changed).
         `at` is where the caller stands ([face, u, v, h, ...]) and each break — and each place off a plot they may build
@@ -1668,7 +1728,7 @@ class World:
             tear = self.crafts.get(craft)
             if not tear or tear["pilot"] != who:
                 return {}, [[None, "you are not flying that"]], False
-            tear_reach = craft_reach(tear["pieces"]) + TEAR_SLACK
+            tear_reach = reach if reach is not None else craft_reach(tear["pieces"]) + TEAR_SLACK   # (a bolt's reach: World.bolt)
         parsed, refused = [], []
         for c in cells:
             try:
@@ -3757,6 +3817,15 @@ def make_app(world, hub, site_origin, wallet_url, secure_cookies=True, shot_page
                     await ws.send_json({"t": "ignite", "req": m.get("req"), "error": err})
                     if applied:
                         await hub.edits(applied, addr)
+                elif t == "bolt":                                         # the energy cannon (#171)
+                    if not addr:
+                        continue
+                    res, applied, err = await world.bolt(addr, m.get("craft"), m.get("dir"), m.get("target"))
+                    await ws.send_json(dict(res or {}, t="bolt_ok", error=err))
+                    if applied:
+                        await hub.edits(applied, addr)
+                    if res and res.get("killed"):
+                        await hub.inv(world, addr)
                 elif t == "name":                                         # a player's name (#179)
                     if not addr:
                         await ws.send_json({"t": "done", "req": m.get("req"), "error": "sign in first"})

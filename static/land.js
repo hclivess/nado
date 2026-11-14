@@ -38,7 +38,7 @@ import { groundWeights } from "./land-mesher.js";
 import * as Forest from "./land-forest.js";
 import * as Clouds from "./land-clouds.js";
 import { treeModel } from "./land-trees.js";
-import { craftStep, flightOf, craftBody, bodyInside, navSays, craftArea, craftFeet, restAt, aeroOf, axesOf, stallSpeed, stepOffSpot, surfaceBelow} from "./land-flight.js";
+import { craftStep, flightOf, craftBody, bodyInside, navSays, craftArea, craftFeet, restAt, aeroOf, axesOf, tiltDir, stallSpeed, stepOffSpot, surfaceBelow} from "./land-flight.js";
 import { Sound, windLevel } from "./land-sound.js";
 import { GFX_PRESETS, BENCH_ORDER, benchTarget, frameStats, holds, pickPreset, LADDER, governor, govStep } from "./land-gfx.js";
 import { NadoDapp, wireWallet, renderWallet, alertBar, notify, uiConfirm, uiPrompt, isAddress, esc, base, disp, rawToNado, nadoToRaw, randId, $ } from "./nadodapp.js";
@@ -521,6 +521,7 @@ function flyStep(dt, fwd, side) {
   craftStep(c, input, dt, F, (u, v) => craftGround(c.pose[0], u, v) - 0.05, (pose) => craftHits(c, pose));
   const torn = tearing; tearing = null;
   if (torn.size) tearCells(c, torn);
+  cannonTick(c, input.slots || heldSlots());
   if (c.aero && c.aero.winged) {
     P.yaw = c.pose[4]; P.pitch = c.pose[5] || 0;             // the camera looks along the nose
     const fr = Wd.frameOf(c.pose[0], c.pose[1], c.pose[2]), ax = axesOf(c.pose[4], c.pose[5] || 0, c.pose[6] || 0);
@@ -788,6 +789,7 @@ function startFlying(c) {
   flying = { id: c.id, pose: c.pose.slice(), vel: [0, 0, 0], mass: c.mass, thrust: c.thrust, bottom, grounded: true,
     body: craftBody(c.pieces, Wd.boxAabb),                                // what of it meets the world (#171)
     feet: craftFeet(c.pieces, Wd.boxAabb),                                // what it stands on: it lands on the highest ground under them (#184)
+    cannons: cannonsOf(c.pieces, c.slots),                                // its weapons, by key (#171)
     area: craftArea(c.pieces, Wd.boxAabb),                                // what the air pushes on (#174)
     aero: aeroOf(c.pieces, Wd.boxAabb, (b) => (b[6] === B.thruster ? Wd.engineCount(b) * FLIGHT().thrust_kn : 0), c.slots),   // wings and engines (#191); the gadgets' keys
     throttle: 0 };
@@ -1790,6 +1792,8 @@ function connect() {
       save(); updateChunks();
       if (m.why === "tp") conLine(m.to === "bed" ? T("tpBed", "At your bed.") : T("tpSpawn", "At the landing."));
       else notify(T("tpPace", "Faster than anyone can go — back where the world last saw you."), 4000);
+    } else if (m.t === "bolt_ok") {
+      if (!m.error && (m.hit || m.killed)) huntSaid(m);              // a bolt that struck an animal says so as an arrow does
     } else if (m.t === "shoot" || m.t === "pickup") {
       if (m.t === "shoot" && m.flight) {
         // the server's arrow ended after `flight` seconds (in a body, or on the ground): the page's own arrow stops there
@@ -2205,7 +2209,7 @@ function aimText(a) {
 // world server's is_gadget) — takes a KEY at the gadget itself: aim at it and press 1–9 (0 for none; on a phone, tap the
 // hotbar's key). At the controls that key fires it, full on, as long as it is held (land-flight.js heldThrust); the
 // unbound ones stay automatic. The key is kept by the world server with the piece, on the plot or on the craft.
-const isGadget = (b) => Wd.engineCount(b) > 0;
+const isGadget = (b) => Wd.engineCount(b) > 0 || Wd.isCannon(b);   // a thruster, an engine part, or a cannon (#171)
 /** The gadget under the crosshair: a plot piece { plot, box, b, slot } or a piece of my parked craft { craft, i, b, slot }; null. */
 function gadgetAimed(a) {
   a = a === undefined ? aim() : a;
@@ -2322,6 +2326,62 @@ function renderNpc(m) {
   g.querySelectorAll("[data-turnin]").forEach((b) => { b.onclick = () => net.send({ t: "quest", op: "turnin", npc: talkingTo, id: b.dataset.turnin, req: ++net.req }); });
 }
 /** What a strike or an arrow did, in the player's language. */
+// ---- THE ENERGY CANNON (#171 item 3, approved by the operator 2026-11-14): a cannon part bound to a key at the cannon
+// fires a bolt along its barrel while the pilot holds that key, up to four a second a cannon (land_server.py BOLT_EVERY),
+// out to BOLT_RANGE. The page finds what the bolt meets — the first animal within a metre of its line, or the first cell of
+// the planet's own tree on land the pilot may build on (a stranger's titled plot keeps its trees, as from the craft's body);
+// the ground or a built piece ends it — draws it, and names the target to the world server, which checks it (World.bolt).
+const BOLT_RANGE = 400, BOLT_EVERY = 250, BOLT_STEP = 0.5, BOLT_LIFE = 140;
+/** The cannons of a craft: each bound one's key, its muzzle (m, the craft's frame: right, nose, up) and its barrel's way. */
+function cannonsOf(pieces, slots) {
+  const out = [];
+  pieces.forEach((b, i) => {
+    const n = slots && slots[i] > 0 ? slots[i] : 0;
+    if (!n || !Wd.isCannon(b)) return;
+    const a = Wd.boxAabb(b), d = tiltDir(b, [0, 1, 0]), half = b[4] / 200;   // a cannon's barrel along its length, as an engine's thrust
+    const c = [(a[0] + a[3] / 2) / 100, (a[1] + a[4] / 2) / 100, (a[2] + a[5] / 2) / 100];
+    out.push({ slot: n, muzzle: [c[0] + d[0] * half, c[1] + d[1] * half, c[2] + d[2] * half], dir: d, at: 0 });
+  });
+  return out;
+}
+const bolts = [];                                           // { line, t0 } — what is drawn of a fired bolt
+let boltMat = null;
+function cannonTick(c, held) {
+  if (!c.cannons || !c.cannons.length || !held || !held.size) return;
+  const now = performance.now(), [f, u, v, h, yaw] = c.pose, ax = axesOf(yaw, c.pose[5] || 0, c.pose[6] || 0);
+  const toLocal = (p) => [0, 1, 2].map((i) => ax.right[i] * p[0] + ax.nose[i] * p[1] + ax.up[i] * p[2]);   // east, north, up
+  for (const g of c.cannons) {
+    if (!held.has(g.slot) || now - g.at < BOLT_EVERY) continue;
+    g.at = now;
+    const m = toLocal(g.muzzle), d = toLocal(g.dir), o = [u + m[0], v + m[1], h + m[2]];
+    let end = BOLT_RANGE, target = null;
+    for (let s = BOLT_STEP; s <= BOLT_RANGE && !target; s += BOLT_STEP) {
+      const p = [o[0] + d[0] * s, o[1] + d[1] * s, o[2] + d[2] * s];
+      for (const [id, r] of animals) if (Math.hypot(r.cu - p[0], r.cv - p[1], (r.gh ?? r.h) + 0.6 - p[2]) < 1.0) { target = { animal: id }; break; }
+      if (target) { end = s; break; }
+      const cu = Math.floor(p[0]), cv = Math.floor(p[1]), ch = Math.floor(p[2]), b = blockAt(f, cu, cv, ch);
+      if (Wd.isTree(b) && !edits.has(key(f, cu, cv, ch)) && mayBuild(Wd.plotOf(f, cu, cv))) { target = { cell: [f, cu, cv, ch] }; end = s; break; }
+      if (solidAt(f, p[0], p[1], p[2])) { end = s; break; }   // the ground, a built piece: the bolt ends there
+    }
+    const pts = [o, [o[0] + d[0] * end, o[1] + d[1] * end, o[2] + d[2] * end]].map(([pu, pv, ph]) => Wd.posOf(f, pu, pv, ph));
+    if (!boltMat) boltMat = new THREE.LineBasicMaterial({ color: 0x9ff3ff, transparent: true, depthWrite: false });
+    const line = new THREE.Line(new THREE.BufferGeometry(), boltMat.clone());
+    line.userData.pts = pts; line.frustumCulled = false; scene.add(line);
+    bolts.push({ line, t0: now });
+    sound.cue("bolt", 0.8, 80);
+    if (target && target.cell) { const [tf, tu, tv, th] = target.cell; putCell(tf, tu, tv, th, B.air); }   // torn at once, as by the body
+    net.send({ t: "bolt", craft: c.id, dir: d, target });
+  }
+}
+function boltsFrame(now, cam) {
+  for (let i = bolts.length - 1; i >= 0; i--) {
+    const k = bolts[i], age = (now - k.t0) / BOLT_LIFE;
+    if (age >= 1) { scene.remove(k.line); k.line.geometry.dispose(); k.line.material.dispose(); bolts.splice(i, 1); continue; }
+    const [a, b] = k.line.userData.pts;
+    k.line.geometry.setAttribute("position", new THREE.Float32BufferAttribute([a[0] - cam[0], a[1] - cam[1], a[2] - cam[2], b[0] - cam[0], b[1] - cam[1], b[2] - cam[2]], 3));
+    k.line.material.opacity = 1 - age;
+  }
+}
 function huntSaid(m) {
   const H = RULES.hunting;
   if (m.killed) {
@@ -2699,10 +2759,12 @@ function goalLine() {
 function hotbar() {
   goalLine();
   const bar = $("hotbar");
-  if (flying && flying.aero && flying.aero.gadgets && Object.keys(flying.aero.gadgets).length) {
-    // GADGET KEYS at the controls: each bound key with its gadgets' thrust; held (a phone holds the cell) it fires them
-    const g = flying.aero.gadgets;
-    bar.innerHTML = Object.keys(g).map(Number).sort().map((n) => `<div class="hs gadget" data-n="${n}"><span>${n}</span><b>${Math.round(Math.hypot(g[n][0], g[n][1], g[n][2]))} kN</b></div>`).join("");
+  const gunKeys = flying && flying.cannons ? [...new Set(flying.cannons.map((x) => x.slot))] : [];
+  if (flying && flying.aero && flying.aero.gadgets && (Object.keys(flying.aero.gadgets).length || gunKeys.length)) {
+    // GADGET KEYS at the controls: each bound key with its gadgets' thrust — or ⚡ for a key that fires cannons (#171);
+    // held (a phone holds the cell) it fires them
+    const g = flying.aero.gadgets, ks = [...new Set([...Object.keys(g).map(Number), ...gunKeys])].sort((a, b) => a - b);
+    bar.innerHTML = ks.map((n) => `<div class="hs gadget" data-n="${n}"><span>${n}</span><b>${g[n] ? Math.round(Math.hypot(g[n][0], g[n][1], g[n][2])) + " kN" : ""}${gunKeys.includes(n) ? " ⚡" : ""}</b></div>`).join("");
     bar.querySelectorAll(".hs").forEach((el) => {
       const n = Number(el.dataset.n);
       el.addEventListener("touchstart", (e) => { if (touch) { touch.slots = touch.slots || new Set(); touch.slots.add(n); } e.preventDefault(); }, { passive: false });
@@ -4812,7 +4874,7 @@ function frame(now) {
   for (const [id, c] of crafts) if (c.pose) { craftPlace(c.mesh, c.pose, cam); engineFrame(id, c, cam, now); }
   animalsFrame(Math.min(0.1, (now - (frame.lastAnimals || now)) / 1000), cam); frame.lastAnimals = now;
   hitDirFrame(now);
-  npcsFrame(cam, dt, now); arrowsFrame(now, cam); dropsFrame(now, cam);
+  npcsFrame(cam, dt, now); arrowsFrame(now, cam); dropsFrame(now, cam); boltsFrame(now, cam);
   for (const r of others.values()) {
     if (!r.p) continue;
     const [f, u, v, h, yaw] = r.p, q = Wd.posOf(f, u, v, h), ofr = Wd.frameOf(f, u, v);

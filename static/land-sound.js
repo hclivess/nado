@@ -12,6 +12,7 @@ export const CUES = {
   charge: { wave: "square", notes: [[220, 0.0, 0.09], [277, 0.14, 0.09], [330, 0.28, 0.12]], gain: 0.22 },
   pickup: { wave: "sine", notes: [[660, 0.0, 0.06], [990, 0.07, 0.08]], gain: 0.18 },
   step: { wave: "triangle", notes: [[70, 0.0, 0.045]], gain: 0.12 },
+  bolt: { wave: "sawtooth", notes: [[1200, 0.0, 0.05], [600, 0.03, 0.07]], gain: 0.16 },   // the cannon's zap (#171): a falling double pulse
 };
 /** Play cue `name` on `ctx` at `at` seconds (ctx.currentTime by default), scaled by `vol` 0..1. Returns the nodes made. */
 export function play(ctx, name, vol = 1, at = null) {
