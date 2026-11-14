@@ -174,7 +174,11 @@ async def main():
         check("…but a yaw of many turns is (the X-wing's parked yaw was -14.647: the page counts turns)", err is None, err)
         # an aircraft lands and is set down as pieces with its seven-number pose (dock unpacked five, and an aircraft could
         # never be docked, 2026-11-12)
-        while h > cp[3] + 1:                                        # back down, 25 m a report (the top speed bounds a report)
+        # back down, 25 m a report a tenth of a second apart (250 m/s, under the top speed): the pace is judged over a
+        # window from an anchor now (World.fly, 2026-11-14), so reports sent with no time between them add up to a jump and
+        # are rightly refused — the descent must take the time a craft would
+        while h > cp[3] + 1:
+            await asyncio.sleep(0.1)
             h = max(cp[3], h - 25); err = world.fly(me, craft, [cp[0], cp[1], cp[2], h, 0.0, 0.0, 0.0])
             check("…a report on the way down is taken", err is None, err) if err else None
         world.crafts[craft]["pilot"] = me

@@ -1935,6 +1935,7 @@ function avatar(seed, look) {
   if (girl) for (const x of [-0.24, 0.24]) box(0.09, 0.3, 0.09, x, 1.6, -0.05, c.hair);             // two pigtails
   if (c.cap != null) box(0.42, 0.14, 0.42, 0, 1.92, 0, c.cap); else box(0.4, 0.1, 0.4, 0, 1.92, 0, c.hair);
   if (c.cloak != null) box(0.62, 1.15, 0.05, 0, 1.0, -0.19, c.cloak);                              // a cloak hangs behind
+  g.userData.person = true;                       // /tris counts a figure's boxes as "people" by this mark (its meshes have their own materials)
   return g;
 }
 // ---- ANIMALS (#156, "hunting", operator 2026-11-09): the world server keeps them near players (land_server.py herd) and
@@ -3743,6 +3744,9 @@ const CMDS = {
       if (!n) return;
       let k = (names.find(([m]) => m && m === o.material) || [])[1];
       if (!k && o === farBoxMesh) k = "far boxes";
+      // A FIGURE IS PEOPLE (the blocky figures of 2026-11-14 carry userData.person; the realistic bodies' human.meshes went
+      // with them, and /tris lost its people line to "other")
+      if (!k) { let q = o.parent; while (q) { if (q.userData && q.userData.person) { k = "people"; break; } q = q.parent; } }
       if (!k) k = "other: " + (o.material && o.material.constructor ? o.material.constructor.name : "?");
       add(k, n);
     });
