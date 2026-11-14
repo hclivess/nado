@@ -1701,7 +1701,8 @@ function connect() {
       if (chest && m.plot === chest.plot && String(m.box) === String(chest.box)) { chest.items = m.items || {}; renderChest(); }
       if (m.error) notify(m.error);
     } else if (m.t === "chat") {
-      conLine(`<${String(m.who || "").slice(0, 10)}…> ${String(m.text || "")}`);
+      // a speaker by their chosen name (#179), else by the start of their address as before
+      conLine(`<${m.name ? String(m.name).slice(0, 16) : String(m.who || "").slice(0, 10) + "…"}> ${String(m.text || "")}`);
     } else if (m.t === "chat_ok" && m.error) {
       conLine(T("cSignIn", "Sign in to chat."), "err");
     } else if (m.t === "edit") {
@@ -1723,6 +1724,11 @@ function connect() {
       fillHot(); hotbar(); if (bagOpen()) renderBag(); if (!$("wardPanel").classList.contains("hidden")) renderWard();
     } else if (m.t === "offers") {
       offers = m.offers || []; if (bagOpen()) renderBag();
+    } else if (m.t === "name_ok") {
+      if (m.error === "name_taken") conLine(T("nameTaken", "That name is taken — choose another."));
+      else if (m.error === "name_bad") conLine(T("nameBad", "A name is 3–16 letters, digits, spaces, - or _, with no space at either end."));
+      else if (m.error) conLine(String(m.error));
+      else conLine(m.name ? T("nameSet", "Your name is now {n}.", { n: m.name }) : T("nameCleared", "Your name is cleared: you are shown by your address."));
     } else if (m.t === "done") {
       if (m.error) notify(String(m.error));
       else if (m.op === "eat") notify(T("ate", "Well fed: work goes quicker for a while."));
@@ -1740,7 +1746,11 @@ function connect() {
         let r = others.get(o.id);
         const sig = JSON.stringify(o.look || null);
         if (r && r.sig !== sig) { scene.remove(r.mesh); r = null; }      // they changed clothes: dress them again
-        if (!r) { r = { mesh: avatar(o.who || o.id, o.look), who: o.who, sig }; scene.add(r.mesh); others.set(o.id, r); }
+        if (!r) {
+          r = { mesh: avatar(o.who || o.id, o.look), who: o.who, sig }; scene.add(r.mesh); others.set(o.id, r);
+          // THEIR NAME OVER THEM (#179): a plate as the townspeople carry, when they chose a name
+          if (o.look && o.look.name) { const plate = label(String(o.look.name).slice(0, 16), null); plate.position.set(0, 2.25, 0); r.mesh.add(plate); }
+        }
         r.p = o.p;
       }
       for (const [id, r] of others) if (!seen.has(id)) { scene.remove(r.mesh); others.delete(id); }
@@ -3572,7 +3582,7 @@ async function bench() {
 }
 const CMDS = {
   help: () => [["/help", T("cHelp", "this list")], ["/pos", T("cPos", "where you are")], ["/tp spawn | /tp bed", T("cTpTo", "go to the landing, or to your bed")],
-    ["/aim", T("cAim", "what you aim at, and where a block would go")], ["1–9", T("cKeys", "aimed at a thruster or an engine: its key; at the controls: fire the gadgets bound to that key")], ["/prof", T("cProf", "the profiler: where each frame's time goes")], ["/trace", T("cTrace", "the last events: boarding, leaving, every teleport, hurt, errors")], ["/dock", T("cDock", "set your landed craft down as pieces")], ["/planet", T("cPlanet", "the planet: its size, gravity, mass, orbits and air")], ["/map", T("cMap", "your map: the land you have surveyed (also M)")], ["/crafts", T("cCrafts", "where your crafts are: distance, bearing, height")], ["/handover <player>", T("cGive", "give your craft to a player — they take its controls")], ["/fly", T("cFly", "fly or walk")], ["/settings", T("cSettings", "your settings")], ["/bench", T("cBench", "measure this device and pick its graphics")], ["/tilt <yaw> <pitch> <roll>", T("cTilt", "turn the piece in hand, in degrees")], ["/set <name> <value>", T("cSet", "change one (e.g. /set fov 90)")],
+    ["/aim", T("cAim", "what you aim at, and where a block would go")], ["1–9", T("cKeys", "aimed at a thruster or an engine: its key; at the controls: fire the gadgets bound to that key")], ["/prof", T("cProf", "the profiler: where each frame's time goes")], ["/name …", T("cName", "your name, shown in chat and over you; /name alone clears it")], ["/trace", T("cTrace", "the last events: boarding, leaving, every teleport, hurt, errors")], ["/dock", T("cDock", "set your landed craft down as pieces")], ["/planet", T("cPlanet", "the planet: its size, gravity, mass, orbits and air")], ["/map", T("cMap", "your map: the land you have surveyed (also M)")], ["/crafts", T("cCrafts", "where your crafts are: distance, bearing, height")], ["/handover <player>", T("cGive", "give your craft to a player — they take its controls")], ["/fly", T("cFly", "fly or walk")], ["/settings", T("cSettings", "your settings")], ["/bench", T("cBench", "measure this device and pick its graphics")], ["/tilt <yaw> <pitch> <roll>", T("cTilt", "turn the piece in hand, in degrees")], ["/set <name> <value>", T("cSet", "change one (e.g. /set fov 90)")],
     ["/clear", T("cClear", "clear this log")], ["…", T("cChat", "anything else is chat to the players around you")]].forEach(([c, d]) => conLine(c + " — " + d)),
   pos: () => conLine(`${T("cFace", "face")} ${P.face} · u ${Math.floor(P.u)} · v ${Math.floor(P.v)} · h ${P.h.toFixed(1)} · ${T("cPlot", "plot")} ${Wd.plotOf(P.face, Math.floor(P.u), Math.floor(P.v))}`),
   // /tp (#167): to the landing or to your own bed — nowhere else; going far is walking, flying, or a craft. Signed in, the
@@ -3613,6 +3623,11 @@ const CMDS = {
   map: () => mapPanel(true),
   // /crafts: WHERE YOUR CRAFTS ARE (#171, operator: "i left the x somewhere") — each one's distance, bearing and height
   crafts: () => net.send({ t: "mycrafts", req: ++net.req }),
+  // /name <name>: YOUR NAME (#179) — shown in chat and over you; /name alone clears it. 3–16 letters, digits, space, - _
+  name: (a) => {
+    if (!net.me) return conLine(T("bagSignIn", "Sign in to gather, make things and trade."));
+    net.send({ t: "name", name: (a || []).join(" ").trim(), req: ++net.req });
+  },
   // /handover <player>: HAND A CRAFT OVER (#171) — the one you fly, or your parked craft near; to a player by their address, or
   // by the start of the address of one standing near. They own it and take its controls at once (land_server.py give).
   handover: (a) => {

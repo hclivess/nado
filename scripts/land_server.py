@@ -1456,7 +1456,7 @@ class World:
         pl = self.player(addr)
         return {"items": {k: n for k, n in sorted(pl["items"].items()) if n > 0}, "tools": sorted(pl["tools"]),
                 "stations": sorted(pl["stations"]), "vol": {k: v for k, v in sorted(pl["vol"].items()) if v > 0},
-                "worn": dict(sorted(pl["worn"].items())), "look": dict(pl["look"]),
+                "worn": dict(sorted(pl["worn"].items())), "look": dict(pl["look"]), "name": pl.get("name") or "",
                 "fed": max(0, int(pl.get("fed", 0) - time.time())),          # seconds of a meal left (#155)
                 "hp": pl.get("hp", RULES["health"]["max"]), "hp_max": RULES["health"]["max"],   # health (#162)
                 "quests": [dict(q, ready=self._ready(pl, q)) for q in pl.get("quests", [])],      # the quest log (#165)
@@ -1499,11 +1499,61 @@ class World:
                 "crafts": [{"id": c["id"], "pose": c["pose"]} for c in self.crafts_of(addr)]}
 
     def look_of(self, addr):
-        """What others see of a player: what they wear and their skin and hair."""
+        """What others see of a player: what they wear, their skin and hair — and their name (#179), when they chose one."""
         pl = self.player(addr)
         lk = pl["look"]
-        return {"worn": dict(sorted(pl["worn"].items())), "skin": lk.get("skin", 0), "hair": lk.get("hair", 0),
-                "body": lk.get("body", 0), "face": lk.get("face", 0)}
+        out = {"worn": dict(sorted(pl["worn"].items())), "skin": lk.get("skin", 0), "hair": lk.get("hair", 0),
+               "body": lk.get("body", 0), "face": lk.get("face", 0)}
+        if pl.get("name"):
+            out["name"] = pl["name"]
+        return out
+
+    # PLAYER NAMES (#179 item 7, approved by the operator 2026-11-14: chat showed a speaker as ten hex characters and
+    # players had no names). A name is 3–16 characters — letters of any alphabet, digits, a space, - and _ — with no space
+    # at either end and none doubled; it is unique whatever its case; free to change or clear (an empty name). Errors are
+    # codes the page says in its language: name_bad, name_taken.
+    NAME_MIN, NAME_MAX = 3, 16
+
+    @staticmethod
+    def name_ok(name):
+        return (isinstance(name, str) and World.NAME_MIN <= len(name) <= World.NAME_MAX and name == name.strip() and "  " not in name
+                and all(ch.isalnum() or ch in " -_" for ch in name))
+
+    def name_owner(self, name):
+        """The address holding `name` (case aside), or None — read from every player's record, the ones in memory first."""
+        key = name.casefold()
+        for a, pl in self.players.items():
+            if (pl.get("name") or "").casefold() == key:
+                return a
+        d = os.path.join(self.dir, "players")
+        for fn in (os.listdir(d) if os.path.isdir(d) else []):
+            a = fn[:-5] if fn.endswith(".json") else None
+            if not a or a in self.players:
+                continue
+            try:
+                if (json.load(open(os.path.join(d, fn))).get("name") or "").casefold() == key:
+                    return a
+            except Exception:
+                pass
+        return None
+
+    def set_name(self, addr, name):
+        """Set (or, with an empty name, clear) the player's name. Returns None or an error code."""
+        name = name if isinstance(name, str) else None
+        if name is None:
+            return "name_bad"
+        name = name.strip()
+        pl = self.player(addr)
+        if not name:
+            pl.pop("name", None); self.pdirty.add(addr)
+            return None
+        if not self.name_ok(name):
+            return "name_bad"
+        owner = self.name_owner(name)
+        if owner is not None and owner != addr:
+            return "name_taken"
+        pl["name"] = name; self.pdirty.add(addr)
+        return None
 
     def wear(self, addr, slot, item):
         """Put `item` on (from the bag) in `slot`, or take off what is there (item None) back into the bag. One per slot:
@@ -2948,13 +2998,14 @@ class Hub:
                     except Exception:
                         pass
 
-    async def chat(self, sender, who, text):
-        """A chat line to every socket whose watched plots meet the sender's (its own included)."""
+    async def chat(self, sender, who, text, name=""):
+        """A chat line to every socket whose watched plots meet the sender's (its own included) — with the speaker's name
+        when they chose one (#179)."""
         near = sender["watch"]
         for ws, st in list(self.socks.items()):
             if st is sender or st["watch"] & near:
                 try:
-                    await ws.send_json({"t": "chat", "who": who, "text": text})
+                    await ws.send_json({"t": "chat", "who": who, "text": text, **({"name": name} if name else {})})
                 except Exception:
                     pass
 
@@ -3593,7 +3644,7 @@ def make_app(world, hub, site_origin, wallet_url, secure_cookies=True, shot_page
                     if not text or time.time() - st.get("chat_at", 0) < 1.0:
                         continue
                     st["chat_at"] = time.time()
-                    await hub.chat(st, addr, text)
+                    await hub.chat(st, addr, text, world.player(addr).get("name") or "" if world else "")
                 elif t == "boxes":
                     if not addr:
                         await ws.send_json({"t": "boxes_ok", "req": m.get("req"), "added": 0, "removed": 0, "refused": [[None, "sign in to build"]]})
@@ -3706,6 +3757,14 @@ def make_app(world, hub, site_origin, wallet_url, secure_cookies=True, shot_page
                     await ws.send_json({"t": "ignite", "req": m.get("req"), "error": err})
                     if applied:
                         await hub.edits(applied, addr)
+                elif t == "name":                                         # a player's name (#179)
+                    if not addr:
+                        await ws.send_json({"t": "done", "req": m.get("req"), "error": "sign in first"})
+                        continue
+                    err = world.set_name(addr, m.get("name"))
+                    await ws.send_json({"t": "name_ok", "req": m.get("req"), "error": err, "name": world.player(addr).get("name") or ""})
+                    if not err:
+                        await hub.inv(world, addr)
                 elif t in ("wear", "look"):
                     if not addr:
                         await ws.send_json({"t": "done", "req": m.get("req"), "error": "sign in first"})

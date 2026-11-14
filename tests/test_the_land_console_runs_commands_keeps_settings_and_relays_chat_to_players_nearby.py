@@ -87,6 +87,34 @@ async def main():
     vr, ar = await drain(wv), await drain(wa)
     check("a visitor who has not signed in cannot chat (and is told so)",
           any(m.get("t") == "chat_ok" and m.get("error") for m in vr) and not chats(ar) and not chats(vr), (vr, ar))
+    # PLAYER NAMES (#179 item 7, approved by the operator 2026-11-14): chosen with a socket message, checked, unique
+    # whatever the case, carried with every chat line and with the look others see, cleared with an empty name
+    async def name(ws, n):
+        await ws.send_json({"t": "name", "name": n, "req": 1})
+        return next((m for m in await drain(ws) if m.get("t") == "name_ok"), None)
+    r = await name(wa, "Ünder Hill-7")
+    check("a name of letters of any alphabet, digits, a space and - is taken", r and r["error"] is None and r["name"] == "Ünder Hill-7", r)
+    for bad in ("ab", "x" * 17, "two  spaces", "semi;colon", "<script>"):
+        r = await name(wb, bad)
+        check(f"…{bad!r} is refused as name_bad", r and r["error"] == "name_bad", (bad, r))
+    r = await name(wb, "  Trimmed  ")
+    check("…spaces at either end are trimmed, not kept", r and r["error"] is None and r["name"] == "Trimmed", r)
+    r = await name(wb, "ünder hill-7")
+    check("…the same name in another case is taken by A", r and r["error"] == "name_taken", r)
+    r = await name(wa, "ÜNDER HILL-7")
+    check("…while A may change the case of their own", r and r["error"] is None, r)
+    await asyncio.sleep(1.05)
+    await wa.send_json({"t": "chat", "text": "named"})
+    gb = chats(await drain(wb)); await drain(wa); await drain(wv)
+    check("a chat line carries the speaker's name", gb and gb[0].get("name") == "ÜNDER HILL-7" and gb[0]["who"] == A["address"], gb)
+    check("…and so does the look others see of them", world.look_of(A["address"]).get("name") == "ÜNDER HILL-7")
+    r = await name(wa, "")
+    check("an empty name clears it", r and r["error"] is None and r["name"] == "" and "name" not in world.look_of(A["address"]), r)
+    r = await name(wb, "Ünder Hill-7")
+    check("…and a cleared name is free for another", r and r["error"] is None, r)
+    await wv.send_json({"t": "name", "name": "Visitor", "req": 2})
+    vr = await drain(wv)
+    check("a visitor who has not signed in cannot take a name", any(m.get("error") == "sign in first" for m in vr), vr)
     for ws in (wa, wb, wc, wv):
         await ws.close()
     await c.close()
@@ -140,4 +168,11 @@ keys = set(re.findall(r'T\("(c[A-Z][A-Za-z]+)"', js)) | {"cPlaceholder"}
 check(f"every console string ({len(keys)}) is in all 17 languages",
       len(keys) >= 17 and len(tr) == 17 and all(all(l.get("land." + k) for k in keys) for l in tr.values()),
       [(n, k) for n, l in tr.items() for k in keys if not l.get("land." + k)][:6])
+# the page's side of names (#179): the chat line shows the name, a plate over a named player, /name sets and clears it
+pg = open(os.path.join(ROOT, "static", "land.js"), encoding="utf-8").read()
+check("the page shows a speaker by their name, else by the start of their address",
+      'conLine(`<${m.name ? String(m.name).slice(0, 16) : String(m.who || "").slice(0, 10) + "…"}> ${String(m.text || "")}`);' in pg)
+check("…a plate with their name over a named player", "if (o.look && o.look.name) { const plate = label(String(o.look.name).slice(0, 16), null);" in pg)
+check("…/name sets it (the words joined), /name alone clears it, and the replies are in the player's language",
+      'net.send({ t: "name", name: (a || []).join(" ").trim(), req: ++net.req });' in pg and 'T("nameTaken",' in pg and 'T("nameBad",' in pg and 'T("nameSet",' in pg and 'T("nameCleared",' in pg)
 _report.done()
