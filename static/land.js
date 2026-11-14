@@ -1894,49 +1894,33 @@ function lookColours(seed, look) {
   return { skin: SKIN[look.skin] ?? SKIN[0], hair: HAIR[look.hair] ?? HAIR[0], top: WEAR[worn.body] ?? under,
            legs: WEAR[worn.legs] ?? 0x3b3f46, cap: WEAR[worn.head] ?? null, cloak: WEAR[worn.back] ?? null };
 }
-// BODY AND FACE (#145, "add kawaii faces and let users customize the basics like gender and face and hair color",
-// operator 2026-11-09) — and NOT BLOCKS ("rework characters to not be fucking blocks", the same evening): a rounded chibi
-// figure — a big round head with one of FACES drawn kawaii faces on its front (faceCanvas, on a cap of the sphere), a
-// capsule body, rounded arms and legs with hands and shoes. Body type 0: a fringe of short hair; 1: longer hair, pigtails
-// and a skirt. Clothes keep their colours (lookColours): a soft cap, a cloak that drapes behind. ~1.75 m, front +Z.
 // BACK TO THE KAWAII FIGURES (operator 2026-11-13: "can we replace the human make models in the game? swap them for
-// those blocky characters with kawaii faces that were there at the beginning and clean up after ourselves"): the
-// MakeHuman bodies of #172 (their module, its instanced view, the hair and garment meshes and their data) are gone, and
-// the chibi figure below is drawn again, as it was on 2026-11-09, one group per person.
+// those blocky characters with kawaii faces that were there at the beginning and clean up after ourselves"), and then
+// (2026-11-14) "kawaii people yes but the blocky ones were better": the MakeHuman bodies of #172 are gone, and a person
+// is the BLOCKY figure of the first days (boxes: legs, torso, arms, a cube head, hair, a cap, a cloak — as on
+// 2026-11-07) with the kawaii FACE of #145 drawn flat on the front of the cube head (faceFlat: the face canvas unmirrored,
+// for a plane facing +Z, the figure's front). Body type 1 keeps what #145 gave it, in blocks: hair down the back, two
+// pigtails, a skirt. One group per person, for players and townspeople alike. Nothing rounded: no capsule, no sphere.
+const faceFlatTex = new Map();
+function faceFlat(face) {
+  if (!faceFlatTex.has(face)) { const t = new THREE.CanvasTexture(faceCanvas(face, null)); t.colorSpace = THREE.SRGBColorSpace; faceFlatTex.set(face, t); }
+  return faceFlatTex.get(face);
+}
 function avatar(seed, look) {
   const c = lookColours(seed, look), g = new THREE.Group(), girl = (look && look.body) === 1;
-  const mat = (col) => new THREE.MeshLambertMaterial({ color: col });
-  const put = (geo, col, x, y, z, rx = 0, rz = 0) => { const m = new THREE.Mesh(geo, typeof col === "number" ? mat(col) : col); m.position.set(x, y, z); m.rotation.set(rx, 0, rz); g.add(m); return m; };
-  const capsule = (r, len) => new THREE.CapsuleGeometry(r, len, 4, 12);
-  const sphere = (r, ...cut) => new THREE.SphereGeometry(r, 24, 16, ...cut);
-  // legs and shoes
-  for (const x of [-0.09, 0.09]) { put(capsule(0.075, 0.42), c.legs, x, 0.33, 0); put(sphere(0.085), 0x3a2e2a, x, 0.06, 0.03).scale.set(1, 0.6, 1.4); }
-  if (girl) put(new THREE.CylinderGeometry(0.16, 0.29, 0.34, 20, 1, true), c.top, 0, 0.62, 0).material.side = THREE.DoubleSide;   // a skirt
-  // the body, a little narrower for body type 1; arms hang slightly out, hands in skin
-  put(capsule(girl ? 0.16 : 0.18, 0.34), c.top, 0, 0.92, 0).scale.set(1, 1, 0.82);
-  for (const s of [-1, 1]) {
-    const x = s * (girl ? 0.21 : 0.24);
-    put(capsule(0.06, 0.34), c.top, x, 0.94, 0, 0, s * 0.12);
-    put(sphere(0.065), c.skin, x + s * 0.03, 0.7, 0.01);
-  }
-  // the head: round and big, its face a cap of the sphere just over the skin (the drawn face is mirrored to read right)
-  const R = 0.25, hy = 1.42;
-  put(sphere(R), c.skin, 0, hy, 0);
-  const tex = faceTexture((look && look.face) || 0);
-  put(sphere(R + 0.003, Math.PI / 2 - 0.8, 1.6, 0.85, 1.25), new THREE.MeshLambertMaterial({ map: tex, transparent: true, depthWrite: false }), 0, hy, 0);
-  // hair: a cap over the top and back, a fringe in front; for body type 1 longer at the back and two pigtails
-  put(sphere(R + 0.03, 0, Math.PI * 2, 0, 1.0), c.hair, 0, hy, 0);                                   // the crown
-  put(sphere(R + 0.03, Math.PI * 1.5 - 1.75, 3.5, 0.9, girl ? 1.75 : 1.15), c.hair, 0, hy, 0);       // sides and back
-  put(sphere(R + 0.035, Math.PI / 2 - 0.85, 1.7, 0.55, 0.42), c.hair, 0, hy, 0);                      // a fringe
-  if (girl) for (const s of [-1, 1]) {                                                                // two pigtails, hanging
-    put(sphere(0.06), c.hair, s * 0.27, hy + 0.02, -0.02);
-    put(capsule(0.065, 0.26), c.hair, s * 0.31, hy - 0.18, -0.03, 0, s * 0.22);
-  }
-  if (c.cap != null) put(sphere(R + 0.045, 0, Math.PI * 2, 0, 1.0), c.cap, 0, hy + 0.03, 0).scale.set(1.05, 0.8, 1.05);   // a soft cap
-  if (c.cloak != null) {                                                                                                 // a cloak drapes behind
-    const cl = put(new THREE.CylinderGeometry(0.24, 0.36, 0.95, 20, 1, true, Math.PI * 0.6, Math.PI * 0.8), c.cloak, 0, 0.78, 0);
-    cl.material.side = THREE.DoubleSide;
-  }
+  const box = (w, h, d, x, y, z, col) => { const m = new THREE.Mesh(new THREE.BoxGeometry(w, h, d), new THREE.MeshLambertMaterial({ color: col })); m.position.set(x, y, z); g.add(m); return m; };
+  box(0.22, 0.8, 0.24, -0.13, 0.4, 0, c.legs); box(0.22, 0.8, 0.24, 0.13, 0.4, 0, c.legs);          // legs
+  if (girl) box(0.6, 0.32, 0.34, 0, 0.72, 0, c.top);                                               // a skirt
+  box(girl ? 0.5 : 0.56, 0.7, 0.3, 0, 1.15, 0, c.top);                                              // torso
+  box(0.16, 0.66, 0.2, -0.37, 1.13, 0, c.top); box(0.16, 0.66, 0.2, 0.37, 1.13, 0, c.top);          // arms
+  box(0.38, 0.38, 0.38, 0, 1.69, 0, c.skin);                                                        // head
+  // the face: the kawaii canvas on a plane just in front of the head's front face (+Z)
+  const f = new THREE.Mesh(new THREE.PlaneGeometry(0.38, 0.38), new THREE.MeshLambertMaterial({ map: faceFlat((look && look.face) || 0), transparent: true, depthWrite: false }));
+  f.position.set(0, 1.69, 0.192); g.add(f);
+  box(0.4, girl ? 0.5 : 0.24, 0.07, 0, girl ? 1.62 : 1.75, -0.19, c.hair);                         // hair, behind (down the back for body type 1)
+  if (girl) for (const x of [-0.24, 0.24]) box(0.09, 0.3, 0.09, x, 1.6, -0.05, c.hair);             // two pigtails
+  if (c.cap != null) box(0.42, 0.14, 0.42, 0, 1.92, 0, c.cap); else box(0.4, 0.1, 0.4, 0, 1.92, 0, c.hair);
+  if (c.cloak != null) box(0.62, 1.15, 0.05, 0, 1.0, -0.19, c.cloak);                              // a cloak hangs behind
   return g;
 }
 // ---- ANIMALS (#156, "hunting", operator 2026-11-09): the world server keeps them near players (land_server.py herd) and
@@ -2429,17 +2413,8 @@ function faceCanvas(face, skin) {
   else { g.arc(32, 45, 4, 0.15 * Math.PI, 0.85 * Math.PI); g.stroke(); }                                              // a smile
   return cv;
 }
-const faceTex = new Map();
 /** A face as a decal for the head's front cap: transparent around it; mirrored, as the sphere's u runs right to left
  *  seen from the front. */
-function faceTexture(face) {
-  if (!faceTex.has(face)) {
-    const t = new THREE.CanvasTexture(faceCanvas(face, null));
-    t.colorSpace = THREE.SRGBColorSpace; t.wrapS = THREE.RepeatWrapping; t.repeat.x = -1; t.offset.x = 1;
-    faceTex.set(face, t);
-  }
-  return faceTex.get(face);
-}
 function netTick() {
   if (!net.online) return;
   // watch the plots in view (a chunk column is a plot), and say where we stand

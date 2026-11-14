@@ -117,14 +117,13 @@ check("the page's palettes are the server's", J.get("skin") == S.LOOK_SKIN and J
 _a0 = page.index("function avatar(")
 av = page[_a0:page.index("\nfunction ", _a0 + 1)]
 check("the avatar's own body is what is judged", 400 < len(av) < 12000 and "function animal" not in av, len(av))
-# the KAWAII FIGURE again (operator 2026-11-13: "swap them for those blocky characters with kawaii faces that were there
-# at the beginning"): rounded — capsule limbs and body, a sphere head with a drawn face — and no MakeHuman body behind it
-check("a player is the rounded kawaii figure, not boxes and not a MakeHuman body: capsule limbs and body, a sphere head, no box",
-      "new THREE.CapsuleGeometry(" in av and "new THREE.SphereGeometry(" in av and "BoxGeometry" not in av
-      and "land-human" not in page and "HumanView" not in page)
+# the BLOCKY figure with the kawaii face (operator 2026-11-14: "kawaii people yes but the blocky ones were better"):
+# boxes and a flat face on the cube head; nothing rounded, and no MakeHuman body behind it
+check("a player is the blocky figure with a kawaii face: boxes, a face plane on the head, no capsule or sphere, no MakeHuman body",
+      "new THREE.BoxGeometry(" in av and "new THREE.PlaneGeometry(0.38, 0.38)" in av and "faceFlat((look && look.face) || 0)" in av
+      and "CapsuleGeometry" not in av and "SphereGeometry" not in av and "land-human" not in page and "HumanView" not in page)
 check("the page draws the body type and the face, and the wardrobe chooses them",
-      "girl = (look && look.body) === 1" in av and "const tex = faceTexture((look && look.face) || 0);" in av
-      and "data-body=" in page and "data-face=" in page and 'body: look.body, face: look.face' in page)
+      "girl = (look && look.body) === 1" in av and "data-body=" in page and "data-face=" in page and 'body: look.body, face: look.face' in page)
 d, b, W = J.get("dressed", {}), J.get("bare", {}), J.get("WEAR", {})
 check("what you wear is what is drawn: each garment's colour on its part, the chosen skin and hair",
       d.get("top") == W.get("linen_shirt") and d.get("legs") == W.get("linen_trousers") and d.get("cap") == W.get("linen_cap")
