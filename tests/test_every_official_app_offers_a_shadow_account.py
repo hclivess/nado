@@ -8,7 +8,10 @@ sites, but nobody could use them privately. Pins:
   1. every static page whose canonical URL is an official https://<app>.nadochain.com and that loads nadodapp.js (the
      SDK that signs through the wallet) — directly or through one of its own scripts — is in EXEC_SIGN_ALLOW;
   2. every origin in EXEC_SIGN_ALLOW is such a page (no stale entry);
-  3. the card and the restore scan still read EXEC_SIGN_ALLOW, so the list is what the user is offered.
+  3. the card and the restore scan still read EXEC_SIGN_ALLOW, so the list is what the user is offered;
+  4. Land (#190, approved by the operator 2026-11-14) is offered, and its LOGIN signs as signerFor(site) — the shadow
+     account when the player uses Land privately — not as the active account: a login signed by state.wallet would build
+     as the main address while every contract call from Land went out from the shadow one.
 
 Run: python3 tests/test_every_official_app_offers_a_shadow_account.py
 """
@@ -63,4 +66,9 @@ check("2. no stale entry: every listed origin is an official app page", allow <=
 check("3. the card offers EXEC_SIGN_ALLOW and the restore scan reads it",
       re.search(r'for \(const o of EXEC_SIGN_ALLOW\) \{ const op = document\.createElement\("option"\)', js) is not None
       and "function shadowCandidateOrigins() { return [...new Set([...shadowOrigins(), ...EXEC_SIGN_ALLOW])]; }" in js)
+land = js[js.index("async function resumePendingLandLogin()"):js.index("async function resumePendingForumLogin()")]
+check("4. Land is offered privately and its login signs with the site's signer",
+      "https://land.nadochain.com" in allow and "const who = signerFor(req.site);" in land
+      and "schemeSignEntry(who, hexToBytes(msg))" in land and "state.wallet.address" not in land
+      and 'blake2bHash([DOMAIN_LAND_LOGIN, req.site, who.address, req.nonce, req.issued], 32)' in land)
 _report.done()

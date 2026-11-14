@@ -5248,16 +5248,21 @@ async function resumePendingLandLogin() {
   const okc = await uiConfirm({
     title: i18("landlogin.title", "Sign in to NADO Land"),
     body: i18("landlogin.body", "Prove you own this wallet to build on {f} as {a}. This cannot move funds.",
-      { f: req.site.replace(/^https?:\/\//, ""), a: _abShort(state.wallet.address) }),
+      { f: req.site.replace(/^https?:\/\//, ""), a: _abShort(signerFor(req.site).address) }),
     confirmText: i18("landlogin.signin", "Sign in"),
   });
   if (!okc) return;
   try {
-    const msg = blake2bHash([DOMAIN_LAND_LOGIN, req.site, state.wallet.address, req.nonce, req.issued], 32);
-    const e = schemeSignEntry(state.wallet, hexToBytes(msg));
+    // A PRIVATE ACCOUNT FOR LAND (#190, approved by the operator 2026-11-14): the login is signed by signerFor(site) — the
+    // game's shadow account when the player uses Land privately, else the active account — the same signer every
+    // contract call from Land already uses (resumePendingExecSign), so a plot bought privately belongs to the address the
+    // player builds as. It signed as the active account always, which is why Land could not be offered privately.
+    const who = signerFor(req.site);
+    const msg = blake2bHash([DOMAIN_LAND_LOGIN, req.site, who.address, req.nonce, req.issued], 32);
+    const e = schemeSignEntry(who, hexToBytes(msg));
     const form = document.createElement("form");
     form.method = "POST"; form.action = req.site + "/land/api/login_callback";
-    for (const [n, v] of [["address", state.wallet.address], ["public_key", e.public_key], ["alg", e.alg || ""],
+    for (const [n, v] of [["address", who.address], ["public_key", e.public_key], ["alg", e.alg || ""],
                           ["signature", e.signature], ["nonce", req.nonce]]) {
       const i = document.createElement("input"); i.type = "hidden"; i.name = n; i.value = v; form.appendChild(i);
     }
@@ -5330,7 +5335,7 @@ async function resumePendingForumLogin() {
 // restore scan reads it, so an app left off it has no private account: the DEX and lending (and five games) were
 // missing until tests/test_every_official_app_offers_a_shadow_account.py pinned it to every static page that loads
 // nadodapp.js.
-const EXEC_SIGN_ALLOW = ["https://coinflip.nadochain.com", "https://roulette.nadochain.com", "https://dice.nadochain.com", "https://chess.nadochain.com", "https://poker.nadochain.com", "https://farkle.nadochain.com", "https://pets.nadochain.com", "https://slots.nadochain.com", "https://tictactoe.nadochain.com", "https://bet.nadochain.com", "https://battleship.nadochain.com", "https://mines.nadochain.com", "https://blackjack.nadochain.com", "https://connect4.nadochain.com", "https://reversi.nadochain.com", "https://scrapline.nadochain.com", "https://stormhold.nadochain.com", "https://autogame.nadochain.com", "https://hamster.nadochain.com", "https://hexholm.nadochain.com", "https://pool.nadochain.com", "https://sovereign.nadochain.com", "https://dex.nadochain.com", "https://lend.nadochain.com", "https://nft.nadochain.com"];
+const EXEC_SIGN_ALLOW = ["https://coinflip.nadochain.com", "https://roulette.nadochain.com", "https://dice.nadochain.com", "https://chess.nadochain.com", "https://poker.nadochain.com", "https://farkle.nadochain.com", "https://pets.nadochain.com", "https://slots.nadochain.com", "https://tictactoe.nadochain.com", "https://bet.nadochain.com", "https://battleship.nadochain.com", "https://mines.nadochain.com", "https://blackjack.nadochain.com", "https://connect4.nadochain.com", "https://reversi.nadochain.com", "https://scrapline.nadochain.com", "https://stormhold.nadochain.com", "https://autogame.nadochain.com", "https://hamster.nadochain.com", "https://hexholm.nadochain.com", "https://pool.nadochain.com", "https://sovereign.nadochain.com", "https://dex.nadochain.com", "https://lend.nadochain.com", "https://nft.nadochain.com", "https://land.nadochain.com"];
 // USER-CONFIGURABLE allowlist (Settings → "Allowed dApp sites"): extra origins the user trusts to request
 // signatures, on TOP of the built-in official games above. Stored as a JSON array of "https://host" origins.
 const ALLOW_LS = "nado_allowed_origins";
