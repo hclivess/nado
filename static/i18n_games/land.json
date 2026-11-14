@@ -641,7 +641,7 @@
   "land.fKey1": "Key {k} fires the gadgets you bound to it.",
   "land.fKeysN": "Keys {k} fire the gadgets you bound to them.",
   "land.hotGadgets": "Hold a key to fire its gadgets",
-  "land.cKeys": "aimed at a thruster or an engine: its key; at the controls: fire the gadgets bound to that key"
+  "land.cKeys": "aimed at a thruster, an engine or a cannon: its key; at the controls: fire the gadgets bound to that key"
  },
  "cs": {
   "land.notYours": "Pozemek {p} patří někomu jinému. Kupte si pozemek, nebo požádejte jeho vlastníka o pozvání.",
@@ -1285,7 +1285,7 @@
   "land.fKey1": "Klávesa {k} spouští zařízení, která jsi k ní přiřadil.",
   "land.fKeysN": "Klávesy {k} spouštějí zařízení, která jsi k nim přiřadil.",
   "land.hotGadgets": "Podrž klávesu a spustíš její zařízení",
-  "land.cKeys": "míříš-li na tryskový motor: jeho klávesa; u řízení: spustí zařízení s tou klávesou"
+  "land.cKeys": "míříš-li na tryskový motor, motor nebo kanón: jeho klávesa; u řízení: spustí zařízení s tou klávesou"
  },
  "es": {
   "land.notYours": "La parcela {p} pertenece a otra persona. Compra una parcela o pide a su dueño que te invite.",
@@ -1929,7 +1929,7 @@
   "land.fKey1": "La tecla {k} activa los dispositivos que le asignaste.",
   "land.fKeysN": "Las teclas {k} activan los dispositivos que les asignaste.",
   "land.hotGadgets": "Mantén una tecla para activar sus dispositivos",
-  "land.cKeys": "apuntando a un propulsor o motor: su tecla; a los mandos: activa los dispositivos de esa tecla"
+  "land.cKeys": "apuntando a un propulsor, motor o cañón: su tecla; a los mandos: activa los dispositivos de esa tecla"
  },
  "pt": {
   "land.notYours": "O lote {p} pertence a outra pessoa. Compre um lote ou peça ao dono que convide você.",
@@ -2573,7 +2573,7 @@
   "land.fKey1": "A tecla {k} dispara os dispositivos que lhe atribuíste.",
   "land.fKeysN": "As teclas {k} disparam os dispositivos que lhes atribuíste.",
   "land.hotGadgets": "Mantém uma tecla para disparar os seus dispositivos",
-  "land.cKeys": "a apontar a um propulsor ou motor: a sua tecla; aos comandos: dispara os dispositivos dessa tecla"
+  "land.cKeys": "a apontar a um propulsor, motor ou canhão: a sua tecla; aos comandos: dispara os dispositivos dessa tecla"
  },
  "fr": {
   "land.notYours": "La parcelle {p} appartient à quelqu'un d'autre. Achetez une parcelle ou demandez à son propriétaire de vous inviter.",
@@ -3217,7 +3217,7 @@
   "land.fKey1": "La touche {k} déclenche les gadgets que vous lui avez assignés.",
   "land.fKeysN": "Les touches {k} déclenchent les gadgets que vous leur avez assignés.",
   "land.hotGadgets": "Maintenez une touche pour déclencher ses gadgets",
-  "land.cKeys": "visant un propulseur ou un moteur : sa touche ; aux commandes : déclenche les gadgets de cette touche"
+  "land.cKeys": "visant un propulseur, un moteur ou un canon : sa touche ; aux commandes : déclenche les gadgets de cette touche"
  },
  "de": {
   "land.notYours": "Grundstück {p} gehört jemand anderem. Kauf dir ein Grundstück oder bitte den Besitzer um eine Einladung.",
@@ -3861,7 +3861,7 @@
   "land.fKey1": "Taste {k} feuert die Geräte, die du ihr zugewiesen hast.",
   "land.fKeysN": "Die Tasten {k} feuern die Geräte, die du ihnen zugewiesen hast.",
   "land.hotGadgets": "Taste halten, um ihre Geräte zu feuern",
-  "land.cKeys": "auf ein Triebwerk gezielt: seine Taste; am Steuer: feuert die Geräte dieser Taste"
+  "land.cKeys": "auf ein Triebwerk oder eine Kanone gezielt: seine Taste; am Steuer: feuert die Geräte dieser Taste"
  },
  "it": {
   "land.notYours": "Il lotto {p} appartiene a qualcun altro. Compra un lotto o chiedi al proprietario di invitarti.",
@@ -4505,7 +4505,7 @@
   "land.fKey1": "Il tasto {k} attiva i dispositivi che gli hai assegnato.",
   "land.fKeysN": "I tasti {k} attivano i dispositivi che gli hai assegnato.",
   "land.hotGadgets": "Tieni premuto un tasto per attivare i suoi dispositivi",
-  "land.cKeys": "mirando a un propulsore o motore: il suo tasto; ai comandi: attiva i dispositivi di quel tasto"
+  "land.cKeys": "mirando a un propulsore, motore o cannone: il suo tasto; ai comandi: attiva i dispositivi di quel tasto"
  },
  "ru": {
   "land.notYours": "Участок {p} принадлежит другому игроку. Купите участок или попросите владельца пригласить вас.",
@@ -5149,7 +5149,7 @@
   "land.fKey1": "Клавиша {k} включает устройства, привязанные к ней.",
   "land.fKeysN": "Клавиши {k} включают устройства, привязанные к ним.",
   "land.hotGadgets": "Удерживай клавишу, чтобы включить её устройства",
-  "land.cKeys": "прицел на двигатель: его клавиша; за штурвалом: включает устройства этой клавиши"
+  "land.cKeys": "прицел на двигатель или пушку: его клавиша; за штурвалом: включает устройства этой клавиши"
  },
  "zh": {
   "land.notYours": "地块 {p} 属于别人。购买一块地，或请它的所有者邀请你。",
@@ -5793,7 +5793,7 @@
   "land.fKey1": "按键 {k} 触发你绑定到它的装置。",
   "land.fKeysN": "按键 {k} 触发你绑定到它们的装置。",
   "land.hotGadgets": "按住按键触发其装置",
-  "land.cKeys": "瞄准推进器或引擎时：设置其按键；操控时：触发绑定到该键的装置"
+  "land.cKeys": "瞄准推进器、引擎或炮时：设置其按键；操控时：触发绑定到该键的装置"
  },
  "ja": {
   "land.notYours": "区画 {p} は他の人のものです。区画を購入するか、所有者に招待してもらいましょう。",
@@ -6437,7 +6437,7 @@
   "land.fKey1": "キー {k} で割り当てた装置が作動します。",
   "land.fKeysN": "キー {k} で割り当てた装置が作動します。",
   "land.hotGadgets": "キーを押し続けると装置が作動",
-  "land.cKeys": "スラスターやエンジンを狙って：そのキー設定；操縦中：そのキーの装置を作動"
+  "land.cKeys": "スラスター、エンジン、砲を狙って：そのキー設定；操縦中：そのキーの装置を作動"
  },
  "ko": {
   "land.notYours": "구역 {p}은(는) 다른 사람의 땅입니다. 구역을 사거나 소유자에게 초대를 요청하세요.",
@@ -7081,7 +7081,7 @@
   "land.fKey1": "키 {k}은(는) 거기에 묶은 장치를 작동시킵니다.",
   "land.fKeysN": "키 {k}은(는) 거기에 묶은 장치를 작동시킵니다.",
   "land.hotGadgets": "키를 누르고 있으면 장치가 작동",
-  "land.cKeys": "추진기나 엔진을 겨눌 때: 그 키; 조종 중: 그 키에 묶인 장치 작동"
+  "land.cKeys": "추진기, 엔진, 포를 겨눌 때: 그 키; 조종 중: 그 키에 묶인 장치 작동"
  },
  "ar": {
   "land.notYours": "القطعة {p} ملك لشخص آخر. اشترِ قطعة، أو اطلب من مالكها أن يدعوك.",
@@ -7725,7 +7725,7 @@
   "land.fKey1": "المفتاح {k} يشغّل الأجهزة التي ربطتها به.",
   "land.fKeysN": "المفاتيح {k} تشغّل الأجهزة التي ربطتها بها.",
   "land.hotGadgets": "اضغط مطوّلًا على مفتاح لتشغيل أجهزته",
-  "land.cKeys": "مع التصويب على دافع أو محرك: مفتاحه؛ عند القيادة: تشغيل أجهزة ذلك المفتاح"
+  "land.cKeys": "مع التصويب على دافع أو محرك أو مدفع: مفتاحه؛ عند القيادة: تشغيل أجهزة ذلك المفتاح"
  },
  "hi": {
   "land.notYours": "प्लॉट {p} किसी और का है। कोई प्लॉट खरीदें, या उसके मालिक से आपको आमंत्रित करने को कहें।",
@@ -8369,7 +8369,7 @@
   "land.fKey1": "कुंजी {k} उससे जुड़े उपकरण चलाती है।",
   "land.fKeysN": "कुंजियाँ {k} उनसे जुड़े उपकरण चलाती हैं।",
   "land.hotGadgets": "उपकरण चलाने के लिए कुंजी दबाए रखें",
-  "land.cKeys": "थ्रस्टर या इंजन पर निशाना: उसकी कुंजी; नियंत्रण में: उस कुंजी के उपकरण चलाएँ"
+  "land.cKeys": "थ्रस्टर, इंजन या तोप पर निशाना: उसकी कुंजी; नियंत्रण में: उस कुंजी के उपकरण चलाएँ"
  },
  "tr": {
   "land.notYours": "{p} arsası başkasına ait. Bir arsa satın al ya da sahibinden seni davet etmesini iste.",
@@ -9013,7 +9013,7 @@
   "land.fKey1": "{k} tuşu ona bağladığın aygıtları çalıştırır.",
   "land.fKeysN": "{k} tuşları onlara bağladığın aygıtları çalıştırır.",
   "land.hotGadgets": "aygıtlarını çalıştırmak için tuşu basılı tut",
-  "land.cKeys": "bir itici veya motora nişan alınca: tuşu; kumandada: o tuşa bağlı aygıtları çalıştır"
+  "land.cKeys": "bir itici, motor veya topa nişan alınca: tuşu; kumandada: o tuşa bağlı aygıtları çalıştır"
  },
  "id": {
   "land.notYours": "Petak {p} milik orang lain. Beli sebuah petak, atau minta pemiliknya mengundangmu.",
@@ -9657,7 +9657,7 @@
   "land.fKey1": "Tombol {k} menyalakan perangkat yang kau ikat padanya.",
   "land.fKeysN": "Tombol {k} menyalakan perangkat yang kau ikat padanya.",
   "land.hotGadgets": "tahan tombol untuk menyalakan perangkatnya",
-  "land.cKeys": "membidik pendorong atau mesin: tombolnya; di kemudi: menyalakan perangkat tombol itu"
+  "land.cKeys": "membidik pendorong, mesin, atau meriam: tombolnya; di kemudi: menyalakan perangkat tombol itu"
  },
  "vi": {
   "land.notYours": "Mảnh đất {p} thuộc về người khác. Hãy mua một mảnh, hoặc nhờ chủ của nó mời bạn.",
@@ -10301,7 +10301,7 @@
   "land.fKey1": "Phím {k} kích hoạt các thiết bị bạn đã gắn vào nó.",
   "land.fKeysN": "Các phím {k} kích hoạt các thiết bị bạn đã gắn vào chúng.",
   "land.hotGadgets": "giữ một phím để kích hoạt thiết bị của nó",
-  "land.cKeys": "nhắm vào động cơ đẩy: phím của nó; khi điều khiển: kích hoạt thiết bị gắn phím đó"
+  "land.cKeys": "nhắm vào động cơ đẩy hoặc pháo: phím của nó; khi điều khiển: kích hoạt thiết bị gắn phím đó"
  },
  "pl": {
   "land.notYours": "Działka {p} należy do kogoś innego. Kup działkę albo poproś jej właściciela o zaproszenie.",
@@ -10945,6 +10945,6 @@
   "land.fKey1": "Klawisz {k} odpala urządzenia, które do niego przypisałeś.",
   "land.fKeysN": "Klawisze {k} odpalają urządzenia, które do nich przypisałeś.",
   "land.hotGadgets": "przytrzymaj klawisz, by odpalić jego urządzenia",
-  "land.cKeys": "celując w silnik: jego klawisz; przy sterach: odpala urządzenia tego klawisza"
+  "land.cKeys": "celując w silnik lub działo: jego klawisz; przy sterach: odpala urządzenia tego klawisza"
  }
 }

@@ -132,6 +132,13 @@ async def main():
     err = world.bind_craft(a, cid, ngi, 1)
     check("…a piece that does nothing is refused, and the refusal names a cannon as a thing that takes a key", err and "a cannon takes a key" in err, err)
     c["slots"] = [1 if i == gi else 0 for i in range(len(c["pieces"]))]
+    # the console's help for the digit keys says the same (it named a thruster and an engine only, 2026-11-14), in the
+    # page's default and in all 17 languages (each language's own word for a cannon is checked by a reader, not here)
+    page = open(os.path.join(ROOT, "static", "land.js"), encoding="utf-8").read()
+    tables = json.load(open(os.path.join(ROOT, "static", "i18n_games", "land.json"), encoding="utf-8"))
+    check("…and the console's help for the keys names the cannon, in the page and in all 17 languages",
+          'T("cKeys", "aimed at a thruster, an engine or a cannon: its key;' in page and "cannon" in tables["en"]["land.cKeys"]
+          and len(tables) == 17 and all(tables[l]["land.cKeys"] != tables["en"]["land.cKeys"] or l == "en" for l in tables))
     await asyncio.sleep(S.World.BOLT_EVERY + 0.05)
     res, _, err = await world.bolt(a, cid, north, None)
     check("4. a bolt into open air is fired and strikes nothing", err is None and res == {"hit": None}, (res, err))
