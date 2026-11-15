@@ -33,10 +33,11 @@ const make = (allow, { region = {}, fail = false, pieceIn = () => false, asked =
   const edits = new Map(), plotsApplied = new Set();
   const fetch = (url) => { asked.push(url); return fail ? Promise.reject(new Error("offline")) : Promise.resolve({ json: () => ({ plots: region }) }); };
   const applyPlot = (p, list) => { plotsApplied.add(p); const q = Wd.plotCoords(p); for (const [x, z, y, bl] of list) edits.set(key(q.face, q.u0 + x, q.v0 + z, y), bl); };
-  return new Function("RULES", "Wd", "P", "W", "mayBuild", "inv", "questText", "T", "POINTS", "colAt", "edits", "key", "pieceIn", "plotsApplied", "fetch", "applyPlot", "setPlotBoxes",
+  const blockAt = (f, u, v, h) => { const e = edits.get(key(f, u, v, h)); return e !== undefined ? e : Wd.terrainBlock(f, u, v, h, (ff, uu, vv) => Wd.column(ff, uu, vv)); };
+  return new Function("RULES", "Wd", "P", "W", "mayBuild", "inv", "questText", "T", "POINTS", "colAt", "edits", "key", "pieceIn", "plotsApplied", "fetch", "applyPlot", "setPlotBoxes", "blockAt",
     page.slice(a0, b0) + "\ntitlesVer = 1;\nreturn { sourceHint, sourceBlocks, SOURCE_R, SOURCE_STEP };")(
     RULES, Wd, { face: 0, u: 55047.5, v: 79996.5 }, Wd.W ?? (1 << 17), allow, { quests: [{ kind: "bring", item: "berries", n: 6 }] },
-    () => "Bring 6 × Berries", (k, fb, v) => fb.replace(/\{(\w+)\}/g, (_, x) => v[x]), POINTS, (f, u, v) => Wd.column(f, u, v), edits, key, pieceIn, plotsApplied, fetch, applyPlot, () => {});
+    () => "Bring 6 × Berries", (k, fb, v) => fb.replace(/\{(\w+)\}/g, (_, x) => v[x]), POINTS, (f, u, v) => Wd.column(f, u, v), edits, key, pieceIn, plotsApplied, fetch, applyPlot, () => {}, blockAt);
 };
 const settle = () => new Promise((r) => setTimeout(r, 0));
 const run = async (allow, opt) => { const S = make(allow, opt); const first = S.sourceHint("berries"); await settle(); let h = ""; for (let i = 0; i < 400 && !h; i++) h = S.sourceHint("berries"); return [h, S, first]; };
@@ -45,7 +46,8 @@ const run = async (allow, opt) => { const S = make(allow, opt); const first = S.
 const near = [];
 for (let du = -160; du <= 160; du++) for (let dv = -160; dv <= 160; dv++) {
   const u = 55047 + du, v = 79996 + dv;
-  if (Wd.litterAt(0, u, v, Wd.column(0, u, v)) === Wd.B.berrybush) near.push([Math.round(Math.hypot(u + 0.5 - 55047.5, v + 0.5 - 79996.5)), Wd.plotOf(0, u, v), u, v, Math.hypot(u + 0.5 - 55047.5, v + 0.5 - 79996.5)]);
+  const c = Wd.column(0, u, v);
+  if (Wd.litterAt(0, u, v, c) === Wd.B.berrybush && Wd.terrainBlock(0, u, v, c.top + 1, (f, uu, vv) => Wd.column(f, uu, vv)) === Wd.B.berrybush) near.push([Math.round(Math.hypot(u + 0.5 - 55047.5, v + 0.5 - 79996.5)), Wd.plotOf(0, u, v), u, v, Math.hypot(u + 0.5 - 55047.5, v + 0.5 - 79996.5)]);
 }
 near.sort((x, y) => x[4] - y[4]);
 const [h1, S, first] = await run(() => true);
@@ -85,5 +87,16 @@ ok(/if \(!titlesVer\) return "";/.test(page.slice(a0, b0)) && /const job = item 
 // square ring, whose corners are √2 farther), and the next nearest when it is gone
 ok(Math.abs(Number((h1.match(/pick: (\d+) m/) || [])[1]) - near[0][0]) <= 0 && near[0][4] < 4,
   `9. it names the bush ${near[0][0]} m away — the nearest of all ${near.length} within 160 m (the circle sampler missed it and named 8 m)`);
+// 10. a "bush" under a tree's crown (the crown wins the cell) is never named
+{
+  let under = null;
+  for (let du = -40; du <= 40 && !under; du++) for (let dv = -40; dv <= 40 && !under; dv++) {
+    const u = 55037 + du, v = 79916 + dv, c = Wd.column(0, u, v);
+    if (Wd.litterAt(0, u, v, c) === Wd.B.berrybush && Wd.terrainBlock(0, u, v, c.top + 1, (f, uu, vv) => Wd.column(f, uu, vv)) !== Wd.B.berrybush) under = [u, v];
+  }
+  const src = page.slice(a0, b0);
+  ok(under && /if \(blockAt\(P\.face, u, v, h\) === lb && !pieceIn\(\[u, v, h\]\)\)/.test(src),
+    `10. a bush the planet grows under a tree's crown (one at ${under}) is judged by what stands in the cell — never named`);
+}
 console.log(fails ? `${fails} FAILED` : "all passed");
 process.exit(fails ? 1 : 0);

@@ -2896,8 +2896,10 @@ function sourceHint(item) {
       // the planet grows one here — and it is still here: not picked or swept (the plot's edits) and not under a piece
       // (a path laid over it: "8 m N" pointed at a bush under the town's stone path)
       if (want.includes(lb)) {
-        const e = edits.get(key(P.face, u, v, h));
-        if ((e === undefined || e === lb) && !pieceIn([u, v, h])) {
+        // …and it is what actually stands in that cell: a tree's crown wins a cell from the litter under it (land-world
+        // terrainBlock), and the hint once named a "bush" that was a low branch — picked, it gave a sapling and a stick
+        // (playtest 2026-11-15); blockAt is the page's full answer (the edits included), asked only of a candidate
+        if (blockAt(P.face, u, v, h) === lb && !pieceIn([u, v, h])) {
           const dist = Math.hypot(u + 0.5 - P.u, v + 0.5 - P.v);
           if (!s.best || dist < s.best.dist) s.best = { dist, yaw: Math.atan2(u + 0.5 - P.u, v + 0.5 - P.v) };
           if (s.until === Infinity) s.until = Math.ceil(s.d * Math.SQRT2) + 1;
