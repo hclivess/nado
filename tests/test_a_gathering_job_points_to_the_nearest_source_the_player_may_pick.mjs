@@ -8,7 +8,11 @@
  *   3. with nothing open within SOURCE_R it says so and sends the player to the wilderness;
  *   4. it searches a slice at a time (SOURCE_STEP points a call), and the goal line asks for it twice a second while a
  *      bring-job is open;
- *   5. a source no hand can pick (needs a tool) or that is not the planet's litter is never pointed to.
+ *   5. a source no hand can pick (needs a tool) or that is not the planet's litter is never pointed to;
+ *   6. ONE region request brings the edits of the plots in the circle first; a bush picked (an edit) or under a piece is
+ *      passed over;
+ *   7. it waits for the plots' titles, and starts again when they change;
+ *   8. the region request failing, it still runs and ends.
  * Run: node tests/test_a_gathering_job_points_to_the_nearest_source_the_player_may_pick.mjs
  */
 import { readFileSync } from "node:fs";
@@ -20,59 +24,59 @@ const RULES = JSON.parse(readFileSync(join(ROOT, "static", "land-recipes.json"),
 const page = readFileSync(join(ROOT, "static", "land.js"), "utf8");
 let fails = 0;
 const ok = (c, m) => { console.log((c ? "ok   " : "FAIL ") + m); if (!c) fails++; };
-const a = page.indexOf("const SOURCE_R = "), b = page.indexOf("/** Who a quest is handed in to:");
+const a0 = page.indexOf("const SOURCE_R = "), b0 = page.indexOf("/** Who a quest is handed in to:");
 const POINTS = [["cpN", "N"], ["cpNE", "NE"], ["cpE", "E"], ["cpSE", "SE"], ["cpS", "S"], ["cpSW", "SW"], ["cpW", "W"], ["cpNW", "NW"]];
 const key = (f, u, v, h) => f + ":" + u + ":" + v + ":" + h;
-const make = (allow, edits = new Map(), pieceIn = () => false, plotsApplied = { has: () => true }, resync = () => {}) => new Function("RULES", "Wd", "P", "W", "mayBuild", "inv", "questText", "T", "POINTS", "colAt", "edits", "key", "pieceIn", "plotsApplied", "resync",
-  page.slice(a, b) + "\ntitlesVer = 1;\nreturn { sourceHint, sourceBlocks, SOURCE_R, SOURCE_STEP };")(
-  RULES, Wd, { face: 0, u: 55047.5, v: 79996.5 }, Wd.W ?? (1 << 17), allow, { quests: [{ kind: "bring", item: "berries", n: 6 }] },
-  () => "Bring 6 × Berries", (k, fb, v) => fb.replace(/\{(\w+)\}/g, (_, x) => v[x]), POINTS, (f, u, v) => Wd.column(f, u, v), edits, key, pieceIn, plotsApplied, resync);
-const runWith = (allow, edits, pieceIn) => { const S = make(allow, edits, pieceIn); let h = ""; for (let i = 0; i < 400 && !h; i++) h = S.sourceHint("berries"); return h; };
-const run = (allow) => { const S = make(allow); let h = ""; for (let i = 0; i < 400 && !h; i++) h = S.sourceHint("berries"); return [h, S]; };
+// the page's sourceHint with the page's helpers stood in for: the world server's region answer (`region`, or a failing
+// fetch), applyPlot writing a plot's edits into the edits map as the page does, the pieces a plot holds (pieceIn)
+const make = (allow, { region = {}, fail = false, pieceIn = () => false, asked = [] } = {}) => {
+  const edits = new Map(), plotsApplied = new Set();
+  const fetch = (url) => { asked.push(url); return fail ? Promise.reject(new Error("offline")) : Promise.resolve({ json: () => ({ plots: region }) }); };
+  const applyPlot = (p, list) => { plotsApplied.add(p); const q = Wd.plotCoords(p); for (const [x, z, y, bl] of list) edits.set(key(q.face, q.u0 + x, q.v0 + z, y), bl); };
+  return new Function("RULES", "Wd", "P", "W", "mayBuild", "inv", "questText", "T", "POINTS", "colAt", "edits", "key", "pieceIn", "plotsApplied", "fetch", "applyPlot", "setPlotBoxes",
+    page.slice(a0, b0) + "\ntitlesVer = 1;\nreturn { sourceHint, sourceBlocks, SOURCE_R, SOURCE_STEP };")(
+    RULES, Wd, { face: 0, u: 55047.5, v: 79996.5 }, Wd.W ?? (1 << 17), allow, { quests: [{ kind: "bring", item: "berries", n: 6 }] },
+    () => "Bring 6 × Berries", (k, fb, v) => fb.replace(/\{(\w+)\}/g, (_, x) => v[x]), POINTS, (f, u, v) => Wd.column(f, u, v), edits, key, pieceIn, plotsApplied, fetch, applyPlot, () => {});
+};
+const settle = () => new Promise((r) => setTimeout(r, 0));
+const run = async (allow, opt) => { const S = make(allow, opt); const first = S.sourceHint("berries"); await settle(); let h = ""; for (let i = 0; i < 400 && !h; i++) h = S.sourceHint("berries"); return [h, S, first]; };
 // the planet's own nearest berry bush from the landing, found the slow way
 const near = [];
 for (let r = 2; r <= 160 && near.length < 1; r += 2) for (let t = 0; t < 2 * Math.PI && near.length < 1; t += 2 / r) {
   const u = Math.floor(55047.5 + r * Math.sin(t)), v = Math.floor(79996.5 + r * Math.cos(t));
   if (Wd.litterAt(0, u, v, Wd.column(0, u, v)) === Wd.B.berrybush) near.push([r, Wd.plotOf(0, u, v), u, v]);
 }
-const [h1, S] = run(() => true);
-ok(near.length && h1.includes(`the nearest you may pick: ${near[0][0]} m`) && /m (N|NE|E|SE|S|SW|W|NW)$/.test(h1), `1. every plot open: "${h1}" (the planet's nearest bush is ${near[0] && near[0][0]} m away)`);
+const [h1, S, first] = await run(() => true);
+ok(first === "" && near.length && h1.includes(`the nearest you may pick: ${near[0][0]} m`) && /m (N|NE|E|SE|S|SW|W|NW)$/.test(h1), `1. every plot open (nothing named before the region's edits are in): "${h1}" (the planet's nearest bush is ${near[0] && near[0][0]} m away)`);
 ok(S.sourceBlocks("berries").length === 1 && S.sourceBlocks("berries")[0] === Wd.B.berrybush, "…its source is the berry bush, the planet's litter");
 const closed = new Set([near[0][1]]);
-const [h2] = run((p) => !closed.has(p));
+const [h2] = await run((p) => !closed.has(p));
 const d2 = Number((h2.match(/pick: (\d+) m/) || [])[1]);
 ok(d2 > near[0][0], `2. the nearest bush's plot closed: it walks on to an open one, farther (${d2} m): "${h2}"`);
-const [h3] = run(() => false);
+const [h3] = await run(() => false);
 ok(/none you may pick within 160 m — look in the wilderness/.test(h3), `3. nothing open within reach: "${h3}"`);
 ok(/for \(let n = 0; n < SOURCE_STEP && !s\.done && !s\.found; n\+\+\)/.test(page) && /const SOURCE_R = 160, SOURCE_STEP = 600, SOURCE_MOVE = 12;/.test(page)
    && /if \(now - \(goalTick \|\| 0\) > 500 && \(inv\.quests \|\| \[\]\)\.some\(\(q\) => q\.kind === "bring" && !q\.ready\)\) \{ goalTick = now; goalLine\(\); \}/.test(page)
    && /if \(!q\.ready && q\.kind === "bring"\) \{ const h = sourceHint\(q\.item\); if \(h\) \{ g\.textContent = h; return; \} \}/.test(page),
   "4. it searches a slice a call, and the goal line asks for it twice a second while a bring-job is open");
 ok(S.sourceBlocks("iron").length === 0 && S.sourceBlocks("nothing").length === 0, "5. no hint for what hands cannot pick from the planet's litter");
-// 6. a bush that is no longer there is never pointed to: picked (an edit of air over it), or under a piece
+// 6. a bush that is no longer there is never pointed to: picked (its plot's edits, from the region answer), or under a piece
 {
-  const [, , u, v] = near[0], h = Wd.column(0, u, v).top + 1;
-  const picked = runWith(() => true, new Map([[key(0, u, v, h), Wd.B.air]]));
-  const covered = runWith(() => true, new Map(), ([pu, pv]) => pu === u && pv === v);
+  const [, plot0, u, v] = near[0], h = Wd.column(0, u, v).top + 1, q = Wd.plotCoords(plot0);
+  const asked = [];
+  const [picked] = await run(() => true, { region: { [plot0]: { edits: [[u - q.u0, v - q.v0, h, Wd.B.air]], boxes: [] } }, asked });
+  const [covered] = await run(() => true, { pieceIn: ([pu, pv]) => pu === u && pv === v });
   const d0 = near[0][0];
-  ok(!picked.includes(`pick: ${d0} m `) && /pick: \d+ m/.test(picked) && !covered.includes(`pick: ${d0} m `) && /pick: \d+ m/.test(covered),
-    `6. the nearest bush picked, or under a laid path, is passed over for the next: "${picked}" / "${covered}"`);
+  ok(asked.length === 1 && /\/land\/api\/region\?face=0&u0=\d+&v0=\d+&u1=\d+&v1=\d+/.test(asked[0]) && !picked.includes(`pick: ${d0} m `) && /pick: \d+ m/.test(picked) && !covered.includes(`pick: ${d0} m `) && /pick: \d+ m/.test(covered),
+    `6. ONE region request for the circle; the nearest bush picked (its plot's edits, from that answer) or under a laid path is passed over: "${picked}" / "${covered}"`);
 }
 // 7. not before the titles are in (until then every plot reads as open land) — and again when they change
-ok(/if \(!titlesVer\) return "";/.test(page.slice(a, b)) && /const job = item \+ "@" \+ P\.face \+ "#" \+ titlesVer;/.test(page) && /\n    titlesVer\+\+;  /.test(page),
+ok(/if \(!titlesVer\) return "";/.test(page.slice(a0, b0)) && /const job = item \+ "@" \+ P\.face \+ "#" \+ titlesVer;/.test(page) && /\n    titlesVer\+\+;  /.test(page),
   "7. it waits for the titles (a first scan took a plot for sale for open land) and starts again when they change");
-// 8. a candidate on a plot whose edits the page does not hold yet is asked for and waited on — then judged by them
+// 8. the region request failing, the search still runs (on what the page holds) and ends
 {
-  const [, plot0, u, v] = near[0], h = Wd.column(0, u, v).top + 1, held = new Set(), asked = [];
-  const edits = new Map();
-  const S = make(() => true, edits, () => false, held, (p) => asked.push(p));
-  let h1 = ""; for (let i = 0; i < 50 && !h1; i++) h1 = S.sourceHint("berries");
-  const waited = h1 === "" && asked.length === 1 && asked[0] === plot0;
-  edits.set(key(0, u, v, h), Wd.B.air); held.add(plot0);                // its edits arrive: that bush was picked
-  for (const p of [...new Set(near.map((x) => x[1]))]) held.add(p);
-  let h2 = ""; for (let i = 0; i < 2000 && !h2; i++) { h2 = S.sourceHint("berries"); if (!h2 && asked.length) for (const p of asked) held.add(p); }
-  ok(waited && /pick: \d+ m/.test(h2) && !h2.includes(`pick: ${near[0][0]} m `),
-    `8. the nearest bush's plot not yet loaded: asked for (${asked[0] === plot0}) and nothing named meanwhile; its edits say picked, so the next is named: "${h2}"`);
+  const [h8] = await run(() => false, { fail: true });
+  ok(/none you may pick within 160 m/.test(h8), `8. the region request fails: the search still ends — "${h8.slice(0, 80)}…"`);
 }
 console.log(fails ? `${fails} FAILED` : "all passed");
 process.exit(fails ? 1 : 0);

@@ -2859,32 +2859,37 @@ function sourceHint(item) {
   // load pointed at a bush on a plot for sale (playtest 2026-11-15, "12 m E"); a change of titles starts the scan again
   if (!titlesVer) return "";
   const job = item + "@" + P.face + "#" + titlesVer;    // (not "key": that is the page's cell-key function, used below)
-  if (!srcScan || srcScan.job !== job || Math.hypot(P.u - srcScan.u0, P.v - srcScan.v0) > SOURCE_MOVE) srcScan = { job, u0: P.u, v0: P.v, r: 2, a: 0, found: null, done: false, asked: new Set() };
+  if (!srcScan || srcScan.job !== job || Math.hypot(P.u - srcScan.u0, P.v - srcScan.v0) > SOURCE_MOVE) {
+    // THE PLOTS' EDITS FIRST, in ONE request (playtest 2026-11-15: from the landing the hint said 78 m S, then 24 m
+    // further, then 14 m further — each bush the far scan named had been picked, which its plot's edits, not loaded at
+    // that distance, would have said; asked plot by plot, a 160 m circle crossing ~100 plots took minutes): the world
+    // server's region answer holds every plot in the box with edits or pieces; every other plot in it is untouched
+    const s0 = { job, u0: P.u, v0: P.v, r: 2, a: 0, found: null, done: false, ready: false };
+    srcScan = s0;
+    const R = SOURCE_R + 2, q = (x) => Math.max(0, Math.min(W - 1, Math.floor(x)));
+    fetch(`/land/api/region?face=${P.face}&u0=${q(P.u - R)}&v0=${q(P.v - R)}&u1=${q(P.u + R)}&v1=${q(P.v + R)}`, { credentials: "same-origin" })
+      .then((r) => r.json()).then((j) => {
+        for (const [p, e] of Object.entries(j.plots || {})) if (!plotsApplied.has(Number(p))) { applyPlot(Number(p), e.edits || []); setPlotBoxes(Number(p), e.boxes || []); }
+      }).catch(() => {}).then(() => { s0.ready = true; });
+  }
   const s = srcScan;
+  if (!s.ready) return "";                                 // (the plain line until the region's edits are in)
   for (let n = 0; n < SOURCE_STEP && !s.done && !s.found; n++) {
-    const u = Math.floor(s.u0 + s.r * Math.sin(s.a)), v = Math.floor(s.v0 + s.r * Math.cos(s.a)), plot = Wd.plotOf(P.face, u, v);
-    if (u >= 0 && v >= 0 && u < W && v < W && mayBuild(plot)) {
+    const u = Math.floor(s.u0 + s.r * Math.sin(s.a)), v = Math.floor(s.v0 + s.r * Math.cos(s.a));
+    if (u >= 0 && v >= 0 && u < W && v < W && mayBuild(Wd.plotOf(P.face, u, v))) {
       const col = colAt(P.face, u, v), lb = Wd.litterAt(P.face, u, v, col), h = col.top + 1;
-      if (want.includes(lb)) {
-        // ITS PLOT'S EDITS FIRST (playtest 2026-11-15: from the landing the hint said 78 m S, then 24 m further, then 14 m
-        // further — each bush the far scan named had been picked, which its plot's edits, not yet loaded, would have said):
-        // a candidate on a plot this page holds no edits for is asked for (resync) and waited on, this same spot, until
-        // they arrive
-        if (!plotsApplied.has(plot)) { if (!s.asked.has(plot)) { s.asked.add(plot); resync(plot); } break; }
-        // the planet grows one here — and it is still here: not picked or swept (the plot's edits) and not under a piece
-        // (a path laid over it) — "8 m N" pointed at a bush under the town's stone path
-        const e = edits.get(key(P.face, u, v, h));
-        if ((e === undefined || e === lb) && !pieceIn([u, v, h])) { s.found = { d: Math.round(s.r), yaw: Math.atan2(u + 0.5 - s.u0, v + 0.5 - s.v0) }; break; }
-      }
+      // the planet grows one here — and it is still here: not picked or swept (the plot's edits) and not under a piece
+      // (a path laid over it: "8 m N" pointed at a bush under the town's stone path)
+      if (want.includes(lb)) { const e = edits.get(key(P.face, u, v, h)); if ((e === undefined || e === lb) && !pieceIn([u, v, h])) { s.found = { d: Math.round(s.r), yaw: Math.atan2(u + 0.5 - s.u0, v + 0.5 - s.v0) }; break; } }
     }
     s.a += 2 / s.r; if (s.a >= 2 * Math.PI) { s.a = 0; s.r += 2; if (s.r > SOURCE_R) s.done = true; }
   }
-  const q = questText({ kind: "bring", item, n: (inv.quests || []).find((x) => x.kind === "bring" && x.item === item)?.n || 1 });
+  const qt = questText({ kind: "bring", item, n: (inv.quests || []).find((x) => x.kind === "bring" && x.item === item)?.n || 1 });
   if (s.found) {
     const pt = POINTS[((Math.round(s.found.yaw / (Math.PI / 4)) % 8) + 8) % 8];
-    return T("goalNear", "Your work: {q} · the nearest you may pick: {d} m {p}", { q, d: s.found.d, p: T(pt[0], pt[1]) });
+    return T("goalNear", "Your work: {q} · the nearest you may pick: {d} m {p}", { q: qt, d: s.found.d, p: T(pt[0], pt[1]) });
   }
-  if (s.done) return T("goalNone", "Your work: {q} · none you may pick within {r} m — look in the wilderness, beyond the owned plots", { q, r: SOURCE_R });
+  if (s.done) return T("goalNone", "Your work: {q} · none you may pick within {r} m — look in the wilderness, beyond the owned plots", { q: qt, r: SOURCE_R });
   return "";                                               // still searching: the plain line meanwhile
 }
 /** Who a quest is handed in to: its addressee for a delivery (q.to), else whoever gave it — as the world server ends it. */
