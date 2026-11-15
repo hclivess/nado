@@ -37,6 +37,7 @@ ok(/o\.onBeforeRender = function \(r, sc, cam, \.\.\.rest\) \{/.test(dr) && /ret
   "it counts where three draws (each object's onBeforeRender, called by renderObject for every pass), passes the call on, and puts every hook back after the frame");
 ok(/renderObject\( object, scene, camera, geometry, material, group, lightsNode[^)]*\) \{[\s\S]{0,600}object\.onBeforeRender\( this, scene, camera, geometry, material, group \);/.test(readFileSync(join(ROOT, "static", "vendor", "three", "three.webgpu.js"), "utf8")),
   "…which the vendored three does call for each object it draws");
+ok(/const k = kindOf\(o, rest\[1\] \|\| o\.material\)/.test(dr) && /return \(o, mat = o\.material\) => \{/.test(kindFn) && /m\.name = "piece " \+ \(spec \? spec\[0\]/.test(land), "a mesh with a list of materials is counted by the material each draw uses (a chunk's pieces draw once a material), each piece material named by its texture");
 ok(/sh = cam !== camera;/.test(dr) && /conLine\(T\("cDraws", "[^"]*\{n\}[^"]*\{m\}[^"]*\{s\}[^"]*", \{ n: main \+ shadow, m: main, s: shadow \}\)\);/.test(dr), "the view's draws are told apart from the shadows' (any camera but the player's), under a total");
 ok(Object.keys(I).length === 17 && Object.keys(I).every((l) => ["{n}", "{m}", "{s}"].every((x) => (I[l]["land.cDraws"] || "").includes(x))), "its header is in all 17 languages with the three counts");
 console.log(fails ? `${fails} FAILED` : "all passed");

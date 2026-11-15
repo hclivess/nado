@@ -3661,13 +3661,14 @@ async function bench() {
 function drawKind() {
   const names = [[matGround, "ground, stones, far land"], [matTrees, "trees (cells)"], [matBark, "bark"], [matLeaves, "foliage"], [matSolid, "blocks"], [matClear, "glass blocks"],
     [matPieces, "pieces"], [matGlassy, "glassy pieces"], [matWater, "water"], [matGrass, "grass"], [matFlower, "flowers"], [matForest, "far trees"], [matFlame, "flames"]];
-  return (o) => {
-    let k = (names.find(([m]) => m && m === o.material) || [])[1];
+  // (mat: the material a draw uses — a mesh with a list of materials makes one draw a group, each named by its own)
+  return (o, mat = o.material) => {
+    let k = (names.find(([m]) => m && m === mat) || [])[1];
     if (!k && o === farBoxMesh) k = "far boxes";
     // A FIGURE IS PEOPLE (the blocky figures of 2026-11-14 carry userData.person; the realistic bodies' human.meshes went
     // with them, and /tris lost its people line to "other")
     if (!k) { let q = o.parent; while (q) { if (q.userData && q.userData.person) { k = "people"; break; } q = q.parent; } }
-    return k || "other: " + (o.material && o.material.constructor ? o.material.constructor.name : "?");
+    return k || "other: " + (mat && mat.constructor ? mat.constructor.name : "?") + (mat && mat.name ? " " + mat.name : "");
   };
 }
 const CMDS = {
@@ -3787,7 +3788,7 @@ const CMDS = {
       if (!o.isMesh && !o.isPoints && !o.isLine) return;
       const was = o.onBeforeRender; hooked.push([o, was]);
       o.onBeforeRender = function (r, sc, cam, ...rest) {
-        const k = kindOf(o), e = by.get(k) || [0, 0], sh = cam !== camera;
+        const k = kindOf(o, rest[1] || o.material), e = by.get(k) || [0, 0], sh = cam !== camera;   // rest: geometry, material, group
         e[sh ? 1 : 0]++; by.set(k, e); if (sh) shadow++; else main++;
         return was.call(this, r, sc, cam, ...rest);
       };
@@ -4332,6 +4333,7 @@ function pieceMaterial(blk) {
     if (name === "paint") m.metalness = 0.12;
     if (name !== "thatch" && name !== "steel" && name !== "paint") { const nor = loadTex(name + "_nor"); nor.colorSpace = THREE.NoColorSpace; m.normalNode = TSL.normalMap(TSL.texture(nor, uv)); }
   }
+  if (m !== matPieces) m.name = "piece " + (spec ? spec[0] : Wd.BLOCKS[blk] ? Wd.BLOCKS[blk].key : blk);   // what /draws calls it
   pieceMats.set(blk, m);
   return m;
 }
