@@ -3656,6 +3656,20 @@ async function bench() {
     if (settingsOpen()) renderSettings();
   }
 }
+/** What draws a mesh, for /tris and /draws: its material's name in the page, the far boxes, a person (a figure the page
+ *  marks), else "other: <material class>". */
+function drawKind() {
+  const names = [[matGround, "ground, stones, far land"], [matTrees, "trees (cells)"], [matBark, "bark"], [matLeaves, "foliage"], [matSolid, "blocks"], [matClear, "glass blocks"],
+    [matPieces, "pieces"], [matGlassy, "glassy pieces"], [matWater, "water"], [matGrass, "grass"], [matFlower, "flowers"], [matForest, "far trees"], [matFlame, "flames"]];
+  return (o) => {
+    let k = (names.find(([m]) => m && m === o.material) || [])[1];
+    if (!k && o === farBoxMesh) k = "far boxes";
+    // A FIGURE IS PEOPLE (the blocky figures of 2026-11-14 carry userData.person; the realistic bodies' human.meshes went
+    // with them, and /tris lost its people line to "other")
+    if (!k) { let q = o.parent; while (q) { if (q.userData && q.userData.person) { k = "people"; break; } q = q.parent; } }
+    return k || "other: " + (o.material && o.material.constructor ? o.material.constructor.name : "?");
+  };
+}
 const CMDS = {
   help: () => [["/help", T("cHelp", "this list")], ["/pos", T("cPos", "where you are")], ["/tp spawn | /tp bed", T("cTpTo", "go to the landing, or to your bed")],
     ["/aim", T("cAim", "what you aim at, and where a block would go")], ["1–9", T("cKeys", "aimed at a thruster, an engine or a cannon: its key; at the controls: fire the gadgets bound to that key")], ["/prof", T("cProf", "the profiler: where each frame's time goes")], ["/name …", T("cName", "your name, shown in chat and over you; /name alone clears it")], ["/trace", T("cTrace", "the last events: boarding, leaving, every teleport, hurt, errors")], ["/dock", T("cDock", "set your landed craft down as pieces")], ["/planet", T("cPlanet", "the planet: its size, gravity, mass, orbits and air")], ["/map", T("cMap", "your map: the land you have surveyed (also M)")], ["/crafts", T("cCrafts", "where your crafts are: distance, bearing, height")], ["/handover <player>", T("cGive", "give your craft to a player — they take its controls")], ["/fly", T("cFly", "fly or walk")], ["/settings", T("cSettings", "your settings")], ["/bench", T("cBench", "measure this device and pick its graphics")], ["/tilt <yaw> <pitch> <roll>", T("cTilt", "turn the piece in hand, in degrees")], ["/set <name> <value>", T("cSet", "change one (e.g. /set fov 90)")],
@@ -3745,8 +3759,7 @@ const CMDS = {
   // line gives one number: 557k–638k at the landing on Low, playtest 2026-11-11, and nothing to cut from it)
   tris: () => {
     if (!scene) return;
-    const names = [[matGround, "ground, stones, far land"], [matTrees, "trees (cells)"], [matBark, "bark"], [matLeaves, "foliage"], [matSolid, "blocks"], [matClear, "glass blocks"],
-      [matPieces, "pieces"], [matGlassy, "glassy pieces"], [matWater, "water"], [matGrass, "grass"], [matFlower, "flowers"], [matForest, "far trees"], [matFlame, "flames"]];
+    const kindOf = drawKind();
     const by = new Map(), add = (k, n) => by.set(k, (by.get(k) || 0) + n);
     scene.traverse((o) => {
       if (!o.isMesh && !o.isPoints && !o.isLine) return;
@@ -3756,17 +3769,35 @@ const CMDS = {
       const inst = g.instanceCount !== undefined && g.instanceCount !== Infinity ? g.instanceCount : o.count !== undefined ? o.count : 1;
       const n = Math.round(per * inst);
       if (!n) return;
-      let k = (names.find(([m]) => m && m === o.material) || [])[1];
-      if (!k && o === farBoxMesh) k = "far boxes";
-      // A FIGURE IS PEOPLE (the blocky figures of 2026-11-14 carry userData.person; the realistic bodies' human.meshes went
-      // with them, and /tris lost its people line to "other")
-      if (!k) { let q = o.parent; while (q) { if (q.userData && q.userData.person) { k = "people"; break; } q = q.parent; } }
-      if (!k) k = "other: " + (o.material && o.material.constructor ? o.material.constructor.name : "?");
-      add(k, n);
+      add(kindOf(o), n);
     });
     const rows = [...by.entries()].sort((a, b) => b[1] - a[1]), total = rows.reduce((t, [, n]) => t + n, 0);
     conLine(T("cTris", "Triangles this frame: {n}k — by what draws them:", { n: Math.round(total / 1000) }));
     for (const [k, n] of rows) conLine(`  ${Math.round(n / 1000)}k  ${k}`);
+  },
+  // /draws (#139: "433 draw calls a frame on a phone" and nothing said which): the draw calls of the next frame by what
+  // makes them, the main view's apart from the shadows' — counted where three draws each one (renderObject calls the
+  // object's onBeforeRender for every pass, the shadow cascades included), so culled meshes do not count and a mesh drawn
+  // into four cascades counts five times, as the GPU sees it
+  draws: () => {
+    if (!scene) return;
+    const kindOf = drawKind(), by = new Map(), hooked = [];
+    let main = 0, shadow = 0;
+    scene.traverse((o) => {
+      if (!o.isMesh && !o.isPoints && !o.isLine) return;
+      const was = o.onBeforeRender; hooked.push([o, was]);
+      o.onBeforeRender = function (r, sc, cam, ...rest) {
+        const k = kindOf(o), e = by.get(k) || [0, 0], sh = cam !== camera;
+        e[sh ? 1 : 0]++; by.set(k, e); if (sh) shadow++; else main++;
+        return was.call(this, r, sc, cam, ...rest);
+      };
+    });
+    requestAnimationFrame(() => requestAnimationFrame(() => {
+      for (const [o, was] of hooked) o.onBeforeRender = was;
+      const rows = [...by.entries()].sort((a, b) => (b[1][0] + b[1][1]) - (a[1][0] + a[1][1]));
+      conLine(T("cDraws", "Draw calls this frame: {n} — {m} in view, {s} for shadows — by what makes them:", { n: main + shadow, m: main, s: shadow }));
+      for (const [k, [m, sh]] of rows) conLine(`  ${m + sh}  ${k}${sh ? ` (${sh} shadow)` : ""}`);
+    }));
   },
   // /lod (#150): the loaded chunks by their level of detail, and the bark and foliage triangles each level carries —
   // the question "did the near chunks take level 1, and what do their trees cost" answered on the page itself (the
