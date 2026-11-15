@@ -61,6 +61,19 @@ for (const k of FURN) {
   }
 }
 
+// …and MANY models in one chunk are still one draw group a material (#139: /draws on a phone at the landing found each
+// model's part of another material a group of its own — a lamp post's black pole, a torch's flame — 220 draws of painted
+// plate and 48 of lamps in one frame): ten torches and ten lamp posts give exactly one group for each material in them,
+// the groups lying end to end over every index once
+{
+  const ut = R.items.torch.unit, ul = R.items.lamppost.unit, many = [];
+  for (let i = 0; i < 10; i++) { many.push([20 + i * 60, 200, Y0, ut[0], ut[1], ut[2], B.torch]); many.push([20 + i * 60, 600, Y0, ul[0], ul[1], ul[2], B.lamppost]); }
+  const pc = mesh(many), mats = pc.groups.map((g) => g[2]);
+  let end = 0, tiled = true; for (const [st, n] of [...pc.groups].sort((a, b) => a[0] - b[0])) { if (st !== end) tiled = false; end = st + n; }
+  ok(mats.length === new Set(mats).size && tiled && end === pc.idx.length,
+     `ten torches and ten lamp posts in one chunk: ${pc.groups.length} draw groups for ${new Set(mats).size} materials (one each), lying end to end over all ${pc.idx.length} indices`);
+}
+
 // 3.
 const mesher = readFileSync(join(ROOT, "static", "land-mesher.js"), "utf8"), land = readFileSync(join(ROOT, "static", "land.js"), "utf8");
 ok(/shapeOf\(n\) \|\| MODELS\[n\[6\]\] \|\| n\[6\] === B\.window\) continue;/.test(mesher), "a model's box hides no neighbour's face");

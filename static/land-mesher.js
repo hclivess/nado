@@ -143,6 +143,7 @@ function meshBoxes(boxes, u0, v0, h0, place, solid, clear, lod) {
   let runM = -1, runAt = 0;
   const close = () => { if (runM >= 0 && solid.idx.length > runAt) solid.groups.push([runAt, solid.idx.length - runAt, runM]); };
   const toned = new Map();                                  // the parts' fixed tones: block -> [piece, its triangles, place, tone]
+  const later = new Map();                                  // the models' parts of another material: block -> [their draws]
   for (const b of mine) {
     if (opaque(b[6]) && b[6] !== runM) { close(); runM = b[6]; runAt = solid.idx.length; }
     // a TURNED piece (#169): every corner it would have square goes round its centre before it is placed on the planet;
@@ -160,11 +161,12 @@ function meshBoxes(boxes, u0, v0, h0, place, solid, clear, lod) {
     if (shapeOf(b)) { meshSlope(b, u0, v0, at, !opaque(b[6]) ? clear : solid, lo1, hi1); continue; }
     if (b[6] === B.window) { meshWindow(b, u0, v0, place, solid, clear, lo, hi); continue; }
     if (MODELS[b[6]]) {
-      // a part of another material (a bed's straw tick, a torch's flame) is its own draw group; the run of the piece's
-      // own material resumes after it, so the groups still cover every index exactly once
+      // a part of another material (a bed's straw tick, a torch's flame, a lamp post's black pole) waits for the end, where
+      // every model's share of one material is ONE draw group, as the parts' tones are. (#139, /draws on a phone at the
+      // landing: each such part was a group of its own — 220 draws of painted plate and 48 of lamps, most of a frame.)
       meshModel(b, u0, v0, place, solid, lo, hi, (m, draw) => {
         if (m === runM) return draw();
-        const own = runM; close(); runM = m; runAt = solid.idx.length; draw(); close(); runM = own; runAt = solid.idx.length;
+        let l = later.get(m); if (!l) later.set(m, l = []); l.push(draw);
       }, boxes);
       continue;
     }
@@ -201,9 +203,12 @@ function meshBoxes(boxes, u0, v0, h0, place, solid, clear, lod) {
     }
   }
   close();
-  for (const blk of [...toned.keys()].sort((a, b) => a - b)) {
+  // the tail: one group a material for the models' other parts and the parts' tones (the groups still cover every index
+  // exactly once — each draw runs once, inside the group of its material)
+  for (const blk of [...new Set([...toned.keys(), ...later.keys()])].sort((a, b) => a - b)) {
     runM = blk; runAt = solid.idx.length;
-    for (const [b, T, at, tone] of toned.get(blk)) meshPart(b, T, u0, v0, at, tone, solid);
+    for (const draw of later.get(blk) || []) draw();
+    for (const [b, T, at, tone] of toned.get(blk) || []) meshPart(b, T, u0, v0, at, tone, solid);
     close();
   }
 }
