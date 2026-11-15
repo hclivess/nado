@@ -3074,7 +3074,10 @@ function palette(open) {
   if (document.pointerLockElement) document.exitPointerLock();
   renderBag();
 }
-const bagText = (bag) => Object.entries(bag).map(([id, n]) => `${n} ${esc(nameOf(id))}`).join(", ");
+// "n × name" as every count in the game reads (#179; a reward said "The town pays 1 Berries", playtest 2026-11-15), and
+// PLAIN TEXT: a notice shows it as text and the offer line escapes its whole sentence — escaped here as well, a name with
+// & or < read as &amp; on both
+const bagText = (bag) => Object.entries(bag).map(([id, n]) => `${n} × ${nameOf(id)}`).join(", ");
 // TOOLS BY CLASS: a rule or recipe that needs "an axe" takes any axe (stone or iron), and work goes at the best one's speed —
 // as the world server judges it (scripts/land_server.py _has_class / _speed)
 const hasClass = (cls) => inv.tools.some((t) => t === cls || (RULES.tools[t] && RULES.tools[t].class === cls));
