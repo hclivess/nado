@@ -1830,10 +1830,17 @@ class World:
                         applied.setdefault(p, []).append([ff, fu, fv, fh, 0])
                 # LITTER ON THE DUG CELL (#177, playtest 2026-11-11: a pebble kept floating over the hole its turf left):
                 # what stood on the cell — a pebble, twigs, flax, a flower, a berry bush, wild grain (SWEPT, the things a
-                # placed block takes the place of) — goes with it, unpaid (it was not gathered, it fell), shown to every
-                # page as a cell of its own. A sapling is a tree to be: it stays (the ecology replants it, not the dig).
+                # placed block takes the place of) — goes with it, shown to every page as a cell of its own. A sapling is a
+                # tree to be: it stays (the ecology replants it, not the dig).
+                # INTO THE DIGGER'S BAG, as placing a block on it pays (playtest 2026-11-15: a tap that missed a berry bush
+                # dug the turf under it, and the bush was gone with no berries — while a block laid on it would have paid
+                # them); a craft tearing the ground gathers nothing of it, as of a tree it tears
                 above = (face, u, v, h + 1)
-                if h + 1 < H and (await self.blocks_at([list(above)]))[above] in SWEPT:
+                fell = (await self.blocks_at([list(above)]))[above] if h + 1 < H else None
+                if fell in SWEPT:
+                    if tear is None:
+                        for got, n in (RULES["breaking"].get(str(fell)) or {"yields": []})["yields"]:
+                            pl["items"][got] = pl["items"].get(got, 0) + n
                     ak = (k[0], k[1], h + 1)
                     rec["edits"][ak] = 0
                     (rec.get("grow") or {}).pop(ak, None)

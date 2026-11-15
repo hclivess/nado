@@ -3,10 +3,12 @@
 world server's own apply() against the REAL planet (scripts/land_server.py, the terrain from static/land-world.js):
   * a meadow cell with litter on it (a pebble, twigs, flax or a flower as the planet laid it): dig the turf under it,
     and the litter cell is air too — not a pebble hanging over the hole;
-  * the litter is not paid: the digger's bag gets the turf's yield and nothing for what fell;
+  * the litter goes into the digger's bag, as laying a block on it pays (playtest 2026-11-15: a tap that missed a berry
+    bush dug the turf under it, and the bush was gone with no berries — it was "unpaid" until then); a craft tearing the
+    ground gathers nothing of it;
   * both cells are in `applied`, so every page shows the litter go, and both are edits of the commons that regrow;
   * a sapling on the dug cell is NOT swept: it stays (a tree to be is the ecology's, not the dig's).
-Run: python3 tests/test_litter_standing_on_a_dug_cell_goes_with_it_unpaid_and_shown_to_every_page.py
+Run: python3 tests/test_litter_standing_on_a_dug_cell_goes_with_it_into_the_diggers_bag_and_shown_to_every_page.py
 """
 import os, tempfile  # ISOLATION FIRST (CLAUDE.md rule 4)
 os.environ["HOME"] = tempfile.mkdtemp(prefix="nado-test-land-litter-")
@@ -64,8 +66,15 @@ async def main():
     yields = {k: pl["items"].get(k, 0) - before.get(k, 0) for k in set(pl["items"]) | set(before)}
     litter_rule = S.RULES["breaking"].get(str(litter)) or {"yields": []}
     turf_rule = S.RULES["breaking"][str(B["grass"])]
-    check("the digger is paid the turf's yield and nothing for the litter that fell",
-          all(yields.get(i, 0) >= n for i, n in turf_rule["yields"]) and all(yields.get(i, 0) == sum(m for j, m in turf_rule["yields"] if j == i) for i, n in litter_rule["yields"]), (yields, litter_rule["yields"]))
+    want = {}
+    for i, n in turf_rule["yields"] + litter_rule["yields"]:
+        want[i] = want.get(i, 0) + n
+    check("the digger is paid the turf's yield AND the litter's that fell with it (as laying a block on it pays)",
+          bool(litter_rule["yields"]) and all(yields.get(i, 0) >= n for i, n in want.items()), (yields, want))
+    # …and a craft tearing the ground (World.apply with craft=) gathers nothing of the litter on the torn cell
+    src = open(os.path.join(ROOT, "scripts", "land_server.py"), encoding="utf-8").read()
+    check("a craft tearing the ground gathers nothing of the litter (only a dig by hand pays it)",
+          "if fell in SWEPT:\n                    if tear is None:" in src)
     moved = [c for cs in applied.values() for c in cs]
     check("both cells are in `applied`, so every page shows the litter go", [f, u, v, top, 0] in moved and [f, u, v, top + 1, 0] in moved, moved)
     p = S.plot_of(f, u, v)
