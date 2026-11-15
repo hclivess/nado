@@ -759,6 +759,17 @@ function craftsBearing(list) {
 }
 /** The pilot seat among the pieces touching piece b on its plot (and those touching them…, as the world server joins a
  *  craft: land_server.py connected, CRAFT_PAD 2 cm), or null. */
+/** craftSeat for the aim line, remembered for the piece until its plot's pieces change (the line is written ~6 times a
+ *  second; the walk reaches up to 400 pieces). A painted plate offered "Use board" on its own on the ground, with no
+ *  seat to board (playtest 2026-11-15) — Use boards only when a seat is joined to it (act), so the line says so only then. */
+const seatMemo = new WeakMap();
+function seatOfAimed(plot, b) {
+  const rec = plotBoxes.get(plot), m = seatMemo.get(b);
+  if (m && m.rec === rec && m.n === (rec ? rec.list.length : 0)) return m.seat;
+  const seat = craftSeat(plot, b);
+  seatMemo.set(b, { rec, n: rec ? rec.list.length : 0, seat });
+  return seat;
+}
 function craftSeat(plot, b) {
   const rec = plotBoxes.get(plot);
   if (!rec) return null;
@@ -2244,17 +2255,19 @@ function label(text, sub, col) {
 }
 /** NAME TAGS DO NOT SIT ON ONE ANOTHER (playtest 2026-11-15: Maren's and Ida's tags, two people side by side by the
  *  town hall, were drawn over each other into one unreadable word). `items`: each tag's screen box at its own place —
- *  { d (distance), x0, x1, y0, y1, step (its own height) } in the same units — and the number of its own heights each is
+ *  { d (distance), x0, x1, y0, y1, step (its own height) } in the same units — and how many of its own heights each is
  *  lifted: nearest first, never moved; a farther one rises until it is clear of every tag already placed, at most
  *  PLATE_LIFT steps (a crowd keeps its tags near their people rather than stacking them into the sky). */
 const PLATE_LIFT = 3;
 function declutterPlates(items) {
   const order = items.map((_, i) => i).sort((a, b) => items[a].d - items[b].d), placed = [], lift = new Array(items.length).fill(0);
-  const hit = (r, L) => placed.some((o) => r.x0 < o.x1 && o.x0 < r.x1 && r.y0 + L * r.step < o.y1 && o.y0 < r.y1 + L * r.step);
+  const hit = (r, L) => placed.find((o) => r.x0 < o.x1 && o.x0 < r.x1 && r.y0 + L * r.step < o.y1 && o.y0 < r.y1 + L * r.step);
   for (const i of order) {
     const r = items[i];
-    let L = 0;
-    while (L < PLATE_LIFT && hit(r, L)) L++;
+    // just clear of what is in the way, not whole heights at a time: a tag behind someone with a quest mark rose three
+    // heights to the top of the screen, far from its person (playtest 2026-11-15)
+    let L = 0, o;
+    while (L < PLATE_LIFT && (o = hit(r, L))) L = Math.min(PLATE_LIFT, (o.y1 - r.y0) / r.step + 0.02);
     lift[i] = L;
     placed.push({ x0: r.x0, x1: r.x1, y0: r.y0 + L * r.step, y1: r.y1 + L * r.step });
   }
@@ -2356,7 +2369,7 @@ function aimText(a) {
   if (a.box) {
     const kind = a.box.b[6], what = blockLabel(kind);
     const verb = kind === B.door || kind === B.chest ? T("v.open", "open") : kind === B.bed ? T("v.sleep", "sleep here") : kind === B.well ? T("v.draw", "draw water (a bucket)")
-      : kind === B.pilotseat || CRAFT_SKIN.has(kind) ? T("v.board", "board") : kind === B.generator || kind === B.launchpad || isMachine(kind) ? T("v.use", "use") : null;
+      : kind === B.pilotseat || (CRAFT_SKIN.has(kind) && seatOfAimed(a.box.plot, a.box.b)) ? T("v.board", "board") : kind === B.generator || kind === B.launchpad || isMachine(kind) ? T("v.use", "use") : null;
     if (verb) return T("aimFmt", "{what} — {k} {v}", { what, k, v: verb });
     return mayBuild(a.box.plot) ? T("aimFmt2", "{what} — {v}", { what, v: T("v.take", "hold {b} to take down", { b }) }) : notYours(what, a.box.plot);
   }
