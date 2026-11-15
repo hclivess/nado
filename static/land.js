@@ -1033,7 +1033,7 @@ function pieceInfo(pressed) {
   const part = partFor(id && RULES && RULES.items[id]);
   const shapeName = part ? partName(part) : [T("shapeBox", "box"), T("shapeSlope", "slope"), T("shapeStairs", "stairs")][piece.shape || 0];
   const tl = piece.tilt || [0, 0, 0], tilted = tl.some((t) => t);
-  el.textContent = id && RULES && !NATURAL_ITEMS.has(id) ? T("pieceInfo", "Piece {w} × {d} × {h} cm · snap {s} cm", { w, d, h, s: piece.snap }) + " · " + shapeName
+  el.textContent = net.me && id && RULES && !NATURAL_ITEMS.has(id) ? T("pieceInfo", "Piece {w} × {d} × {h} cm · snap {s} cm", { w, d, h, s: piece.snap }) + " · " + shapeName
     + (tilted ? " · " + T("tiltInfo", "tilt {y}° {p}° {r}°", { y: tl[0] / 10, p: tl[1] / 10, r: tl[2] / 10 }) : "") + (piece.mirror ? " · " + T("mirrorOn", "mirrored") : "") : "";
   save();
 }
@@ -3059,7 +3059,9 @@ function hotbar() {
     $("hotName").textContent = T("hotGadgets", "Hold a key to fire its gadgets");
     return;
   }
-  if (!RULES || !hot.length) {
+  // SIGNED OUT, the bar is not shown (it is kept for the sign-in): a player whose sign-in ran out saw their own items with
+  // a 0 under every one — read as an emptied bag (playtest 2026-11-16, the agent's 7-day session ended)
+  if (!RULES || !hot.length || !net.me) {
     // the bar holds what can be placed; a bag of berries, sticks and fibre fills none of it, and "gather something"
     // over a full bag sent a newcomer gathering more (#178): say what the bag holds and where it opens
     const held = net.me && RULES ? Object.values(inv.items || {}).filter((n) => n > 0).length : 0;
