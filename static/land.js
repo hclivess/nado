@@ -3558,9 +3558,12 @@ function renderWard() {
     + (girl ? part(30, 112, 60, 30, c.top, 3, "4px", "clip-path:polygon(20% 0,80% 0,100% 100%,0 100%)") : "")
     + part(41, 128, 16, 58, c.legs, 2) + part(63, 128, 16, 58, c.legs, 2) + part(38, 182, 22, 10, 0x3a2e2a, 3, "6px") + part(60, 182, 22, 10, 0x3a2e2a, 3, "6px");
   const sw = (list, key) => list.map((col, i) => `<button class="sw${look[key] === i ? " on" : ""}" data-${key}="${i}" style="background:${hex(col)}" aria-label="${i + 1}"></button>`).join("");
+  // an empty body or legs slot is not bare: the figure wears its own plain clothes there (lookColours: `under` and the
+  // grey legs) — the list said "nothing" beside a figure in a shirt and trousers (playtest 2026-11-15)
+  const PLAIN_SLOTS = new Set(["body", "legs"]);
   const slots = WEAR_SLOTS.map((slot) => {
     const on = look.worn[slot], have = Object.entries(inv.items || {}).filter(([id, n]) => n > 0 && RULES.items[id] && RULES.items[id].wear === slot);
-    return `<div class="wslot"><b>${esc(T("slot." + slot, slot))}</b> ${on ? `${esc(nameOf(on))} <button class="ghost" data-off="${slot}">${esc(T("wTakeOff", "Take off"))}</button>` : `<span class="dim">${esc(T("wNothing", "nothing"))}</span>`}
+    return `<div class="wslot"><b>${esc(T("slot." + slot, slot))}</b> ${on ? `${esc(nameOf(on))} <button class="ghost" data-off="${slot}">${esc(T("wTakeOff", "Take off"))}</button>` : `<span class="dim">${esc(PLAIN_SLOTS.has(slot) ? T("wPlain", "your own plain clothes") : T("wNothing", "nothing"))}</span>`}
       ${have.map(([id]) => `<button data-wear="${esc(id)}" data-slot="${slot}">${esc(T("wWear", "Wear {i}", { i: nameOf(id) }))}</button>`).join(" ")}</div>`;
   }).join("");
   box.innerHTML = `<div class="ward"><div class="fig">${fig}</div><div>
