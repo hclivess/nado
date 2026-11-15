@@ -2195,6 +2195,7 @@ function wakeUp() {
 // a mark when they have something for this player — "!" work, "?" a quest to hand in. Use on one talks to them: what
 // they offer (Accept), the player's quests that end with them (Hand in). The quest log is in the bag.
 const npcs = new Map();                            // id -> { mesh, plate, mark, sig, at }
+const PLATE_H = 0.07;                              // a name tag's height in unattenuated sprite units (~5 % of the view at 72°)
 function label(text, sub, col) {
   const cv = document.createElement("canvas"); cv.width = 256; cv.height = 64;
   const g = cv.getContext("2d");
@@ -2202,8 +2203,11 @@ function label(text, sub, col) {
   g.fillStyle = col || "#ffe9a8"; g.strokeText(text, 128, 28); g.fillText(text, 128, 28);
   if (sub) { g.font = "18px sans-serif"; g.fillStyle = "#e8eef4"; g.strokeText(sub, 128, 54); g.fillText(sub, 128, 54); }
   const t = new THREE.CanvasTexture(cv); t.colorSpace = THREE.SRGBColorSpace;
-  const sp = new THREE.Sprite(new THREE.SpriteMaterial({ map: t, depthWrite: false, transparent: true }));
-  sp.scale.set(1.6, 0.4, 1);
+  // A CONSTANT SIZE ON SCREEN (playtest 2026-11-15: a 1.6 m tag beside Maren filled the top of a phone's screen and was
+  // cut off behind the HUD): not shrunk with distance, ~5 % of the view's height (PLATE_H, in three's unattenuated
+  // sprite units), anchored by its bottom edge (center y 0) at the point it is hung from
+  const sp = new THREE.Sprite(new THREE.SpriteMaterial({ map: t, depthWrite: false, transparent: true, sizeAttenuation: false }));
+  sp.scale.set(PLATE_H * 4, PLATE_H, 1); sp.center.set(0.5, 0);
   return sp;
 }
 const roleName = (r) => T("npc." + r, { elder: "Elder", trader: "Trader", smith: "Smith" }[r] || r);
@@ -2220,7 +2224,8 @@ function npcsSeen(list) {
     if (r.markSig !== n.mark) {                                  // "!" work for you, "?" a quest to hand in
       if (r.mark) r.mesh.remove(r.mark);
       r.mark = n.mark ? label(n.mark, null, n.mark === "?" ? "#9fe0ff" : "#ffd84a") : null;
-      if (r.mark) { r.mark.scale.set(1.4, 0.35, 1); r.mark.position.set(0, 2.45, 0); r.mesh.add(r.mark); }
+      // (the mark rides one tag-height above the name tag, from the same point, so the two never overlap at any distance)
+      if (r.mark) { r.mark.scale.set(PLATE_H * 3.5, PLATE_H * 0.875, 1); r.mark.center.set(0.5, -1.15); r.mark.position.set(0, 2.05, 0); r.mesh.add(r.mark); }
       r.markSig = n.mark;
     }
   }
