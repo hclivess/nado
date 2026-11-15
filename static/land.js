@@ -589,8 +589,38 @@ function craftMesh(pieces) {
       pl.visible = false; g.add(pl); (g.userData.plumes ||= []).push(pl);
     }
   }
+  mergeByMaterial(g, new Set(g.userData.plumes || []));
   g.matrixAutoUpdate = false;
   return g;
+}
+/** ONE DRAW A MATERIAL (#139, measured with /draws on a phone at the landing: 551 draw calls a frame, 220 of them one
+ *  craft's painted plate — a craft was a mesh a piece and a mesh a tone of each part, so a 60-piece X-wing cost hundreds
+ *  of draws): the pieces of a craft that share a material are baked, each in its own place and turn, into one geometry.
+ *  Nothing reads a piece's mesh (the cannons, the seat, the collisions read c.pieces); the plumes stay their own, as
+ *  engineFrame lights and aims each. Geometries are merged only with the same attributes (a box's and a part's are). */
+function mergeByMaterial(g, keep) {
+  const groups = new Map();
+  for (const m of g.children) {
+    if (keep.has(m) || !m.isMesh) continue;
+    const key = m.material.uuid + "|" + Object.keys(m.geometry.attributes).sort().join(",");
+    if (!groups.has(key)) groups.set(key, []);
+    groups.get(key).push(m);
+  }
+  for (const list of groups.values()) {
+    if (list.length < 2) continue;
+    const parts = list.map((m) => { m.updateMatrix(); const q = m.geometry.index ? m.geometry.toNonIndexed() : m.geometry.clone(); q.applyMatrix4(m.matrix); return q; });
+    const out = new THREE.BufferGeometry();
+    for (const name of Object.keys(parts[0].attributes)) {
+      const size = parts[0].attributes[name].itemSize, arr = new Float32Array(parts.reduce((t, q) => t + q.attributes[name].count * size, 0));
+      let at = 0; for (const q of parts) { arr.set(q.attributes[name].array, at); at += q.attributes[name].count * size; }
+      out.setAttribute(name, new THREE.BufferAttribute(arr, size));
+    }
+    const one = new THREE.Mesh(out, list[0].material);
+    one.renderOrder = list[0].renderOrder; one.castShadow = list[0].castShadow; one.receiveShadow = list[0].receiveShadow;
+    for (const m of list) { g.remove(m); m.geometry.dispose(); }
+    for (const q of parts) q.dispose();
+    g.add(one);
+  }
 }
 /** A part (land-shapes.js, #175) as three.js meshes about its piece's centre, one for each tone it has: x across, y up
  *  and the piece's depth along -z (the craft's frame; a mirror of the part's own, so two corners of every triangle swap).
@@ -1927,9 +1957,13 @@ function faceFlat(face) {
   if (!faceFlatTex.has(face)) { const t = new THREE.CanvasTexture(faceCanvas(face, null)); t.colorSpace = THREE.SRGBColorSpace; faceFlatTex.set(face, t); }
   return faceFlatTex.get(face);
 }
+let figureMaterial = null;                         // the one material every figure's body is drawn in (avatar)
 function avatar(seed, look) {
   const c = lookColours(seed, look), g = new THREE.Group(), girl = (look && look.body) === 1;
-  const box = (w, h, d, x, y, z, col) => { const m = new THREE.Mesh(new THREE.BoxGeometry(w, h, d), new THREE.MeshLambertMaterial({ color: col })); m.position.set(x, y, z); g.add(m); return m; };
+  // ONE DRAW A FIGURE (#139: four people at the landing were 48 draws, a box each in its own material): every box is
+  // laid into one geometry in its own place with its colour on its vertices, drawn in one material all figures share;
+  // the face stays its own plane (its own texture). Nothing moves a box on its own: a figure moves whole.
+  const boxes = [], box = (w, h, d, x, y, z, col) => { const q = new THREE.BoxGeometry(w, h, d).toNonIndexed(); q.translate(x, y, z); boxes.push([q, new THREE.Color(col)]); };
   box(0.22, 0.8, 0.24, -0.13, 0.4, 0, c.legs); box(0.22, 0.8, 0.24, 0.13, 0.4, 0, c.legs);          // legs
   if (girl) box(0.6, 0.32, 0.34, 0, 0.72, 0, c.top);                                               // a skirt
   box(girl ? 0.5 : 0.56, 0.7, 0.3, 0, 1.15, 0, c.top);                                              // torso
@@ -1942,7 +1976,17 @@ function avatar(seed, look) {
   if (girl) for (const x of [-0.24, 0.24]) box(0.09, 0.3, 0.09, x, 1.6, -0.05, c.hair);             // two pigtails
   if (c.cap != null) box(0.42, 0.14, 0.42, 0, 1.92, 0, c.cap); else box(0.4, 0.1, 0.4, 0, 1.92, 0, c.hair);
   if (c.cloak != null) box(0.62, 1.15, 0.05, 0, 1.0, -0.19, c.cloak);                              // a cloak hangs behind
-  g.userData.person = true;                       // /tris counts a figure's boxes as "people" by this mark (its meshes have their own materials)
+  const n = boxes.reduce((t, [q]) => t + q.attributes.position.count, 0), pos = new Float32Array(n * 3), nor = new Float32Array(n * 3), col = new Float32Array(n * 3);
+  let at = 0;
+  for (const [q, cl] of boxes) {
+    pos.set(q.attributes.position.array, at * 3); nor.set(q.attributes.normal.array, at * 3);
+    for (let i = 0; i < q.attributes.position.count; i++) { col[(at + i) * 3] = cl.r; col[(at + i) * 3 + 1] = cl.g; col[(at + i) * 3 + 2] = cl.b; }
+    at += q.attributes.position.count; q.dispose();
+  }
+  const body = new THREE.BufferGeometry();
+  body.setAttribute("position", new THREE.BufferAttribute(pos, 3)); body.setAttribute("normal", new THREE.BufferAttribute(nor, 3)); body.setAttribute("color", new THREE.BufferAttribute(col, 3));
+  g.add(new THREE.Mesh(body, figureMaterial ||= new THREE.MeshLambertMaterial({ vertexColors: true })));
+  g.userData.person = true;                       // /tris and /draws count a figure's meshes as "people" by this mark
   return g;
 }
 // ---- ANIMALS (#156, "hunting", operator 2026-11-09): the world server keeps them near players (land_server.py herd) and
