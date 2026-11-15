@@ -23,10 +23,10 @@ const ok = (c, m) => { console.log((c ? "ok   " : "FAIL ") + m); if (!c) fails++
 const a = page.indexOf("const SOURCE_R = "), b = page.indexOf("/** Who a quest is handed in to:");
 const POINTS = [["cpN", "N"], ["cpNE", "NE"], ["cpE", "E"], ["cpSE", "SE"], ["cpS", "S"], ["cpSW", "SW"], ["cpW", "W"], ["cpNW", "NW"]];
 const key = (f, u, v, h) => f + ":" + u + ":" + v + ":" + h;
-const make = (allow, edits = new Map(), pieceIn = () => false) => new Function("RULES", "Wd", "P", "W", "mayBuild", "inv", "questText", "T", "POINTS", "colAt", "edits", "key", "pieceIn",
+const make = (allow, edits = new Map(), pieceIn = () => false, plotsApplied = { has: () => true }, resync = () => {}) => new Function("RULES", "Wd", "P", "W", "mayBuild", "inv", "questText", "T", "POINTS", "colAt", "edits", "key", "pieceIn", "plotsApplied", "resync",
   page.slice(a, b) + "\ntitlesVer = 1;\nreturn { sourceHint, sourceBlocks, SOURCE_R, SOURCE_STEP };")(
   RULES, Wd, { face: 0, u: 55047.5, v: 79996.5 }, Wd.W ?? (1 << 17), allow, { quests: [{ kind: "bring", item: "berries", n: 6 }] },
-  () => "Bring 6 × Berries", (k, fb, v) => fb.replace(/\{(\w+)\}/g, (_, x) => v[x]), POINTS, (f, u, v) => Wd.column(f, u, v), edits, key, pieceIn);
+  () => "Bring 6 × Berries", (k, fb, v) => fb.replace(/\{(\w+)\}/g, (_, x) => v[x]), POINTS, (f, u, v) => Wd.column(f, u, v), edits, key, pieceIn, plotsApplied, resync);
 const runWith = (allow, edits, pieceIn) => { const S = make(allow, edits, pieceIn); let h = ""; for (let i = 0; i < 400 && !h; i++) h = S.sourceHint("berries"); return h; };
 const run = (allow) => { const S = make(allow); let h = ""; for (let i = 0; i < 400 && !h; i++) h = S.sourceHint("berries"); return [h, S]; };
 // the planet's own nearest berry bush from the landing, found the slow way
@@ -61,5 +61,18 @@ ok(S.sourceBlocks("iron").length === 0 && S.sourceBlocks("nothing").length === 0
 // 7. not before the titles are in (until then every plot reads as open land) — and again when they change
 ok(/if \(!titlesVer\) return "";/.test(page.slice(a, b)) && /const job = item \+ "@" \+ P\.face \+ "#" \+ titlesVer;/.test(page) && /\n    titlesVer\+\+;  /.test(page),
   "7. it waits for the titles (a first scan took a plot for sale for open land) and starts again when they change");
+// 8. a candidate on a plot whose edits the page does not hold yet is asked for and waited on — then judged by them
+{
+  const [, plot0, u, v] = near[0], h = Wd.column(0, u, v).top + 1, held = new Set(), asked = [];
+  const edits = new Map();
+  const S = make(() => true, edits, () => false, held, (p) => asked.push(p));
+  let h1 = ""; for (let i = 0; i < 50 && !h1; i++) h1 = S.sourceHint("berries");
+  const waited = h1 === "" && asked.length === 1 && asked[0] === plot0;
+  edits.set(key(0, u, v, h), Wd.B.air); held.add(plot0);                // its edits arrive: that bush was picked
+  for (const p of [...new Set(near.map((x) => x[1]))]) held.add(p);
+  let h2 = ""; for (let i = 0; i < 2000 && !h2; i++) { h2 = S.sourceHint("berries"); if (!h2 && asked.length) for (const p of asked) held.add(p); }
+  ok(waited && /pick: \d+ m/.test(h2) && !h2.includes(`pick: ${near[0][0]} m `),
+    `8. the nearest bush's plot not yet loaded: asked for (${asked[0] === plot0}) and nothing named meanwhile; its edits say picked, so the next is named: "${h2}"`);
+}
 console.log(fails ? `${fails} FAILED` : "all passed");
 process.exit(fails ? 1 : 0);

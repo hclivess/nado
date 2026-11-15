@@ -1905,7 +1905,9 @@ function connect() {
   };
 }
 /** Replace a plot's cells with the server's list (a pushed "plot", or a resync after a refused change). */
+const plotsApplied = new Set();          // plots whose edits this page holds (the nearest-source hint asks before it names one)
 function applyPlot(plot, list) {
+  plotsApplied.add(plot);
   const q = Wd.plotCoords(plot), old = plotEdit.get(plot);
   if (old) for (const lk of old.keys()) { const [x, z, y] = lk.split(":").map(Number); edits.delete(key(q.face, q.u0 + x, q.v0 + z, y)); }
   plotEdit.delete(plot);
@@ -2857,17 +2859,25 @@ function sourceHint(item) {
   // load pointed at a bush on a plot for sale (playtest 2026-11-15, "12 m E"); a change of titles starts the scan again
   if (!titlesVer) return "";
   const job = item + "@" + P.face + "#" + titlesVer;    // (not "key": that is the page's cell-key function, used below)
-  if (!srcScan || srcScan.job !== job || Math.hypot(P.u - srcScan.u0, P.v - srcScan.v0) > SOURCE_MOVE) srcScan = { job, u0: P.u, v0: P.v, r: 2, a: 0, found: null, done: false };
+  if (!srcScan || srcScan.job !== job || Math.hypot(P.u - srcScan.u0, P.v - srcScan.v0) > SOURCE_MOVE) srcScan = { job, u0: P.u, v0: P.v, r: 2, a: 0, found: null, done: false, asked: new Set() };
   const s = srcScan;
   for (let n = 0; n < SOURCE_STEP && !s.done && !s.found; n++) {
-    const step = 2 / s.r, u = Math.floor(s.u0 + s.r * Math.sin(s.a)), v = Math.floor(s.v0 + s.r * Math.cos(s.a));
-    if (u >= 0 && v >= 0 && u < W && v < W && mayBuild(Wd.plotOf(P.face, u, v))) {
+    const u = Math.floor(s.u0 + s.r * Math.sin(s.a)), v = Math.floor(s.v0 + s.r * Math.cos(s.a)), plot = Wd.plotOf(P.face, u, v);
+    if (u >= 0 && v >= 0 && u < W && v < W && mayBuild(plot)) {
       const col = colAt(P.face, u, v), lb = Wd.litterAt(P.face, u, v, col), h = col.top + 1;
-      // the planet grows one here — and it is still here: not picked or swept (the plot's edits) and not under a piece
-      // (a path laid over it) — "8 m N" pointed at a bush under the town's stone path (playtest 2026-11-15)
-      if (want.includes(lb)) { const e = edits.get(key(P.face, u, v, h)); if ((e === undefined || e === lb) && !pieceIn([u, v, h])) s.found = { d: Math.round(s.r), yaw: Math.atan2(u + 0.5 - s.u0, v + 0.5 - s.v0) }; }
+      if (want.includes(lb)) {
+        // ITS PLOT'S EDITS FIRST (playtest 2026-11-15: from the landing the hint said 78 m S, then 24 m further, then 14 m
+        // further — each bush the far scan named had been picked, which its plot's edits, not yet loaded, would have said):
+        // a candidate on a plot this page holds no edits for is asked for (resync) and waited on, this same spot, until
+        // they arrive
+        if (!plotsApplied.has(plot)) { if (!s.asked.has(plot)) { s.asked.add(plot); resync(plot); } break; }
+        // the planet grows one here — and it is still here: not picked or swept (the plot's edits) and not under a piece
+        // (a path laid over it) — "8 m N" pointed at a bush under the town's stone path
+        const e = edits.get(key(P.face, u, v, h));
+        if ((e === undefined || e === lb) && !pieceIn([u, v, h])) { s.found = { d: Math.round(s.r), yaw: Math.atan2(u + 0.5 - s.u0, v + 0.5 - s.v0) }; break; }
+      }
     }
-    s.a += step; if (s.a >= 2 * Math.PI) { s.a = 0; s.r += 2; if (s.r > SOURCE_R) s.done = true; }
+    s.a += 2 / s.r; if (s.a >= 2 * Math.PI) { s.a = 0; s.r += 2; if (s.r > SOURCE_R) s.done = true; }
   }
   const q = questText({ kind: "bring", item, n: (inv.quests || []).find((x) => x.kind === "bring" && x.item === item)?.n || 1 });
   if (s.found) {
