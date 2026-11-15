@@ -2847,7 +2847,7 @@ function tileIcon(cv, id, px) {
 // mayBuild allows — by distance and compass point, or says none lies within SOURCE_R. The search walks rings outward a
 // slice at a time (SOURCE_STEP points a frame) so a phone never stalls, and starts again when the job changes or the
 // player has moved SOURCE_MOVE metres.
-const SOURCE_R = 160, SOURCE_STEP = 600, SOURCE_MOVE = 12;
+const SOURCE_R = 160, SOURCE_STEP = 1500, SOURCE_MOVE = 12;
 let srcScan = null, goalTick = 0, titlesVer = 0, titlesSig = "";
 function sourceBlocks(item) {
   const out = [];
@@ -2868,7 +2868,7 @@ function sourceHint(item) {
     // further, then 14 m further — each bush the far scan named had been picked, which its plot's edits, not loaded at
     // that distance, would have said; asked plot by plot, a 160 m circle crossing ~100 plots took minutes): the world
     // server's region answer holds every plot in the box with edits or pieces; every other plot in it is untouched
-    const s0 = { job, u0: P.u, v0: P.v, r: 2, a: 0, found: null, done: false, ready: false };
+    const s0 = { job, u0: Math.floor(P.u), v0: Math.floor(P.v), d: 0, i: 0, best: null, until: Infinity, found: null, done: false, ready: false };
     srcScan = s0;
     const R = SOURCE_R + 2, q = (x) => Math.max(0, Math.min(W - 1, Math.floor(x)));
     fetch(`/land/api/region?face=${P.face}&u0=${q(P.u - R)}&v0=${q(P.v - R)}&u1=${q(P.u + R)}&v1=${q(P.v + R)}`, { credentials: "same-origin" })
@@ -2878,15 +2878,33 @@ function sourceHint(item) {
   }
   const s = srcScan;
   if (!s.ready) return "";                                 // (the plain line until the region's edits are in)
+  // EVERY CELL, ring by ring out from the player's own (square rings: the cells at Chebyshev distance d, 8d of them):
+  // sampled on 2 m circles from 2 m out, the search skipped the bush a step away and named the next one — followed, the
+  // target receded ("16 m SW", there: "22 m W", playtest 2026-11-15). A square ring's corner is d·√2 away, so after the
+  // first hit at ring d the rings out to d·√2 are searched too and the truly nearest is named.
+  const cellAt = (d, i) => {                               // the i-th cell of ring d (d > 0): top row, right, bottom, left
+    const side = 2 * d;
+    if (i < side) return [-d + i, d];
+    if (i < 2 * side) return [d, d - (i - side)];
+    if (i < 3 * side) return [d - (i - 2 * side), -d];
+    return [-d, -d + (i - 3 * side)];
+  };
   for (let n = 0; n < SOURCE_STEP && !s.done && !s.found; n++) {
-    const u = Math.floor(s.u0 + s.r * Math.sin(s.a)), v = Math.floor(s.v0 + s.r * Math.cos(s.a));
+    const [du, dv] = s.d === 0 ? [0, 0] : cellAt(s.d, s.i), u = s.u0 + du, v = s.v0 + dv;
     if (u >= 0 && v >= 0 && u < W && v < W && mayBuild(Wd.plotOf(P.face, u, v))) {
       const col = colAt(P.face, u, v), lb = Wd.litterAt(P.face, u, v, col), h = col.top + 1;
       // the planet grows one here — and it is still here: not picked or swept (the plot's edits) and not under a piece
       // (a path laid over it: "8 m N" pointed at a bush under the town's stone path)
-      if (want.includes(lb)) { const e = edits.get(key(P.face, u, v, h)); if ((e === undefined || e === lb) && !pieceIn([u, v, h])) { s.found = { d: Math.round(s.r), yaw: Math.atan2(u + 0.5 - s.u0, v + 0.5 - s.v0) }; break; } }
+      if (want.includes(lb)) {
+        const e = edits.get(key(P.face, u, v, h));
+        if ((e === undefined || e === lb) && !pieceIn([u, v, h])) {
+          const dist = Math.hypot(u + 0.5 - P.u, v + 0.5 - P.v);
+          if (!s.best || dist < s.best.dist) s.best = { dist, yaw: Math.atan2(u + 0.5 - P.u, v + 0.5 - P.v) };
+          if (s.until === Infinity) s.until = Math.ceil(s.d * Math.SQRT2) + 1;
+        }
+      }
     }
-    s.a += 2 / s.r; if (s.a >= 2 * Math.PI) { s.a = 0; s.r += 2; if (s.r > SOURCE_R) s.done = true; }
+    if (s.d === 0 || ++s.i >= 8 * s.d) { s.d++; s.i = 0; if (s.d > s.until) s.found = { d: Math.round(s.best.dist), yaw: s.best.yaw }; else if (s.d > SOURCE_R) s.done = true; }
   }
   const qt = questText({ kind: "bring", item, n: (inv.quests || []).find((x) => x.kind === "bring" && x.item === item)?.n || 1 });
   if (s.found) {

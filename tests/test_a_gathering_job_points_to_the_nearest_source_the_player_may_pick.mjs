@@ -40,22 +40,24 @@ const make = (allow, { region = {}, fail = false, pieceIn = () => false, asked =
 };
 const settle = () => new Promise((r) => setTimeout(r, 0));
 const run = async (allow, opt) => { const S = make(allow, opt); const first = S.sourceHint("berries"); await settle(); let h = ""; for (let i = 0; i < 400 && !h; i++) h = S.sourceHint("berries"); return [h, S, first]; };
-// the planet's own nearest berry bush from the landing, found the slow way
+// the planet's own berry bushes around the landing, EVERY cell within 160 m, nearest first (the reference once sampled
+// 2 m circles as the first search did, and agreed with it in missing the bush 3 m away)
 const near = [];
-for (let r = 2; r <= 160 && near.length < 1; r += 2) for (let t = 0; t < 2 * Math.PI && near.length < 1; t += 2 / r) {
-  const u = Math.floor(55047.5 + r * Math.sin(t)), v = Math.floor(79996.5 + r * Math.cos(t));
-  if (Wd.litterAt(0, u, v, Wd.column(0, u, v)) === Wd.B.berrybush) near.push([r, Wd.plotOf(0, u, v), u, v]);
+for (let du = -160; du <= 160; du++) for (let dv = -160; dv <= 160; dv++) {
+  const u = 55047 + du, v = 79996 + dv;
+  if (Wd.litterAt(0, u, v, Wd.column(0, u, v)) === Wd.B.berrybush) near.push([Math.round(Math.hypot(u + 0.5 - 55047.5, v + 0.5 - 79996.5)), Wd.plotOf(0, u, v), u, v, Math.hypot(u + 0.5 - 55047.5, v + 0.5 - 79996.5)]);
 }
+near.sort((x, y) => x[4] - y[4]);
 const [h1, S, first] = await run(() => true);
 ok(first === "" && near.length && h1.includes(`the nearest you may pick: ${near[0][0]} m`) && /m (N|NE|E|SE|S|SW|W|NW)$/.test(h1), `1. every plot open (nothing named before the region's edits are in): "${h1}" (the planet's nearest bush is ${near[0] && near[0][0]} m away)`);
 ok(S.sourceBlocks("berries").length === 1 && S.sourceBlocks("berries")[0] === Wd.B.berrybush, "…its source is the berry bush, the planet's litter");
-const closed = new Set([near[0][1]]);
+const closed = new Set([near[0][1]]);                     // (the nearest bush's plot; the next open bush is farther)
 const [h2] = await run((p) => !closed.has(p));
 const d2 = Number((h2.match(/pick: (\d+) m/) || [])[1]);
 ok(d2 > near[0][0], `2. the nearest bush's plot closed: it walks on to an open one, farther (${d2} m): "${h2}"`);
 const [h3] = await run(() => false);
 ok(/none you may pick within 160 m — look in the wilderness/.test(h3), `3. nothing open within reach: "${h3}"`);
-ok(/for \(let n = 0; n < SOURCE_STEP && !s\.done && !s\.found; n\+\+\)/.test(page) && /const SOURCE_R = 160, SOURCE_STEP = 600, SOURCE_MOVE = 12;/.test(page)
+ok(/for \(let n = 0; n < SOURCE_STEP && !s\.done && !s\.found; n\+\+\)/.test(page) && /const SOURCE_R = 160, SOURCE_STEP = 1500, SOURCE_MOVE = 12;/.test(page)
    && /if \(now - \(goalTick \|\| 0\) > 500 && \(inv\.quests \|\| \[\]\)\.some\(\(q\) => q\.kind === "bring" && !q\.ready\)\) \{ goalTick = now; goalLine\(\); \}/.test(page)
    && /if \(!q\.ready && q\.kind === "bring"\) \{ const h = sourceHint\(q\.item\); if \(h\) \{ g\.textContent = h; return; \} \}/.test(page),
   "4. it searches a slice a call, and the goal line asks for it twice a second while a bring-job is open");
@@ -79,5 +81,9 @@ ok(/if \(!titlesVer\) return "";/.test(page.slice(a0, b0)) && /const job = item 
   const [h8] = await run(() => false, { fail: true });
   ok(/none you may pick within 160 m/.test(h8), `8. the region request fails: the search still ends — "${h8.slice(0, 80)}…"`);
 }
+// 9. every cell is searched, from the player's own: the named bush is the truly nearest by distance (not the first on a
+// square ring, whose corners are √2 farther), and the next nearest when it is gone
+ok(Math.abs(Number((h1.match(/pick: (\d+) m/) || [])[1]) - near[0][0]) <= 0 && near[0][4] < 4,
+  `9. it names the bush ${near[0][0]} m away — the nearest of all ${near.length} within 160 m (the circle sampler missed it and named 8 m)`);
 console.log(fails ? `${fails} FAILED` : "all passed");
 process.exit(fails ? 1 : 0);
