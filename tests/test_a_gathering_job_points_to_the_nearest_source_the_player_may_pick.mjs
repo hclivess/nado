@@ -35,7 +35,7 @@ const make = (allow, { region = {}, fail = false, pieceIn = () => false, asked =
   const applyPlot = (p, list) => { plotsApplied.add(p); const q = Wd.plotCoords(p); for (const [x, z, y, bl] of list) edits.set(key(q.face, q.u0 + x, q.v0 + z, y), bl); };
   const blockAt = (f, u, v, h) => { const e = edits.get(key(f, u, v, h)); return e !== undefined ? e : Wd.terrainBlock(f, u, v, h, (ff, uu, vv) => Wd.column(ff, uu, vv)); };
   return new Function("RULES", "Wd", "P", "W", "mayBuild", "inv", "questText", "T", "POINTS", "colAt", "edits", "key", "pieceIn", "plotsApplied", "fetch", "applyPlot", "setPlotBoxes", "blockAt",
-    page.slice(a0, b0) + "\ntitlesVer = 1;\nreturn { sourceHint, sourceBlocks, SOURCE_R, SOURCE_STEP };")(
+    "let titlesVer = 0, titlesSig = \"\";\n" + page.slice(a0, b0) + "\ntitlesVer = 1;\nreturn { sourceHint, sourceBlocks, SOURCE_R, SOURCE_STEP };")(   // (the titles' version is declared at the top of the page)
     RULES, Wd, at, Wd.W ?? (1 << 17), allow, { quests: [{ kind: "bring", item: "berries", n: 6 }] },
     () => "Bring 6 × Berries", (k, fb, v) => fb.replace(/\{(\w+)\}/g, (_, x) => v[x]), POINTS, (f, u, v) => Wd.column(f, u, v), edits, key, pieceIn, plotsApplied, fetch, applyPlot, () => {}, blockAt);
 };

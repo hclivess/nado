@@ -81,6 +81,7 @@ const titles = new Map();             // plot -> { aid, holder } for every issue
 const mine = new Set();               // plots whose title the signed-in address holds
 const builds = new Set();             // plots the world server says the signed-in address was invited to build on
 const builderKnown = new Set();       // plots whose builder answer is in — until then a refusal says "checking", not "someone else's"
+let titlesVer = 0, titlesSig = "";       // the titles' version: 0 until the first answer is in (hud, sourceHint); bumped when they change
 // GATHERING, TOOLS, CRAFTING, TRADE (doc/land.md): "you must gather resources to make tools to make tools to collect more
 // resources". The rules are static/land-recipes.json, the same file the world server judges by; the inventory is the
 // server's (it arrives as "inv" messages) — the page never decides what anyone owns.
@@ -2871,7 +2872,10 @@ function hud() {
   let html;
   if (t && net.online && net.me && !t.checked) { t.checked = true; builderCheck(plot); }
   const signIn = net.online && !net.me ? ` <a class="btn" href="/land/api/login">${esc(T("signInBuild", "Sign in to build"))}</a>` : "";
-  if (!t) html = `<span class="pill">${esc(T("wild", "Wilderness"))}</span> <span class="dim">${esc(T("wildOpen", "Unowned: anyone may gather and build here. Own a plot to protect what you build."))}</span>${signIn}`;
+  // the titles not in yet (titlesVer 0: the first answer bumps it, empty or not), no plot is known to be anyone's — a
+  // titled plot read "Wilderness" for the first seconds after a load (playtest 2026-11-15, #199)
+  if (!t && !titlesVer) html = `<span class="pill">${esc(T("plotLooking", "Looking up who owns this plot…"))}</span>${signIn}`;
+  else if (!t) html = `<span class="pill">${esc(T("wild", "Wilderness"))}</span> <span class="dim">${esc(T("wildOpen", "Unowned: anyone may gather and build here. Own a plot to protect what you build."))}</span>${signIn}`;
   else if (builds.has(plot) && !mine.has(plot)) html = `<span class="pill ok">${esc(T("invited", "You may build here"))}</span> <span class="dim">${esc(t.holder ? T("owned", "Owned by {o}", { o: disp(t.holder) }) : "")}</span>`;
   else if (mine.has(plot)) html = `<span class="pill ok">${esc(T("yours", "Your plot"))}</span> <button id="btnAnchor" class="ghost">${esc(T("anchorBtn", "Anchor build"))}</button> <button id="btnInvite" class="ghost">${esc(T("inviteBtn", "Invite a builder"))}</button> <button id="btnSell" class="ghost">${esc(T("sellBtn", "Sell"))}</button>`;
   // your own listing: the market holds the title (so it is not in `mine`), and only its seller may reprice or withdraw it
@@ -2933,7 +2937,7 @@ function tileIcon(cv, id, px) {
 // slice at a time (SOURCE_STEP points a frame) so a phone never stalls, and starts again when the job changes or the
 // player has moved SOURCE_MOVE metres.
 const SOURCE_R = 160, SOURCE_STEP = 1500, SOURCE_MOVE = 12;
-let srcScan = null, goalTick = 0, titlesVer = 0, titlesSig = "";
+let srcScan = null, goalTick = 0;
 function sourceBlocks(item) {
   const out = [];
   if (!RULES || !RULES.breaking) return out;
