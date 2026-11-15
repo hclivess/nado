@@ -4254,7 +4254,10 @@ function wireInput(canvas) {
     });
     const hold = (id, k) => { const el = $(id); el.addEventListener("touchstart", (e) => { touch[k] = true; e.preventDefault(); }, { passive: false }); el.addEventListener("touchend", () => { touch[k] = false; }); };
     hold("tJump", "up"); hold("tDown", "down");
-    $("tFly").onclick = () => { P.fly = !P.fly; P.vh = 0; };
+    // said, as F says it on a keyboard, with the phone's own buttons (playtest 2026-11-16: the phone's Fly toggled free
+    // flight in silence, the button the same either way — nothing told the player they were flying); its look follows
+    // P.fly every frame (frame), whoever changed it
+    $("tFly").onclick = () => { P.fly = !P.fly; P.vh = 0; notify(P.fly ? T("flyOnTouch", "Flying — Jump to rise, Down to sink; Fly again to walk") : T("flyOff", "Walking"), 2400); };
     $("tBreak").onclick = () => act(false, false);
     $("tPlace").onclick = () => act(true);
     $("tPal").onclick = () => palette(true);
@@ -5284,6 +5287,7 @@ function frame(now) {
     sizePlates(r.mesh);
   }
   platesFrame();                                              // after every tag is sized: crowded ones lifted clear
+  if (touch) { const fb = $("tFly"); if (fb && fb.classList.contains("on") !== !!P.fly) fb.classList.toggle("on", !!P.fly); }   // Fly lit while flying
   pt("sky", () => { sky(fr); torchTick(now, cam); cloudsFrame(cam, fr); farBuildTick(now); });
   // THE WIND (#113): by the height over the ground and the speed — a craft's airspeed when flying, else the body's
   if (sound.ctx && (!frame.windAt || now - frame.windAt > 100)) {
