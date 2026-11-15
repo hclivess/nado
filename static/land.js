@@ -2196,6 +2196,14 @@ function wakeUp() {
 // they offer (Accept), the player's quests that end with them (Hand in). The quest log is in the bag.
 const npcs = new Map();                            // id -> { mesh, plate, mark, sig, at }
 const PLATE_H = 0.2;                               // a name tag's height in unattenuated sprite units: ~5 % of the view (measured: 0.07 drew 1.7 %, unreadable)
+/** The tags a figure carries, sized for its distance (the mesh's camera-relative position): full size within PLATE_NEAR,
+ *  then shrinking as PLATE_NEAR / distance, never under a third — a constant size made the tags of people standing
+ *  together overlap from across the square ("IdaMa…", playtest 2026-11-15). */
+const PLATE_NEAR = 8;
+function sizePlates(mesh) {
+  const d = mesh.position.length(), f = Math.max(1 / 3, Math.min(1, PLATE_NEAR / Math.max(d, 1e-3)));
+  for (const c of mesh.children) if (c.isSprite && c.userData.base) c.scale.set(c.userData.base[0] * f, c.userData.base[1] * f, 1);
+}
 function label(text, sub, col) {
   const cv = document.createElement("canvas"); cv.width = 256; cv.height = 64;
   const g = cv.getContext("2d");
@@ -2207,7 +2215,7 @@ function label(text, sub, col) {
   // cut off behind the HUD): not shrunk with distance, ~5 % of the view's height (PLATE_H, in three's unattenuated
   // sprite units), anchored by its bottom edge (center y 0) at the point it is hung from
   const sp = new THREE.Sprite(new THREE.SpriteMaterial({ map: t, depthWrite: false, transparent: true, sizeAttenuation: false }));
-  sp.scale.set(PLATE_H * 4, PLATE_H, 1); sp.center.set(0.5, 0);
+  sp.scale.set(PLATE_H * 4, PLATE_H, 1); sp.center.set(0.5, 0); sp.userData.base = [PLATE_H * 4, PLATE_H];
   return sp;
 }
 const roleName = (r) => T("npc." + r, { elder: "Elder", trader: "Trader", smith: "Smith" }[r] || r);
@@ -2225,7 +2233,7 @@ function npcsSeen(list) {
       if (r.mark) r.mesh.remove(r.mark);
       r.mark = n.mark ? label(n.mark, null, n.mark === "?" ? "#9fe0ff" : "#ffd84a") : null;
       // (the mark rides one tag-height above the name tag, from the same point, so the two never overlap at any distance)
-      if (r.mark) { r.mark.scale.set(PLATE_H * 3.5, PLATE_H * 0.875, 1); r.mark.center.set(0.5, -1.15); r.mark.position.set(0, 2.05, 0); r.mesh.add(r.mark); }
+      if (r.mark) { r.mark.scale.set(PLATE_H * 3.5, PLATE_H * 0.875, 1); r.mark.userData.base = [PLATE_H * 3.5, PLATE_H * 0.875]; r.mark.center.set(0.5, -1.15); r.mark.position.set(0, 2.05, 0); r.mesh.add(r.mark); }
       r.markSig = n.mark;
     }
   }
@@ -2241,6 +2249,7 @@ function npcsFrame(cam, dt, now) {
     const du = P.u - r.at[1], dv = P.v - r.at[2], near = Math.hypot(du, dv) < 8, yaw = near ? Math.atan2(du, dv) : 0;
     const sy = Math.sin(yaw), cy = Math.cos(yaw);
     r.mesh.lookAt(r.mesh.position.x + sy * ofr.east[0] + cy * ofr.north[0], r.mesh.position.y + sy * ofr.east[1] + cy * ofr.north[1], r.mesh.position.z + sy * ofr.east[2] + cy * ofr.north[2]);
+    sizePlates(r.mesh);
   }
 }
 /** A block or a piece kind by the item that places it, or the item of its own name (ores, clay, flax), or its own name
@@ -5050,6 +5059,7 @@ function frame(now) {
     r.mesh.up.set(ofr.up[0], ofr.up[1], ofr.up[2]);
     const fx = Math.sin(yaw) * ofr.east[0] + Math.cos(yaw) * ofr.north[0], fy = Math.sin(yaw) * ofr.east[1] + Math.cos(yaw) * ofr.north[1], fz = Math.sin(yaw) * ofr.east[2] + Math.cos(yaw) * ofr.north[2];
     r.mesh.lookAt(r.mesh.position.x + fx, r.mesh.position.y + fy, r.mesh.position.z + fz);
+    sizePlates(r.mesh);
   }
   pt("sky", () => { sky(fr); torchTick(now, cam); cloudsFrame(cam, fr); farBuildTick(now); });
   // THE WIND (#113): by the height over the ground and the speed — a craft's airspeed when flying, else the body's

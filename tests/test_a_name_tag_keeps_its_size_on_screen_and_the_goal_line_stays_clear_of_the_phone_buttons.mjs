@@ -25,7 +25,7 @@ ok(/new THREE\.SpriteMaterial\(\{ map: t, depthWrite: false, transparent: true, 
 // height (unreadable — the first try, from a formula that was wrong), so the share is 0.243 × PLATE_H
 const share = 0.243 * Number(page.match(/const PLATE_H = ([0-9.]+);/)[1]);
 ok(share > 0.04 && share < 0.07, `…about ${(share * 100).toFixed(1)} % of the view's height — readable, never the screen`);
-ok(/r\.mark\.scale\.set\(PLATE_H \* 3\.5, PLATE_H \* 0\.875, 1\); r\.mark\.center\.set\(0\.5, -1\.15\); r\.mark\.position\.set\(0, 2\.05, 0\);/.test(page) && /plate\.position\.set\(0, 2\.05, 0\); mesh\.add\(plate\);/.test(page),
+ok(/r\.mark\.scale\.set\(PLATE_H \* 3\.5, PLATE_H \* 0\.875, 1\); r\.mark\.userData\.base = \[PLATE_H \* 3\.5, PLATE_H \* 0\.875\]; r\.mark\.center\.set\(0\.5, -1\.15\); r\.mark\.position\.set\(0, 2\.05, 0\);/.test(page) && /plate\.position\.set\(0, 2\.05, 0\); mesh\.add\(plate\);/.test(page),
   "2. a townsperson's mark hangs from the tag's own point, one tag-height above it, at every distance");
 const m = html.match(/body\.touch #goal\{max-width:max\((\d+)px,calc\(100vw - (\d+)px\)\);font-size:11px\}/);
 ok(!!m, "3. on a touch layout the goal line has its own width rule");
@@ -36,5 +36,16 @@ if (m) {
 }
 ok(/@media \(max-width:600px\)\{body\.touch #goal\{position:fixed;left:50%;transform:translateX\(-50%\);bottom:296px;/.test(html) && /#tFire\{left:18px;bottom:228px\}/.test(html),
   "4. on a portrait phone it rides above the top button row (Fire at 228 + 58 px)");
+// 5. …and shrinks with distance beyond PLATE_NEAR (a constant size overlapped Ida's and Maren's tags from 14 m: "IdaMa…")
+{
+  const a = page.indexOf("const PLATE_NEAR"), src = page.slice(a, page.indexOf("\nfunction label(", a));
+  const sizePlates = new Function(src + "\nreturn sizePlates;")();
+  const mk = (d) => { const c = { isSprite: true, userData: { base: [0.8, 0.2] }, scale: { set(x, y) { this.x = x; this.y = y; } } }; return { mesh: { position: { length: () => d }, children: [c] }, c }; };
+  const at = (d) => { const m = mk(d); sizePlates(m.mesh); return m.c.scale.y; };
+  ok(at(2) === 0.2 && at(8) === 0.2 && Math.abs(at(16) - 0.1) < 1e-9 && Math.abs(at(100) - 0.2 / 3) < 1e-9,
+    `5. full size within 8 m (${at(2)}), half at 16 m (${at(16)}), never under a third (${at(100).toFixed(3)} at 100 m)`);
+  ok((page.match(/sizePlates\(r\.mesh\);/g) || []).length === 2 && /sp\.userData\.base = \[PLATE_H \* 4, PLATE_H\];/.test(page) && /r\.mark\.userData\.base = /.test(page),
+    "…applied every frame to the townspeople's and the players' tags and marks");
+}
 console.log(fails ? `${fails} FAILED` : "all passed");
 process.exit(fails ? 1 : 0);
