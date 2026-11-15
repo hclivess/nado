@@ -8,7 +8,11 @@ checks what the pilot's page says the bolt met:
   3. refused: a target off the line ("missed"), behind the craft, past the range; a second bolt sooner than BOLT_EVERY;
      a craft with no cannon bound to a key; a craft the caller does not fly; a stranger's titled plot keeps its trees;
      the ground under a tree is no tree;
-  4. a bolt into open air is fired and strikes nothing.
+  4. a bolt into open air is fired and strikes nothing;
+  6. OTHER PLAYERS SEE IT (#171: only the pilot's page ever drew a bolt): an accepted bolt carries the line others are
+     shown — from the craft's own pose along the checked direction to the target struck, or as far as the pilot's page
+     says the ground ended it (never past the range) — and the hub sends it to every other page within NEAR of the line
+     on that face; not back to the pilot's own page, not to one far off or on another face, and a refused bolt to no one.
 Run: python3 tests/test_a_cannon_bound_to_a_key_fires_bolts_that_strike_animals_and_tear_trees.py
 """
 import os, tempfile  # ISOLATION FIRST (CLAUDE.md rule 4)
@@ -103,6 +107,9 @@ async def main():
     world.animals["deer1"] = {"id": "deer1", "kind": "deer", "face": FACE, "u": tu, "v": tv - 10, "h": th - 0.6, "yaw": 0.0, "hp": RULES_HP if (RULES_HP := S.RULES["hunting"]["species"]["deer"]["hp"]) else 3}
     res, _, err = await world.bolt(a, cid, north, {"animal": "deer1"})
     check(f"2. a bolt strikes a deer 20 m ahead on its line and kills it ({S.RULES['hunting']['weapons']['cannon']['damage']} damage against its {RULES_HP} hp)", err is None and res and res.get("killed") == "deer", (res, err))
+    ln = res and res.get("line")
+    check("6. …and carries the line others see: from the craft's pose to the deer, 20 m north", ln and ln[0] == FACE and ln[1] == [round(tu, 2), round(tv - 30, 2), round(th, 2)]
+          and abs(ln[2][1] - (tv - 10)) < 0.01 and abs(ln[2][0] - tu) < 0.01, ln)
     await asyncio.sleep(S.World.BOLT_EVERY + 0.05)
     world.animals["deer2"] = {"id": "deer2", "kind": "deer", "face": FACE, "u": tu + 12, "v": tv - 10, "h": th - 0.6, "yaw": 0.0, "hp": 3}
     res, _, err = await world.bolt(a, cid, north, {"animal": "deer2"})
@@ -141,7 +148,35 @@ async def main():
           and len(tables) == 17 and all(tables[l]["land.cKeys"] != tables["en"]["land.cKeys"] or l == "en" for l in tables))
     await asyncio.sleep(S.World.BOLT_EVERY + 0.05)
     res, _, err = await world.bolt(a, cid, north, None)
-    check("4. a bolt into open air is fired and strikes nothing", err is None and res == {"hit": None}, (res, err))
+    check("4. a bolt into open air is fired and strikes nothing", err is None and res and res["hit"] is None and set(res) == {"hit", "line"}, (res, err))
+    check("6. …its line runs the full range when the page names no length", math.isclose(res["line"][2][1] - res["line"][1][1], S.World.BOLT_RANGE + S.craft_reach(c["pieces"]), abs_tol=0.02), res["line"])
+    await asyncio.sleep(S.World.BOLT_EVERY + 0.05)
+    res, _, err = await world.bolt(a, cid, north, None, 37.5)
+    check("…and stops where the pilot's page says the ground ended it", err is None and math.isclose(res["line"][2][1] - res["line"][1][1], 37.5, abs_tol=0.02), res)
+    await asyncio.sleep(S.World.BOLT_EVERY + 0.05)
+    res, _, err = await world.bolt(a, cid, north, None, 1e9)
+    check("…but never past the range, whatever the page says", err is None and res["line"][2][1] - res["line"][1][1] <= S.World.BOLT_RANGE + S.craft_reach(c["pieces"]) + 0.02, res)
+    # the hub: who is sent the line
+    class Sock:
+        def __init__(self): self.got = []
+        async def send_json(self, m): self.got.append(m)
+    hub = S.Hub()
+    pilot, near, mid, far, other = Sock(), Sock(), Sock(), Sock(), Sock()
+    face, (u0, v0, h0), (u1, v1, h1) = res["line"]
+    hub.socks = {pilot: {"who": a, "pos": [FACE, u0, v0, h0, 0]}, near: {"who": b, "pos": [FACE, u0 + 50, v0, h0, 0]},
+                 mid: {"who": "c", "pos": [FACE, u1 + 150, (v0 + v1) / 2, h0, 0]}, far: {"who": "d", "pos": [FACE, u0 + 1000, v0, h0, 0]},
+                 other: {"who": "e", "pos": [FACE + 1, u0, v0, h0, 0]}}
+    await hub.bolt(pilot, res["line"])
+    check("6. the hub sends the line to another page 50 m from its start", near.got == [{"t": "bolt_seen", "line": res["line"]}], near.got)
+    check("…and to one 150 m beside its middle (near the line, far from both ends)", len(mid.got) == 1, mid.got)
+    check("…not back to the pilot's own page (it drew the bolt already), nor to a page 1 km off or on another face", not pilot.got and not far.got and not other.got, (pilot.got, far.got, other.got))
+    # the websocket path: a refused bolt is shown to no one, an accepted one is (the handler pops the line off the pilot's reply)
+    src = open(os.path.join(ROOT, "scripts", "land_server.py"), encoding="utf-8").read()
+    check("…the socket handler sends only an accepted bolt's line on, and keeps it out of the pilot's reply",
+          'line = res.pop("line", None) if res else None' in src and "if line:\n                        await hub.bolt(ws, line)" in src)
+    page = open(os.path.join(ROOT, "static", "land.js"), encoding="utf-8").read()
+    check("…and the page draws a bolt it is told of with the same drawBolt as its own, and says where the ground ended its own",
+          'm.t === "bolt_seen"' in page and "drawBolt(f, o, [" in page and "drawBolt(f, a, b, performance.now())" in page and "len: target ? undefined : end" in page)
     # a stranger's titled plot keeps its trees: B, in a craft with a cannon over the commons, at a tree on A's plot
     world.player(b)["items"].update({"steel_plate": 4, "thruster": 2, "pilot_seat": 1})
     added, _, refused = await world.boxes(b, PB, [[600, 600, 20000, 400, 150, 5, PLATE], [760, 640, 20005, 80, 90, 110, SEAT], [700, 500, 20000, 100, 100, 140, THR], gun], [])

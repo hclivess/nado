@@ -264,7 +264,7 @@ ok(Math.abs(fiveMin.err - 0.5 * NAV_BIAS * 300 * 300) < 1e-9 && fiveMin.err > 40
   const gun = [0, 0, 0, 40, 200, 40, 64, Sh2.code(Sh2.CANNON, 0)];
   ok(W2.isCannon(gun) && !W2.isCannon([0, 0, 0, 40, 200, 40, 64]) && /const isGadget = \(b\) => Wd\.engineCount\(b\) > 0 \|\| Wd\.isCannon\(b\);/.test(page), "a cannon part is a gadget on the page (it takes a key at the cannon)");
   ok(/cannons: cannonsOf\(c\.pieces, c\.slots\),/.test(page) && /cannonTick\(c, input\.slots \|\| heldSlots\(\)\);/.test(page) && /boltsFrame\(now, cam\);/.test(page), "boarding finds the bound cannons, the flight step fires the held keys', the frame draws the bolts");
-  ok(/net\.send\(\{ t: "bolt", craft: c\.id, dir: d, target \}\);/.test(page) && /target = \{ animal: id \}/.test(page) && /target = \{ cell: \[f, cu, cv, ch\] \}/.test(page), "a bolt names the first animal or tree cell it meets to the world server");
+  ok(/net\.send\(\{ t: "bolt", craft: c\.id, dir: d, target, len: target \? undefined : end \}\);/.test(page) && /target = \{ animal: id \}/.test(page) && /target = \{ cell: \[f, cu, cv, ch\] \}/.test(page), "a bolt names the first animal or tree cell it meets to the world server");
   ok(/gunKeys\.includes\(n\) \? " ⚡" : ""/.test(page), "the controls' key bar marks a key that fires cannons");
 }
 

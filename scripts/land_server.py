@@ -1205,9 +1205,12 @@ class World:
     # same plot rules, nothing gathered). Not built pieces, not other crafts: those wait for factions and war (#133, #136).
     BOLT_RANGE, BOLT_SLACK, BOLT_EVERY = 400.0, 3.0, 0.25
 
-    async def bolt(self, who, cid, d, target):
+    async def bolt(self, who, cid, d, target, length=None):
         """A bolt from the craft `cid` along `d` ([east, north, up] at its pose), at `target` ({"animal": id} or {"cell":
-        [face, u, v, h]}). Returns (result, applied cells by plot, error)."""
+        [face, u, v, h]}); `length` is how far the pilot's page drew one that struck nothing (the ground ends it there).
+        Returns (result, applied cells by plot, error); an accepted bolt's result carries "line": [face, from, to] — the
+        line OTHER players are shown (#171: only the pilot ever saw a bolt), drawn from the craft's own pose along the
+        checked direction to the checked target, so a page cannot make others see a shot that was not fired."""
         c = self.crafts.get(cid)
         if not c or c["pilot"] != who:
             return None, {}, "you are not flying that"
@@ -1225,31 +1228,39 @@ class World:
             return None, {}, "too fast"
         face, u0, v0, h0 = c["pose"][:4]
 
+        reach = self.BOLT_RANGE + craft_reach(c["pieces"])
+
+        def ray(s):
+            return [face, [round(u0, 2), round(v0, 2), round(h0, 2)], [round(u0 + d[0] * s, 2), round(v0 + d[1] * s, 2), round(h0 + d[2] * s, 2)]]
+
         def on_line(tu, tv, th):
             w = (tu - u0, tv - v0, th - h0)                        # east, north, up from the craft (the frame is flat over 400 m)
             along = w[0] * d[0] + w[1] * d[1] + w[2] * d[2]
             off = math.dist(w, (along * d[0], along * d[1], along * d[2]))
-            return 0 < along <= self.BOLT_RANGE + craft_reach(c["pieces"]) and off <= self.BOLT_SLACK
+            return along if 0 < along <= reach and off <= self.BOLT_SLACK else None
         t = target if isinstance(target, dict) else {}
         if "animal" in t:
             a = self.animals.get(t["animal"])
-            if not a or a["face"] != face or not on_line(a["u"], a["v"], a["h"] + 0.6):
+            s = a and a["face"] == face and on_line(a["u"], a["v"], a["h"] + 0.6)
+            if not s:
                 return None, {}, "missed"
             c["bolt_at"] = now
             pl = self.player(who)
-            return self._strike(who, pl, a, RULES["hunting"]["weapons"]["cannon"]["damage"]), {}, None
+            return dict(self._strike(who, pl, a, RULES["hunting"]["weapons"]["cannon"]["damage"]), line=ray(s)), {}, None
         if "cell" in t:
             cell = t["cell"]
-            if not (isinstance(cell, list) and len(cell) == 4 and all(isinstance(x, int) and not isinstance(x, bool) for x in cell)) or cell[0] != face \
-                    or not on_line(cell[1] + 0.5, cell[2] + 0.5, cell[3] + 0.5):
+            s = isinstance(cell, list) and len(cell) == 4 and all(isinstance(x, int) and not isinstance(x, bool) for x in cell) \
+                and cell[0] == face and on_line(cell[1] + 0.5, cell[2] + 0.5, cell[3] + 0.5)
+            if not s:
                 return None, {}, "missed"
             c["bolt_at"] = now
             applied, refused, _ = await self.apply(who, [cell + [0]], craft=cid, reach=self.BOLT_RANGE + craft_reach(c["pieces"]) + TEAR_SLACK)
             if refused:
                 return None, {}, refused[0][1]
-            return {"torn": sum(len(x) for x in applied.values())}, applied, None
+            return {"torn": sum(len(x) for x in applied.values()), "line": ray(s)}, applied, None
         c["bolt_at"] = now
-        return {"hit": None}, {}, None                            # a bolt into open air or the ground: fired, nothing struck
+        ok_len = isinstance(length, (int, float)) and not isinstance(length, bool) and math.isfinite(length)
+        return {"hit": None, "line": ray(min(max(length, 0.5), reach) if ok_len else reach)}, {}, None   # fired, nothing struck
 
     def _strike(self, who, pl, a, damage):
         """`a` takes `damage` from `who`: it turns on them or runs; at 0 hp it is gone, a hunt quest counts it, and its
@@ -3155,6 +3166,25 @@ class Hub:
         for who, dmg, by in hits or []:
             await self.hurt(world, who, dmg, by)
 
+    async def bolt(self, origin, line):
+        """An accepted bolt `line` ([face, from, to], World.bolt) to every OTHER open page that stands within NEAR of it
+        (#171: a bolt was drawn only on the pilot's page — no one else ever saw the cannon fire). The pilot's own page drew
+        it already."""
+        face, a, b = line
+        ab = [b[i] - a[i] for i in range(3)]
+        n2 = sum(x * x for x in ab) or 1.0
+        for ws, st in list(self.socks.items()):
+            p = st.get("pos")
+            if ws is origin or not p or p[0] != face:
+                continue
+            k = max(0.0, min(1.0, sum((p[1 + i] - a[i]) * ab[i] for i in range(3)) / n2))   # the nearest point of the line to them
+            if math.dist(p[1:4], [a[i] + ab[i] * k for i in range(3)]) > self.NEAR:
+                continue
+            try:
+                await ws.send_json({"t": "bolt_seen", "line": line})
+            except Exception:
+                pass
+
     async def charged(self, who, aid, kind, u, v):
         """An animal turned on `who` (#176): their pages are told which one and where it is."""
         for ws, st in list(self.socks.items()):
@@ -3828,8 +3858,11 @@ def make_app(world, hub, site_origin, wallet_url, secure_cookies=True, shot_page
                 elif t == "bolt":                                         # the energy cannon (#171)
                     if not addr:
                         continue
-                    res, applied, err = await world.bolt(addr, m.get("craft"), m.get("dir"), m.get("target"))
+                    res, applied, err = await world.bolt(addr, m.get("craft"), m.get("dir"), m.get("target"), m.get("len"))
+                    line = res.pop("line", None) if res else None
                     await ws.send_json(dict(res or {}, t="bolt_ok", error=err))
+                    if line:
+                        await hub.bolt(ws, line)                          # every other page near it sees the shot (#171)
                     if applied:
                         await hub.edits(applied, addr)
                     if res and res.get("killed"):

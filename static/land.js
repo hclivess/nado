@@ -1841,6 +1841,12 @@ function connect() {
       save(); updateChunks();
       if (m.why === "tp") conLine(m.to === "bed" ? T("tpBed", "At your bed.") : T("tpSpawn", "At the landing."));
       else notify(T("tpPace", "Faster than anyone can go — back where the world last saw you."), 4000);
+    } else if (m.t === "bolt_seen") {
+      const [f, a, b] = m.line || [];
+      if (f === P.face && Array.isArray(a) && Array.isArray(b)) {
+        drawBolt(f, a, b, performance.now());
+        sound.cue("bolt", 0.8 * Math.max(0.15, 1 - Math.hypot(a[0] - P.u, a[1] - P.v, a[2] - P.h) / 192), 80);   // fainter farther off
+      }
     } else if (m.t === "bolt_ok") {
       if (!m.error && (m.hit || m.killed)) huntSaid(m);              // a bolt that struck an animal says so as an arrow does
     } else if (m.t === "shoot" || m.t === "pickup") {
@@ -2479,15 +2485,19 @@ function cannonTick(c, held) {
       if (Wd.isTree(b) && !edits.has(key(f, cu, cv, ch)) && mayBuild(Wd.plotOf(f, cu, cv))) { target = { cell: [f, cu, cv, ch] }; end = s; break; }
       if (solidAt(f, p[0], p[1], p[2])) { end = s; break; }   // the ground, a built piece: the bolt ends there
     }
-    const pts = [o, [o[0] + d[0] * end, o[1] + d[1] * end, o[2] + d[2] * end]].map(([pu, pv, ph]) => Wd.posOf(f, pu, pv, ph));
-    if (!boltMat) boltMat = new THREE.LineBasicMaterial({ color: 0x9ff3ff, transparent: true, depthWrite: false });
-    const line = new THREE.Line(new THREE.BufferGeometry(), boltMat.clone());
-    line.userData.pts = pts; line.frustumCulled = false; scene.add(line);
-    bolts.push({ line, t0: now });
+    drawBolt(f, o, [o[0] + d[0] * end, o[1] + d[1] * end, o[2] + d[2] * end], now);
     sound.cue("bolt", 0.8, 80);
     if (target && target.cell) { const [tf, tu, tv, th] = target.cell; putCell(tf, tu, tv, th, B.air); }   // torn at once, as by the body
-    net.send({ t: "bolt", craft: c.id, dir: d, target });
+    net.send({ t: "bolt", craft: c.id, dir: d, target, len: target ? undefined : end });   // len: where the ground ended it, for the others
   }
+}
+/** A bolt drawn from `a` to `b` ([u, v, h] on face `f`) — the pilot's own, and every one the world server says another
+ *  pilot fired near here ("bolt_seen", Hub.bolt): #171, no one but the pilot ever saw the cannon fire. */
+function drawBolt(f, a, b, now) {
+  if (!boltMat) boltMat = new THREE.LineBasicMaterial({ color: 0x9ff3ff, transparent: true, depthWrite: false });
+  const line = new THREE.Line(new THREE.BufferGeometry(), boltMat.clone());
+  line.userData.pts = [a, b].map(([pu, pv, ph]) => Wd.posOf(f, pu, pv, ph)); line.frustumCulled = false; scene.add(line);
+  bolts.push({ line, t0: now });
 }
 function boltsFrame(now, cam) {
   for (let i = bolts.length - 1; i >= 0; i--) {
