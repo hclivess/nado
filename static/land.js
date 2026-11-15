@@ -2030,7 +2030,29 @@ function animalMesh(kind, angry) {
     put(new THREE.CylinderGeometry(L.girth * 0.16, L.girth * 0.12, L.high, 8), kind === "boar" ? 0x3a2d25 : L.body, 0, -L.high / 2, 0, hip);   // hip to hoof
     legs.push(hip);
   }
+  bakeColoured(g);
   return { g, legs };
+}
+/** ONE DRAW FOR WHAT DOES NOT MOVE (#139, /draws on a desktop at the landing: 164 draws of animals, a dozen and more
+ *  meshes each): the meshes hung straight on `g` — an animal's body, belly, head, neck, eyes, ears, tusks, tail — are
+ *  baked, each with its own place, turn and scale, into one geometry with each one's colour on its vertices, in one
+ *  material every animal shares. What moves on its own (a leg on its hip) is not a child of `g` and stays as it is. */
+let colouredMaterial = null;
+function bakeColoured(g) {
+  const list = g.children.filter((m) => m.isMesh && m.material && m.material.color && !m.material.map);
+  if (list.length < 2) return;
+  const parts = list.map((m) => { m.updateMatrix(); const q = m.geometry.index ? m.geometry.toNonIndexed() : m.geometry.clone(); q.applyMatrix4(m.matrix); return [q, m.material.color]; });
+  const n = parts.reduce((t, [q]) => t + q.attributes.position.count, 0), pos = new Float32Array(n * 3), nor = new Float32Array(n * 3), col = new Float32Array(n * 3);
+  let at = 0;
+  for (const [q, c] of parts) {
+    pos.set(q.attributes.position.array, at * 3); nor.set(q.attributes.normal.array, at * 3);
+    for (let i = 0; i < q.attributes.position.count; i++) { col[(at + i) * 3] = c.r; col[(at + i) * 3 + 1] = c.g; col[(at + i) * 3 + 2] = c.b; }
+    at += q.attributes.position.count; q.dispose();
+  }
+  const geo = new THREE.BufferGeometry();
+  geo.setAttribute("position", new THREE.BufferAttribute(pos, 3)); geo.setAttribute("normal", new THREE.BufferAttribute(nor, 3)); geo.setAttribute("color", new THREE.BufferAttribute(col, 3));
+  for (const m of list) { g.remove(m); m.geometry.dispose(); m.material.dispose(); }
+  g.add(new THREE.Mesh(geo, colouredMaterial ||= new THREE.MeshLambertMaterial({ vertexColors: true })));
 }
 function animalsSeen(list) {
   const seen = new Set();
