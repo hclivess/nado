@@ -259,6 +259,12 @@ function boxAt(f, u, v, h) {
 function setPlotBoxes(plot, list) {
   const old = plotBoxes.get(plot);
   plotBoxes.set(plot, { list, idx: indexBoxes(list), gadgets: old && old.gadgets || {} }); topSeq++;   // (the gadgets' keys stay)
+  // a ?plot= link stood the player half a metre inside this plot before its pieces were known (linkPlace): standing in
+  // one of them now, they step out over the south edge, onto the ground (its edits are applied just before this)
+  if (linkArrive === plot) {
+    linkArrive = null;
+    if (collides(P.u, P.v, P.h)) { P.v = Wd.plotCoords(plot).v0 - 1.5; P.h = groundAt(P.face, P.u, P.v); save(); }
+  }
   const ys = [...list, ...(old ? old.list : [])];
   const ab = ys.map((b) => Wd.boxAabb(b));                    // a turned piece reaches higher and lower than its box (#169)
   if (ys.length) remeshPlotRange(plot, Math.min(...ab.map((b) => b[2])), Math.max(...ab.map((b) => b[2] + b[5])));
@@ -1051,13 +1057,14 @@ function takePlace(p) {
 }
 /** A LINK TO A PLOT (?plot=N, the address every plot's title carries — nft.js "Walk it in Land"): where it puts the player,
  *  [face, u, v, yaw], or null. The market's link opened the landing instead (playtest 2026-11-16: a fresh browser asked
- *  for 0·4999·3438 stood at 0·5000·3440) — the page read no ?plot= at all. Just off the plot's south edge, looking north
- *  across it: the whole plot in view, and never inside a house of it before its pieces arrive. */
+ *  for 0·4999·3438 stood at 0·5000·3440) — the page read no ?plot= at all. Half a metre inside the plot's south edge,
+ *  looking north across it, so the HUD names the plot asked for (1.5 m off the edge it named the neighbour, 0·4998·3438);
+ *  if the plot's pieces, once they arrive, stand there, the player steps out over the edge (linkArrive, setPlotBoxes). */
 function linkPlace(search) {
   const s = new URLSearchParams(search).get("plot");
   if (!s || !/^\d{1,10}$/.test(s) || Number(s) >= Wd.PLOT_MAX) return null;
   const q = Wd.plotCoords(Number(s));
-  return [q.face, q.u0 + Wd.PLOT / 2, q.v0 - 1.5, 0];
+  return [q.face, q.u0 + Wd.PLOT / 2, q.v0 + 0.5, 0, Number(s)];
 }
 function townSpawn() {
   const q = Wd.plotCoords(TOWN_HALL_PLOT);
@@ -1080,6 +1087,7 @@ function load() {
   const link = linkPlace(location.search);
   if (link) {                                            // a link wins over a saved place and the server's kept one
     [P.face, P.u, P.v, P.yaw] = link; P.h = groundAt(P.face, P.u, P.v); P.pitch = -0.2;
+    linkArrive = link[4];                                // checked against the plot's pieces when they arrive
     localPlace = Infinity;                               // (the greeting takes the server's place only when it is newer)
     try { history.replaceState(null, "", location.pathname + location.hash); } catch (e) {}   // a reload stays where they walked
     return;
@@ -1106,7 +1114,7 @@ function load() {
 const chunkLod = (dist) => (PHONE ? (dist <= 1 ? 1 : 2) : SET.view <= 3 ? (dist <= 2 ? 1 : 2) : dist <= 2 ? 0 : dist <= 3 ? 1 : 2);
 // ---- chunks: a pool of mesher workers ---------------------------------------------------------------------------
 const chunks = new Map();                      // "face:cu:cv:ch" -> { meshes: [], anchor, busy, dirty }
-let pendingPlace = null, localPlace = 0;                       // a saved place underground, until its plot's edits arrive (load)
+let pendingPlace = null, localPlace = 0, linkArrive = null;   // linkArrive: the plot a ?plot= link stood the player in (load)                       // a saved place underground, until its plot's edits arrive (load)
 const workers = [], queue = [], inflight = new Map();
 let reqId = 0;
 function startWorkers() {
