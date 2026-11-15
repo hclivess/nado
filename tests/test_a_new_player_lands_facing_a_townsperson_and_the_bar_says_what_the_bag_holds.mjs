@@ -54,13 +54,27 @@ ok(["cs", "pl", "ru"].every((l) => ["one", "few", "many", "other"].every((f) => 
 
 // 4. the first objective and the NADO sentence
 const gl = land.slice(land.indexOf("function goalLine()"), land.indexOf("function hotbar()"));
-ok(gl.length > 100 && /if \(!net\.me\) text = T\("signInBuild2"/.test(gl) && /q\.ready \? T\("goalReady", "[^"]*\{q\}[^"]*", \{ q: questText\(q\) \}\) : T\("goalQuest", "[^"]*\{q\}[^"]*", \{ q: questText\(q\) \}\)/.test(gl)
+ok(gl.length > 100 && /if \(!net\.me\) text = T\("signInBuild2"/.test(gl) && /q\.ready \? T\("goalReadyAt", "[^"]*\{who\}[^"]*\{q\}[^"]*", \{ who: questEnd\(q\), q: questText\(q\) \}\) : T\("goalQuest", "[^"]*\{q\}[^"]*", \{ q: questText\(q\) \}\)/.test(gl)
    && /n\.role === "elder"/.test(gl) && /T\("goalTalk", "[^"]*\{who\}[^"]*", \{ who:/.test(gl) && /^function hotbar\(\) \{\n  goalLine\(\);/m.test(land),
    "goalLine says sign in / talk to the elder / the work / hand it in, and runs with every hotbar refresh");
 ok(/id="goal"/.test(readFileSync(join(ROOT, "static", "land.html"), "utf8")), "the page has the goal line over the bar");
 ok(/t\.sale\) html = `[^`]*T\("nadoHow", "[^"]*dex\.nadochain\.com[^"]*"\)/.test(land), "the for-sale plot card says how NADO is come by");
-const need = { "land.goalTalk": "{who}", "land.goalQuest": "{q}", "land.goalReady": "{q}", "land.nadoHow": "dex.nadochain.com" };
-ok(Object.entries(need).every(([k, ph]) => langs.every((l) => typeof I[l][k] === "string" && I[l][k].includes(ph))), "goalTalk/goalQuest/goalReady/nadoHow are in all 17 languages with their placeholders");
+const need = { "land.goalTalk": "{who}", "land.goalQuest": "{q}", "land.goalReadyAt": "{who}", "land.qReadyAt": "{who}", "land.nadoHow": "dex.nadochain.com" };
+// A QUEST IS HANDED IN WHERE IT ENDS (playtest 2026-11-15: a parcel for Ida read "Done — hand it in … (Q at the one who
+// gave it)", sending the player back to Maren): the goal line and the quest log name the addressee for a delivery
+// (q.to), the giver otherwise — as the world server's turn-in checks (q.get("to") or q["giver"])
+{
+  const qe = land.slice(land.indexOf("function questEnd(q)"), land.indexOf("function goalLine()"));
+  ok(/\.find\(\(x\) => x\.id === \(q\.to \|\| q\.giver\)\)/.test(qe) && /T\("qReadyAt", "Done — hand it in to \{who\}", \{ who: questEnd\(q\) \}\)/.test(land)
+     && /\(q\.get\("to"\) or q\["giver"\]\) != nid/.test(readFileSync(join(ROOT, "scripts", "land_server.py"), "utf8")),
+     "a ready quest names who takes it — the addressee for a delivery, else the giver — in the goal line and the quest log, as the world server ends it");
+  const RQ = R.quests.npcs;
+  const qeFn = new Function("RULES", "roleName", qe + "\nreturn questEnd;")({ quests: { npcs: RQ } }, (r) => r);
+  const ida = RQ.find((n) => /Ida/.test(n.name)), maren = RQ.find((n) => /Maren/.test(n.name));
+  ok(qeFn({ kind: "deliver", giver: maren.id, to: ida.id }).startsWith("Ida") && qeFn({ kind: "bring", giver: maren.id }).startsWith("Maren"),
+     `…a parcel from Maren for Ida is handed to ${qeFn({ kind: "deliver", giver: maren.id, to: ida.id })}; Maren's own errand to ${qeFn({ kind: "bring", giver: maren.id })}`);
+}
+ok(Object.entries(need).every(([k, ph]) => langs.every((l) => typeof I[l][k] === "string" && I[l][k].includes(ph))), "goalTalk/goalQuest/goalReadyAt/qReadyAt/nadoHow are in all 17 languages with their placeholders");
 
 // 5. the town with the first frame
 const st = land.slice(land.indexOf("async function start()"), land.indexOf("async function start()") + 1500);

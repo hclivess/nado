@@ -2819,6 +2819,11 @@ function tileIcon(cv, id, px) {
 // THE FIRST OBJECTIVE (#178): one line over the bar that says the next thing to do, instead of the welcome card's wall
 // of keys — sign in; then talk to the elder (there is work); then the work itself, and that it is done. Refreshed with
 // the bar: every inventory message and sign-in change comes through hotbar().
+/** Who a quest is handed in to: its addressee for a delivery (q.to), else whoever gave it — as the world server ends it. */
+function questEnd(q) {
+  const n = (RULES.quests && RULES.quests.npcs || []).find((x) => x.id === (q.to || q.giver));
+  return n ? `${n.name} (${roleName(n.role)})` : "";
+}
 function goalLine() {
   const g = $("goal");
   if (!g || !RULES) return;
@@ -2826,7 +2831,9 @@ function goalLine() {
   if (!net.me) text = T("signInBuild2", "Sign in to gather and build.");
   else if ((inv.quests || []).length) {
     const q = inv.quests[0];
-    text = q.ready ? T("goalReady", "Done — hand it in: {q} (Q at the one who gave it)", { q: questText(q) }) : T("goalQuest", "Your work: {q}", { q: questText(q) });
+    // HANDED IN WHERE IT ENDS (playtest 2026-11-15: a parcel for Ida said "Done — hand it in … (Q at the one who gave
+    // it)" the moment it was taken, sending the player back to Maren; the server ends a delivery at its addressee, q.to)
+    text = q.ready ? T("goalReadyAt", "Done — hand it in to {who}: {q} (walk up and press Q)", { who: questEnd(q), q: questText(q) }) : T("goalQuest", "Your work: {q}", { q: questText(q) });
   } else {
     const elder = (RULES.quests && RULES.quests.npcs || []).find((n) => n.role === "elder");
     if (elder) text = T("goalTalk", "First: talk to {who} — walk up and press Q. There is work.", { who: `${elder.name} (${roleName(elder.role)})` });
@@ -2975,7 +2982,7 @@ function renderBag() {
       `<button class="chip pl" data-eat="${id}">${esc(T("eatIt", "Eat {i}", { i: nameOf(id) }))}</button>`).join("")}</div>` : ""}
     ${performance.now() < fedUntil ? `<div class="dim">${esc(T("fedFor", "Well fed: work goes quicker for {m} more min.", { m: Math.ceil((fedUntil - performance.now()) / 60000) }))}</div>` : ""}
     <div class="dim">${esc(T("bagHint", "Click a block to put it on your hotbar. Tools work as soon as you have them."))}</div>
-    ${(inv.quests || []).length ? `<h3>${esc(T("qLog", "Quests"))}</h3>` + inv.quests.map((q) => `<div class="rcp"><div>${esc(questText(q))}<div class="dim">${esc(q.ready ? T("qReady", "Done — hand it in") : T("qFrom", "for {who}", { who: (RULES.quests.npcs.find((n) => n.id === (q.to || q.giver)) || {}).name || "" }))}</div></div>
+    ${(inv.quests || []).length ? `<h3>${esc(T("qLog", "Quests"))}</h3>` + inv.quests.map((q) => `<div class="rcp"><div>${esc(questText(q))}<div class="dim">${esc(q.ready ? T("qReadyAt", "Done — hand it in to {who}", { who: questEnd(q) }) : T("qFrom", "for {who}", { who: (RULES.quests.npcs.find((n) => n.id === (q.to || q.giver)) || {}).name || "" }))}</div></div>
       <button class="ghost" data-qdrop="${q.id}">${esc(T("qDrop", "Drop"))}</button></div>`).join("") : ""}
     </section>${sec("build")}
     <h3>${esc(T("pieceSize", "Piece size"))}</h3>
