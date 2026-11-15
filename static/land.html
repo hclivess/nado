@@ -100,6 +100,12 @@
   #conIn{display:none;width:100%;margin-top:6px;font:500 14px var(--mono);color:var(--txt);background:rgba(11,15,20,.92);border:1px solid var(--border);border-radius:8px;padding:8px 10px;pointer-events:auto}
   #console.open #conIn{display:block}#console.open #conLog{pointer-events:auto}
   body.touch #console{bottom:150px}
+  /* a phone, typing: at the TOP, the input first and the newest line under it (playtest 2026-11-15: open at the bottom it
+     lay across the Chat, Run and Turn buttons — Chat, which closes it, half under the box — and a phone's own keyboard
+     covers the bottom half while one types) */
+  body.touch #console.open{top:52px;bottom:auto;display:flex;flex-direction:column-reverse}
+  body.touch #console.open #conLog.show{flex-direction:column-reverse}
+  body.touch #console.open #conIn{margin:0 0 6px}
   #help{position:fixed;inset:0;display:grid;place-items:center;z-index:6;pointer-events:none}
   body.shot > :not(#world){display:none!important}   /* PHOTO MODE (?shot=): the world, nothing of the page */
   #help .card{pointer-events:auto;max-width:420px;margin:16px;background:rgba(19,26,35,.94);border:1px solid var(--border);border-radius:14px;padding:18px 20px;font-size:13.5px;line-height:1.6}

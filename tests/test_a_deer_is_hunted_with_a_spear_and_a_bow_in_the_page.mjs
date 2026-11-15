@@ -141,7 +141,9 @@ try {
   const B = await tab();
   await send(B, "Network.setCookie", { name: "land_session", value: token, url: base + "/", httpOnly: true });
   const alert = () => evl(B, "(document.getElementById('alertBar') || {}).textContent || ''");
-  const bag = () => evl(B, "document.getElementById('tPal').click(), new Promise((r) => setTimeout(() => { const t = document.getElementById('palGrid').textContent; document.getElementById('palClose').click(); r(t); }, 700))");
+  const bag = () => evl(B, "document.getElementById('tPal').click(), new Promise((r) => setTimeout(() => { const t = [...document.querySelectorAll('#palGrid [data-pick]')].map((e) => e.textContent).join(' | '); document.getElementById('palClose').click(); r(t); }, 700))");
+  // (the bag's ITEM CHIPS, not the panel's whole text: recipe lines read "1 × Hide", "1 × Raw meat" as the bag does,
+  // 2026-11-15, and a count matched a recipe before the bag)
   const count = (t, name) => Number((t.match(new RegExp("(\\d+) × " + name)) || [0, 0])[1]);
   // every notice the page shows, as it shows it: a notice fades after 4.5 s, and on a headless page drawing under a frame
   // a second the polls between can miss one entirely (the knife-and-arrows walk, 2026-11-10)

@@ -154,11 +154,11 @@ try {
   await evl(B, `(() => { const s = (id, v) => { const e = document.getElementById(id); e.value = v; e.dispatchEvent(new Event("change")); };
     s("ofG", "planks"); s("ofGN", "4"); s("ofW", "sand"); s("ofWN", "6"); document.getElementById("ofPost").click(); return true; })()`);
   ok(await until(B, "/Your offer/.test(document.getElementById('palGrid').textContent)", 10000), "an offer posted there shows as the player's own");
-  ok(await until(B, "/\\b6 × Planks/.test(document.getElementById('palGrid').textContent)", 8000), "…its planks held in escrow (6 of 10 left)");
+  ok(await until(B, "[...document.querySelectorAll('#palGrid [data-pick]')].some((e) => e.textContent.trim() === '6 × Planks')", 8000), "…its planks held in escrow (6 of 10 left)");   // (the bag's item chip: a recipe line reads \"6 × Planks\" too, 2026-11-15)
 
   // 3. withdraw; a gift to someone far away
   await evl(B, "(() => { const b = document.querySelector('[data-cancel]'); b && b.click(); return !!b; })()");
-  ok(await until(B, "/\\b10 × Planks/.test(document.getElementById('palGrid').textContent) && !/Your offer/.test(document.getElementById('palGrid').textContent)", 10000), "Withdraw gives the planks back");
+  ok(await until(B, "[...document.querySelectorAll('#palGrid [data-pick]')].some((e) => e.textContent.trim() === '10 × Planks') && !/Your offer/.test(document.getElementById('palGrid').textContent)", 10000), "Withdraw gives the planks back");
   await evl(B, `(() => { document.getElementById("gvTo").value = ${JSON.stringify(other)}; document.getElementById("gvGo").click(); return true; })()`);
   ok(await until(B, "/A gift is handed over in person/.test((document.getElementById('alertBar') || {}).textContent || '')", 6000), "a gift to someone not beside the player is turned away, in the player's language");
   await closeBag();

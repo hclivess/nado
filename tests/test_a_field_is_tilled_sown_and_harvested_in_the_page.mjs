@@ -166,7 +166,10 @@ try {
     return said;
   };
   const alert = () => evl(B, "(document.getElementById('alertBar') || {}).textContent || ''");
-  const bag = () => evl(B, "document.getElementById('tPal').click(), new Promise((r) => setTimeout(() => { const t = document.getElementById('palGrid').textContent; document.getElementById('palClose').click(); r(t); }, 700))");
+  // what the bag HOLDS: its item chips only — the panel's whole text has the recipes too, and since recipe lines read
+  // "n × name" as the bag does (2026-11-15) "(\d+) × Grain" matched flour's "3 × Grain" before any grain was held, and
+  // "× Water" bread's: the harvest read 3 → 3 and the well 1 → 2 while the game gave 3 grain and 2 bucketfuls
+  const bag = () => evl(B, "document.getElementById('tPal').click(), new Promise((r) => setTimeout(() => { const t = [...document.querySelectorAll('#palGrid [data-pick]')].map((e) => e.textContent).join(' | '); document.getElementById('palClose').click(); r(t); }, 700))");
 
   // 1. TILL: Use on the turf with a hoe
   await stand(B, F.u + 2.5, F.v + 0.5, F.top + 1, -Math.PI / 2, -Math.atan2(EYE + 0.2, 2));

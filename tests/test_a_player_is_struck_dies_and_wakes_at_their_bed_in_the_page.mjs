@@ -223,7 +223,7 @@ try {
   ok(await evl(B, "document.getElementById('deathCard').classList.contains('hidden')"), `…the card gone (${died} death message${died === 1 ? "" : "s"} heard)`);
   ok(await until(B, `/ ${MAX}\\/${MAX}\\b/.test(document.getElementById('hudHp').textContent)`, 8000), "…with full hearts");
   await evl(B, "document.getElementById('tPal').click(), true"); await sleep(900);
-  ok(/7 × Planks/.test(await evl(B, "document.getElementById('palGrid').textContent")), "…and their bag kept");
+  ok(/(^| \| )7 × Planks( \||$)/.test(await evl(B, "[...document.querySelectorAll('#palGrid [data-pick]')].map((e) => e.textContent).join(' | ')")), "…and their bag kept");   // (its item chips: a recipe line reads "n × Planks" too)
   await evl(B, "document.getElementById('palClose').click(), true");
   ok(errors.length === 0, "no page errors" + (errors.length ? ": " + errors.join(" | ") : ""));
 } catch (e) {
