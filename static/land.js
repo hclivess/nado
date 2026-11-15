@@ -790,7 +790,7 @@ function craftSeat(plot, b) {
 }
 /** Use on a pilot seat, or near your own parked craft: take the controls. */
 function board(target) {
-  if (!net.online || !net.me) return notify(T("signInFirst", "Sign in first."));
+  if (!net.online || !net.me) return signInNotice(T("signInFirst", "Sign in first."));
   net.send(Object.assign({ t: "board", req: ++net.req }, target));
 }
 function nearMyCraft() {
@@ -1014,7 +1014,7 @@ function explainNoBuild(plot) {
     builderCheck(plot);
     return notify(T("checkingBuild", "Checking whether you may build on plot {p} — try again in a moment.", { p: plotLabel(plot) })), false;
   }
-  if (!net.me) notify(T("signInBuild2", "Sign in to gather and build."));
+  if (!net.me) signInNotice(T("signInBuild2", "Sign in to gather and build."));
   else if (t && t.sale) notify(T("notYoursSale", "Plot {p} is for sale · {n} NADO — buy it on the market to gather and build here.", { p: plotLabel(plot), n: rawToNado(t.sale.price.toString()) }));
   else if (t && t.holder) notify(T("notYoursOwned", "Plot {p} is owned by {o} — ask them to invite you to build here.", { p: plotLabel(plot), o: disp(t.holder) }));
   else notify(T("notYours", "Plot {p} belongs to someone else. Buy a plot, or ask its owner to invite you.", { p: plotLabel(plot) }));
@@ -2425,7 +2425,7 @@ function craftPieceAimed() {
 function bindAimed(n) {
   const g = gadgetAimed();
   if (!g) return false;
-  if (!net.online || !net.me) { notify(T("signInFirst", "Sign in first.")); return true; }
+  if (!net.online || !net.me) { signInNotice(T("signInFirst", "Sign in first.")); return true; }
   if (n && g.slot === n) n = 0;                                            // its own key again: the key is taken away
   net.send(g.craft !== undefined ? { t: "bind", craft: g.craft, i: g.i, slot: n, req: ++net.req } : { t: "bind", plot: g.plot, box: g.box, slot: n, req: ++net.req });
   return true;
@@ -2458,8 +2458,15 @@ function npcAimed() {
   return best && best.id;
 }
 let talkingTo = null;
+/** A notice that the player must sign in, with the button that does it (playtest 2026-11-15, a visitor on a phone: Use
+ *  on a townsperson said "Sign in first." and nothing more — the only way in was the HUD's link); offline, the words
+ *  alone (the link would lead nowhere). The same link and words as the HUD's sign-in. */
+function signInNotice(msg) {
+  if (!net.online) return notify(msg);
+  return alertBar(msg, T("signInBuild", "Sign in to build"), () => location.assign("/land/api/login"), { tone: "info" });
+}
 function openNpc(id) {
-  if (!net.online || !net.me) return notify(T("signInFirst", "Sign in first."));
+  if (!net.online || !net.me) return signInNotice(T("signInFirst", "Sign in first."));
   talkingTo = id;
   const r = npcs.get(id);
   $("npcTitle").textContent = r ? `${r.name} · ${roleName(r.role)}` : id;
@@ -3158,7 +3165,10 @@ const BAG_TABS = ["have", "build", "make", "trade"];
 let bagTab = (() => { try { const t = localStorage.getItem("nado_land_bagtab"); return BAG_TABS.includes(t) ? t : "have"; } catch (e) { return "have"; } })();
 function renderBag() {
   if (!RULES) return;
-  if (!net.me) { $("palGrid").innerHTML = `<p class="dim">${esc(T("bagSignIn", "Sign in to gather, make things and trade."))}</p>`; return; }
+  // signed out, the way in is HERE (playtest 2026-11-15, a visitor on a phone: the Bag said "Sign in to gather…" with
+  // nothing to tap — the only link was the HUD's, behind the panel); the same link as the HUD's, the same words
+  if (!net.me) { $("palGrid").innerHTML = `<p class="dim">${esc(T("bagSignIn", "Sign in to gather, make things and trade."))}</p>`
+    + (net.online ? `<p><a class="btn" href="/land/api/login">${esc(T("signInBuild", "Sign in to build"))}</a></p>` : ""); return; }
   const items = Object.entries(inv.items).filter(([, n]) => n > 0);
   const atStand = !!standNear(RULES.market ? RULES.market.at : 6);   // MARKETS (#161): trade is done at a trading stand
   // (a quest's parcel is carried, not traded)
@@ -3359,7 +3369,7 @@ function startBreak(c, mouse) {
 // ---- FIRE (#124): X with a fire-making tool lights the air cell in front of what you aim at, if something beside it
 // burns; the world server decides and runs the fire (it spreads only where you may build, and burns what it reaches)
 function ignite() {
-  if (!net.online || !net.me) return notify(T("signInFirst", "Sign in first."));
+  if (!net.online || !net.me) return signInNotice(T("signInFirst", "Sign in first."));
   if (!hasClass("fire")) return notify(T("noFireTool", "You need something to make fire with — a bow drill (sticks and cordage) or flint and steel."));
   const a = aim();
   if (!a) return notify(T("igniteAim", "Aim at something that burns: grass, wood, leaves, thatch, planks."));
@@ -3414,25 +3424,25 @@ function useDoor() {
   if (!(a && a.box && ([B.door, B.chest, B.generator, B.well, B.bed, B.launchpad].includes(a.box.b[6]) || isMachine(a.box.b[6])))) { const mine = nearMyCraft(); if (mine) return board({ craft: mine }); }
   if (a && a.box && a.box.b[6] === B.chest) return openChest(a.box);           // Q uses what you aim at: a door or a chest
   if (a && a.box && a.box.b[6] === B.bed) {                                    // a bed: wake here after a death (#162)
-    if (!net.online || !net.me) return notify(T("signInFirst", "Sign in first."));
+    if (!net.online || !net.me) return signInNotice(T("signInFirst", "Sign in first."));
     return net.send({ t: "bed", plot: a.box.plot, box: a.box.b, req: ++net.req });
   }
   if (a && a.box && a.box.b[6] === B.well) {                                   // a well: a bucketful, if you have a bucket (#155)
-    if (!net.online || !net.me) return notify(T("signInFirst", "Sign in first."));
+    if (!net.online || !net.me) return signInNotice(T("signInFirst", "Sign in first."));
     if (!hasClass("bucket")) return notify(T("wellBucket", "A well is drawn with a bucket — make one at a workbench."));
     return net.send({ t: "well", plot: a.box.plot, box: a.box.b, req: ++net.req });
   }
   if (a && a.box && (a.box.b[6] === B.generator || isMachine(a.box.b[6]))) return openMachine(a.box);   // a machine
   if (a && a.box && a.box.b[6] === B.launchpad) return openPad(a.box);                                    // a launch pad (#173)
   if (!a || !a.box || a.box.b[6] !== B.door) return notify(T("noUse", "Aim at a door or a chest to use it."));
-  if (!net.online || !net.me) return notify(T("signInFirst", "Sign in first."));
+  if (!net.online || !net.me) return signInNotice(T("signInFirst", "Sign in first."));
   net.send({ t: "door", plot: a.box.plot, box: a.box.b, req: ++net.req });
 }
 // ---- a machine (#148): Use on a smelter or an assembler shows what it makes and why it waits, and the recipes it can
 // run — choosing one sets it going (scripts/land_server.py set_machine / factory_tick); on a generator, its power left
 let machine = null;                              // { plot, box } of the machine panel open
 function openMachine(bx) {
-  if (!net.online || !net.me) return notify(T("signInFirst", "Sign in first."));
+  if (!net.online || !net.me) return signInNotice(T("signInFirst", "Sign in first."));
   machine = { plot: bx.plot, box: bx.b };
   net.send({ t: "machine", plot: bx.plot, box: bx.b, req: ++net.req });
   if (document.pointerLockElement) document.exitPointerLock();
@@ -3456,7 +3466,7 @@ function machineStatus(st) {
 // the launch. Launched without the Δv for orbit, it is spent: the panel says so first and asks.
 let pad = null;
 function openPad(bx) {
-  if (!net.online || !net.me) return notify(T("signInFirst", "Sign in first."));
+  if (!net.online || !net.me) return signInNotice(T("signInFirst", "Sign in first."));
   pad = { plot: bx.plot, box: bx.b };
   if (document.pointerLockElement) document.exitPointerLock();
   $("padGrid").textContent = "…";
@@ -3513,7 +3523,7 @@ function renderMachine(m) {
 // ---- a chest (#114): items kept on its plot by the world server; open it with Q, click an item to move one (Shift: all)
 let chest = null;                                // { plot, box, items } of the open chest
 function openChest(bx) {
-  if (!net.online || !net.me) return notify(T("signInFirst", "Sign in first."));
+  if (!net.online || !net.me) return signInNotice(T("signInFirst", "Sign in first."));
   chest = { plot: bx.plot, box: bx.b, items: null };
   chestSend({}, {});
   if (document.pointerLockElement) document.exitPointerLock();
@@ -3540,7 +3550,7 @@ function renderChest() {
 function wardrobe(open) {
   showPanel("wardPanel", open);
   if (!open) return;
-  if (!net.online || !net.me) { showPanel("wardPanel", false); return notify(T("signInFirst", "Sign in first.")); }
+  if (!net.online || !net.me) { showPanel("wardPanel", false); return signInNotice(T("signInFirst", "Sign in first.")); }
   if (document.pointerLockElement) document.exitPointerLock();
   renderWard();
 }
@@ -3624,7 +3634,7 @@ const LEVEL_R = 2, LEVEL_DEPTH = 3;
 let level = null;                                          // { cols: [{ plot, ops }], at }
 const levelWorld = { block: (u, v, h) => blockAt(P.face, u, v, h), edited: (u, v, h) => edits.has(key(P.face, u, v, h)), top: (u, v) => colAt(P.face, u, v).top };
 function startLevel() {
-  if (!net.me) return notify(T("signInBuild2", "Sign in to gather and build."));
+  if (!net.me) return signInNotice(T("signInBuild2", "Sign in to gather and build."));
   if (!hasClass("shovel")) return notify(T("levelNeedsShovel", "Flattening needs a shovel."));
   const a = aim();
   if (!a || !a.hit || a.box) return notify(T("levelAim", "Aim at the ground to flatten it."));
@@ -3699,7 +3709,7 @@ function partHint(s) {
 function act(place, mouse) {
   // signed out, a tap says so whatever it points at: it used to say nothing when the view held no target (sky, a gap in
   // a crown) — a visitor tapping in a forest got silence (the live two-player walk, 2026-11-07)
-  if (!net.me) return notify(T("signInBuild2", "Sign in to gather and build."));
+  if (!net.me) return signInNotice(T("signInBuild2", "Sign in to gather and build."));
   { const n = npcAimed(); if (n) return openNpc(n); }                           // a click on a person talks, as Q does (#177)
   if (!place) { const an = animalAimed(RULES && RULES.hunting ? RULES.hunting.weapons.bow.reach : 30); if (an && huntAt(an)) return; }   // game first (#156)
   const a = aim();

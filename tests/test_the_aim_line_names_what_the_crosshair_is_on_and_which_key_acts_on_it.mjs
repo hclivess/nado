@@ -51,7 +51,7 @@ ok(/for \(const up of \[0\.3, 0\.9, 1\.5\]\) \{/.test(na) && /feet \+ up\]/.test
 
 // 3. a click talks
 const act = land.slice(land.indexOf("function act(place, mouse)"), land.indexOf("function act(place, mouse)") + 900);
-const iTalk = act.indexOf('{ const n = npcAimed(); if (n) return openNpc(n); }'), iAnimal = act.indexOf("animalAimed(RULES"), iSign = act.indexOf('if (!net.me) return notify(T("signInBuild2"');
+const iTalk = act.indexOf('{ const n = npcAimed(); if (n) return openNpc(n); }'), iAnimal = act.indexOf("animalAimed(RULES"), iSign = act.indexOf('if (!net.me) return signInNotice(T("signInBuild2"');   // (a notice with the sign-in button, 2026-11-16)
 ok(iSign >= 0 && iTalk > iSign && iAnimal > iTalk && !/if \(!place\) \{ const n = npcAimed/.test(act), "a click on a person — either button — talks, after the sign-in check and before the hunt");
 
 // 4. the languages
