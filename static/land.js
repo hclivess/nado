@@ -1049,6 +1049,16 @@ function takePlace(p) {
   if (collides(u, v, h)) { P.h = groundAt(f, u, v); pendingPlace = [f, u, v, h, yaw, P.pitch]; } else P.h = h;
   save();
 }
+/** A LINK TO A PLOT (?plot=N, the address every plot's title carries — nft.js "Walk it in Land"): where it puts the player,
+ *  [face, u, v, yaw], or null. The market's link opened the landing instead (playtest 2026-11-16: a fresh browser asked
+ *  for 0·4999·3438 stood at 0·5000·3440) — the page read no ?plot= at all. Just off the plot's south edge, looking north
+ *  across it: the whole plot in view, and never inside a house of it before its pieces arrive. */
+function linkPlace(search) {
+  const s = new URLSearchParams(search).get("plot");
+  if (!s || !/^\d{1,10}$/.test(s) || Number(s) >= Wd.PLOT_MAX) return null;
+  const q = Wd.plotCoords(Number(s));
+  return [q.face, q.u0 + Wd.PLOT / 2, q.v0 - 1.5, 0];
+}
 function townSpawn() {
   const q = Wd.plotCoords(TOWN_HALL_PLOT);
   // the door is 8.05-8.95 m in, the street 0-2 m. The landing FACES WEST along the street (yaw -π/2), where Maren the
@@ -1066,6 +1076,13 @@ function load() {
     if (!Shapes.isPart(piece.part)) piece.part = 0;       // no part, or a byte that is none (#175): a plain piece
     if (!(Array.isArray(piece.tilt) && piece.tilt.length === 3 && piece.tilt.every((t) => Number.isInteger(t) && t > -1800 && t <= 1800))) piece.tilt = [0, 0, 0];
     piece.mirror = piece.mirror === true;
+  }
+  const link = linkPlace(location.search);
+  if (link) {                                            // a link wins over a saved place and the server's kept one
+    [P.face, P.u, P.v, P.yaw] = link; P.h = groundAt(P.face, P.u, P.v); P.pitch = -0.2;
+    localPlace = Infinity;                               // (the greeting takes the server's place only when it is newer)
+    try { history.replaceState(null, "", location.pathname + location.hash); } catch (e) {}   // a reload stays where they walked
+    return;
   }
   const at = d && restorePlace(d.p, W, (f, u, v, h) => { const pf = P.face; P.face = f; const c = collides(u, v, h); P.face = pf; return c; },
     (f, u, v) => colAt(f, Math.floor(u), Math.floor(v)).height, (f, u, v) => { const pf = P.face; P.face = f; const g = groundAt(f, u, v); P.face = pf; return g; });
