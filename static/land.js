@@ -3221,8 +3221,11 @@ function placement(a) {
   // (a wing's box is mostly air, and parts are sunk into one another to close the seams); the world server agrees
   // (BoxIndex.overlaps). The body: a box may not take any of it; a part only where the part itself is (its outline).
   const inMe = (p) => (Wd.isPart(p) ? [0.1, 0.5, 0.9].some((f) => Wd.inPiece(p, me.x, me.z, me.y + f * TALL * Wd.CM)) : Wd.boxesOverlap(p, body));
-  const clash = (me.plot === c.plot && pieces.some(inMe)) || (rec && pieces.some((p) => rec.list.some((o) => Wd.piecesClash(p, o) || (o.length === p.length && o.every((x, i) => i === 6 || x === p[i])))));
-  return { plot: c.plot, box, pieces, ok: !clash && pieces.every((p) => Wd.boxOk(Wd.normalBox(p.slice(0, 6).concat([p[6] || 1], p.slice(7))))) && box[2] >= 0 && box[2] + h <= Wd.H_CM };
+  // (why: "me" when only the player's own body is in the way — Place says so: "No room" alone left a player looking
+  // straight down at their feet with a red outline and no idea why, playtest 2026-11-15)
+  const inBody = me.plot === c.plot && pieces.some(inMe), onPiece = !!rec && pieces.some((p) => rec.list.some((o) => Wd.piecesClash(p, o) || (o.length === p.length && o.every((x, i) => i === 6 || x === p[i]))));
+  const clash = inBody || onPiece;
+  return { plot: c.plot, box, pieces, why: inBody && !onPiece ? "me" : "", ok: !clash && pieces.every((p) => Wd.boxOk(Wd.normalBox(p.slice(0, 6).concat([p[6] || 1], p.slice(7))))) && box[2] >= 0 && box[2] + h <= Wd.H_CM };
 }
 // ROOFS AND STAIRS ("A REAL HOUSE"): which way a slope or a flight rises — away from the player, the way they face, then
 // turned a quarter at a time by T — as land-world's shape number (1 +x, 2 -x, 3 +z, 4 -z)
@@ -3617,7 +3620,7 @@ function act(place, mouse) {
     // an ENGINE (#175) is made of thrusters and nothing else: say so instead of placing a box of whatever is held — and
     // BEFORE "no room": an engine of another material is no piece at all (boxOk), so the room was never the reason
     if (piece.part && Shapes.decode(piece.part).type === Shapes.ENGINE && RULES.items[id].places !== B.thruster) return notify(T("engineNeeds", "An engine is made of thrusters — hold a thruster to place one."));
-    if (!pl.ok) return notify(T("noRoom", "No room for that piece there."));
+    if (!pl.ok) return notify(pl.why === "me" ? T("noRoomMe", "That piece would be where you stand — step back, or aim farther off.") : T("noRoom", "No room for that piece there."));
     const add = pl.pieces.map((b) => { const x = b.slice(); x[6] = RULES.items[id].places; return x; });
     const vol = add.reduce((a, b) => a + Wd.boxVolume(b), 0);
     // a unit item is paid whole: one a piece — an engine as many thrusters as its size comes to (land-world.js engineCount)
