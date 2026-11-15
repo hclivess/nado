@@ -3618,9 +3618,9 @@ let level = null;                                          // { cols: [{ plot, o
 const levelWorld = { block: (u, v, h) => blockAt(P.face, u, v, h), edited: (u, v, h) => edits.has(key(P.face, u, v, h)), top: (u, v) => colAt(P.face, u, v).top };
 function startLevel() {
   if (!net.me) return notify(T("signInBuild2", "Sign in to gather and build."));
-  if (!hasClass("shovel")) return notify(T("levelNeedsShovel", "Levelling needs a shovel."));
+  if (!hasClass("shovel")) return notify(T("levelNeedsShovel", "Flattening needs a shovel."));
   const a = aim();
-  if (!a || !a.hit || a.box) return notify(T("levelAim", "Aim at the ground to level it."));
+  if (!a || !a.hit || a.box) return notify(T("levelAim", "Aim at the ground to flatten it."));
   const [u0, v0] = a.hit, T0 = siteLayer(levelWorld, u0, v0, LEVEL_R), cols = [];
   let trunk = false;
   for (let du = -LEVEL_R; du <= LEVEL_R; du++) for (let dv = -LEVEL_R; dv <= LEVEL_R; dv++) {
