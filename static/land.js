@@ -714,7 +714,7 @@ function craftsSeen(list) {
   for (const [id, c] of crafts) if (!seen.has(id) && !(flying && flying.id === id)) { scene.remove(c.mesh); if (c.dust) scene.remove(c.dust); crafts.delete(id); }
 }
 // the materials a craft is made of (land-world.js: steel plate, glass, thruster): Use on one of them may mean "fly this"
-const CRAFT_SKIN = new Set([B.steelplate, B.glass, B.thruster, B.white, B.red, B.yellow, B.black]);   // …and painted plate (#175)
+const CRAFT_SKIN = new Set([B.steelplate, B.glass, B.thruster, B.white, B.red, B.yellow, B.black, B.orange, B.green, B.blue, B.purple]);   // …and painted plate (#175; orange, green, blue and purple since #187)
 /** Where each of my crafts is from where I stand, nearest first (#171): d metres over the ground (null on another face), b
  *  the bearing in whole degrees clockwise from north, h its height over the untouched ground under it. */
 function craftsBearing(list) {

@@ -255,6 +255,26 @@ async def main():
         _, r, f = await boxes(remove=half); removed += r; refused += f
     check("…and taken down gives the painted plate back", len(removed) == 4 and all(pl["items"][k] == 4 for k in ("white_plate", "red_plate", "yellow_plate", "black_plate")), refused)
     check("painted plate weighs as the steel plate it is", all(dens[str(m)] == dens["64"] for m in (WHITE, RED, YELLOW, BLACK)))
+    # ORANGE, GREEN, BLUE AND PURPLE (#187: "have no pigment recipe"): each from a sourced pigment — orange more iron ore to
+    # the clay (ochre), green copper ore (malachite) at the workbench; blue copper ore, sand and lime (Egyptian blue) and
+    # purple the red and the blue together, both at the kiln (Egyptian blue is fired at 800-1000 C)
+    pl["items"].update({"steel_plate": 16, "ironore": 3, "clay": 1, "copperore": 3, "sand": 2, "lime": 2})
+    check("…orange and green are made at the workbench, blue and purple not without a kiln",
+          world.craft(a, "orange_plate") is None and world.craft(a, "green_plate") is None
+          and world.craft(a, "blue_plate") is not None and world.craft(a, "purple_plate") is not None, pl["items"])
+    pl["stations"].append("kiln")
+    errs = [world.craft(a, rid) for rid in ("blue_plate", "purple_plate")]
+    check("…blue and purple at the kiln; four plates each and every pigment spent",
+          errs == [None, None] and all(pl["items"].get(k) == 4 for k in ("orange_plate", "green_plate", "blue_plate", "purple_plate"))
+          and pl["items"]["steel_plate"] == 0 and not any(pl["items"].get(k) for k in ("ironore", "clay", "copperore", "sand", "lime")), (errs, pl["items"]))
+    ORANGE, GREEN, BLUE, PURPLE = 22, 24, 25, 26
+    more = [[200 + 120 * i, 1500, 20000, 100, 100, 100, m, code(S.P_BODY, 9)] for i, m in enumerate((ORANGE, GREEN, BLUE, PURPLE))]
+    added, _, refused = await boxes(more)
+    check("…placed as parts, a block's worth each, and weighing as steel plate", len(added) == 4
+          and all(pl["items"][k] == 3 for k in ("orange_plate", "green_plate", "blue_plate", "purple_plate"))
+          and all(dens[str(m)] == dens["64"] for m in (ORANGE, GREEN, BLUE, PURPLE)), refused)
+    page = open(os.path.join(ROOT, "static", "land.js"), encoding="utf-8").read()
+    check("…and drawn on a craft as painted plate is", "B.white, B.red, B.yellow, B.black, B.orange, B.green, B.blue, B.purple]);" in page)
 
     await world.http.close(); await ex.close()
 

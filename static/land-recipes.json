@@ -308,6 +308,22 @@
    "name": "Black plate",
    "places": 27
   },
+  "orange_plate": {
+   "name": "Orange plate",
+   "places": 22
+  },
+  "green_plate": {
+   "name": "Green plate",
+   "places": 24
+  },
+  "blue_plate": {
+   "name": "Blue plate",
+   "places": 25
+  },
+  "purple_plate": {
+   "name": "Purple plate",
+   "places": 26
+  },
   "gear": {
    "name": "Gear"
   },
@@ -3131,6 +3147,118 @@
    ]
   },
   {
+   "id": "orange_plate",
+   "makes": [
+    [
+     "orange_plate",
+     4
+    ]
+   ],
+   "uses": [
+    [
+     "steel_plate",
+     4
+    ],
+    [
+     "ironore",
+     2
+    ],
+    [
+     "clay",
+     1
+    ]
+   ],
+   "with": [
+    "workbench"
+   ]
+  },
+  {
+   "id": "green_plate",
+   "makes": [
+    [
+     "green_plate",
+     4
+    ]
+   ],
+   "uses": [
+    [
+     "steel_plate",
+     4
+    ],
+    [
+     "copperore",
+     1
+    ]
+   ],
+   "with": [
+    "workbench"
+   ]
+  },
+  {
+   "id": "blue_plate",
+   "makes": [
+    [
+     "blue_plate",
+     4
+    ]
+   ],
+   "uses": [
+    [
+     "steel_plate",
+     4
+    ],
+    [
+     "copperore",
+     1
+    ],
+    [
+     "sand",
+     1
+    ],
+    [
+     "lime",
+     1
+    ]
+   ],
+   "with": [
+    "kiln"
+   ]
+  },
+  {
+   "id": "purple_plate",
+   "makes": [
+    [
+     "purple_plate",
+     4
+    ]
+   ],
+   "uses": [
+    [
+     "steel_plate",
+     4
+    ],
+    [
+     "ironore",
+     1
+    ],
+    [
+     "copperore",
+     1
+    ],
+    [
+     "sand",
+     1
+    ],
+    [
+     "lime",
+     1
+    ]
+   ],
+   "with": [
+    "kiln"
+   ]
+  },
+  {
    "id": "machine_shop",
    "makes": [
     [
@@ -4334,7 +4462,7 @@
  ],
  "wilderness_regrow_s": 900,
  "flight": {
-  "about": "#147 (doc/land-tech-to-flight.md): a craft is built pieces touching one another, with a pilot seat and at least one thruster. Its mass is each piece's volume x its material's density (t per m3; a unit part by its own mass); it rises only if its thrusters (kN each) beat its weight. Read by the page (it flies the craft) and the world server (it bounds what a pilot may claim). #175: a PART (static/land-shapes.js) weighs the material actually in it — its shape's share of its box, a tenth of that for a hollow skin (a hull, a nose, a wing, a canopy, a dome) — and an ENGINE part is as many thrusters as its volume comes to, each weighing and pushing as one. PAINTED PLATE (white 28, red 21, yellow 23, black 27) is steel plate (density 1.5) with a pigment worked in at the workbench: white from lime (whitewash is slaked-lime paint), black from charcoal (carbon black: charred wood), red from iron ore (red ochre is hematite, an iron oxide and an ore of iron), yellow from iron ore and clay (ochre is a clay earth pigment of ferric oxide and clay; real yellow ochre is the hydrated oxide, limonite — Land has one iron ore) — land research paint/. One measure of pigment painting four plates is a DESIGN CHOICE.",
+  "about": "#147 (doc/land-tech-to-flight.md): a craft is built pieces touching one another, with a pilot seat and at least one thruster. Its mass is each piece's volume x its material's density (t per m3; a unit part by its own mass); it rises only if its thrusters (kN each) beat its weight. Read by the page (it flies the craft) and the world server (it bounds what a pilot may claim). #175: a PART (static/land-shapes.js) weighs the material actually in it — its shape's share of its box, a tenth of that for a hollow skin (a hull, a nose, a wing, a canopy, a dome) — and an ENGINE part is as many thrusters as its volume comes to, each weighing and pushing as one. PAINTED PLATE (white 28, red 21, yellow 23, black 27) is steel plate (density 1.5) with a pigment worked in at the workbench: white from lime (whitewash is slaked-lime paint), black from charcoal (carbon black: charred wood), red from iron ore (red ochre is hematite, an iron oxide and an ore of iron), yellow from iron ore and clay (ochre is a clay earth pigment of ferric oxide and clay; real yellow ochre is the hydrated oxide, limonite — Land has one iron ore) — land research paint/. ORANGE 22, GREEN 24, BLUE 25, PURPLE 26 (#187): orange from more iron ore to the clay than yellow (ochre ranges \"from yellow to deep orange\" with its iron oxide and clay, paint/wikipedia-Ochre l.13), green from copper ore (malachite, a copper ore, \"used as a mineral pigment ... in green paints from antiquity until c. 1800\", paint/wikipedia-Malachite l.82), blue at the kiln from copper ore, sand and lime (Egyptian blue: silica, lime and a copper compound heated to 800-1000 C, paint/wikipedia-Egyptian_blue l.13 and l.40; its small share of alkali is left out), purple at the kiln from the red and the blue pigment together (a DESIGN CHOICE: purple ochre is red ochre of coarser grain, Ochre l.25, which no recipe could tell from red). One measure of pigment painting four plates is a DESIGN CHOICE.",
   "g": 9.8,
   "thrust_kn": 30,
   "vmax": 292,
@@ -4360,6 +4488,10 @@
    "21": 1.5,
    "23": 1.5,
    "27": 1.5,
+   "22": 1.5,
+   "24": 1.5,
+   "25": 1.5,
+   "26": 1.5,
    "default": 1.0
   },
   "unit_mass": {
