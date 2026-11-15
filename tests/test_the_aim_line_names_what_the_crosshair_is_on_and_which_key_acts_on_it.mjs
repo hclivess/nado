@@ -28,7 +28,8 @@ const ok = (c, m) => { console.log((c ? "ok   " : "FAIL ") + m); if (!c) fails++
 
 // 1. the line and its refresh
 ok(/<div id="cross"><\/div><div id="aimLine"><\/div>/.test(html) && /#aimLine\{position:fixed;left:50%;top:calc\(50% \+ 16px\)/.test(html), "the line sits under the crosshair");
-const fr = land.slice(land.indexOf("function frame(now)"), land.indexOf("function frame(now)") + 6000);
+const fnOf = (head) => { const i = land.indexOf(head); return land.slice(i, land.indexOf("\n}\n", i) + 2); };   // the whole function: a fixed window broke as frame and explainNoBuild grew (2026-11-15)
+const fr = fnOf("function frame(now)");
 ok(/const a = pt\("aim", \(\) => aim\(\)\);\n  if \(now - aimLineAt > 150\) \{ aimLineAt = now; const s = aimText\(a\), el = \$\("aimLine"\);/.test(fr), "frame() refreshes it from the same aim as the outline, at most every 150 ms");
 
 // 2. what it says
@@ -63,7 +64,7 @@ const sb = land.slice(land.indexOf("function startBreak(c, mouse)"), land.indexO
 ok(/if \(c\[2\] >= 0 && !mayBuild\(Wd\.plotOf\(P\.face, c\[0\], c\[1\]\)\)\) return explainNoBuild\(Wd\.plotOf\(P\.face, c\[0\], c\[1\]\)\);/.test(sb) && sb.indexOf("explainNoBuild") < sb.indexOf("RULES.breaking[b]"), "startBreak refuses a plot you may not touch before the hold (the deep excepted)");
 const td = land.slice(land.indexOf("function startTakeDown(bx, mouse)"), land.indexOf("function startTakeDown(bx, mouse)") + 300);
 ok(/^function startTakeDown\(bx, mouse\) \{\n  if \(!mayBuild\(bx\.plot\)\) return explainNoBuild\(bx\.plot\);/m.test(td), "…and so does taking a piece down");
-const en = land.slice(land.indexOf("function explainNoBuild(plot)"), land.indexOf("function explainNoBuild(plot)") + 900);
+const en = fnOf("function explainNoBuild(plot)");
 ok(/t && t\.sale\) notify\(T\("notYoursSale", "[^"]*\{p\}[^"]*\{n\}[^"]*"/.test(en) && /t && t\.holder\) notify\(T\("notYoursOwned", "[^"]*\{p\}[^"]*\{o\}[^"]*"/.test(en) && /T\("notYours", /.test(en), "explainNoBuild says for sale at the price, or whose it is, else the old line");
 ok(langs.every((l) => /\{p\}/.test(I[l]["land.notYoursSale"] || "") && /\{n\}/.test(I[l]["land.notYoursSale"] || "") && /\{p\}/.test(I[l]["land.notYoursOwned"] || "") && /\{o\}/.test(I[l]["land.notYoursOwned"] || "")), "the two refusals are in all 17 languages with their placeholders");
 

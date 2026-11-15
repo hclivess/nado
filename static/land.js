@@ -80,6 +80,7 @@ const plotEdit = new Map();           // plot -> Map(local key "x:z:y" -> block)
 const titles = new Map();             // plot -> { aid, holder } for every issued title
 const mine = new Set();               // plots whose title the signed-in address holds
 const builds = new Set();             // plots the world server says the signed-in address was invited to build on
+const builderKnown = new Set();       // plots whose builder answer is in — until then a refusal says "checking", not "someone else's"
 // GATHERING, TOOLS, CRAFTING, TRADE (doc/land.md): "you must gather resources to make tools to make tools to collect more
 // resources". The rules are static/land-recipes.json, the same file the world server judges by; the inventory is the
 // server's (it arrives as "inv" messages) — the page never decides what anyone owns.
@@ -995,6 +996,12 @@ function explainNoBuild(plot) {
   // the plot's real state, at once (#177: "belongs to someone else" came only after the whole hold, while the HUD said
   // "For sale" for the same plot) — for sale at its price, or whose it is; the old line when the title is not known yet
   const t = titles.get(plot);
+  // an invited builder who tapped before the server's answer came in was told "belongs to someone else" on the plot they
+  // were invited to (playtest 2026-11-15, plot 0·4999·3438): until that answer is in, say so and ask at once
+  if (net.me && net.online && t && !mine.has(plot) && !builderKnown.has(plot)) {
+    builderCheck(plot);
+    return notify(T("checkingBuild", "Checking whether you may build on plot {p} — try again in a moment.", { p: plotLabel(plot) })), false;
+  }
   if (!net.me) notify(T("signInBuild2", "Sign in to gather and build."));
   else if (t && t.sale) notify(T("notYoursSale", "Plot {p} is for sale · {n} NADO — buy it on the market to gather and build here.", { p: plotLabel(plot), n: rawToNado(t.sale.price.toString()) }));
   else if (t && t.holder) notify(T("notYoursOwned", "Plot {p} is owned by {o} — ask them to invite you to build here.", { p: plotLabel(plot), o: disp(t.holder) }));
@@ -2612,6 +2619,7 @@ async function builderCheck(plot) {
     const r = await (await fetch("/land/api/plot?plot=" + plot, { cache: "no-store", credentials: "same-origin" })).json();
     if (r.may_build !== builds.has(plot)) { if (r.may_build) builds.add(plot); else builds.delete(plot); hud(); }
   } catch (e) {}
+  builderKnown.add(plot);   // answered or failed: either way a refusal stops saying "checking" (never stuck on it)
 }
 
 // ---- THE MAP (#173, doc/land-navigation.md 1.3) ----------------------------------------------------------------
