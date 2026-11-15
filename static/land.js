@@ -3849,13 +3849,18 @@ const CMDS = {
   draws: () => {
     if (!scene) return;
     const kindOf = drawKind(), by = new Map(), hooked = [];
-    let main = 0, shadow = 0;
+    // ONE FRAME (three's info.frame is the animation frame's id): the hooks stay on across two frames, and counting both
+    // read twice the stats line's calls (812 against 365 on a desktop at the landing) — only the first frame seen counts
+    let main = 0, shadow = 0, frame = null;
     scene.traverse((o) => {
       if (!o.isMesh && !o.isPoints && !o.isLine) return;
       const was = o.onBeforeRender; hooked.push([o, was]);
       o.onBeforeRender = function (r, sc, cam, ...rest) {
-        const k = kindOf(o, rest[1] || o.material), e = by.get(k) || [0, 0], sh = cam !== camera;   // rest: geometry, material, group
-        e[sh ? 1 : 0]++; by.set(k, e); if (sh) shadow++; else main++;
+        if (frame === null) frame = r.info.frame;
+        if (r.info.frame === frame) {
+          const k = kindOf(o, rest[1] || o.material), e = by.get(k) || [0, 0], sh = cam !== camera;   // rest: geometry, material, group
+          e[sh ? 1 : 0]++; by.set(k, e); if (sh) shadow++; else main++;
+        }
         return was.call(this, r, sc, cam, ...rest);
       };
     });
