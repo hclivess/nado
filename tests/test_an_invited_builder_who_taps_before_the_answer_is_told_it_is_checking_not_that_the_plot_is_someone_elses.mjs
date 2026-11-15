@@ -52,6 +52,18 @@ const tick = () => new Promise((r) => setTimeout(r, 0));
   w.explainNoBuild(40955246);
   ok(/belongs to someone else/.test(w.said[1]), "a failed ask ends the \"checking\" — the next refusal says the plot's state");
 }
-ok(Object.keys(I).length === 17 && Object.values(I).every((t) => typeof t["land.checkingBuild"] === "string" && t["land.checkingBuild"].includes("{p}")), "the checking message is in all 17 languages, each naming the plot");
+{ // the aim line: "checking whether you may build here" until the answer is in, and it asks about the plot aimed at
+  const ny = cut("const notYours = (what, plot) => {", "\n  if (a.box) {");
+  const w = world({ may_build: true }), e = w.env;
+  const f = new Function("net", "mine", "titles", "builderKnown", "builderCheck", "T", "rawToNado", "disp", ny + "\nreturn notYours;")(e.net, e.mine, e.titles, e.builderKnown, w.builderCheck, e.T, e.rawToNado, e.disp);
+  ok(f("Grass", 40955246) === "Grass · Titled — checking whether you may build here" && w.asked.length === 1, "the aim line says it is checking — not \"not yours to gather here\" — and asks");
+  f("Grass", 40955246);
+  ok(w.asked.length === 1, "…once a refresh, not every frame");
+  await tick(); await tick();
+  const n = world({ may_build: false }); n.env.builderKnown.add(40955246);
+  const g = new Function("net", "mine", "titles", "builderKnown", "builderCheck", "T", "rawToNado", "disp", ny + "\nreturn notYours;")(n.env.net, n.env.mine, n.env.titles, n.env.builderKnown, n.builderCheck, n.env.T, n.env.rawToNado, n.env.disp);
+  ok(g("Grass", 40955246) === "Grass · Titled — not yours to gather here", "once the answer is in and it is no, the line says not yours");
+}
+ok(Object.keys(I).length === 17 && Object.values(I).every((t) => typeof t["land.checkingBuild"] === "string" && t["land.checkingBuild"].includes("{p}") && typeof t["land.v.checking"] === "string" && t["land.v.checking"].length > 5), "the checking messages are in all 17 languages, the refusal naming the plot");
 console.log(fails ? `${fails} FAILED` : "all passed");
 process.exit(fails ? 1 : 0);

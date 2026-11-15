@@ -2297,7 +2297,13 @@ function aimText(a) {
   }
   if (!a) return "";
   // (a titled plot whose holder is not known yet says "Titled", not "Owned by —": the photo of 2026-11-12)
-  const notYours = (what, plot) => { const t = titles.get(plot); return T("aimFmt2", "{what} — {v}", { what: what + " · " + (t && t.sale ? T("forSale", "For sale · {p} NADO", { p: rawToNado(t.sale.price.toString()) }) : t && t.holder ? T("owned", "Owned by {o}", { o: disp(t.holder) }) : T("titled", "Titled")), v: T("v.notYours", "not yours to gather here") }); };
+  const notYours = (what, plot) => {
+    const t = titles.get(plot);
+    // an invited builder's aim read "not yours to gather here" until the server's answer came in (playtest 2026-11-15,
+    // plot 0·4999·3438): until it is in, the line says checking, and the plot aimed at is asked about (once a refresh)
+    const unsure = net.me && net.online && t && !mine.has(plot) && !builderKnown.has(plot);
+    if (unsure && !t.checked) { t.checked = true; builderCheck(plot); }
+    return T("aimFmt2", "{what} — {v}", { what: what + " · " + (t && t.sale ? T("forSale", "For sale · {p} NADO", { p: rawToNado(t.sale.price.toString()) }) : t && t.holder ? T("owned", "Owned by {o}", { o: disp(t.holder) }) : T("titled", "Titled")), v: unsure ? T("v.checking", "checking whether you may build here") : T("v.notYours", "not yours to gather here") }); };
   if (a.box) {
     const kind = a.box.b[6], what = blockLabel(kind);
     const verb = kind === B.door || kind === B.chest ? T("v.open", "open") : kind === B.bed ? T("v.sleep", "sleep here") : kind === B.well ? T("v.draw", "draw water (a bucket)")
