@@ -1551,6 +1551,7 @@ async function refreshTitles() {
         if (tt && tt.planet === Wd.PLANET) { mine.add(tt.plot); const t = titles.get(tt.plot); if (t) t.holder = me; }
       }
     }
+    titlesVer++;                                          // the titles are known (the nearest-source hint waits for it)
   } catch (e) {}
   hud();
 }
@@ -2841,7 +2842,7 @@ function tileIcon(cv, id, px) {
 // slice at a time (SOURCE_STEP points a frame) so a phone never stalls, and starts again when the job changes or the
 // player has moved SOURCE_MOVE metres.
 const SOURCE_R = 160, SOURCE_STEP = 600, SOURCE_MOVE = 12;
-let srcScan = null, goalTick = 0;
+let srcScan = null, goalTick = 0, titlesVer = 0;
 function sourceBlocks(item) {
   const out = [];
   if (!RULES || !RULES.breaking) return out;
@@ -2852,7 +2853,10 @@ function sourceBlocks(item) {
 function sourceHint(item) {
   const want = sourceBlocks(item);
   if (!want.length) return "";
-  const job = item + "@" + P.face;                       // (not "key": that is the page's cell-key function, used below)
+  // NOT BEFORE THE TITLES ARE IN: until they load every plot reads as open land (mayBuild), and the first scan after a
+  // load pointed at a bush on a plot for sale (playtest 2026-11-15, "12 m E"); a change of titles starts the scan again
+  if (!titlesVer) return "";
+  const job = item + "@" + P.face + "#" + titlesVer;    // (not "key": that is the page's cell-key function, used below)
   if (!srcScan || srcScan.job !== job || Math.hypot(P.u - srcScan.u0, P.v - srcScan.v0) > SOURCE_MOVE) srcScan = { job, u0: P.u, v0: P.v, r: 2, a: 0, found: null, done: false };
   const s = srcScan;
   for (let n = 0; n < SOURCE_STEP && !s.done && !s.found; n++) {

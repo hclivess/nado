@@ -24,7 +24,7 @@ const a = page.indexOf("const SOURCE_R = "), b = page.indexOf("/** Who a quest i
 const POINTS = [["cpN", "N"], ["cpNE", "NE"], ["cpE", "E"], ["cpSE", "SE"], ["cpS", "S"], ["cpSW", "SW"], ["cpW", "W"], ["cpNW", "NW"]];
 const key = (f, u, v, h) => f + ":" + u + ":" + v + ":" + h;
 const make = (allow, edits = new Map(), pieceIn = () => false) => new Function("RULES", "Wd", "P", "W", "mayBuild", "inv", "questText", "T", "POINTS", "colAt", "edits", "key", "pieceIn",
-  page.slice(a, b) + "\nreturn { sourceHint, sourceBlocks, SOURCE_R, SOURCE_STEP };")(
+  page.slice(a, b) + "\ntitlesVer = 1;\nreturn { sourceHint, sourceBlocks, SOURCE_R, SOURCE_STEP };")(
   RULES, Wd, { face: 0, u: 55047.5, v: 79996.5 }, Wd.W ?? (1 << 17), allow, { quests: [{ kind: "bring", item: "berries", n: 6 }] },
   () => "Bring 6 × Berries", (k, fb, v) => fb.replace(/\{(\w+)\}/g, (_, x) => v[x]), POINTS, (f, u, v) => Wd.column(f, u, v), edits, key, pieceIn);
 const runWith = (allow, edits, pieceIn) => { const S = make(allow, edits, pieceIn); let h = ""; for (let i = 0; i < 400 && !h; i++) h = S.sourceHint("berries"); return h; };
@@ -58,5 +58,8 @@ ok(S.sourceBlocks("iron").length === 0 && S.sourceBlocks("nothing").length === 0
   ok(!picked.includes(`pick: ${d0} m `) && /pick: \d+ m/.test(picked) && !covered.includes(`pick: ${d0} m `) && /pick: \d+ m/.test(covered),
     `6. the nearest bush picked, or under a laid path, is passed over for the next: "${picked}" / "${covered}"`);
 }
+// 7. not before the titles are in (until then every plot reads as open land) — and again when they change
+ok(/if \(!titlesVer\) return "";/.test(page.slice(a, b)) && /const job = item \+ "@" \+ P\.face \+ "#" \+ titlesVer;/.test(page) && /\n    titlesVer\+\+;  /.test(page),
+  "7. it waits for the titles (a first scan took a plot for sale for open land) and starts again when they change");
 console.log(fails ? `${fails} FAILED` : "all passed");
 process.exit(fails ? 1 : 0);
