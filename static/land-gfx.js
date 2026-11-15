@@ -46,6 +46,10 @@ export function pickPreset(measured, target) {
 // it holds holdS seconds and judges it: a step down that did not make frames at least (1 - helpK) faster is taken back
 // (the device is not slow for graphics — a busy main thread, a page in the background) and no step down is tried again
 // for noDownS; a step up that came out slow is taken back and no step up is tried for noUpS.
+// SOURCED (#170): True Wind's js/gfx.js (github.com/hclivess/truewind) AUTO = { slow: 26, fast: 15.5, down: 3, up: 12,
+// hold: 4, gain: 0.9, futile: 60 } at its 60 fps target — 26 and 15.5 ms are 1.56 and 0.93 of a 16.7 ms frame, which slowK
+// and fastK carry as shares of this device's own budget; downS, upS, holdS, helpK and noDownS are its down, up, hold, gain
+// and futile. win and noUpS are this game's rules.
 export const GOV = { win: 30, slowK: 1.55, fastK: 0.93, downS: 3, upS: 12, holdS: 4, helpK: 0.9, noDownS: 60, noUpS: 120 };
 /** The ladder the governor walks, lightest first. */
 export const LADDER = BENCH_ORDER.slice().reverse();

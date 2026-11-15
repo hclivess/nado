@@ -71,7 +71,7 @@ function trace(kind, data) {
 const tracePose = (p) => (p ? p.slice(0, 7).map((x, i) => (i ? +Number(x).toFixed(2) : x)) : null);
 window.addEventListener("error", (e) => trace("error", { msg: String(e.message || e).slice(0, 300), src: String(e.filename || "").slice(-60), line: e.lineno }));
 window.addEventListener("unhandledrejection", (e) => trace("error", { msg: String(e.reason && e.reason.message || e.reason).slice(0, 300) }));
-const GRAV = 26, JUMP = 8.4, WALK = 4.6, RUN = 7.5, FLY = 14, FLY_FAST = 60;
+const GRAV = 26, JUMP = 8.4, WALK = 4.6, RUN = 7.5, FLY = 14, FLY_FAST = 60;   // (#170: FLY and FLY_FAST are GAME RULES — free flight is a builder's convenience, its speed chosen for play)
 
 // ---- state ------------------------------------------------------------------------------------------------------
 const P = { face: Wd.SPAWN_FACE, u: 0, v: 0, h: 0, yaw: 0, pitch: -0.15, vu: 0, vv: 0, vh: 0, fly: false, ground: false };
@@ -529,6 +529,7 @@ function flyStep(dt, fwd, side) {
   } else craftUp = null;
   // the craft stays on its face of the planet (crossing an edge flying is for later)
   c.pose[1] = Math.max(1, Math.min(W - 1, c.pose[1])); c.pose[2] = Math.max(1, Math.min(W - 1, c.pose[2]));
+  pendingPlace = null;   // (a place set here wins over a saved place still waiting for its plot's edits — pendingPlace — #180 item 3)
   P.face = c.pose[0]; P.u = c.pose[1]; P.v = c.pose[2]; P.h = c.pose[3] - PILOT_SIT; P.vu = P.vv = P.vh = 0; P.ground = true;
   P.eyeH = P.h;                         // the walker smooths the eye's height (land-walk.js), and it does not walk now: the
                                         // camera stayed on the ground while the craft climbed out of view (first flight)
@@ -779,6 +780,7 @@ function leaveCraft() {
   net.send({ t: "fly", craft: c.id, pose: c.pose });
   net.send({ t: "leave", craft: c.id, req: ++net.req });
   const own = crafts.get(c.id); if (own) { own.pilot = null; own.pose = c.pose; }
+  pendingPlace = null;   // (a place set here wins over a saved place still waiting for its plot's edits — pendingPlace — #180 item 3)
   P.u = spot.u; P.v = spot.v; P.h = spotH(P.u, P.v); P.vh = 0; P.eyeH = P.h;
   trace("leave", { craft: c.id, from: tracePose(c.pose), to: tracePose([P.face, P.u, P.v, P.h, P.yaw]), tried: spot.tried });
   notify(T("fParked", "Parked. Use it again to fly; /dock sets it down here as pieces."));
@@ -1787,6 +1789,11 @@ function connect() {
       // where it last saw them when the page moved faster than anyone can go
       if (m.why === "nobed") { conLine(T("tpNoBed", "You have no bed yet — Use on a bed you built, and /tp bed takes you there."), "err"); return; }
       if (!Array.isArray(m.p) || flying) return;
+      // A SERVER'S MOVE ENDS A PENDING PLACE (#180 item 3, playtest: "/tp spawn" seconds after the page loaded said "At the
+      // landing." and then the player was back where they had been): a saved place on a built floor or underground waits
+      // for its plot's edits (pendingPlace) and was taken back when they arrived — after the teleport. Every move the
+      // player did not walk (this, waking, boarding, leaving a craft, the offline /tp) drops it.
+      pendingPlace = null;
       P.face = m.p[0]; P.u = m.p[1]; P.v = m.p[2];
       P.h = Number.isFinite(m.p[3]) ? m.p[3] : groundAt(P.face, P.u, P.v); P.vu = P.vv = P.vh = 0;
       save(); updateChunks();
@@ -2092,6 +2099,7 @@ function closePanels() {
 let wakeAt = null;
 /** The body at the place it wakes: the bed, else the landing. */
 function toWake() {
+  pendingPlace = null;   // (a place set here wins over a saved place still waiting for its plot's edits — pendingPlace — #180 item 3)
   if (wakeAt) { [P.face, P.u, P.v] = [wakeAt[0], wakeAt[1] + 1.2, wakeAt[2]]; }
   else { [P.face, P.u, P.v, P.yaw] = townSpawn(); }
   P.h = groundAt(P.face, P.u, P.v); P.vu = P.vv = P.vh = 0; P.eyeH = P.h;
@@ -2907,8 +2915,9 @@ function renderBag() {
     <div class="tradeform"><span>W</span><input id="pzW" type="number" min="1" max="1600" value="${piece.w}"><span>D</span><input id="pzD" type="number" min="1" max="1600" value="${piece.d}">
       <span>H</span><input id="pzH" type="number" min="1" max="25600" value="${piece.h}"><span>cm · ${esc(T("snap", "snap"))}</span>
       <select id="pzS">${SNAPS.map((x) => `<option value="${x}"${x === piece.snap ? " selected" : ""}>${x} cm</option>`).join("")}</select></div>
+    <!-- (a chosen part is the piece's shape: no box/slope/stairs chip is lit beside it — the "box" chip stayed lit with a part chosen, #187) -->
     <div class="tradeform">${[T("shapeBox", "box"), T("shapeSlope", "slope"), T("shapeStairs", "stairs")].map((n, i) =>
-      `<button class="chip pl${(piece.shape || 0) === i ? " tool" : ""}" data-shape="${i}" aria-pressed="${(piece.shape || 0) === i}">${esc(n)}</button>`).join("")}
+      `<button class="chip pl${!piece.part && (piece.shape || 0) === i ? " tool" : ""}" data-shape="${i}" aria-pressed="${!piece.part && (piece.shape || 0) === i}">${esc(n)}</button>`).join("")}
       <button class="chip pl" id="pzTurn">${esc(T("turnPiece", "Turn ↻"))}</button></div>
     <div class="tradeform"><span>${esc(T("parts", "Parts"))}</span>${Shapes.TYPES.map((n, i) => { const on = !!piece.part && Shapes.decode(piece.part).type === i;
       return `<button class="chip pl${on ? " tool" : ""}" data-part="${i}" aria-pressed="${on}">${esc(T("part." + n, n))}</button>`; }).join("")}
@@ -2923,7 +2932,10 @@ function renderBag() {
     <h3>${esc(T("make", "Make"))}</h3>
     <div class="recipes">${recipes.map((r) => {
       const out = r.makes.map(([id, n]) => (RULES.items[id] ? n + " " : "") + nameOf(id)).join(", ");
-      const need = r.uses.map(([id, n]) => `${n} ${nameOf(id)}`).join(" + ") + ((r.with || []).length ? " · " + T("with", "with {w}", { w: r.with.map(nameOf).join(", ") }) : "");
+      // COUNTS AS "n × name", TOOLS AS A "needs:" LIST (#179, playtest in Czech: "6 Klacky", "2 Kámen", "s Kamenná sekera" —
+      // a number before a noun needs its plural form and "s" the instrumental, in each of 17 languages for ~190 names):
+      // the Bag's own quantity notation and a label reads right in every language without declining a single name
+      const need = r.uses.map(([id, n]) => `${n} × ${nameOf(id)}`).join(" + ") + ((r.with || []).length ? " · " + T("with", "needs: {w}", { w: r.with.map(nameOf).join(", ") }) : "");
       const own = r.makes.every(([id]) => inv.tools.includes(id) || inv.stations.includes(id));
       return `<div class="rcp${canMake(r) && !own ? "" : " off"}"><div><b>${esc(out)}</b><div class="dim">${esc(need)}</div></div>
         <button class="ghost" data-make="${r.id}" ${canMake(r) && !own ? "" : "disabled"}>${esc(own ? T("haveIt", "You have it") : T("makeGo", "Make"))}</button></div>`;
@@ -3449,8 +3461,8 @@ function act(place, mouse) {
 // closes it. A line without a slash is chat to the players around you (the world server relays it to whoever watches
 // the plots you watch). SETTINGS are this viewer's own, remembered in this browser — a convenience, nothing shared.
 const LS_SET = "nado_land_settings";
-const SET_DEF = { fov: 72, sens: 1, invert: 0, grass: 1, shadows: 2, effects: 1, borders: 1, stats: 0, res: 100, view: 6, fps: 0, auto: 1, clouds: 1, leaves: 1, sound: 1 };
-const SET_RANGE = { fov: [50, 110], sens: [0.2, 4], invert: [0, 1], sound: [0, 1], grass: [0, 1], shadows: [0, 3], effects: [0, 1], borders: [0, 1], stats: [0, 1],
+const SET_DEF = { fov: 72, sens: 1, invert: 0, grass: 1, shadows: 2, effects: 1, borders: 1, stats: 0, res: 100, view: 6, fps: 0, auto: 1, clouds: 1, leaves: 1, sound: 1, volume: 100 };
+const SET_RANGE = { fov: [50, 110], sens: [0.2, 4], invert: [0, 1], sound: [0, 1], volume: [0, 100], grass: [0, 1], shadows: [0, 3], effects: [0, 1], borders: [0, 1], stats: [0, 1],
   res: [50, 100], view: [2, 10], fps: [0, 60], auto: [0, 1], clouds: [0, 1], leaves: [0, 1] };
 // GRAPHICS (#166, operator 2026-11-10: "make graphical settings more configurable (resolution, shadows, etc)"): res is the
 // render resolution in % of the screen's pixels, shadows off / low / medium / high (the sun's shadow map size and reach),
@@ -3574,6 +3586,7 @@ function renderSettings() {
     + sel("borders", T("gBorders", "Plot borders on the ground"), onOff)
     + sel("stats", T("gStats", "Stats line (frame rate, triangles)"), onOff)
     + sel("sound", T("gSound", "Sound (steps, a hit, a charge, a pickup)"), onOff)
+    + sel("volume", T("gVolume", "Volume"), [10, 25, 50, 75, 100].concat([SET.volume ?? 100]).filter((v, i, a) => a.indexOf(v) === i).sort((a, b) => a - b).map((v) => [v, v + " %"]))
     + `<p class="dim">${esc(T("gNote", "Kept in this browser. Each change applies at once."))}</p>`;
   for (const b of box.querySelectorAll("[data-preset]")) b.onclick = () => {
     for (const [k, v] of Object.entries(GFX_PRESETS[b.dataset.preset])) setSetting(k, v);
@@ -3655,6 +3668,7 @@ const CMDS = {
     if (to !== "spawn" && to !== "bed") return conLine(T("cTpUse", "Usage: /tp spawn (the landing), or /tp bed (your bed)."), "err");
     if (net.online && net.me) return net.send({ t: "tp", to });
     if (to === "bed") return conLine(T("signInFirst", "Sign in first."), "err");
+    pendingPlace = null;   // (a place set here wins over a saved place still waiting for its plot's edits — pendingPlace — #180 item 3)
     const sp = townSpawn(); P.face = sp[0]; P.u = sp[1]; P.v = sp[2]; P.yaw = sp[3]; P.h = groundAt(P.face, P.u, P.v); P.vu = P.vv = P.vh = 0;
     save(); conLine(T("tpSpawn", "At the landing."));
   },
@@ -3804,7 +3818,7 @@ function wireConsole() {
  *  passed, and never shown. */
 // SOUND (#113): synthesised cues (land-sound.js) — the context opens on the first click or key, here and in the touch
 // wiring, since a browser refuses audio before a gesture
-const sound = new Sound(() => !!SET.sound);
+const sound = new Sound(() => SET.sound ? (SET.volume ?? 100) / 100 : 0);   // on/off times the volume (#113); an older saved setting has no volume: full
 function lockPointer() {
   sound.enable();
   const c = $("world");
@@ -3908,6 +3922,7 @@ function wireInput(canvas) {
     $("tTurn").onclick = () => turnPiece();
     $("tFire").onclick = () => ignite();
     $("tWard").onclick = () => wardrobe(true);
+    $("tLevel").onclick = () => startLevel();              // L on a keyboard (#139: a phone had no way but /level)
     $("tUse").onclick = () => useDoor();                // Q on a keyboard: a door, a chest, a pilot seat; leave a craft
   }
   $("palClose").onclick = () => palette(false);

@@ -159,6 +159,8 @@
   /* the left cluster (#139, playtest 2026-11-11: a phone had no chat or console — so no /tp, /help — no run, no piece
      turn, no fire, no wardrobe): the thumb that walks reaches them beside the stick */
   #tChat{left:18px;bottom:162px}#tRun{left:84px;bottom:162px}#tTurn{left:150px;bottom:162px}#tFire{left:18px;bottom:228px}#tWard{left:84px;bottom:228px}
+  /* Level (L on a keyboard, #139): a phone could level ground only by typing /level in the console */
+  #tLevel{left:150px;bottom:228px}
   body.touch #hotwrap{bottom:8px}
   /* the HUD text took the top third of a 480-px phone (#139): smaller, tighter, and the plot card's explanations
      (the wilderness sentence, the NADO sentence) folded away — the pill and the buttons stay */
@@ -238,7 +240,7 @@
   <button id="tPlace" data-i18n="land.tPlace">Place</button><button id="tPal" data-i18n="land.tBag">Bag</button>
   <button id="tUse" data-i18n="land.tUse">Use</button>
   <button id="tChat" data-i18n="land.tChat">Chat</button><button id="tRun" data-i18n="land.tRun">Run</button><button id="tTurn" data-i18n="land.tTurn">Turn</button>
-  <button id="tFire" data-i18n="land.tFire">Fire</button><button id="tWard" data-i18n="land.tWard">Wear</button>
+  <button id="tFire" data-i18n="land.tFire">Fire</button><button id="tWard" data-i18n="land.tWard">Wear</button><button id="tLevel" data-i18n="land.tLevel">Level</button>
 </div>
 <div id="loading" data-i18n="land.loading">Approaching the planet…</div>
 <script type="importmap">{"imports":{"three":"/static/land-three-webgpu.js","three/webgpu":"/static/land-three-webgpu.js","three/tsl":"/static/land-three-tsl.js","three/addons/":"/static/vendor/three/addons/"}}</script>

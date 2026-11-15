@@ -60,12 +60,12 @@ ok(page.includes("stats: 0, ") && /\$\{fps\} fps · \$\{Math\.round\(r\.triangle
 // THE LEFT CLUSTER (#139, playtest 2026-11-11: a phone had no chat or console, no run, no piece turn, no fire, no
 // wardrobe): five more buttons, each wired, Run honoured by the walk's own speed rule while held
 const html = readFileSync(join(ROOT, "static", "land.html"), "utf8");
-ok(["tChat", "tRun", "tTurn", "tFire", "tWard"].every((id) => new RegExp(`<button id="${id}" data-i18n="land\\.${id}">`).test(html) && new RegExp(`#${id}\\{left:\\d+px;bottom:\\d+px\\}`).test(html)), "a phone has Chat, Run, Turn, Fire and Wear buttons, placed on the left");
-ok(/\$\("tChat"\)\.onclick = \(\) => conShow\(!conOpen\);/.test(page) && /hold\("tRun", "run"\);/.test(page) && /\$\("tTurn"\)\.onclick = \(\) => turnPiece\(\);/.test(page) && /\$\("tFire"\)\.onclick = \(\) => ignite\(\);/.test(page) && /\$\("tWard"\)\.onclick = \(\) => wardrobe\(true\);/.test(page), "…each wired: the console, run while held, the piece turned, fire, the wardrobe");
+ok(["tChat", "tRun", "tTurn", "tFire", "tWard", "tLevel"].every((id) => new RegExp(`<button id="${id}" data-i18n="land\\.${id}">`).test(html) && new RegExp(`#${id}\\{left:\\d+px;bottom:\\d+px\\}`).test(html)), "a phone has Chat, Run, Turn, Fire, Wear and Level buttons, placed on the left");
+ok(/\$\("tChat"\)\.onclick = \(\) => conShow\(!conOpen\);/.test(page) && /hold\("tRun", "run"\);/.test(page) && /\$\("tTurn"\)\.onclick = \(\) => turnPiece\(\);/.test(page) && /\$\("tFire"\)\.onclick = \(\) => ignite\(\);/.test(page) && /\$\("tWard"\)\.onclick = \(\) => wardrobe\(true\);/.test(page) && /\$\("tLevel"\)\.onclick = \(\) => startLevel\(\);/.test(page), "…each wired: the console, run while held, the piece turned, fire, the wardrobe, levelling (L on a keyboard; a phone had only /level, #139)");
 ok(/const fast = keys\.has\("ShiftLeft"\) \|\| keys\.has\("ShiftRight"\) \|\| !!\(touch && touch\.run\);/.test(page), "…and Run held is the walk's own Shift");
 const I2 = JSON.parse(readFileSync(join(ROOT, "static", "i18n_games", "land.json"), "utf8"));
 ok(/body\.touch #hudInfo\{font-size:11px;line-height:1\.3;max-width:min\(380px,calc\(100vw - 130px\)\)\}/.test(html) && /body\.touch #hudPlot \.dim\{display:none\}/.test(html), "on a phone the HUD text is smaller and tighter and the plot card's explanations are folded away (it took the top third of a 480-px screen)");
-ok(["land.tChat", "land.tRun", "land.tTurn", "land.tFire", "land.tWard"].every((k) => Object.keys(I2).length === 17 && Object.keys(I2).every((l) => typeof I2[l][k] === "string" && I2[l][k].length > 0)), "the five labels are in all 17 languages");
+ok(["land.tChat", "land.tRun", "land.tTurn", "land.tFire", "land.tWard", "land.tLevel"].every((k) => Object.keys(I2).length === 17 && Object.keys(I2).every((l) => typeof I2[l][k] === "string" && I2[l][k].length > 0)), "the six labels are in all 17 languages");
 
 console.log(fails ? `${fails} FAILED` : "ALL PASS");
 process.exit(fails ? 1 : 0);

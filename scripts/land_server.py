@@ -140,6 +140,7 @@ POS_SAVE_S = 10                   # a signed-in player's place is kept at most t
 # landing or your own bed only.
 REACH_M = 12                      # the page reaches 7 m; its levelling square (shovel, L) works up to ~11 m from the eye
 PACE_MPS, PACE_SLACK, PACE_DT_MAX = 65.0, 6.0, 5.0      # free flight's fastest is 60 m/s (static/land.js FLY_FAST)
+# (#170: GAME RULES, not measurements — how fast free flight goes is a choice for play, and these bound it with a margin)
 # THE PACE IS JUDGED OVER A WINDOW, NOT PER MESSAGE (#180, playtest 2026-11-11): a page's timers fire after a long frame
 # BEFORE that frame moves the player, so a stale report of the old place arrived, and the true place 0.2 s later —
 # 60 m in 0.2 s by the per-message rule, refused, and the flier was pulled back. The anchor a report is measured from

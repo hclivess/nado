@@ -53,6 +53,12 @@ export class Sound {
   constructor(on, Ctx = globalThis.AudioContext || globalThis.webkitAudioContext) {
     this.on = on; this.Ctx = Ctx; this.ctx = null; this.last = {};
   }
+  /** THE LEVEL (#113: a volume, not only on and off): `on()` gives true/false or a share 0..1 (the page: the Sound
+   *  setting times the Volume setting); every cue, the wind and the engines are scaled by it, and 0 is silence. */
+  level() {
+    const v = this.on();
+    return v === true ? 1 : !v ? 0 : Math.max(0, Math.min(1, Number(v) || 0));
+  }
   enable() {
     if (this.ctx || !this.Ctx) return;
     try { this.ctx = new this.Ctx(); } catch (e) { this.ctx = null; }
@@ -61,7 +67,7 @@ export class Sound {
   /** The wind at `level` (windLevel), eased over a fifth of a second; silent with the setting off. Built on first use. */
   wind(level) {
     if (!this.ctx || !this.ctx.createBiquadFilter) return false;
-    const c = this.ctx, lv = this.on() ? Math.max(0, Math.min(1, level)) : 0;
+    const c = this.ctx, vol = this.level(), lv = vol ? Math.max(0, Math.min(1, level)) : 0;
     if (!this.windG) {
       const n = Math.floor(c.sampleRate * 2), buf = c.createBuffer(1, n, c.sampleRate), d = buf.getChannelData(0);
       let b = 0; for (let i = 0; i < n; i++) { b = 0.97 * b + 0.03 * (Math.random() * 2 - 1); d[i] = b * 4; }   // a brown-ish noise: the low rumble of air
@@ -70,7 +76,7 @@ export class Sound {
       this.windG = c.createGain(); this.windG.gain.value = 0;
       src.connect(this.windF); this.windF.connect(this.windG); this.windG.connect(c.destination); src.start();
     }
-    this.windG.gain.setTargetAtTime(WIND.gain * lv, c.currentTime, 0.2);
+    this.windG.gain.setTargetAtTime(WIND.gain * lv * vol, c.currentTime, 0.2);
     this.windF.frequency.setTargetAtTime(WIND.hz0 + (WIND.hz1 - WIND.hz0) * lv ** 0.8, c.currentTime, 0.2);
     return true;
   }
@@ -79,7 +85,7 @@ export class Sound {
    *  off the controls. Built on first use, eased over a tenth of a second. */
   engine(throttle) {
     if (!this.ctx || !this.ctx.createBiquadFilter) return false;
-    const c = this.ctx, th = this.on() ? Math.max(0, Math.min(1, throttle)) : 0;
+    const c = this.ctx, vol = this.level(), th = vol ? Math.max(0, Math.min(1, throttle)) : 0;
     if (!this.engG) {
       this.engF = c.createBiquadFilter(); this.engF.type = "lowpass"; this.engF.frequency.value = ENGINE.hz0 * 4;
       this.engG = c.createGain(); this.engG.gain.value = 0;
@@ -89,15 +95,16 @@ export class Sound {
     const hz = ENGINE.hz0 + (ENGINE.hz1 - ENGINE.hz0) * th;
     this.engO.forEach((o, k) => o.frequency.setTargetAtTime(hz * (1 + k * 0.012), c.currentTime, 0.1));
     this.engF.frequency.setTargetAtTime(hz * 4, c.currentTime, 0.1);
-    this.engG.gain.setTargetAtTime(ENGINE.gain * th, c.currentTime, 0.1);
+    this.engG.gain.setTargetAtTime(ENGINE.gain * th * vol, c.currentTime, 0.1);
     return true;
   }
   cue(name, vol = 1, gap = 60) {
-    if (!this.ctx || !this.on()) return false;
+    const lvl = this.level();
+    if (!this.ctx || !lvl) return false;
     const now = performance.now();
     if (now - (this.last[name] || -1e9) < gap) return false;
     this.last[name] = now;
-    play(this.ctx, name, vol);
+    play(this.ctx, name, vol * lvl);
     return true;
   }
 }

@@ -4445,7 +4445,7 @@
   }
  },
  "food": {
-  "about": "EATING (#155, doc/land-civilisation.md): food is a reward, never a meter that punishes a player who stops playing. Eating one item of food makes work quicker (breaking takes `work` of its time) for its seconds, added to what is left up to max_s. Read by the page (its break bar) and the world server (its work bucket).",
+  "about": "EATING (#155, doc/land-civilisation.md): food is a reward, never a meter that punishes a player who stops playing. Eating one item of food makes work quicker (breaking takes `work` of its time) for its seconds, added to what is left up to max_s. Read by the page (its break bar) and the world server (its work bucket). (#170) Every number in this section is a GAME RULE chosen for play, not a measurement of the world.",
   "work": 0.8,
   "max_s": 1800,
   "items": {
@@ -4589,7 +4589,7 @@
   "keep_trades": 20000
  },
  "health": {
-  "about": "HEALTH (#162): a player has max health; nothing that hurt them for calm_s, it comes back one point every regen_s; at 0 they die — the bag is kept — and wake at the bed they last used, or at the landing, with grace_s in which nothing hurts them.",
+  "about": "HEALTH (#162): a player has max health; nothing that hurt them for calm_s, it comes back one point every regen_s; at 0 they die — the bag is kept — and wake at the bed they last used, or at the landing, with grace_s in which nothing hurts them. (#170) Every number in this section is a GAME RULE chosen for play, not a measurement of the world.",
   "max": 20,
   "regen_s": 6,
   "calm_s": 10,

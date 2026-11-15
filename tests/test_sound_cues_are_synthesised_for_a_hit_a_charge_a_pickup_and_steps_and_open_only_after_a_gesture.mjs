@@ -65,12 +65,12 @@ ok(none.ctx === null && none.cue("hit") === false, "a browser without AudioConte
 
 // 3. the page
 const land = readFileSync(join(ROOT, "static", "land.js"), "utf8"), I = JSON.parse(readFileSync(join(ROOT, "static", "i18n_games", "land.json"), "utf8"));
-ok(/import \{ Sound(, windLevel)? \} from "\.\/land-sound\.js";/.test(land) && /const sound = new Sound\(\(\) => !!SET\.sound\);/.test(land), "the page makes one Sound bound to the setting");
+ok(/import \{ Sound(, windLevel)? \} from "\.\/land-sound\.js";/.test(land) && /const sound = new Sound\(\(\) => SET\.sound \? \(SET\.volume \?\? 100\) \/ 100 : 0\);/.test(land), "the page makes one Sound bound to the setting: on or off, times the volume");
 ok(/function lockPointer\(\) \{\n  sound\.enable\(\);/.test(land) && /document\.addEventListener\("touchstart", \(\) => sound\.enable\(\), \{ once: true, passive: true \}\);/.test(land), "it is enabled on the first click and the first touch");
 ok(/setTimeout\(\(\) => f\.classList\.remove\("on"\), 120\);\n      sound\.cue\("hit"\);/.test(land) && /m\.t === "charge"\) \{\n      sound\.cue\("charge", 1, 1500\);/.test(land), "a hit cues on `hurt`, a charge on `charge`");
 ok(/some\(\(\[k, n\]\) => n > \(inv\.items\[k\] \|\| 0\)\)\) sound\.cue\("pickup", 1, 150\);/.test(land), "a pickup cues when an inventory count rose");
 ok(/if \(P\.ground && !P\.fly\) \{ stepDist \+= Math\.hypot\(P\.vu \|\| 0, P\.vv \|\| 0\) \* dt; if \(stepDist >= 0\.35\) \{ stepDist = 0; sound\.cue\("step", 0\.8, 120\); \} \} else stepDist = 0;/.test(land), "a footfall every 0.35 m walked on the ground, none in the air or in flight");
-ok(/sound: 1 \}/.test(land.slice(land.indexOf("const SET_DEF"), land.indexOf("const SET_DEF") + 300)) && /sound: \[0, 1\]/.test(land) && /sel\("sound", T\("gSound"/.test(land), "the setting is on by default, bounded, and in the Settings panel");
+ok(/sound: 1[,}]/.test(land.slice(land.indexOf("const SET_DEF"), land.indexOf("const SET_DEF") + 300)) && /sound: \[0, 1\]/.test(land) && /sel\("sound", T\("gSound"/.test(land), "the setting is on by default, bounded, and in the Settings panel");
 ok(Object.keys(I).length === 17 && Object.keys(I).every((l) => typeof I[l]["land.gSound"] === "string" && I[l]["land.gSound"].length > 3), "the setting's label is in all 17 languages");
 
 // 2b. the wind
@@ -102,5 +102,18 @@ ok(/const at = flying \? flying\.pose : \[P\.face, P\.u, P\.v, P\.h\], spd = fly
   ok(e.engG.gain.value === 0, "the sound setting off silences it");
 }
 ok(/sound\.engine\(flying && flying\.engine \? flying\.engine\.throttle : 0\);/.test(readFileSync(join(ROOT, "static", "land.js"), "utf8")), "the page drives it from the flown craft's throttle, silent off the controls");
+// 2d. THE VOLUME (#113: "a volume, not only on and off"): the level scales every cue, the wind and the engines; 0 is silence
+{
+  let lv = 0.5; const v = new Snd.Sound(() => lv, FakeCtx); v.enable();
+  v.cue("pickup"); const g = v.ctx.made.filter((n) => n instanceof GainNode)[0];
+  ok(g && Math.abs(g.gain.ramps[1][1] - Snd.CUES.pickup.gain * 0.5) < 1e-9, `at half volume a cue peaks at half its gain (${g && g.gain.ramps[1][1].toFixed(3)} of ${Snd.CUES.pickup.gain})`);
+  v.engine(1); ok(Math.abs(v.engG.gain.value - Snd.ENGINE.gain * 0.5) < 1e-9, "…the engines drone at half their level");
+  v.wind(1); ok(Math.abs(v.windG.gain.value - Snd.WIND.gain * 0.5) < 1e-9, "…and the wind blows at half");
+  lv = 0; ok(v.cue("hit") === false && (v.engine(1), v.engG.gain.value === 0) && (v.wind(1), v.windG.gain.value === 0), "a volume of 0 is silence");
+  ok(new Snd.Sound(() => true, FakeCtx).level() === 1 && new Snd.Sound(() => false, FakeCtx).level() === 0 && new Snd.Sound(() => 7, FakeCtx).level() === 1, "true is full, false silent, a share past 1 is held at 1");
+  const page = readFileSync(join(ROOT, "static", "land.js"), "utf8");
+  ok(/volume: 100 \};/.test(page) && /volume: \[0, 100\]/.test(page) && /sel\("volume", T\("gVolume", "Volume"\)/.test(page), "the Volume setting is 100 % by default, bounded 0..100 and in the Settings panel");
+  ok(Object.keys(I).length === 17 && Object.keys(I).every((l) => typeof I[l]["land.gVolume"] === "string" && I[l]["land.gVolume"].length > 1), "its label is in all 17 languages");
+}
 console.log(fails ? `${fails} FAILED` : "all passed");
 process.exit(fails ? 1 : 0);

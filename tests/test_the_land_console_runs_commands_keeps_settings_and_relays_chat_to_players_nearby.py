@@ -159,7 +159,7 @@ check("every setting reaches what it names",
       and "if (!SET.effects ||" in js and "pipeline = buildPipeline();                             // the post-processing" in js
       # (res: the stars' point size follows the resolution too since 3d7b3ea8, #181 item 9 — the line became a block)
       and 'if (k === "res") { renderer.setPixelRatio(basePR() * SET.res / 100);' in js and "viewDist = SET.view;" in js
-      and "const sound = new Sound(() => !!SET.sound);" in js)    # sound (#113): the cues read the switch
+      and "const sound = new Sound(() => SET.sound ? (SET.volume ?? 100) / 100 : 0);" in js)    # sound (#113): the cues read the switch times the volume
 check("…range-checked and remembered in this browser",
       "v >= SET_RANGE[k][0] && v <= SET_RANGE[k][1]" in js and "localStorage.setItem(LS_SET, JSON.stringify({ ...SET, sv: SET_VER }))" in js
       and "s[k] >= SET_RANGE[k][0] && s[k] <= SET_RANGE[k][1]" in js)

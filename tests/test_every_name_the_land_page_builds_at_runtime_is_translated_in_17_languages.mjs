@@ -40,5 +40,9 @@ for (const k of kinds) need.push("a." + k);
 for (const s of ["head", "body", "legs", "back"]) need.push("slot." + s);
 const missing = need.map((k) => [k, langs.filter((l) => typeof L[l]["land." + k] !== "string" || !L[l]["land." + k].trim())]).filter(([, l]) => l.length);
 ok(missing.length === 0, `every one of the ${need.length} names the page builds at runtime is in all 17 languages` + (missing.length ? ": missing " + missing.map(([k, l]) => `${k} (${l.length})`).join(", ") : ""));
+// a recipe line never puts a bare number before a name, nor a preposition before a tool (#179, in Czech: "6 Klacky",
+// "s Kamenná sekera" — neither declined): counts read "n × name", the tools a "needs:" label, in all 17 languages
+ok(/const need = r\.uses\.map\(\(\[id, n\]\) => `\$\{n\} × \$\{nameOf\(id\)\}`\)/.test(page) && /T\("with", "needs: \{w\}"/.test(page), "a recipe's counts read \"6 × Sticks\" and its tools \"needs: …\"");
+ok(langs.length === 17 && langs.every((l) => /^[^{]*[:：] ?\{w\}$/.test(L[l]["land.with"])), "…the tools label is a label ending in \": {w}\" in every language (no preposition that would decline the name): " + langs.map((l) => l + " " + L[l]["land.with"]).join(" | "));
 console.log(fails ? `${fails} FAILED` : "all passed");
 process.exit(fails ? 1 : 0);

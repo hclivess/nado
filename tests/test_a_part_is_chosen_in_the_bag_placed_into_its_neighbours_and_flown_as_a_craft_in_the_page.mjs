@@ -227,6 +227,7 @@ try {
   await tap('[data-part="2"]'); await sleep(400);
   ok(await evl(B, "(() => { const s = document.getElementById('pzVar'); return !!s && s.options.length === 10 && s.value === '3' && s.selectedOptions[0].textContent === '0.4'; })()"), "hull chosen, its taper is a select, at 0.4");
   ok(await evl(B, "document.querySelector('[data-part=\"2\"]').getAttribute('aria-pressed') === 'true' && /of a block/.test(document.getElementById('palette').textContent)"), "…the chip is pressed, and the bag says what it takes of a block");
+  ok(await evl(B, "[...document.querySelectorAll('[data-shape]')].every((e) => e.getAttribute('aria-pressed') === 'false' && !e.classList.contains('tool'))"), "…and no box, slope or stairs chip is lit beside the chosen part (the box chip stayed lit, #187)");
   await size(120, 200, 80);
   await tap("#palClose"); await sleep(500);
   ok(await hold("Steel plate"), "steel plate is in hand");
