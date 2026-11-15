@@ -2195,7 +2195,7 @@ function wakeUp() {
 // a mark when they have something for this player — "!" work, "?" a quest to hand in. Use on one talks to them: what
 // they offer (Accept), the player's quests that end with them (Hand in). The quest log is in the bag.
 const npcs = new Map();                            // id -> { mesh, plate, mark, sig, at }
-const PLATE_H = 0.07;                              // a name tag's height in unattenuated sprite units (~5 % of the view at 72°)
+const PLATE_H = 0.2;                               // a name tag's height in unattenuated sprite units: ~5 % of the view (measured: 0.07 drew 1.7 %, unreadable)
 function label(text, sub, col) {
   const cv = document.createElement("canvas"); cv.width = 256; cv.height = 64;
   const g = cv.getContext("2d");

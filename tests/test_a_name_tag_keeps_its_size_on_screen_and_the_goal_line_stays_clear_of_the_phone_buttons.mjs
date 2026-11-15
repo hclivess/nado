@@ -19,12 +19,12 @@ const page = readFileSync(join(ROOT, "static", "land.js"), "utf8"), html = readF
 let fails = 0;
 const ok = (c, m) => { console.log((c ? "ok   " : "FAIL ") + m); if (!c) fails++; };
 const lab = page.slice(page.indexOf("function label("), page.indexOf("\n}\n", page.indexOf("function label(")));
-ok(/new THREE\.SpriteMaterial\(\{ map: t, depthWrite: false, transparent: true, sizeAttenuation: false \}\)/.test(lab) && /sp\.scale\.set\(PLATE_H \* 4, PLATE_H, 1\); sp\.center\.set\(0\.5, 0\);/.test(lab) && /const PLATE_H = 0\.07;/.test(page),
+ok(/new THREE\.SpriteMaterial\(\{ map: t, depthWrite: false, transparent: true, sizeAttenuation: false \}\)/.test(lab) && /sp\.scale\.set\(PLATE_H \* 4, PLATE_H, 1\); sp\.center\.set\(0\.5, 0\);/.test(lab) && /const PLATE_H = 0\.2;/.test(page),
   "1. a name tag keeps one size on screen (unattenuated), PLATE_H high and four times as wide, hung by its bottom edge");
-// the tag's share of the view's height at the page's field of view: three draws an unattenuated sprite PLATE_H tall in
-// view units, i.e. PLATE_H × the projection's y scale over 2 of the screen
-const fov = 72, share = 0.07 * (1 / Math.tan((fov / 2) * Math.PI / 180)) / 2;
-ok(share > 0.03 && share < 0.07, `…about ${(share * 100).toFixed(1)} % of the view's height at the default ${fov}° — readable, never the screen`);
+// the tag's share of the view's height, MEASURED on the live page (800 × 480, 72°): PLATE_H 0.07 drew a tag 1.7 % of the
+// height (unreadable — the first try, from a formula that was wrong), so the share is 0.243 × PLATE_H
+const share = 0.243 * Number(page.match(/const PLATE_H = ([0-9.]+);/)[1]);
+ok(share > 0.04 && share < 0.07, `…about ${(share * 100).toFixed(1)} % of the view's height — readable, never the screen`);
 ok(/r\.mark\.scale\.set\(PLATE_H \* 3\.5, PLATE_H \* 0\.875, 1\); r\.mark\.center\.set\(0\.5, -1\.15\); r\.mark\.position\.set\(0, 2\.05, 0\);/.test(page) && /plate\.position\.set\(0, 2\.05, 0\); mesh\.add\(plate\);/.test(page),
   "2. a townsperson's mark hangs from the tag's own point, one tag-height above it, at every distance");
 const m = html.match(/body\.touch #goal\{max-width:max\((\d+)px,calc\(100vw - (\d+)px\)\);font-size:11px\}/);
