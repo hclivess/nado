@@ -58,6 +58,31 @@ for _ in range(60):
     for q in w.offered(WHO, elder):
         seen.add(q["kind"] if q["kind"] != "bring" else q["item"])
 check("from level 2 the whole book is open again (a hunt or a tool's item turns up)", "hunt" in seen or any(i in seen for i in ("grain", "cobble", "planks", "wood")), sorted(seen))
+
+# 2b. no job twice (playtest 2026-11-15: "Carry a parcel to Tobin" offered twice, side by side)
+shape = lambda q: (q["kind"], q.get("item") or q.get("what") or q.get("to"))
+pl["xp"] = 0
+dup = []
+for _ in range(200):
+    pl["offered"] = {}
+    got = [shape(q) for q in w.offered(WHO, elder)]
+    if len(set(got)) != len(got):
+        dup.append(got)
+check("no offer list holds the same job twice (200 lists drawn)", not dup, dup[:2])
+pl["quests"] = [{"id": "x", "kind": "deliver", "giver": elder, "to": next(n["id"] for n in Q["npcs"] if n["id"] != elder)}]
+held = []
+for _ in range(200):
+    pl["offered"] = {}
+    got = [shape(q) for q in w.offered(WHO, elder)]
+    if shape(pl["quests"][0]) in got:
+        held.append(got)
+check("…nor offers a job the player is already doing (200 lists drawn while carrying a parcel)", not held, held[:2])
+pl["quests"] = []
+twice = {"id": "a", "kind": "deliver", "giver": elder, "to": "tobin"}
+pl["offered"] = {elder: [twice, dict(twice, id="b"), {"id": "c", "kind": "bring", "giver": elder, "item": "stone", "n": 6}]}
+again = [shape(q) for q in w.offered(WHO, elder)]
+check("…and a list kept from before with a job twice loses the copy and is topped up with another job",
+      len(again) == len(set(again)) == Q["offered"] and again[0] == shape(twice) and [q["id"] for q in pl["offered"][elder]][:2] == ["a", "c"], again)
 pl["xp"] = 0
 
 # 3. the trader's word

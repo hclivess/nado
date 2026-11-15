@@ -103,7 +103,9 @@ async def main():
     check("a deliver quest hands the player its parcel", items(a).get("parcel") == 1)
     r = await (await c.post("/land/api/offer", json={"give": {"parcel": 1}, "want": {"stone": 1}}, headers=ha)).json()
     check("…which is carried, not traded", not r["ok"] and "parcel" in r["error"], r)
-    pl["offered"]["elder"].append({"id": "q4", "kind": "bring", "giver": "elder", "item": "stone", "n": 1})
+    # (clay: a job a level-1 top-up never draws — one the list already held would be dropped as a repeat, "not offered
+    # any more", before the limit is reached; the offers never hold one job twice, 2026-11-15)
+    pl["offered"]["elder"].append({"id": "q4", "kind": "bring", "giver": "elder", "item": "clay", "n": 1})
     r = await quest(ha, "accept", "elder", "q4")
     check(f"at most {Q['max_open']} quests at a time", not r["ok"] and "at most" in r["error"], r)
 

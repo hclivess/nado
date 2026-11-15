@@ -1018,10 +1018,31 @@ class World:
         pl = self.player(who)
         offers = pl.setdefault("offered", {}).setdefault(nid, [])
         level = self.level_of(pl.get("xp", 0))
+        # NO JOB TWICE (playtest 2026-11-15: Maren offered "Carry a parcel to Tobin" twice, side by side): an offer the
+        # list already holds, or a job the player is already doing, is drawn again — a few times, then let through if the
+        # book is too small to avoid it. One already kept twice (from before this) is dropped when the list is read.
+        held = {self._shape(q) for q in pl.get("quests", [])}
+        kept, seen = [], set()
+        for q in offers:
+            if self._shape(q) not in seen:
+                seen.add(self._shape(q)); kept.append(q)
+        if len(kept) != len(offers):
+            offers[:] = kept
+            self.pdirty.add(who)
         while len(offers) < RULES["quests"]["offered"]:
-            offers.append(self._new_quest(nid, level))
+            for _ in range(12):
+                q = self._new_quest(nid, level)
+                if self._shape(q) not in seen and self._shape(q) not in held:
+                    break
+            seen.add(self._shape(q))
+            offers.append(q)
             self.pdirty.add(who)
         return offers
+
+    @staticmethod
+    def _shape(q):
+        """What makes two jobs the same to a player: the kind and what it is for (the item, the animal, the addressee)."""
+        return (q["kind"], q.get("item") or q.get("what") or q.get("to"))
 
     def talk(self, who, nid, pos):
         """An NPC's word for this player: their offers and the player's quests that end with them (ready or not)."""
