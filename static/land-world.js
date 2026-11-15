@@ -636,6 +636,29 @@ export function turnVec(r, v, inverse = false) {
   return roll(pitch(yaw(v, -rad(r[0])), -rad(r[1])), -rad(r[2]));
 }
 const centreOf = (b) => [b[0] + b[3] / 2, b[1] + b[4] / 2, b[2] + b[5] / 2];
+/** SYMMETRY (#187, the Kerbal half: the X-wing's four S-foils, engines and cannons were each placed one at a time on
+ *  0·4999·3438). The twin of piece `p` mirrored through the middle of the piece `about` it was placed against — the plane
+ *  across that piece's own width, as KSP mirrors a part about its parent: east-west when `about`'s nose points mostly
+ *  north or south, else north-south. A square box or slope only moves (a slope's rise flips with it); a turned piece or a
+ *  part is turned as its mirror image: the mirror of a solid symmetric across its own width is that solid turned (yaw
+ *  negated — or 180° less it, through a north-south plane — pitch kept, roll negated); a WING is the one part that is not
+ *  (root at x 0, tip at its width), and the other side's wing is the same wing rolled half a turn (land-shapes.js). */
+export function mirrorPiece(p, about) {
+  const ac = centreOf(about), n = turnVec(rotOf(about), [0, 1, 0]), ew = Math.abs(n[1]) >= Math.abs(n[0]);
+  const q = p.slice(0, 7);
+  if (ew) q[0] = 2 * ac[0] - p[0] - p[3]; else q[1] = 2 * ac[1] - p[1] - p[4];
+  let shape = shapeOf(p);
+  if (!isTurned(p) && !Shapes.isPart(shape)) {                          // square: moved, its rise flipped on the mirrored axis
+    const flip = ew ? { 1: 2, 2: 1 } : { 3: 4, 4: 3 };
+    return normalBox([...q, flip[shape] || shape]);
+  }
+  const wrap = (t) => { t = ((t % 3600) + 3600) % 3600; return t > 1800 ? t - 3600 : t; };   // into (-1800, 1800]
+  const [yw, pt, rl] = rotOf(p);
+  let roll = -rl;
+  if (shape === 1) shape = 2; else if (shape === 2) shape = 1;           // a turned slope: its rise across its width flips
+  else { const d = Shapes.decode(shape); if (d && d.type === Shapes.WING) roll += 1800; }
+  return normalBox([...q, shape, wrap(ew ? -yw : 1800 - yw), pt, wrap(roll)]);
+}
 /** The box [x, z, y, w, d, h] (whole cm, outward) a piece fills — itself, or what a turned piece reaches. */
 export function boxAabb(b) {
   if (!isTurned(b)) return b.slice(0, 6);

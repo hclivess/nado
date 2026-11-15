@@ -96,10 +96,10 @@ let mouseHeld = false;
 // any W x D x H in the bag) and lands on a SNAP grid they choose; the ground stays whole cells.
 const PRESETS = [[100, 100, 100], [100, 100, 10], [100, 10, 100], [10, 10, 100], [200, 20, 5], [25, 25, 25], [5, 5, 5], [1, 1, 1]];
 const SNAPS = [1, 5, 10, 25, 50, 100];
-let piece = { w: 100, d: 100, h: 100, snap: 10, shape: 0, rot: 0, tilt: [0, 0, 0], part: 0 };   // shape: 0 box, 1 slope, 2 stairs (G cycles; T turns); tilt: yaw, pitch, roll in tenths of a degree (#169); part: a land-shapes.js shape byte, 0 for none (#175)
+let piece = { w: 100, d: 100, h: 100, snap: 10, shape: 0, rot: 0, tilt: [0, 0, 0], part: 0, mirror: false };   // shape: 0 box, 1 slope, 2 stairs (G cycles; T turns); tilt: yaw, pitch, roll in tenths of a degree (#169); part: a land-shapes.js shape byte, 0 for none (#175)
 const plotBoxes = new Map();          // plot -> { list, idx: Map(1 m bucket -> [box]) }
 let pipeline = null;                  // the post-processed render (or null: the plain render on a weak device)
-let renderer, scene, camera, sun, hemi, atlasTex, matSolid, matClear, matGround, matTrees, matPieces, matGlassy, matBark, matLeaves, matWater, matFlame, ghost, farMesh = null, farAt = null;
+let renderer, scene, camera, sun, hemi, atlasTex, matSolid, matClear, matGround, matTrees, matPieces, matGlassy, matBark, matLeaves, matWater, matFlame, ghost, ghost2, farMesh = null, farAt = null;
 // A PHONE ("very laggy on a phone", operator 2026-11-08) is known from the start — before the renderer is made — so
 // what it costs is set for it: 1.25 pixels per CSS pixel (not 2: ~2.6x fewer to shade), 4 chunks of full view (the far
 // land still draws to the horizon), two point lights, no shadows unless asked for (/set shadows 1), and full tree
@@ -1022,7 +1022,7 @@ function pieceInfo(pressed) {
   const shapeName = part ? partName(part) : [T("shapeBox", "box"), T("shapeSlope", "slope"), T("shapeStairs", "stairs")][piece.shape || 0];
   const tl = piece.tilt || [0, 0, 0], tilted = tl.some((t) => t);
   el.textContent = id && RULES && !NATURAL_ITEMS.has(id) ? T("pieceInfo", "Piece {w} × {d} × {h} cm · snap {s} cm", { w, d, h, s: piece.snap }) + " · " + shapeName
-    + (tilted ? " · " + T("tiltInfo", "tilt {y}° {p}° {r}°", { y: tl[0] / 10, p: tl[1] / 10, r: tl[2] / 10 }) : "") : "";
+    + (tilted ? " · " + T("tiltInfo", "tilt {y}° {p}° {r}°", { y: tl[0] / 10, p: tl[1] / 10, r: tl[2] / 10 }) : "") + (piece.mirror ? " · " + T("mirrorOn", "mirrored") : "") : "";
   save();
 }
 // A NEWCOMER ARRIVES BY THE TOWN HALL ("make people spawn by the town hall by default", operator 2026-11-07): on the
@@ -1053,6 +1053,7 @@ function load() {
     piece = d.piece;
     if (!Shapes.isPart(piece.part)) piece.part = 0;       // no part, or a byte that is none (#175): a plain piece
     if (!(Array.isArray(piece.tilt) && piece.tilt.length === 3 && piece.tilt.every((t) => Number.isInteger(t) && t > -1800 && t <= 1800))) piece.tilt = [0, 0, 0];
+    piece.mirror = piece.mirror === true;
   }
   const at = d && restorePlace(d.p, W, (f, u, v, h) => { const pf = P.face; P.face = f; const c = collides(u, v, h); P.face = pf; return c; },
     (f, u, v) => colAt(f, Math.floor(u), Math.floor(v)).height, (f, u, v) => { const pf = P.face; P.face = f; const g = groundAt(f, u, v); P.face = pf; return g; });
@@ -2236,7 +2237,49 @@ function label(text, sub, col) {
   // sprite units), anchored by its bottom edge (center y 0) at the point it is hung from
   const sp = new THREE.Sprite(new THREE.SpriteMaterial({ map: t, depthWrite: false, transparent: true, sizeAttenuation: false }));
   sp.scale.set(PLATE_H * 4, PLATE_H, 1); sp.center.set(0.5, 0); sp.userData.base = [PLATE_H * 4, PLATE_H];
+  g.font = "bold 26px sans-serif"; let tw = g.measureText(text).width;
+  if (sub) { g.font = "18px sans-serif"; tw = Math.max(tw, g.measureText(sub).width); }
+  sp.userData.textW = Math.min(1, (tw + 10) / 256);       // how much of the tag's width its words take (declutterPlates)
   return sp;
+}
+/** NAME TAGS DO NOT SIT ON ONE ANOTHER (playtest 2026-11-15: Maren's and Ida's tags, two people side by side by the
+ *  town hall, were drawn over each other into one unreadable word). `items`: each tag's screen box at its own place —
+ *  { d (distance), x0, x1, y0, y1, step (its own height) } in the same units — and the number of its own heights each is
+ *  lifted: nearest first, never moved; a farther one rises until it is clear of every tag already placed, at most
+ *  PLATE_LIFT steps (a crowd keeps its tags near their people rather than stacking them into the sky). */
+const PLATE_LIFT = 3;
+function declutterPlates(items) {
+  const order = items.map((_, i) => i).sort((a, b) => items[a].d - items[b].d), placed = [], lift = new Array(items.length).fill(0);
+  const hit = (r, L) => placed.some((o) => r.x0 < o.x1 && o.x0 < r.x1 && r.y0 + L * r.step < o.y1 && o.y0 < r.y1 + L * r.step);
+  for (const i of order) {
+    const r = items[i];
+    let L = 0;
+    while (L < PLATE_LIFT && hit(r, L)) L++;
+    lift[i] = L;
+    placed.push({ x0: r.x0, x1: r.x1, y0: r.y0 + L * r.step, y1: r.y1 + L * r.step });
+  }
+  return lift;
+}
+const _pv = new THREE.Vector3();
+/** Each frame, after the tags are sized: measure every shown tag's box on screen (a tag that ignores distance is
+ *  scale × the projection's own factor — three's sizeAttenuation false) and lift the crowded ones (declutterPlates). */
+function platesFrame() {
+  const P0 = camera.projectionMatrix.elements[0], P5 = camera.projectionMatrix.elements[5], items = [], tags = [];
+  const add = (mesh) => {
+    const name = mesh.children.find((c) => c.isSprite && c.userData.textW), mark = mesh.children.find((c) => c.isSprite && c.userData.mark);
+    if (!name || !mesh.visible) return;
+    name.getWorldPosition(_pv); const d = _pv.length(); _pv.project(camera);
+    if (_pv.z > 1 || Math.abs(_pv.x) > 1.2 || Math.abs(_pv.y) > 1.2) { name.center.y = 0; if (mark) mark.center.y = -1.15; return; }
+    const hw = name.scale.x * P0 * name.userData.textW / 2, h = name.scale.y * P5, top = mark ? Math.max(h, 2.15 * mark.scale.y * P5) : h;
+    items.push({ d, x0: _pv.x - hw, x1: _pv.x + hw, y0: _pv.y, y1: _pv.y + top, step: h }); tags.push([name, mark]);
+  };
+  for (const r of npcs.values()) add(r.mesh);
+  for (const r of others.values()) if (r.p && r.mesh) add(r.mesh);
+  declutterPlates(items).forEach((L, i) => {
+    const [name, mark] = tags[i];
+    name.center.y = -L;                                                      // its own heights up from where it hangs
+    if (mark) mark.center.y = -1.15 - L * name.scale.y / mark.scale.y;      // its "!" or "?" goes up with it
+  });
 }
 const roleName = (r) => T("npc." + r, { elder: "Elder", trader: "Trader", smith: "Smith" }[r] || r);
 function npcsSeen(list) {
@@ -2253,7 +2296,7 @@ function npcsSeen(list) {
       if (r.mark) r.mesh.remove(r.mark);
       r.mark = n.mark ? label(n.mark, null, n.mark === "?" ? "#9fe0ff" : "#ffd84a") : null;
       // (the mark rides one tag-height above the name tag, from the same point, so the two never overlap at any distance)
-      if (r.mark) { r.mark.scale.set(PLATE_H * 3.5, PLATE_H * 0.875, 1); r.mark.userData.base = [PLATE_H * 3.5, PLATE_H * 0.875]; r.mark.center.set(0.5, -1.15); r.mark.position.set(0, 2.05, 0); r.mesh.add(r.mark); }
+      if (r.mark) { r.mark.userData.mark = true; r.mark.userData.textW = 0; r.mark.scale.set(PLATE_H * 3.5, PLATE_H * 0.875, 1); r.mark.userData.base = [PLATE_H * 3.5, PLATE_H * 0.875]; r.mark.center.set(0.5, -1.15); r.mark.position.set(0, 2.05, 0); r.mesh.add(r.mark); }
       r.markSig = n.mark;
     }
   }
@@ -3132,6 +3175,8 @@ function renderBag() {
       <span>${esc(T("tiltPitch", "Pitch"))}</span><input id="pzPitch" type="number" step="0.1" min="-179.9" max="180" value="${(piece.tilt || [0, 0, 0])[1] / 10}">
       <span>${esc(T("tiltRoll", "Roll"))}</span><input id="pzRoll" type="number" step="0.1" min="-179.9" max="180" value="${(piece.tilt || [0, 0, 0])[2] / 10}"><span>°</span>
       <button class="chip pl" id="pzSquare">${esc(T("tiltSquare", "Square"))}</button></div>
+    <div class="tradeform"><button class="chip pl${piece.mirror ? " tool" : ""}" id="pzMirror" aria-pressed="${!!piece.mirror}">${esc(T("mirror", "Mirror"))}</button>
+      <span class="dim">${esc(T("mirrorHint", "A piece placed against another gets a twin on that piece's far side, mirrored — wings, engines and cannons in pairs."))}</span></div>
     </section>${sec("make")}
     <h3>${esc(T("make", "Make"))}</h3>
     <div class="recipes">${recipes.map((r) => {
@@ -3185,12 +3230,13 @@ function renderBag() {
   $("pzTurn").onclick = () => { turnPiece(); renderBag(); };
   const size = () => {
     const v = (id, max) => Math.max(1, Math.min(max, Math.round(Number($(id).value) || 1)));
-    piece = { w: v("pzW", Wd.PLOT_CM), d: v("pzD", Wd.PLOT_CM), h: v("pzH", Wd.H_CM), snap: Number($("pzS").value), shape: piece.shape, rot: piece.rot, turned: piece.turned, part: piece.part,
+    piece = { w: v("pzW", Wd.PLOT_CM), d: v("pzD", Wd.PLOT_CM), h: v("pzH", Wd.H_CM), snap: Number($("pzS").value), shape: piece.shape, rot: piece.rot, turned: piece.turned, part: piece.part, mirror: piece.mirror,
       tilt: ["pzYaw", "pzPitch", "pzRoll"].map((id) => tenths($(id).value)) };
     pieceInfo();
   };
   for (const id of ["pzW", "pzD", "pzH", "pzS", "pzYaw", "pzPitch", "pzRoll"]) $(id).onchange = size;
   $("pzSquare").onclick = () => { piece.tilt = [0, 0, 0]; pieceInfo(); renderBag(); };
+  $("pzMirror").onclick = () => { piece.mirror = !piece.mirror; pieceInfo(); renderBag(); };
   $("ofPost").onclick = () => req({ t: "offer", give: { [$("ofG").value]: Number($("ofGN").value) }, want: { [$("ofW").value]: Number($("ofWN").value) } });
   $("gvGo").onclick = () => {
     const to = $("gvTo").value.trim();
@@ -3249,7 +3295,21 @@ function placement(a) {
   // straight down at their feet with a red outline and no idea why, playtest 2026-11-15)
   const inBody = me.plot === c.plot && pieces.some(inMe), onPiece = !!rec && pieces.some((p) => rec.list.some((o) => Wd.piecesClash(p, o) || (o.length === p.length && o.every((x, i) => i === 6 || x === p[i]))));
   const clash = inBody || onPiece;
-  return { plot: c.plot, box, pieces, why: inBody && !onPiece ? "me" : "", ok: !clash && pieces.every((p) => Wd.boxOk(Wd.normalBox(p.slice(0, 6).concat([p[6] || 1], p.slice(7))))) && box[2] >= 0 && box[2] + h <= Wd.H_CM };
+  const fits = (p) => Wd.boxOk(Wd.normalBox(p.slice(0, 6).concat([p[6] || 1], p.slice(7))));
+  // SYMMETRY (#187): with Mirror on, a piece placed against another gets its twin through that piece's middle
+  // (land-world.js mirrorPiece) — both or neither: a twin with no room refuses the pair ("twin"), as KSP does. A piece
+  // that straddles the middle is its own twin (none is added).
+  let twin = null, twinBad = false;
+  if (piece.mirror && a.box && a.box.plot === c.plot) {
+    const ts = pieces.map((p) => Wd.mirrorPiece(p, a.box.b)), same = ts.every((t, i) => Wd.normalBox(t).join() === Wd.normalBox(pieces[i]).join());
+    if (!same) {
+      twin = ts;
+      twinBad = ts.some((t) => !fits(t) || (me.plot === c.plot && inMe(t)) || pieces.some((p) => Wd.piecesClash(t, p))
+        || (!!rec && rec.list.some((o) => Wd.piecesClash(t, o) || (o.length === t.length && o.every((x, i) => i === 6 || x === t[i])))));
+    }
+  }
+  const ok = !clash && pieces.every(fits) && box[2] >= 0 && box[2] + h <= Wd.H_CM;
+  return { plot: c.plot, box, pieces: twin ? pieces.concat(twin) : pieces, twin: twin && twin[0], why: inBody && !onPiece ? "me" : ok && twinBad ? "twin" : "", ok: ok && !twinBad };
 }
 // ROOFS AND STAIRS ("A REAL HOUSE"): which way a slope or a flight rises — away from the player, the way they face, then
 // turned a quarter at a time by T — as land-world's shape number (1 +x, 2 -x, 3 +z, 4 -z)
@@ -3644,7 +3704,7 @@ function act(place, mouse) {
     // an ENGINE (#175) is made of thrusters and nothing else: say so instead of placing a box of whatever is held — and
     // BEFORE "no room": an engine of another material is no piece at all (boxOk), so the room was never the reason
     if (piece.part && Shapes.decode(piece.part).type === Shapes.ENGINE && RULES.items[id].places !== B.thruster) return notify(T("engineNeeds", "An engine is made of thrusters — hold a thruster to place one."));
-    if (!pl.ok) return notify(pl.why === "me" ? T("noRoomMe", "That piece would be where you stand — step back, or aim farther off.") : T("noRoom", "No room for that piece there."));
+    if (!pl.ok) return notify(pl.why === "me" ? T("noRoomMe", "That piece would be where you stand — step back, or aim farther off.") : pl.why === "twin" ? T("noRoomTwin", "No room for its mirrored twin on the far side — or turn Mirror off in the bag.") : T("noRoom", "No room for that piece there."));
     const add = pl.pieces.map((b) => { const x = b.slice(); x[6] = RULES.items[id].places; return x; });
     const vol = add.reduce((a, b) => a + Wd.boxVolume(b), 0);
     // a unit item is paid whole: one a piece — an engine as many thrusters as its size comes to (land-world.js engineCount)
@@ -5181,6 +5241,7 @@ function frame(now) {
     r.mesh.lookAt(r.mesh.position.x + fx, r.mesh.position.y + fy, r.mesh.position.z + fz);
     sizePlates(r.mesh);
   }
+  platesFrame();                                              // after every tag is sized: crowded ones lifted clear
   pt("sky", () => { sky(fr); torchTick(now, cam); cloudsFrame(cam, fr); farBuildTick(now); });
   // THE WIND (#113): by the height over the ground and the speed — a craft's airspeed when flying, else the body's
   if (sound.ctx && (!frame.windAt || now - frame.windAt > 100)) {
@@ -5204,7 +5265,7 @@ function frame(now) {
     obj.scale.set(b[3] / Wd.CM + 0.01, b[5] / Wd.CM + 0.01, b[4] / Wd.CM + 0.01);
     obj.visible = true;
   };
-  highlight.visible = ghost.visible = false;
+  highlight.visible = ghost.visible = ghost2.visible = false;
   // the outline is dark by day and light by night (a thin black wire was invisible after dark, #177), and on litter it
   // is the litter's own catch box — low in its cell, round its middle — not the whole metre cell
   highlight.material.color.setScalar(0.07 + 0.85 * (1 - dayNow));
@@ -5219,6 +5280,7 @@ function frame(now) {
   if (a && id && !NATURAL_ITEMS.has(id) && net.me) {
     const pl = placement(a);
     if (pl) { frameBox(ghost, pl.plot, pl.box); ghost.material.color.setHex(pl.ok && mayBuild(pl.plot) ? 0x33dd77 : 0xdd4433); }
+    if (pl && pl.twin) { frameBox(ghost2, pl.plot, pl.twin); ghost2.material.color.copy(ghost.material.color); }   // the mirrored twin (#187)
   }
   // a block of earth, stone, sand…: the cell it goes into, outlined before the tap (aim → placeCell), green where it goes
   // and red where it cannot ("impossible to judge what will happen upon placing a block", operator 2026-11-08). The cell
@@ -5496,6 +5558,7 @@ async function start() {
   ghost = new THREE.LineSegments(new THREE.EdgesGeometry(new THREE.BoxGeometry(1, 1, 1)), new THREE.LineBasicMaterial({ color: 0x33dd77 }));
   ghost.visible = false;
   scene.add(ghost);
+  ghost2 = ghost.clone(); ghost2.material = ghost.material.clone(); scene.add(ghost2);   // a mirrored twin's outline (#187)
   highlight = new THREE.LineSegments(new THREE.EdgesGeometry(new THREE.BoxGeometry(1.02, 1.02, 1.02)), new THREE.LineBasicMaterial({ color: 0x111111 }));
   scene.add(highlight);
   addEventListener("resize", () => { renderer.setSize(innerWidth, innerHeight); camera.aspect = innerWidth / innerHeight; camera.updateProjectionMatrix(); if (csm) csm.updateFrustums(); });
