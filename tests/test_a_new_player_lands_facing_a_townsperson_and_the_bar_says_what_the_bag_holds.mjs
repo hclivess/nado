@@ -94,5 +94,14 @@ ok(/for \(let dr = -1; dr <= 1; dr\+\+\) for \(let dc = -1; dc <= 1; dc\+\+\) re
   ok(npcs.every((n) => n.look.worn && n.look.worn.body === "linen_shirt" && n.look.worn.legs === "linen_trousers"), "…and each wears a linen shirt and linen trousers");
 }
 
+// A GATHERING JOB SAYS WHAT YOU HOLD OF IT (playtest 2026-11-15: carrying 2 stones, "Bring 6 × Stone" said nothing of
+// them): the page's questText, run with 2 stones in the bag and with 9
+{
+  const a = land.indexOf("function questText(q) {"), b = land.indexOf("\n}\n", a);
+  const mk = (n) => new Function("inv", "gatheredFrom", "T", "nameOf", "RULES", "animalName", "roleName", land.slice(a, b + 2) + "\nreturn questText;")(
+    { items: { stone: n } }, () => "Loose stone", (k, fb, v) => fb.replace(/\{(\w+)\}/g, (_, x) => v[x]), (x) => x === "stone" ? "Stone" : x, R, (x) => x, (x) => x);
+  const q = { kind: "bring", item: "stone", n: 6 };
+  ok(mk(2)(q).endsWith("(2/6)") && mk(9)(q).endsWith("(6/6)") && mk(0)(q).endsWith("(0/6)"), `a gathering job counts what the bag holds: "${mk(2)(q)}", and never past the job: "${mk(9)(q)}"`);
+}
 console.log(fails ? `${fails} FAILED` : "all passed");
 process.exit(fails ? 1 : 0);

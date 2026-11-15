@@ -2403,7 +2403,12 @@ function gatheredFrom(item) {
   return "";
 }
 function questText(q) {
-  if (q.kind === "bring") { const from = gatheredFrom(q.item); return from ? T("qBringFrom", "Bring {n} × {i} — found as {b}", { n: q.n, i: nameOf(q.item), b: from }) : T("qBring", "Bring {n} × {i}", { n: q.n, i: nameOf(q.item) }); }
+  if (q.kind === "bring") {
+    // WHAT YOU HOLD OF IT, as a hunt shows its count (playtest 2026-11-15: carrying 2 stones, "Bring 6 × Stone" said
+    // nothing of them) — numbers only, the same in every language
+    const from = gatheredFrom(q.item), have = Math.min(q.n, (inv.items || {})[q.item] || 0);
+    return (from ? T("qBringFrom", "Bring {n} × {i} — found as {b}", { n: q.n, i: nameOf(q.item), b: from }) : T("qBring", "Bring {n} × {i}", { n: q.n, i: nameOf(q.item) })) + ` (${have}/${q.n})`;
+  }
   if (q.kind === "hunt") return T("qHunt", "Hunt {n} × {a}", { n: q.n, a: animalName(q.what) }) + (q.got !== undefined && q.got > 0 ? ` (${q.got}/${q.n})` : "");
   const to = RULES.quests.npcs.find((n) => n.id === q.to);
   return T("qDeliver", "Carry a parcel to {who}", { who: to ? `${to.name} (${roleName(to.role)})` : q.to });
