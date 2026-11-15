@@ -2833,6 +2833,42 @@ function tileIcon(cv, id, px) {
 // THE FIRST OBJECTIVE (#178): one line over the bar that says the next thing to do, instead of the welcome card's wall
 // of keys — sign in; then talk to the elder (there is work); then the work itself, and that it is done. Refreshed with
 // the bar: every inventory message and sign-in change comes through hotbar().
+// THE WAY TO A BRING-JOB'S SOURCE (playtest 2026-11-15, the agent's berry errand: "found as Berry bush" — and every
+// bush within 84 m of the landing stood on someone's plot, "not yours to gather here", with nothing to say where one
+// could be picked): while a bring-job is open the goal line names the nearest source the player MAY gather — the
+// planet's own litter of that kind (the page draws the same litter the world server keeps: Wd.litterAt) on land
+// mayBuild allows — by distance and compass point, or says none lies within SOURCE_R. The search walks rings outward a
+// slice at a time (SOURCE_STEP points a frame) so a phone never stalls, and starts again when the job changes or the
+// player has moved SOURCE_MOVE metres.
+const SOURCE_R = 160, SOURCE_STEP = 600, SOURCE_MOVE = 12;
+let srcScan = null, goalTick = 0;
+function sourceBlocks(item) {
+  const out = [];
+  if (!RULES || !RULES.breaking) return out;
+  for (const [b, r] of Object.entries(RULES.breaking))
+    if (r && typeof r === "object" && !r.needs && !r.class && Array.isArray(r.yields) && r.yields.some((y) => Array.isArray(y) && y[0] === item) && Wd.LITTER.has(Number(b))) out.push(Number(b));
+  return out;
+}
+function sourceHint(item) {
+  const want = sourceBlocks(item);
+  if (!want.length) return "";
+  const key = item + "@" + P.face;
+  if (!srcScan || srcScan.key !== key || Math.hypot(P.u - srcScan.u0, P.v - srcScan.v0) > SOURCE_MOVE) srcScan = { key, u0: P.u, v0: P.v, r: 2, a: 0, found: null, done: false };
+  const s = srcScan;
+  for (let n = 0; n < SOURCE_STEP && !s.done && !s.found; n++) {
+    const step = 2 / s.r, u = Math.floor(s.u0 + s.r * Math.sin(s.a)), v = Math.floor(s.v0 + s.r * Math.cos(s.a));
+    if (u >= 0 && v >= 0 && u < W && v < W && want.includes(Wd.litterAt(P.face, u, v, Wd.column(P.face, u, v))) && mayBuild(Wd.plotOf(P.face, u, v)))
+      s.found = { d: Math.round(s.r), yaw: Math.atan2(u + 0.5 - s.u0, v + 0.5 - s.v0) };
+    s.a += step; if (s.a >= 2 * Math.PI) { s.a = 0; s.r += 2; if (s.r > SOURCE_R) s.done = true; }
+  }
+  const q = questText({ kind: "bring", item, n: (inv.quests || []).find((x) => x.kind === "bring" && x.item === item)?.n || 1 });
+  if (s.found) {
+    const pt = POINTS[((Math.round(s.found.yaw / (Math.PI / 4)) % 8) + 8) % 8];
+    return T("goalNear", "Your work: {q} · the nearest you may pick: {d} m {p}", { q, d: s.found.d, p: T(pt[0], pt[1]) });
+  }
+  if (s.done) return T("goalNone", "Your work: {q} · none you may pick within {r} m — look in the wilderness, beyond the owned plots", { q, r: SOURCE_R });
+  return "";                                               // still searching: the plain line meanwhile
+}
 /** Who a quest is handed in to: its addressee for a delivery (q.to), else whoever gave it — as the world server ends it. */
 function questEnd(q) {
   const n = (RULES.quests && RULES.quests.npcs || []).find((x) => x.id === (q.to || q.giver));
@@ -2847,6 +2883,8 @@ function goalLine() {
     const q = inv.quests[0];
     // HANDED IN WHERE IT ENDS (playtest 2026-11-15: a parcel for Ida said "Done — hand it in … (Q at the one who gave
     // it)" the moment it was taken, sending the player back to Maren; the server ends a delivery at its addressee, q.to)
+    // (a bring-job not done yet says where the nearest source the player may pick is — sourceHint, below)
+    if (!q.ready && q.kind === "bring") { const h = sourceHint(q.item); if (h) { g.textContent = h; return; } }
     text = q.ready ? T("goalReadyAt", "Done — hand it in to {who}: {q} (walk up and press Q)", { who: questEnd(q), q: questText(q) }) : T("goalQuest", "Your work: {q}", { q: questText(q) });
   } else {
     const elder = (RULES.quests && RULES.quests.npcs || []).find((n) => n.role === "elder");
@@ -5052,6 +5090,8 @@ function frame(now) {
   animalsFrame(Math.min(0.1, (now - (frame.lastAnimals || now)) / 1000), cam); frame.lastAnimals = now;
   hitDirFrame(now);
   npcsFrame(cam, dt, now); arrowsFrame(now, cam); dropsFrame(now, cam); boltsFrame(now, cam);
+  // (the goal line's nearest-source search runs a slice each half second while a bring-job is open — sourceHint)
+  if (now - (goalTick || 0) > 500 && (inv.quests || []).some((q) => q.kind === "bring" && !q.ready)) { goalTick = now; goalLine(); }
   for (const r of others.values()) {
     if (!r.p) continue;
     const [f, u, v, h, yaw] = r.p, q = Wd.posOf(f, u, v, h), ofr = Wd.frameOf(f, u, v);
