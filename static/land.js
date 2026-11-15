@@ -1551,7 +1551,11 @@ async function refreshTitles() {
         if (tt && tt.planet === Wd.PLANET) { mine.add(tt.plot); const t = titles.get(tt.plot); if (t) t.holder = me; }
       }
     }
-    titlesVer++;                                          // the titles are known (the nearest-source hint waits for it)
+    // the titles are known (the nearest-source hint waits for it) — counted again only when they CHANGE: refreshed every
+    // few seconds, a bump on every refresh restarted the hint's search before a slow device ever finished one (playtest
+    // 2026-11-15: no hint after 9 minutes, the region asked for 30 times)
+    const sig = [...titles.keys()].sort((x, y) => x - y).join(",") + "|" + [...mine].sort((x, y) => x - y).join(",");
+    if (sig !== titlesSig) { titlesSig = sig; titlesVer++; }
   } catch (e) {}
   hud();
 }
@@ -2844,7 +2848,7 @@ function tileIcon(cv, id, px) {
 // slice at a time (SOURCE_STEP points a frame) so a phone never stalls, and starts again when the job changes or the
 // player has moved SOURCE_MOVE metres.
 const SOURCE_R = 160, SOURCE_STEP = 600, SOURCE_MOVE = 12;
-let srcScan = null, goalTick = 0, titlesVer = 0;
+let srcScan = null, goalTick = 0, titlesVer = 0, titlesSig = "";
 function sourceBlocks(item) {
   const out = [];
   if (!RULES || !RULES.breaking) return out;
