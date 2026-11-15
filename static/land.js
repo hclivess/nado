@@ -1985,6 +1985,7 @@ function avatar(seed, look) {
   }
   const body = new THREE.BufferGeometry();
   body.setAttribute("position", new THREE.BufferAttribute(pos, 3)); body.setAttribute("normal", new THREE.BufferAttribute(nor, 3)); body.setAttribute("color", new THREE.BufferAttribute(col, 3));
+  body.setAttribute("uv", new THREE.BufferAttribute(new Float32Array(n * 2), 2));   // (unread, but three's material asks for one: a "uv not found" warning a figure, every frame)
   g.add(new THREE.Mesh(body, figureMaterial ||= new THREE.MeshLambertMaterial({ vertexColors: true })));
   g.userData.person = true;                       // /tris and /draws count a figure's meshes as "people" by this mark
   return g;
@@ -2051,6 +2052,7 @@ function bakeColoured(g) {
   }
   const geo = new THREE.BufferGeometry();
   geo.setAttribute("position", new THREE.BufferAttribute(pos, 3)); geo.setAttribute("normal", new THREE.BufferAttribute(nor, 3)); geo.setAttribute("color", new THREE.BufferAttribute(col, 3));
+  geo.setAttribute("uv", new THREE.BufferAttribute(new Float32Array(n * 2), 2));    // (unread, but three's material asks for one: a "uv not found" warning an animal, every frame)
   for (const m of list) { g.remove(m); m.geometry.dispose(); m.material.dispose(); }
   g.add(new THREE.Mesh(geo, colouredMaterial ||= new THREE.MeshLambertMaterial({ vertexColors: true })));
 }
@@ -4052,7 +4054,12 @@ function wireInput(canvas) {
 const GROUND = ["grass", "dirt", "rock", "sand", "snow", "gravel"];
 const GROUND_ROUGH = [0.96, 0.95, 0.85, 0.9, 0.55, 0.9];
 function loadTex(name) {
-  const t = new THREE.TextureLoader().load(`/static/vendor/textures/${name}.jpg`);
+  // userData.ready: settles when the image is in (or failed) — a material must not sample a texture before then: three
+  // binds an empty one meanwhile, and an empty NORMAL map turns every surface away from every light (pieces drew pure
+  // black until their scans arrived, seconds on a slow link, playtest 2026-11-15)
+  let done; const ready = new Promise((r) => { done = r; });
+  const t = new THREE.TextureLoader().load(`/static/vendor/textures/${name}.jpg`, () => done(true), undefined, () => done(false));
+  t.userData.ready = ready;
   t.wrapS = t.wrapT = THREE.RepeatWrapping;
   t.colorSpace = THREE.SRGBColorSpace;
   t.anisotropy = 8;
@@ -4385,6 +4392,14 @@ const PIECE_TEX = {
   // given as a colour is the paint's own; land-recipes.json: whitewash, red and yellow ochre, carbon black)
   28: ["paint", "#d9d5c9", 0.62], 21: ["paint", "#9c2428", 0.6], 23: ["paint", "#cfa42c", 0.6], 27: ["paint", "#26272a", 0.66],
 };
+/** The slow drift a scanned piece surface takes over metres (pieceMaterial): brightness ±~15 % and a faint warm/cool
+ *  shift, from two octaves of smooth noise at 0.37 and 0.11 per metre — periods of ~2.7 m and ~9 m, sharing none with
+ *  the scans' 1 m repeat — so no two metres of a path or a wall are the same shade. */
+function pieceVariation(uv) {
+  const n = TSL.mx_noise_float(uv.mul(0.37)).mul(0.6).add(TSL.mx_noise_float(uv.mul(0.11).add(17.3)).mul(0.4));   // ~-1..1
+  const w = TSL.mx_noise_float(uv.mul(0.23).add(41.7));
+  return TSL.vec3(1, 1, 1).mul(TSL.float(1).add(n.mul(0.15))).add(TSL.vec3(0.03, 0.0, -0.03).mul(w));
+}
 const pieceMats = new Map();
 function pieceMaterial(blk) {
   if (pieceMats.has(blk)) return pieceMats.get(blk);
@@ -4397,12 +4412,30 @@ function pieceMaterial(blk) {
   } else if (spec) {
     const [name, tint, rough] = spec;
     m = new THREE.MeshStandardNodeMaterial({ roughness: rough, metalness: 0 });
+    const scanned = name !== "thatch" && name !== "steel" && name !== "paint";
     const uv = TSL.uv(), col = name === "thatch" ? thatchTexture() : name === "steel" ? steelTexture() : name === "paint" ? paintTexture() : loadTex(name + "_col");
     const hue = typeof tint === "string" ? new THREE.Color(tint) : null;       // a colour (paint) or a plain brightness
-    m.colorNode = shadeByClouds(TSL.texture(col, uv).rgb.mul(hue ? TSL.vec3(hue.r, hue.g, hue.b) : tint).mul(TSL.attribute("color", "vec3")));
+    const tintN = hue ? TSL.vec3(hue.r, hue.g, hue.b) : TSL.float(tint), vcol = TSL.attribute("color", "vec3");
+    // NO STAMPED REPEAT (operator 2026-11-15: "can you fix the repetitive tiles" — a brick path is one 1 m scan stamped
+    // edge to edge, the same bricks in the same shades every metre): a scanned surface drifts in brightness and a little
+    // in hue over metres, by smooth noise at scales that share no period with the 1 m repeat — never per tile, which
+    // would draw the grid. Pinned by the repeat test (pieceVariation).
+    const textured = () => shadeByClouds(TSL.texture(col, uv).rgb.mul(scanned ? pieceVariation(uv) : TSL.float(1)).mul(tintN).mul(vcol));
     if (name === "steel") m.metalness = 0.55;                                 // metal: it takes the sky's colour a little
     if (name === "paint") m.metalness = 0.12;
-    if (name !== "thatch" && name !== "steel" && name !== "paint") { const nor = loadTex(name + "_nor"); nor.colorSpace = THREE.NoColorSpace; m.normalNode = TSL.normalMap(TSL.texture(nor, uv)); }
+    if (scanned) {
+      // until the scan and its normal map are in, the piece is its block's own flat colour (the atlas's PAINT), lit as a
+      // plain surface — never the empty texture three binds meanwhile (black: see loadTex)
+      const nor = loadTex(name + "_nor"); nor.colorSpace = THREE.NoColorSpace;
+      const flat = new THREE.Color((PAINT[Wd.BLOCKS[blk].tex[1]] || ["#8a8478"])[0]);
+      m.colorNode = shadeByClouds(TSL.vec3(flat.r, flat.g, flat.b).mul(tintN).mul(vcol));
+      Promise.all([col.userData.ready, nor.userData.ready]).then(([a, b]) => {
+        if (!a) return;                                                       // no scan: the flat colour stays
+        m.colorNode = textured();
+        if (b) m.normalNode = TSL.normalMap(TSL.texture(nor, uv));
+        m.needsUpdate = true;
+      });
+    } else m.colorNode = textured();
   }
   if (m !== matPieces) m.name = "piece " + (spec ? spec[0] : Wd.BLOCKS[blk] ? Wd.BLOCKS[blk].key : blk);   // what /draws calls it
   pieceMats.set(blk, m);
