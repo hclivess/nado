@@ -5120,11 +5120,15 @@ const TORCH_LIGHTS = PHONE ? 2 : 8, torchLights = [];
 // operator 2026-11-07); the pool is given to the sources whose light reaches the player soonest (distance / reach).
 const LIGHTS = { torch: { i: 3, d: 11, f: 1, y: 112 }, fire: { i: 3, d: 9, f: 1, y: 0 },      // (a torch reaches 11 m: the square's posts are ~9 m apart, #181)
                  lantern: { i: 20, d: 18, f: 0.25, y: 18 }, lamppost: { i: 60, d: 26, f: 0.12, y: 297 },
-                 carried: { i: 3, d: 11, f: 1, y: 0 } };   // a torch in the hand: a placed torch's flame, at the hand
+                 carried: { i: 14, d: 11, f: 1, y: 0 } };   // a torch in the hand — see TORCH_IN_HAND below
 // A HAND TORCH (#181 item 1, approved 2026-11-14: "a hand torch early in the recipes"): a torch made by hand from a stick
 // and two fibre (land-recipes.json) lights the one who holds it — the selected hotbar item, on foot — as a placed torch
 // lights round it, its flame at the hand and moving with it (its place set every frame, below).
 const carryingTorch = () => !flying && hot[slot] === "torch" && (inv.items.torch || 0) > 0;
+// TORCH_IN_HAND (a game rule, not a measured flame): at a placed torch's 3 the torch in hand added ~9 % to the ground at
+// night — measured on the live page 2026-11-15, the same view with and without it, no warm pool at all — because the
+// moon (MOON_I) lights the ground about as much as 3 does at the 1.5 m under the hand. It is set so that within 3 m of
+// the hand it outshines the moon (i / 3² ≥ MOON_I) and fades back into moonlight by ~4 m: a pool to walk in.
 let torchNear = [], torchAt = 0, torchNight = 0;
 function torchTick(now, cam) {
   if (now - torchAt > 500) {
