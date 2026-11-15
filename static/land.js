@@ -2852,13 +2852,17 @@ function sourceBlocks(item) {
 function sourceHint(item) {
   const want = sourceBlocks(item);
   if (!want.length) return "";
-  const key = item + "@" + P.face;
-  if (!srcScan || srcScan.key !== key || Math.hypot(P.u - srcScan.u0, P.v - srcScan.v0) > SOURCE_MOVE) srcScan = { key, u0: P.u, v0: P.v, r: 2, a: 0, found: null, done: false };
+  const job = item + "@" + P.face;                       // (not "key": that is the page's cell-key function, used below)
+  if (!srcScan || srcScan.job !== job || Math.hypot(P.u - srcScan.u0, P.v - srcScan.v0) > SOURCE_MOVE) srcScan = { job, u0: P.u, v0: P.v, r: 2, a: 0, found: null, done: false };
   const s = srcScan;
   for (let n = 0; n < SOURCE_STEP && !s.done && !s.found; n++) {
     const step = 2 / s.r, u = Math.floor(s.u0 + s.r * Math.sin(s.a)), v = Math.floor(s.v0 + s.r * Math.cos(s.a));
-    if (u >= 0 && v >= 0 && u < W && v < W && want.includes(Wd.litterAt(P.face, u, v, Wd.column(P.face, u, v))) && mayBuild(Wd.plotOf(P.face, u, v)))
-      s.found = { d: Math.round(s.r), yaw: Math.atan2(u + 0.5 - s.u0, v + 0.5 - s.v0) };
+    if (u >= 0 && v >= 0 && u < W && v < W && mayBuild(Wd.plotOf(P.face, u, v))) {
+      const col = colAt(P.face, u, v), lb = Wd.litterAt(P.face, u, v, col), h = col.top + 1;
+      // the planet grows one here — and it is still here: not picked or swept (the plot's edits) and not under a piece
+      // (a path laid over it) — "8 m N" pointed at a bush under the town's stone path (playtest 2026-11-15)
+      if (want.includes(lb)) { const e = edits.get(key(P.face, u, v, h)); if ((e === undefined || e === lb) && !pieceIn([u, v, h])) s.found = { d: Math.round(s.r), yaw: Math.atan2(u + 0.5 - s.u0, v + 0.5 - s.v0) }; }
+    }
     s.a += step; if (s.a >= 2 * Math.PI) { s.a = 0; s.r += 2; if (s.r > SOURCE_R) s.done = true; }
   }
   const q = questText({ kind: "bring", item, n: (inv.quests || []).find((x) => x.kind === "bring" && x.item === item)?.n || 1 });
