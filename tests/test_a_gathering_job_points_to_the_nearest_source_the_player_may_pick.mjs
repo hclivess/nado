@@ -75,9 +75,9 @@ ok(S.sourceBlocks("iron").length === 0 && S.sourceBlocks("nothing").length === 0
     `6. ONE region request for the circle; the nearest bush picked (its plot's edits, from that answer) or under a laid path is passed over: "${picked}" / "${covered}"`);
 }
 // 7. not before the titles are in (until then every plot reads as open land) — and again when they change
-ok(/if \(!titlesVer\) return "";/.test(page.slice(a0, b0)) && /const job = item \+ "@" \+ P\.face \+ "#" \+ titlesVer;/.test(page)
+ok(/if \(!titlesVer\) return "";/.test(page.slice(a0, b0)) && /const job = item \+ "@" \+ P\.face \+ "#" \+ titlesVer \+ "x" \+ \(\(inv\.items \|\| \{\}\)\[item\] \|\| 0\);/.test(page)
    && /if \(sig !== titlesSig\) \{ titlesSig = sig; titlesVer\+\+; \}/.test(page) && !/\n    titlesVer\+\+;/.test(page),
-  "7. it waits for the titles (a first scan took a plot for sale for open land) and starts again only when they CHANGE (a bump on every refresh restarted it for ever)");
+  "7. it waits for the titles (a first scan took a plot for sale for open land) and starts again only when they CHANGE (a bump on every refresh restarted it for ever) — or when the player's own count of the item changes (the bush just emptied stayed named)");
 // 8. the region request failing, the search still runs (on what the page holds) and ends
 {
   const [h8] = await run(() => false, { fail: true });

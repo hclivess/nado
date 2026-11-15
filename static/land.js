@@ -2862,7 +2862,8 @@ function sourceHint(item) {
   // NOT BEFORE THE TITLES ARE IN: until they load every plot reads as open land (mayBuild), and the first scan after a
   // load pointed at a bush on a plot for sale (playtest 2026-11-15, "12 m E"); a change of titles starts the scan again
   if (!titlesVer) return "";
-  const job = item + "@" + P.face + "#" + titlesVer;    // (not "key": that is the page's cell-key function, used below)
+  // (and again when the player's own count of it changes: picked, the bush just emptied stayed named — "2 m SE")
+  const job = item + "@" + P.face + "#" + titlesVer + "x" + ((inv.items || {})[item] || 0);   // (not "key": that is the page's cell-key function)
   if (!srcScan || srcScan.job !== job || Math.hypot(P.u - srcScan.u0, P.v - srcScan.v0) > SOURCE_MOVE) {
     // THE PLOTS' EDITS FIRST, in ONE request (playtest 2026-11-15: from the landing the hint said 78 m S, then 24 m
     // further, then 14 m further — each bush the far scan named had been picked, which its plot's edits, not loaded at
