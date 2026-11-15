@@ -2997,6 +2997,8 @@ function sourceHint(item) {
   const qt = questText({ kind: "bring", item, n: (inv.quests || []).find((x) => x.kind === "bring" && x.item === item)?.n || 1 });
   if (s.found) {
     const pt = POINTS[((Math.round(s.found.yaw / (Math.PI / 4)) % 8) + 8) % 8];
+    // one within the player's own metre read "0 m NE" (playtest 2026-11-15, the stone errand): say it is right here
+    if (!s.found.d) return T("goalHere", "Your work: {q} · there is one right here", { q: qt });
     return T("goalNear", "Your work: {q} · the nearest you may pick: {d} m {p}", { q: qt, d: s.found.d, p: T(pt[0], pt[1]) });
   }
   if (s.done) return T("goalNone", "Your work: {q} · none you may pick within {r} m — look in the wilderness, beyond the owned plots", { q: qt, r: SOURCE_R });
@@ -3018,10 +3020,13 @@ function goalLine() {
     // it)" the moment it was taken, sending the player back to Maren; the server ends a delivery at its addressee, q.to)
     // (a bring-job not done yet says where the nearest source the player may pick is — sourceHint, below)
     if (!q.ready && q.kind === "bring") { const h = sourceHint(q.item); if (h) { g.textContent = h; return; } }
-    text = q.ready ? T("goalReadyAt", "Done — hand it in to {who}: {q} (walk up and press Q)", { who: questEnd(q), q: questText(q) }) : T("goalQuest", "Your work: {q}", { q: questText(q) });
+    // the key by name — on a phone the button (there is no Q on a phone: playtest 2026-11-15, the phone layout said
+    // "walk up and press Q"), as the aim line names it
+    const k = touch ? T("tUse", "Use") : "Q";
+    text = q.ready ? T("goalReadyAt", "Done — hand it in to {who}: {q} (walk up and press {k})", { who: questEnd(q), q: questText(q), k }) : T("goalQuest", "Your work: {q}", { q: questText(q) });
   } else {
     const elder = (RULES.quests && RULES.quests.npcs || []).find((n) => n.role === "elder");
-    if (elder) text = T("goalTalk", "First: talk to {who} — walk up and press Q. There is work.", { who: `${elder.name} (${roleName(elder.role)})` });
+    if (elder) text = T("goalTalk", "First: talk to {who} — walk up and press {k}. There is work.", { who: `${elder.name} (${roleName(elder.role)})`, k: touch ? T("tUse", "Use") : "Q" });
   }
   if (g.textContent !== text) g.textContent = text;
 }

@@ -54,7 +54,7 @@ ok(["cs", "pl", "ru"].every((l) => ["one", "few", "many", "other"].every((f) => 
 
 // 4. the first objective and the NADO sentence
 const gl = land.slice(land.indexOf("function goalLine()"), land.indexOf("function hotbar()"));
-ok(gl.length > 100 && /if \(!net\.me\) text = T\("signInBuild2"/.test(gl) && /q\.ready \? T\("goalReadyAt", "[^"]*\{who\}[^"]*\{q\}[^"]*", \{ who: questEnd\(q\), q: questText\(q\) \}\) : T\("goalQuest", "[^"]*\{q\}[^"]*", \{ q: questText\(q\) \}\)/.test(gl)
+ok(gl.length > 100 && /if \(!net\.me\) text = T\("signInBuild2"/.test(gl) && /q\.ready \? T\("goalReadyAt", "[^"]*\{who\}[^"]*\{q\}[^"]*", \{ who: questEnd\(q\), q: questText\(q\), k \}\) : T\("goalQuest", "[^"]*\{q\}[^"]*", \{ q: questText\(q\) \}\)/.test(gl)
    && /n\.role === "elder"/.test(gl) && /T\("goalTalk", "[^"]*\{who\}[^"]*", \{ who:/.test(gl) && /^function hotbar\(\) \{\n  goalLine\(\);/m.test(land),
    "goalLine says sign in / talk to the elder / the work / hand it in, and runs with every hotbar refresh");
 ok(/id="goal"/.test(readFileSync(join(ROOT, "static", "land.html"), "utf8")), "the page has the goal line over the bar");

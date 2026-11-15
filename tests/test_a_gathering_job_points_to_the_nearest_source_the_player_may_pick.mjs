@@ -29,14 +29,14 @@ const POINTS = [["cpN", "N"], ["cpNE", "NE"], ["cpE", "E"], ["cpSE", "SE"], ["cp
 const key = (f, u, v, h) => f + ":" + u + ":" + v + ":" + h;
 // the page's sourceHint with the page's helpers stood in for: the world server's region answer (`region`, or a failing
 // fetch), applyPlot writing a plot's edits into the edits map as the page does, the pieces a plot holds (pieceIn)
-const make = (allow, { region = {}, fail = false, pieceIn = () => false, asked = [] } = {}) => {
+const make = (allow, { region = {}, fail = false, pieceIn = () => false, asked = [], at = { face: 0, u: 55047.5, v: 79996.5 } } = {}) => {
   const edits = new Map(), plotsApplied = new Set();
   const fetch = (url) => { asked.push(url); return fail ? Promise.reject(new Error("offline")) : Promise.resolve({ json: () => ({ plots: region }) }); };
   const applyPlot = (p, list) => { plotsApplied.add(p); const q = Wd.plotCoords(p); for (const [x, z, y, bl] of list) edits.set(key(q.face, q.u0 + x, q.v0 + z, y), bl); };
   const blockAt = (f, u, v, h) => { const e = edits.get(key(f, u, v, h)); return e !== undefined ? e : Wd.terrainBlock(f, u, v, h, (ff, uu, vv) => Wd.column(ff, uu, vv)); };
   return new Function("RULES", "Wd", "P", "W", "mayBuild", "inv", "questText", "T", "POINTS", "colAt", "edits", "key", "pieceIn", "plotsApplied", "fetch", "applyPlot", "setPlotBoxes", "blockAt",
     page.slice(a0, b0) + "\ntitlesVer = 1;\nreturn { sourceHint, sourceBlocks, SOURCE_R, SOURCE_STEP };")(
-    RULES, Wd, { face: 0, u: 55047.5, v: 79996.5 }, Wd.W ?? (1 << 17), allow, { quests: [{ kind: "bring", item: "berries", n: 6 }] },
+    RULES, Wd, at, Wd.W ?? (1 << 17), allow, { quests: [{ kind: "bring", item: "berries", n: 6 }] },
     () => "Bring 6 × Berries", (k, fb, v) => fb.replace(/\{(\w+)\}/g, (_, x) => v[x]), POINTS, (f, u, v) => Wd.column(f, u, v), edits, key, pieceIn, plotsApplied, fetch, applyPlot, () => {}, blockAt);
 };
 const settle = () => new Promise((r) => setTimeout(r, 0));
@@ -52,6 +52,10 @@ for (let du = -160; du <= 160; du++) for (let dv = -160; dv <= 160; dv++) {
 near.sort((x, y) => x[4] - y[4]);
 const [h1, S, first] = await run(() => true);
 ok(first === "" && near.length && h1.includes(`the nearest you may pick: ${near[0][0]} m`) && /m (N|NE|E|SE|S|SW|W|NW)$/.test(h1), `1. every plot open (nothing named before the region's edits are in): "${h1}" (the planet's nearest bush is ${near[0] && near[0][0]} m away)`);
+{ // standing on a bush's own metre: "0 m NE" read as a riddle (playtest 2026-11-15, the stone errand) — it is right here
+  const [h9] = await run(() => true, { at: { face: 0, u: near[0][2] + 0.5, v: near[0][3] + 0.5 } });
+  ok(/there is one right here$/.test(h9) && !/ 0 m /.test(h9), `1b. standing on one, the line says it is right here, not "0 m" and a direction: "${h9}"`);
+}
 ok(S.sourceBlocks("berries").length === 1 && S.sourceBlocks("berries")[0] === Wd.B.berrybush, "…its source is the berry bush, the planet's litter");
 const closed = new Set([near[0][1]]);                     // (the nearest bush's plot; the next open bush is farther)
 const [h2] = await run((p) => !closed.has(p));
