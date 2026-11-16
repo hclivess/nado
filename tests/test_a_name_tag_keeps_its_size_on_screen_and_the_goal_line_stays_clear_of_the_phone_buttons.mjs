@@ -8,7 +8,8 @@
  *      overlap at any distance;
  *   3. on a touch layout the goal line is at most 100vw − 560 px wide (never under 150 px): centred, it clears the left
  *      cluster (ends 208 px in) and the right one (274 px in) at 800, 915 and 1280 px;
- *   4. on a portrait phone (≤ 600 px, where the clusters span the width) it rides above the top button row (296 px).
+ *   4. on a portrait phone (≤ 600 px, where the clusters span the width) it rides above the top button row (362 px:
+ *      the left cluster went up a row there, 2026-11-16 — test_an_upright_phones_buttons_do_not_overlap_at_any_width).
  * Run: node tests/test_a_name_tag_keeps_its_size_on_screen_and_the_goal_line_stays_clear_of_the_phone_buttons.mjs
  */
 import { readFileSync } from "node:fs";
@@ -34,7 +35,7 @@ if (m) {
   const clear = [800, 915, 1280].every((W) => { const w = Math.max(min, W - side), a = (W - w) / 2, b = a + w; return a >= 208 && b <= W - 274; });
   ok(clear, `…centred, it clears the left cluster (208 px) and the right one (274 px from the right) at 800, 915 and 1280 px`);
 }
-ok(/@media \(max-width:600px\)\{body\.touch #goal\{position:fixed;left:50%;transform:translateX\(-50%\);bottom:296px;/.test(html) && /#tFire\{left:18px;bottom:228px\}/.test(html),
+ok(/@media \(max-width:600px\)\{body\.touch #goal\{position:fixed;left:50%;transform:translateX\(-50%\);bottom:362px;/.test(html) && /body\.touch #tFire,body\.touch #tWard,body\.touch #tLevel\{bottom:294px\}/.test(html),
   "4. on a portrait phone it rides above the top button row (Fire at 228 + 58 px)");
 // 5. …and shrinks with distance beyond PLATE_NEAR (a constant size overlapped Ida's and Maren's tags from 14 m: "IdaMa…")
 {

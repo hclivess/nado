@@ -168,7 +168,11 @@
   body.touch #goal{max-width:max(150px,calc(100vw - 560px));font-size:11px}
   /* a portrait phone: the clusters span the whole width at the bottom, so the line rides above the top row (Fire, Wear,
      Level: bottom 228 + 58 px) — a tall screen has the room */
-  @media (max-width:600px){body.touch #goal{position:fixed;left:50%;transform:translateX(-50%);bottom:296px;max-width:calc(100vw - 32px);margin:0}}
+  /* AN UPRIGHT PHONE (narrower than 600 px): the left cluster goes up a row, off the right cluster's rows — at 412 px wide
+     the third columns met (Turn's right edge 208, Bag's left 204: Bag lay over Turn in every language, measured live
+     2026-11-16, and at 360 px by 52 px); the goal line rises with it. Measured after: nothing overlaps at 412, 390, 360. */
+  @media (max-width:600px){body.touch #goal{position:fixed;left:50%;transform:translateX(-50%);bottom:362px;max-width:calc(100vw - 32px);margin:0}
+    body.touch #tChat,body.touch #tRun,body.touch #tTurn{bottom:228px}body.touch #tFire,body.touch #tWard,body.touch #tLevel{bottom:294px}}
   /* the left cluster (#139, playtest 2026-11-11: a phone had no chat or console — so no /tp, /help — no run, no piece
      turn, no fire, no wardrobe): the thumb that walks reaches them beside the stick */
   #tChat{left:18px;bottom:162px}#tRun{left:84px;bottom:162px}#tTurn{left:150px;bottom:162px}#tFire{left:18px;bottom:228px}#tWard{left:84px;bottom:228px}
