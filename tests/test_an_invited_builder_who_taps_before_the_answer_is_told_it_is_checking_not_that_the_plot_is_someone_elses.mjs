@@ -24,7 +24,8 @@ function world(answer) {
   const env = {
     net: { me: "3fd1b6", online: true }, mine: new Set(), builds: new Set(), builderKnown: new Set(),
     titles: new Map([[40955246, {}]]), hud() {}, notify: (m) => said.push(m), plotLabel: () => "0·4999·3438", disp: (a) => a,
-    rawToNado: (x) => x, T: (k, d, o) => d.replace(/\{(\w+)\}/g, (_, n) => o[n]),
+    rawToNado: (x) => x, T: (k, d, o) => d.replace(/\{(\w+)\}/g, (_, n) => o[n]), signInNotice() {},
+    ISSUER: "3cc4c44a94a900f79716dc6d3822a81603b1ce7862ce03572f",   // (the town's own plots are named, not addressed)
     fetch: async (u) => { asked.push(u); if (answer === "fail") throw new Error("offline"); return { json: async () => answer }; },
   };
   const f = new Function(...Object.keys(env), src + "\nreturn { builderCheck, explainNoBuild };")(...Object.values(env));
