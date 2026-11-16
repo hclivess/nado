@@ -23,8 +23,8 @@ let fails = 0;
 const ok = (c, m) => { console.log((c ? "ok   " : "FAIL ") + m); if (!c) fails++; };
 const fn = (name) => { const a = page.indexOf("function " + name + "("); return page.slice(a, page.indexOf("\n}\n", a)); };
 
-const lt = fn("loadTex");
-ok(/let done; const ready = new Promise\(\(r\) => \{ done = r; \}\);/.test(lt) && /\.load\(`\/static\/vendor\/textures\/\$\{name\}\.jpg`, \(\) => done\(true\), undefined, \(\) => done\(false\)\);/.test(lt) && /t\.userData\.ready = ready;/.test(lt),
+const lt = fn("loadTex");   // (it loads `file`: the ground at 512 px on a phone, every other texture by its own name)
+ok(/let done; const ready = new Promise\(\(r\) => \{ done = r; \}\);/.test(lt) && /\.load\(`\/static\/vendor\/textures\/\$\{file\}\.jpg`, \(\) => done\(true\), undefined, \(\) => done\(false\)\);/.test(lt) && /t\.userData\.ready = ready;/.test(lt),
   "1. every loaded texture carries a ready promise, settled on load (true) or on failure (false)");
 const pm = fn("pieceMaterial");
 ok(/const flat = new THREE\.Color\(\(PAINT\[Wd\.BLOCKS\[blk\]\.tex\[1\]\] \|\| \["#8a8478"\]\)\[0\]\);/.test(pm) && /m\.colorNode = shadeByClouds\(TSL\.vec3\(flat\.r, flat\.g, flat\.b\)/.test(pm),

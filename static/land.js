@@ -1667,13 +1667,19 @@ async function holderOf(plot) {
   return t.holder;
 }
 const listingCache = new Map();                      // contract -> { at, st }: one storage read a minute per market
-async function listingsOf(cid) {
+// ONE READ FOR THE PLOTS THAT ASK TOGETHER (#150, measured 2026-11-16 on a fresh phone load: 41 reads of the same market
+// contract, 670 KB — every for-sale plot round the player asked at once, before the first answer was in the cache): the
+// read in flight is kept and shared (`p`), a failed one forgotten so the next asks again
+function listingsOf(cid) {
   const c = listingCache.get(cid);
-  if (c && Date.now() - c.at < 60000) return c.st;
-  const r = exactSeeds(await (await fetch(base() + "/exec/contract?cid=" + cid, { cache: "no-store" })).text());
-  const st = r.storage || {};
-  listingCache.set(cid, { at: Date.now(), st });
-  return st;
+  if (c && (c.p || Date.now() - c.at < 60000)) return c.p || Promise.resolve(c.st);
+  const p = fetch(base() + "/exec/contract?cid=" + cid, { cache: "no-store" }).then((r) => r.text()).then((txt) => {
+    const st = exactSeeds(txt).storage || {};
+    listingCache.set(cid, { at: Date.now(), st });
+    return st;
+  }, (e) => { listingCache.delete(cid); throw e; });
+  listingCache.set(cid, { at: Date.now(), p });
+  return p;
 }
 
 // ---- anchoring a plot's build on chain ------------------------------------------------------------------------------
