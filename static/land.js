@@ -4497,7 +4497,10 @@ function loadTex(name) {
   // binds an empty one meanwhile, and an empty NORMAL map turns every surface away from every light (pieces drew pure
   // black until their scans arrived, seconds on a slow link, playtest 2026-11-15)
   let done; const ready = new Promise((r) => { done = r; });
-  const t = new THREE.TextureLoader().load(`/static/vendor/textures/${name}.jpg`, () => done(true), undefined, () => done(false));
+  // A PHONE GETS THE GROUND AT 512 px (#139/#150, a fresh phone load measured 7 MB; the seven ground maps a page loads
+  // were 1.48 MB of it, 0.37 MB at 512 px): drawn at 1.25× it shows no more of them than 512 px holds — tools/land_textures.py PHONE_PX makes the set
+  const file = PHONE && GROUND.includes(name.replace(/_(col|nor)$/, "")) ? name + "_512" : name;
+  const t = new THREE.TextureLoader().load(`/static/vendor/textures/${file}.jpg`, () => done(true), undefined, () => done(false));
   t.userData.ready = ready;
   t.wrapS = t.wrapT = THREE.RepeatWrapping;
   t.colorSpace = THREE.SRGBColorSpace;
