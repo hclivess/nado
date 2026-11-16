@@ -41,7 +41,7 @@ import { treeModel } from "./land-trees.js";
 import { craftStep, flightOf, craftBody, bodyInside, navSays, craftArea, craftFeet, restAt, aeroOf, axesOf, tiltDir, stallSpeed, stepOffSpot, surfaceBelow} from "./land-flight.js";
 import { Sound, windLevel } from "./land-sound.js";
 import { GFX_PRESETS, BENCH_ORDER, benchTarget, frameStats, holds, pickPreset, LADDER, governor, govStep } from "./land-gfx.js";
-import { NadoDapp, wireWallet, renderWallet, alertBar, notify, uiConfirm, uiPrompt, isAddress, esc, base, disp, rawToNado, nadoToRaw, randId, $ } from "./nadodapp.js";
+import { NadoDapp, wireWallet, renderWallet, alertBar, notify, okBar, uiConfirm, uiPrompt, isAddress, esc, base, disp, rawToNado, nadoToRaw, randId, $ } from "./nadodapp.js";
 
 const CID = "e7dfe9aa3cbb4b0c9293caeaf992a041";      // the land title contract (deployed 2026-11-07, scripts/land_first_wave.py); redeploy.py wire() repoints it
 const ISSUER = "3cc4c44a94a900f79716dc6d3822a81603b1ce7862ce03572f";   // land.py ISSUER — every title's issuer
@@ -1812,6 +1812,7 @@ function connect() {
     } else if (m.t === "revert") {
       for (const [f, u, v, h] of m.cells || []) dropCell(f, u, v, h);
     } else if (m.t === "inv") {
+      const lvl0 = invSeen ? inv.level || 1 : null;              // the level before this update (null: the first one)
       if (invSeen) pickup(inv.items, m.items || {}, inv.tools, m.tools || [], inv.stations, m.stations || []);
       invSeen = true;
       // vol: what is left of blocks a piece was cut from (cm³) — sent all along and never kept, so the page counted only
@@ -1822,6 +1823,11 @@ function connect() {
       inv.worn = m.worn || {}; inv.look = m.look || { skin: 0, hair: 0 };
       fedUntil = performance.now() + (m.fed || 0) * 1000;                     // a meal's time left (#155)
       inv.quests = m.quests || []; inv.level = m.level || 1; inv.xp = m.xp || 0;   // the quest log and level (#165)
+      // A LEVEL GAINED IS SAID (playtest 2026-11-16: the agent's parcel lifted it to level 2 with only "Done: +15
+      // experience" — the HUD's number changed and nothing said that the elder now offers hunts and tool jobs). After the
+      // hand-in's own notice has been read; level 2 names what it opens (land_server.py _new_quest: from level 2 the
+      // whole book), a higher level only itself.
+      if (lvl0 && inv.level > lvl0) { const n = inv.level; setTimeout(() => { okBar(n === 2 ? T("levelUp2", "Level 2! The elder now offers all her work — hunts and jobs that need tools.") : T("levelUpN", "Level {n}!", { n })); sound.cue("pickup", 1, 0); }, 2500); }
       showHp(m.hp, m.hp_max);
       fillHot(); hotbar(); if (bagOpen()) renderBag(); if (!$("wardPanel").classList.contains("hidden")) renderWard();
     } else if (m.t === "offers") {
