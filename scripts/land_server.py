@@ -38,7 +38,7 @@ REPO = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 sys.path.insert(0, REPO)
 import argparse, asyncio, hashlib, json, math, random, re, secrets, shutil, time, urllib.parse
 
-from aiohttp import web, ClientSession, ClientTimeout, WSMsgType
+from aiohttp import web, ClientSession, ClientTimeout, WSMsgType, WSCloseCode
 
 from signatures import verify as sig_verify, unhex          # noqa: E402 — pure crypto, no database
 from ops.address_ops import proof_sender, validate_address  # noqa: E402 — pure derivation, no database
@@ -138,6 +138,7 @@ POS_SAVE_S = 10                   # a signed-in player's place is kept at most t
 # owner's house from a file, and placing pays from their own bag); a reported place moves at most PACE_MPS over the
 # ground (+ PACE_SLACK), counting at most PACE_DT_MAX s since the last one (waiting buys no jump); /tp goes to the
 # landing or your own bed only.
+SHUTDOWN_S = 5.0                  # a stop waits this long for requests in flight (make_app on_going: sockets close at once)
 REACH_M = 12                      # the page reaches 7 m; its levelling square (shovel, L) works up to ~11 m from the eye
 CRAFT_MAX = 64                     # the most of one recipe made in one request (World.craft)
 PACE_MPS, PACE_SLACK, PACE_DT_MAX = 65.0, 6.0, 5.0      # free flight's fastest is 60 m/s (static/land.js FLY_FAST)
@@ -3308,6 +3309,21 @@ def make_app(world, hub, site_origin, wallet_url, secure_cookies=True, shot_page
         if shot_page:
             app["bg"].append(asyncio.ensure_future(_photographer()))
 
+    # A RESTART IS SECONDS, NOT A MINUTE (measured 2026-11-16: three restarts, each 46-47 s from "Stopping" to "Started",
+    # the planet down for every player meanwhile): the framework waited out its shutdown timeout for the players' open
+    # sockets, while the background loops ran on and wrote twice a second to the terrain oracle, already gone with the
+    # stop ("pipe closed by peer"). On the stop's first step the loops are cancelled and every socket is closed as
+    # "going away" — each page reconnects by itself — and run_app waits SHUTDOWN_S for requests still in flight. The
+    # world is flushed in on_stop as before.
+    async def on_going(app):
+        for t in app.get("bg", []):
+            t.cancel()
+        for ws in list(hub.socks):
+            try:
+                await ws.close(code=WSCloseCode.GOING_AWAY, message=b"the world server is restarting")
+            except Exception:
+                pass
+
     async def on_stop(app):
         for t in app.get("bg", []):
             t.cancel()
@@ -4002,6 +4018,7 @@ def make_app(world, hub, site_origin, wallet_url, secure_cookies=True, shot_page
 
     app = web.Application(client_max_size=2 << 20)
     app.on_startup.append(on_start)
+    app.on_shutdown.append(on_going)
     app.on_cleanup.append(on_stop)
     app.add_routes([
         web.get("/land/api/challenge", challenge),
@@ -4055,7 +4072,7 @@ def main():
     cid = (src.split('const CID = "', 1)[1].split('"', 1)[0]) if 'const CID = "' in src else ""
     world = World(a.data, a.exec, cid)
     page = None if a.shot_page == "off" else (a.shot_page or a.site).rstrip("/")
-    web.run_app(make_app(world, Hub(), a.site.rstrip("/"), a.wallet.rstrip("/"), shot_page=page), host="127.0.0.1", port=a.port, access_log=None)
+    web.run_app(make_app(world, Hub(), a.site.rstrip("/"), a.wallet.rstrip("/"), shot_page=page), host="127.0.0.1", port=a.port, access_log=None, shutdown_timeout=SHUTDOWN_S)
 
 
 if __name__ == "__main__":
