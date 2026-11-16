@@ -2166,7 +2166,7 @@ function animalAimed(reach) {
 let hpMax = 20, lastHp = null;
 // A LANGUAGE CHANGE re-renders what T() wrote into the HUD by hand (#179: the hotbar label stayed "Earth" after a switch
 // to Čeština, the health line's "Level"): i18n.js announces it on window
-window.addEventListener("nado-lang", () => { hotbar(); pieceInfo(); if (lastHp != null) showHp(lastHp); const st = $("hudPlot"); if (st) st.dataset.html = ""; });
+window.addEventListener("nado-lang", () => { hotbar(); pieceInfo(); if (lastHp != null) showHp(lastHp); const st = $("hudPlot"); if (st) st.dataset.html = ""; relabelNpcs(); });
 function showHp(hp, max) {
   if (max) hpMax = max;
   const el = $("hudHp");
@@ -2321,6 +2321,18 @@ function platesFrame() {
   });
 }
 const roleName = (r) => T("npc." + r, { elder: "Elder", trader: "Trader", smith: "Smith" }[r] || r);
+/** The townspeople's name tags in the language now chosen: a tag is drawn into its own picture once (label), so after a
+ *  language change while playing they kept the old role — "Elder", "Smith" over a page in Arabic (playtest 2026-11-16)
+ *  until a reload. Each is drawn again in place, its old picture freed. */
+function relabelNpcs() {
+  for (const r of npcs.values()) {
+    const old = r.mesh.children.find((c) => c.isSprite && c.userData.textW && !c.userData.mark);
+    if (!old) continue;
+    const plate = label(r.name, roleName(r.role));
+    plate.position.copy(old.position); r.mesh.remove(old); r.mesh.add(plate);
+    old.material.map.dispose(); old.material.dispose();
+  }
+}
 function npcsSeen(list) {
   const seen = new Set();
   for (const n of list || []) {
