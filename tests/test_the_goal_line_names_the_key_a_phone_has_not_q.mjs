@@ -19,13 +19,17 @@ ok(/const k = touch \? T\("tUse", "Use"\) : "Q";\n    text = q\.ready \? T\("goa
 { // the elder's line, run: the key by name — and "First:" only to a newcomer; a player with experience is told there is
   // MORE work (playtest 2026-11-16: the town agent, level 2, was told "First: talk to Maren" on every load)
   const gl = page.slice(page.indexOf("function goalLine() {"), page.indexOf("\n}\n", page.indexOf("function goalLine() {")) + 2);
-  const run = (touch, xp) => {
-    const g = { textContent: "" };
+  const run = (touch, xp, net = { me: "x", online: true }) => {
+    const g = { textContent: "-" };
     const T = (k, d, a = {}) => k + ":" + d.replace(/\{(\w+)\}/g, (_, n) => a[n]);
     new Function("$", "RULES", "net", "inv", "touch", "T", "roleName", gl + "\ngoalLine();")(() => g,
-      { quests: { npcs: [{ id: "maren", name: "Maren", role: "elder" }] } }, { me: "x" }, { quests: [], xp }, touch, T, () => "Elder");
+      { quests: { npcs: [{ id: "maren", name: "Maren", role: "elder" }] } }, net, { quests: [], xp }, touch, T, () => "Elder");
     return g.textContent;
   };
+  // NOT "Sign in" before the server's greeting has said who you are (playtest 2026-11-16: every load told a signed-in
+  // player to sign in for a few seconds); once it has and you are signed out, it says so
+  ok(run(true, 0, { me: null, online: false }) === "", "before the server's greeting, the line says nothing (not \"Sign in\" to someone who is signed in)");
+  ok(run(true, 0, { me: null, online: true }).startsWith("signInBuild2:Sign in"), "…greeted and signed out, it says to sign in");
   ok(run(true, 0).startsWith("goalTalk:First: talk to Maren (Elder)") && run(true, 0).includes("press tUse:Use") && run(false, 0).includes("press Q"),
     "…and so does the first errand's line: a newcomer is told First: talk to the elder, Use on a phone, Q on a keyboard");
   ok(run(true, 125).startsWith("goalTalkMore:More work: talk to Maren (Elder)") && run(true, 125).includes("press tUse:Use") && run(false, 125).includes("press Q") && !run(false, 125).includes("First"),

@@ -3139,7 +3139,9 @@ function goalLine() {
   const g = $("goal");
   if (!g || !RULES) return;
   let text = "";
-  if (!net.me) text = T("signInBuild2", "Sign in to gather and build.");
+  // NOT BEFORE THE SERVER HAS SAID WHO YOU ARE: its greeting carries the sign-in, and until it came every load told a
+  // signed-in player "Sign in to gather and build" for a few seconds (playtest 2026-11-16, the agent's phone page)
+  if (!net.me) text = net.online ? T("signInBuild2", "Sign in to gather and build.") : "";
   else if ((inv.quests || []).length) {
     const q = inv.quests[0];
     // HANDED IN WHERE IT ENDS (playtest 2026-11-15: a parcel for Ida said "Done — hand it in … (Q at the one who gave
