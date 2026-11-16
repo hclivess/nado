@@ -1421,6 +1421,19 @@ class World:
         due = [p for p in sorted(self.titles) if self.shot_due(p)]
         return min(due, key=lambda p: (self.shot_meta(p) or {}).get("at", 0)) if due else None   # the oldest photo first
 
+    @staticmethod
+    def sweep_shot_profiles(now=None):
+        """Remove capture profiles (land-shot-*) older than any capture can run — the ones a kill or a crash left."""
+        root, now, n = SHOT_TMP or tempfile.gettempdir(), now or time.time(), 0
+        for name in os.listdir(root):
+            path = os.path.join(root, name)
+            try:
+                if name.startswith("land-shot-") and os.path.isdir(path) and now - os.path.getmtime(path) > 2 * SHOT_TIMEOUT + 60:
+                    shutil.rmtree(path, ignore_errors=True); n += 1
+            except OSError:
+                pass
+        return n
+
     async def shoot(self, p, page):
         """Photograph plot p (scripts/land_shot.mjs) into shots/<p>.jpg; the photo is swapped in whole or not at all."""
         ver = (self.plots.get(p) or {}).get("ver", 0)
@@ -1433,19 +1446,28 @@ class World:
                                                     f"{page}/?shot={p}", tmp, stdout=asyncio.subprocess.DEVNULL,
                                                     stderr=asyncio.subprocess.DEVNULL, start_new_session=True,
                                                     env={**os.environ, "LAND_SHOT_PROFILE": prof})
+        # …HOWEVER IT ENDED — a stop included (found 2026-11-16: 21 profiles, 1.4 GB, in /tmp over a week; a restart
+        # cancelled this coroutine inside the wait, so the lines after it never ran and the profile stayed): the group
+        # is killed and the profile removed in `finally`, and a profile older than any capture is swept at start
+        # (sweep_shot_profiles) for the ends no `finally` sees (a kill -9, a power cut)
         try:
-            ok = await asyncio.wait_for(proc.wait(), SHOT_TIMEOUT) == 0
-        except asyncio.TimeoutError:
-            ok = False
-        # its own process group: the browser it started dies with it (killing node alone left Chrome running) — on a
-        # timeout, and after a finished capture too, whose browser's helpers may outlive it
-        try:
-            os.killpg(proc.pid, 9)
-        except (ProcessLookupError, PermissionError):
-            pass
-        await proc.wait()
-        await asyncio.sleep(0.5)                                     # the killed helpers' last writes
-        shutil.rmtree(prof, ignore_errors=True)
+            try:
+                ok = await asyncio.wait_for(proc.wait(), SHOT_TIMEOUT) == 0
+            except asyncio.TimeoutError:
+                ok = False
+        finally:
+            # its own process group: the browser it started dies with it (killing node alone left Chrome running) — on a
+            # timeout, and after a finished capture too, whose browser's helpers may outlive it
+            try:
+                os.killpg(proc.pid, 9)
+            except (ProcessLookupError, PermissionError):
+                pass
+            try:
+                await asyncio.wait_for(proc.wait(), 5)
+                await asyncio.sleep(0.5)                             # the killed helpers' last writes
+            except (asyncio.TimeoutError, asyncio.CancelledError):
+                pass
+            shutil.rmtree(prof, ignore_errors=True)
         if not ok or not os.path.exists(tmp) or os.path.getsize(tmp) < 2000:
             try:
                 os.remove(tmp)
@@ -3342,6 +3364,7 @@ def make_app(world, hub, site_origin, wallet_url, secure_cookies=True, shot_page
 
     async def _photographer():
         """THE LISTING: one plot's photo at a time, asked-for plots first, then every title without a current one."""
+        World.sweep_shot_profiles()                                   # what a kill or a crash left behind
         await asyncio.sleep(30)
         while True:
             try:
