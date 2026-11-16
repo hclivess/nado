@@ -3273,6 +3273,7 @@ function palette(open) {
   showPanel("palette", open);
   if (!open) return;
   if (document.pointerLockElement) document.exitPointerLock();
+  makeOrder = null;                                        // (opened: what can be made now goes first again)
   renderBag();
 }
 // "n × name" as every count in the game reads (#179; a reward said "The town pays 1 Berries", playtest 2026-11-15), and
@@ -3352,6 +3353,7 @@ addEventListener("resize", hudUnderHeader);
 // only the tab's is shown — so every button and its handler below exist whichever tab is open. The tab is remembered
 // in this browser (a convenience: it may come back empty). The Make tab lists what can be made now first.
 const BAG_TABS = ["have", "build", "make", "trade"];
+let makeOrder = null;                                      // the Make list's order while the Bag stays open (renderBag)
 let bagTab = (() => { try { const t = localStorage.getItem("nado_land_bagtab"); return BAG_TABS.includes(t) ? t : "have"; } catch (e) { return "have"; } })();
 function renderBag() {
   if (!RULES) return;
@@ -3365,10 +3367,16 @@ function renderBag() {
   const opts = Object.keys(RULES.items).filter((id) => !RULES.items[id].quest).map((id) => `<option value="${id}">${esc(nameOf(id))}</option>`).join("");
   const tabLabel = { have: T("have", "You have"), build: T("pieceSize", "Piece size"), make: T("make", "Make"), trade: T("trade", "Trade") };
   const sec = (k) => `<section class="bagsec" data-sec="${k}"${k === bagTab ? "" : " hidden"}>`;
-  const recipes = RULES.recipes.map((r, i) => [r, i]).sort(([a, i], [b, j]) => {
+  // THE ORDER HOLDS WHILE THE BAG IS OPEN (playtest 2026-11-16, the agent's phone page): sorted afresh after every make,
+  // a recipe that ran out of its makings dropped from the top group and the row below slid under the finger — making
+  // cordage until the fibre ran out, the next tap on the same spot made planks of the player's wood. Sorted when the Bag
+  // opens or the tab changes (makeOrder = null), kept through the redraws a make brings; a row just made impossible
+  // stays where it was, its button disabled.
+  if (!makeOrder) makeOrder = RULES.recipes.map((r, i) => [r, i]).sort(([a, i], [b, j]) => {
     const ok = (r) => canMake(r) && !r.makes.every(([id]) => inv.tools.includes(id) || inv.stations.includes(id));
     return (ok(b) ? 1 : 0) - (ok(a) ? 1 : 0) || i - j;                         // what can be made now first, else the book's order
-  }).map(([r]) => r);
+  }).map(([r]) => r.id);
+  const recipes = makeOrder.map((id) => RULES.recipes.find((r) => r.id === id)).filter(Boolean);
   $("palGrid").innerHTML = `
     <div class="tradeform bagtabs" role="tablist">${BAG_TABS.map((k) => `<button class="chip pl${k === bagTab ? " tool" : ""}" role="tab" data-bagtab="${k}" aria-selected="${k === bagTab}">${esc(tabLabel[k])}</button>`).join("")}</div>
     ${sec("have")}
@@ -3432,7 +3440,7 @@ function renderBag() {
       <input id="gvTo" placeholder="${esc(T("inviteAddr", "NADO address"))}"><button class="ghost" id="gvGo">${esc(T("giveGo", "Give"))}</button>
     </div></section>`;
   const g = $("palGrid"), req = (m) => net.send(Object.assign({ req: ++net.req }, m));
-  g.querySelectorAll("[data-bagtab]").forEach((b) => { b.onclick = () => { bagTab = b.dataset.bagtab; try { localStorage.setItem("nado_land_bagtab", bagTab); } catch (e) {} renderBag(); }; });
+  g.querySelectorAll("[data-bagtab]").forEach((b) => { b.onclick = () => { bagTab = b.dataset.bagtab; makeOrder = null; try { localStorage.setItem("nado_land_bagtab", bagTab); } catch (e) {} renderBag(); }; });
   g.querySelectorAll("[data-make]").forEach((b) => { b.onclick = () => { req({ t: "craft", recipe: b.dataset.make }); net.made.set(net.req, b.dataset.make); }; });
   g.querySelectorAll("[data-eat]").forEach((b) => { b.onclick = () => req({ t: "eat", item: b.dataset.eat }); });
   g.querySelectorAll("[data-qdrop]").forEach((b) => { b.onclick = () => req({ t: "quest", op: "drop", id: b.dataset.qdrop }); });
