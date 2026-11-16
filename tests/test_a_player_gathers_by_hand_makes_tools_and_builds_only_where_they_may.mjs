@@ -170,7 +170,9 @@ try {
   ok(await until(S, "/Owned by/.test(document.getElementById('hudPlot').textContent)"), "on someone else's plot");
   await tap(S, "tBreak");
   // the refusal is read when it comes (a later tap's own message would take its place)
-  const said = await until(S, "/belongs to someone else|not your plot/.test(document.body.textContent)", 10000);
+  // (the page says the plot's state at once — #177: "is owned by …, ask them to invite you", or "checking whether you may
+  // build" until the server's answer is in; this waited for the older "belongs to someone else" and failed since)
+  const said = await until(S, "/is owned by|is for sale|belongs to|Checking whether you may build|not your plot/.test(document.body.textContent)", 10000);
   await tap(S, "tPlace");
   await sleep(800);
   ok((await serverInv()).dirt === undefined && said, "nothing they tap changes anything there, and the page says why");

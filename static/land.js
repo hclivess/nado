@@ -45,6 +45,9 @@ import { NadoDapp, wireWallet, renderWallet, alertBar, notify, okBar, uiConfirm,
 
 const CID = "e7dfe9aa3cbb4b0c9293caeaf992a041";      // the land title contract (deployed 2026-11-07, scripts/land_first_wave.py); redeploy.py wire() repoints it
 const ISSUER = "3cc4c44a94a900f79716dc6d3822a81603b1ce7862ce03572f";   // land.py ISSUER — every title's issuer
+/** "Owned by …": the town's own four plots (their holder is the issuer itself) say so, not the issuer's address — a
+ *  newcomer's first screen read "Owned by 3cc4c4…3572f" over the square (playtest 2026-11-16) */
+const ownedBy = (holder) => holder === ISSUER ? T("ownedTown", "Owned by the town") : T("owned", "Owned by {o}", { o: disp(holder) });
 const NFT_URL = "https://nft.nadochain.com/";
 const dapp = new NadoDapp({ cid: CID, app: "Land" });
 // ONE SIGN-IN ("im already signed in and it tells me to sign in", operator 2026-11-06). Building needs the world server
@@ -1040,6 +1043,8 @@ function explainNoBuild(plot) {
   }
   if (!net.me) signInNotice(T("signInBuild2", "Sign in to gather and build."));
   else if (t && t.sale) notify(T("notYoursSale", "Plot {p} is for sale · {n} NADO — buy it on the market to gather and build here.", { p: plotLabel(plot), n: rawToNado(t.sale.price.toString()) }));
+  // (the town's own plots by name, not the issuer's address — see ownedBy)
+  else if (t && t.holder === ISSUER) notify(T("notYoursTown", "Plot {p} belongs to the town — gather and build on open land, or on a plot of your own.", { p: plotLabel(plot) }));
   else if (t && t.holder) notify(T("notYoursOwned", "Plot {p} is owned by {o} — ask them to invite you to build here.", { p: plotLabel(plot), o: disp(t.holder) }));
   else notify(T("notYours", "Plot {p} belongs to someone else. Buy a plot, or ask its owner to invite you.", { p: plotLabel(plot) }));
   return false;
@@ -2466,7 +2471,7 @@ function aimText(a) {
     // plot 0·4999·3438): until it is in, the line says checking, and the plot aimed at is asked about (once a refresh)
     const unsure = net.me && net.online && t && !mine.has(plot) && !builderKnown.has(plot);
     if (unsure && !t.checked) { t.checked = true; builderCheck(plot); }
-    return T("aimFmt2", "{what} — {v}", { what: what + " · " + (t && t.sale ? T("forSale", "For sale · {p} NADO", { p: rawToNado(t.sale.price.toString()) }) : t && t.holder ? T("owned", "Owned by {o}", { o: disp(t.holder) }) : T("titled", "Titled")), v: unsure ? T("v.checking", "checking whether you may build here") : T("v.notYours", "not yours to gather here") }); };
+    return T("aimFmt2", "{what} — {v}", { what: what + " · " + (t && t.sale ? T("forSale", "For sale · {p} NADO", { p: rawToNado(t.sale.price.toString()) }) : t && t.holder ? ownedBy(t.holder) : T("titled", "Titled")), v: unsure ? T("v.checking", "checking whether you may build here") : T("v.notYours", "not yours to gather here") }); };
   if (a.box) {
     const kind = a.box.b[6], what = blockLabel(kind);
     const verb = kind === B.door || kind === B.chest ? T("v.open", "open") : kind === B.bed ? T("v.sleep", "sleep here") : kind === B.well ? T("v.draw", "draw water (a bucket)")
@@ -2986,14 +2991,14 @@ function hud() {
   // titled plot read "Wilderness" for the first seconds after a load (playtest 2026-11-15, #199)
   if (!t && !titlesVer) html = `<span class="pill">${esc(T("plotLooking", "Looking up who owns this plot…"))}</span>${signIn}`;
   else if (!t) html = `<span class="pill">${esc(T("wild", "Wilderness"))}</span> <span class="dim">${esc(T("wildOpen", "Unowned: anyone may gather and build here. Own a plot to protect what you build."))}</span>${signIn}`;
-  else if (builds.has(plot) && !mine.has(plot)) html = `<span class="pill ok">${esc(T("invited", "You may build here"))}</span> <span class="dim">${esc(t.holder ? T("owned", "Owned by {o}", { o: disp(t.holder) }) : "")}</span>`;
+  else if (builds.has(plot) && !mine.has(plot)) html = `<span class="pill ok">${esc(T("invited", "You may build here"))}</span> <span class="dim">${esc(t.holder ? ownedBy(t.holder) : "")}</span>`;
   else if (mine.has(plot)) html = `<span class="pill ok">${esc(T("yours", "Your plot"))}</span> <button id="btnAnchor" class="ghost">${esc(T("anchorBtn", "Anchor build"))}</button> <button id="btnInvite" class="ghost">${esc(T("inviteBtn", "Invite a builder"))}</button> <button id="btnSell" class="ghost">${esc(T("sellBtn", "Sell"))}</button>`;
   // your own listing: the market holds the title (so it is not in `mine`), and only its seller may reprice or withdraw it
   else if (t.sale && t.sale.seller && t.sale.seller === (net.me || dapp.me)) html = `<span class="pill ok">${esc(T("yourSale", "Your plot · for sale at {p} NADO", { p: rawToNado(t.sale.price.toString()) }))}</span> <button id="btnReprice" class="ghost">${esc(T("repriceBtn", "Change price"))}</button> <button id="btnUnlist" class="ghost">${esc(T("unlistBtn", "Take off sale"))}</button> <a class="btn" target="_blank" rel="noopener" href="${NFT_URL}#token/${esc(t.aid)}">${esc(T("seeListing", "See the listing"))}</a>`;
   // (how NADO is come by goes with the price: the playtest's newcomer had 0 NADO and nothing in the game said where it
   // comes from, #178)
   else if (t.sale) html = `<span class="pill">${esc(T("forSale", "For sale · {p} NADO", { p: rawToNado(t.sale.price.toString()) }))}</span> <span class="dim">${esc(T("nadoHow", "NADO is this chain's coin: get it on the exchange at dex.nadochain.com, or earn it by running a node."))}</span> <a class="btn" target="_blank" rel="noopener" href="${NFT_URL}#token/${esc(t.aid)}">${esc(T("buyMarket", "Buy on the market"))}</a>${signIn}`;
-  else html = `<span class="pill">${esc(t.holder ? T("owned", "Owned by {o}", { o: disp(t.holder) }) : T("titled", "Titled"))}</span> <a class="btn" target="_blank" rel="noopener" href="${NFT_URL}#token/${esc(t.aid)}">${esc(T("market", "View on the market"))}</a>${signIn}`;
+  else html = `<span class="pill">${esc(t.holder ? ownedBy(t.holder) : T("titled", "Titled"))}</span> <a class="btn" target="_blank" rel="noopener" href="${NFT_URL}#token/${esc(t.aid)}">${esc(T("market", "View on the market"))}</a>${signIn}`;
   if (st.dataset.html !== html) {
     st.innerHTML = html; st.dataset.html = html;
     const b = $("btnAnchor"); if (b) b.onclick = () => anchor(plot);
