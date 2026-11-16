@@ -1751,7 +1751,7 @@ async function unlist(plot) {
 
 // ---- the live world (scripts/land_server.py, behind /land/ on land.nadochain.com) --------------------------------------
 // Without it (the page served elsewhere, or the server down) the planet can still be explored, not changed.
-const net = { ws: null, online: false, me: null, req: 0, pending: new Map(), lastWatch: "", tries: 0, send(m) { try { if (this.ws && this.ws.readyState === 1) this.ws.send(JSON.stringify(m)); } catch (e) {} } };
+const net = { ws: null, online: false, me: null, req: 0, pending: new Map(), made: new Map(), lastWatch: "", tries: 0, send(m) { try { if (this.ws && this.ws.readyState === 1) this.ws.send(JSON.stringify(m)); } catch (e) {} } };
 const others = new Map();             // player id -> { mesh, p: [face, u, v, h, yaw], who }
 function connect() {
   let ws;
@@ -1846,7 +1846,11 @@ function connect() {
       else if (m.error) conLine(String(m.error));
       else conLine(m.name ? T("nameSet", "Your name is now {n}.", { n: m.name }) : T("nameCleared", "Your name is cleared: you are shown by your address."));
     } else if (m.t === "done") {
+      // A MAKE SAYS WHAT IT MADE (playtest 2026-11-16, the agent's phone page): a craft that worked said nothing — the
+      // Bag covers the screen, and a hotbar count changing under it was the only sign that a tap did anything
+      const made = net.made.get(m.req); net.made.delete(m.req);
       if (m.error) notify(String(m.error));
+      else if (made) { const r = RULES.recipes.find((x) => x.id === made); if (r) okBar(T("madeIt", "Made {what}.", { what: r.makes.map(([id, n]) => `${n} × ${nameOf(id)}`).join(", ") })); }
       else if (m.op === "eat") notify(T("ate", "Well fed: work goes quicker for a while."));
       else if (m.op === "bed") notify(T("bedSet", "Your bed: you will wake here."));
     } else if (m.t === "set_ok") {
@@ -3359,7 +3363,7 @@ function renderBag() {
     </div></section>`;
   const g = $("palGrid"), req = (m) => net.send(Object.assign({ req: ++net.req }, m));
   g.querySelectorAll("[data-bagtab]").forEach((b) => { b.onclick = () => { bagTab = b.dataset.bagtab; try { localStorage.setItem("nado_land_bagtab", bagTab); } catch (e) {} renderBag(); }; });
-  g.querySelectorAll("[data-make]").forEach((b) => { b.onclick = () => req({ t: "craft", recipe: b.dataset.make }); });
+  g.querySelectorAll("[data-make]").forEach((b) => { b.onclick = () => { req({ t: "craft", recipe: b.dataset.make }); net.made.set(net.req, b.dataset.make); }; });
   g.querySelectorAll("[data-eat]").forEach((b) => { b.onclick = () => req({ t: "eat", item: b.dataset.eat }); });
   g.querySelectorAll("[data-qdrop]").forEach((b) => { b.onclick = () => req({ t: "quest", op: "drop", id: b.dataset.qdrop }); });
   if ($("pxUnit")) { $("pxUnit").onchange = () => { priceUnit = $("pxUnit").value; showPrices(); }; showPrices(); }
