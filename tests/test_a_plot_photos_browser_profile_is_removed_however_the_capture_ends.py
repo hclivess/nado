@@ -2,7 +2,7 @@
 A plot photo's browser profile is removed however the capture ends (found 2026-11-16 on the live host: 21 land-shot-*
 profiles, 1.4 GB, left in /tmp over a week — a restart of the world server cancelled World.shoot inside its wait, and the
 lines that killed the browser's group and removed the profile came after the wait, so they never ran). The kill and the
-removal are in `finally` now, and World.sweep_shot_profiles removes at start any profile older than a capture can run
+removal are in `finally` now, and World.sweep_shot_profiles removes before every capture any profile older than a capture can run
 (a kill -9 or a power cut, which no `finally` sees). Here a stand-in capture that never finishes is started through the
 real World.shoot and cancelled as a stop cancels it: its profile is gone; and the sweep removes the old profiles and
 keeps a fresh one (a capture in progress).
@@ -57,5 +57,7 @@ n = S.World.sweep_shot_profiles()
 check("at start, a profile older than any capture is swept", n == 1 and not os.path.exists(old), n)
 check("…a fresh one (a capture running) is kept, and nothing that is not a capture profile is touched", os.path.exists(fresh) and os.path.exists(other))
 src = open(os.path.join(ROOT, "scripts", "land_server.py")).read()
-check("the photographer sweeps when it starts", "World.sweep_shot_profiles()" in src[src.index("async def _photographer():"):][:400])
+loop = src[src.index("async def _photographer():"):][:1200]
+check("the photographer sweeps before every capture (a stop mid-capture can outlive its finally)",
+      "await asyncio.to_thread(World.sweep_shot_profiles)" in loop and loop.index("sweep_shot_profiles") > loop.index("while True:"))
 _report.done()

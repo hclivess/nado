@@ -1449,7 +1449,7 @@ class World:
         # …HOWEVER IT ENDED — a stop included (found 2026-11-16: 21 profiles, 1.4 GB, in /tmp over a week; a restart
         # cancelled this coroutine inside the wait, so the lines after it never ran and the profile stayed): the group
         # is killed and the profile removed in `finally`, and a profile older than any capture is swept at start
-        # (sweep_shot_profiles) for the ends no `finally` sees (a kill -9, a power cut)
+        # (sweep_shot_profiles, before every capture) for the ends no `finally` sees (a kill -9, a power cut, a stop)
         try:
             try:
                 ok = await asyncio.wait_for(proc.wait(), SHOT_TIMEOUT) == 0
@@ -3364,10 +3364,13 @@ def make_app(world, hub, site_origin, wallet_url, secure_cookies=True, shot_page
 
     async def _photographer():
         """THE LISTING: one plot's photo at a time, asked-for plots first, then every title without a current one."""
-        World.sweep_shot_profiles()                                   # what a kill or a crash left behind
         await asyncio.sleep(30)
         while True:
             try:
+                # what a kill, a crash or a stop mid-capture left behind — before every capture, not only at start: the
+                # capture running when the server stops can outlive its own `finally` (measured 2026-11-16, one profile
+                # left by the restart that shipped the `finally`), and the next start can be days away
+                await asyncio.to_thread(World.sweep_shot_profiles)
                 await world.refresh_titles()
                 p = world.next_shot()
                 if p is None:
