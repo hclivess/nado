@@ -65,7 +65,8 @@ const [h3] = await run(() => false);
 ok(/none you may pick within 160 m — look in the wilderness/.test(h3), `3. nothing open within reach: "${h3}"`);
 ok(/for \(let n = 0; n < SOURCE_STEP && !s\.done && !s\.found; n\+\+\)/.test(page) && /const SOURCE_R = 160, SOURCE_STEP = 1500, SOURCE_MOVE = 12;/.test(page)
    && /if \(now - \(goalTick \|\| 0\) > 500 && \(inv\.quests \|\| \[\]\)\.some\(\(q\) => q\.kind === "bring" && !q\.ready\)\) \{ goalTick = now; goalLine\(\); \}/.test(page)
-   && /if \(!q\.ready && q\.kind === "bring"\) \{ const h = sourceHint\(q\.item\); if \(h\) \{ g\.textContent = h; return; \} \}/.test(page),
+   // (a tool it needs is named first — test_an_errand_that_needs_a_tool_says_which_and_where_it_is_made.mjs)
+   && /if \(!q\.ready && q\.kind === "bring"\) \{[\s\S]{0,600}?const h = sourceHint\(q\.item\); if \(h\) \{ g\.textContent = h; return; \}/.test(page),
   "4. it searches a slice a call, and the goal line asks for it twice a second while a bring-job is open");
 ok(S.sourceBlocks("iron").length === 0 && S.sourceBlocks("nothing").length === 0, "5. no hint for what hands cannot pick from the planet's litter");
 // 6. a bush that is no longer there is never pointed to: picked (its plot's edits, from the region answer), or under a piece

@@ -446,11 +446,21 @@ function pillarTick() {
     if (roomFor(c.cell) && setBlock(P.face, u, v, h, c.b)) { P.h = h + 1; P.vh = 0; }
   }
 }
+/** The direction the player asks to go, at most full strength (length 1). FORWARD AND SIDEWAYS TOGETHER WERE √2 TIMES
+ *  FASTER (playtest 2026-11-16, a player's own trace: pulled back by the world server eleven times in free flight —
+ *  fast flight is 60 m/s straight, 85 m/s on a diagonal, and the server allows 65; running diagonally was 10.6 m/s
+ *  against 7.5): the sum is cut to length 1, a joystick's partial tilt kept as it is. */
+function moveDir(fwd, side) {
+  const m = Math.hypot(fwd, side);
+  return m > 1 ? [fwd / m, side / m] : [fwd, side];
+}
 function step(dt) {
   pillarTick();
-  const fwd = (keys.has("KeyW") || keys.has("ArrowUp") ? 1 : 0) - (keys.has("KeyS") || keys.has("ArrowDown") ? 1 : 0) + (touch ? touch.my : 0);
-  const side = (keys.has("KeyD") || keys.has("ArrowRight") ? 1 : 0) - (keys.has("KeyA") || keys.has("ArrowLeft") ? 1 : 0) + (touch ? touch.mx : 0);
-  if (flying) return flyStep(dt, fwd, side);                // at the controls of a craft: it moves, the pilot rides
+  const f0 = (keys.has("KeyW") || keys.has("ArrowUp") ? 1 : 0) - (keys.has("KeyS") || keys.has("ArrowDown") ? 1 : 0) + (touch ? touch.my : 0);
+  const s0 = (keys.has("KeyD") || keys.has("ArrowRight") ? 1 : 0) - (keys.has("KeyA") || keys.has("ArrowLeft") ? 1 : 0) + (touch ? touch.mx : 0);
+  // (a craft takes them as they are: to a pilot forward and sideways are throttle and turn, not one diagonal)
+  if (flying) return flyStep(dt, f0, s0);                   // at the controls of a craft: it moves, the pilot rides
+  const [fwd, side] = moveDir(f0, s0);
   const fast = keys.has("ShiftLeft") || keys.has("ShiftRight") || !!(touch && touch.run);   // (Run held on a phone, #139)
   const sp = P.fly ? (fast ? FLY_FAST : FLY) : (fast ? RUN : WALK);
   const sy = Math.sin(P.yaw), cy = Math.cos(P.yaw);
@@ -2590,6 +2600,18 @@ function gatheredFrom(item) {
   }
   return "";
 }
+/** The tool an item can only be gathered with, when every block that gives it asks for one ("" when a hand will do):
+ *  the first such class's simplest tool — the first in the tools table, its stone one. */
+function toolFor(item) {
+  if (!RULES || !RULES.breaking) return "";
+  let cls = "";
+  for (const r of Object.values(RULES.breaking)) {
+    if (!r || typeof r !== "object" || !Array.isArray(r.yields) || !r.yields.some((y) => Array.isArray(y) && y[0] === item)) continue;
+    if (!r.class && !r.needs) return "";
+    cls = cls || r.class || "";
+  }
+  return cls;
+}
 function questText(q) {
   if (q.kind === "bring") {
     // WHAT YOU HOLD OF IT, as a hunt shows its count (playtest 2026-11-15: carrying 2 stones, "Bring 6 × Stone" said
@@ -3152,7 +3174,18 @@ function goalLine() {
     // HANDED IN WHERE IT ENDS (playtest 2026-11-15: a parcel for Ida said "Done — hand it in … (Q at the one who gave
     // it)" the moment it was taken, sending the player back to Maren; the server ends a delivery at its addressee, q.to)
     // (a bring-job not done yet says where the nearest source the player may pick is — sourceHint, below)
-    if (!q.ready && q.kind === "bring") { const h = sourceHint(q.item); if (h) { g.textContent = h; return; } }
+    // A TOOL IT NEEDS IS NAMED (playtest 2026-11-16, a real player's trace: "Bring 4 × Clay", no tools in their bag,
+    // and they flew kilometres from town — clay is dug with a shovel, the line named no source, and nothing said a
+    // shovel was the way; they carried what one is made of): before a source, the tool, and where it is made
+    if (!q.ready && q.kind === "bring") {
+      const cls = toolFor(q.item);
+      if (cls && !hasClass(cls)) {
+        const tool = Object.keys(RULES.tools).find((t) => RULES.tools[t].class === cls);
+        g.textContent = T("goalTool", "Your work: {q} · it is dug with a {t} — make one in the Bag ({m}).", { q: questText(q), t: nameOf(tool), m: T("make", "Make") });
+        return;
+      }
+      const h = sourceHint(q.item); if (h) { g.textContent = h; return; }
+    }
     // the key by name — on a phone the button (there is no Q on a phone: playtest 2026-11-15, the phone layout said
     // "walk up and press Q"), as the aim line names it
     const k = touch ? T("tUse", "Use") : "Q";
