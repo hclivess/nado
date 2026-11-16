@@ -327,6 +327,13 @@ function craftGround(f, u, v) {
   return g > plain + 0.5 ? plain : g;
 }
 /** Which of the craft's body points are inside something at pose (bodyInside) — only over a plot something reaches up to. */
+/** The plots a craft's body may reach (the corners of its reach round its pose). */
+function plotsUnder(c) {
+  const [f, u, v] = c.pose, r = c.bodyR || 0, out = new Set();
+  for (const du of [-r, 0, r]) for (const dv of [-r, 0, r])
+    out.add(Wd.plotOf(f, Math.max(0, Math.min(W - 1, Math.floor(u + du))), Math.max(0, Math.min(W - 1, Math.floor(v + dv)))));
+  return [...out];
+}
 function craftHits(c, pose) {
   const [f, u, v, h] = pose, low = h + c.bodyLow, r = c.bodyR;
   for (const du of [-r, r]) for (const dv of [-r, r]) {
@@ -529,6 +536,17 @@ function flyStep(dt, fwd, side) {
   craftStep(c, input, dt, F, (u, v) => craftGround(c.pose[0], u, v) - 0.05, (pose) => craftHits(c, pose));
   const torn = tearing; tearing = null;
   if (torn.size) tearCells(c, torn);
+  // ALREADY INSIDE (playtest 2026-11-16, the X fighter parked at 0·4729·4162 with a pine through it): the step tears what
+  // the body meets as it MOVES, and tears go from this page — the pilot's page closed in the last dive, so the tree it came
+  // to rest in was never sent and stands through the hull for every visitor. Once a boarding, when the plots under the
+  // craft hold their edits (a tree already torn is no tree), the body at rest tears what it stands in — on the next boarding
+  // or reload such a craft frees itself.
+  if (!c.cleared && plotsUnder(c).every((p) => plotsApplied.has(p))) {
+    c.cleared = true;
+    tearing = new Set(); craftHits(c, c.pose);
+    const inside = tearing; tearing = null;
+    if (inside.size) tearCells(c, inside);
+  }
   cannonTick(c, input.slots || heldSlots());
   if (c.aero && c.aero.winged) {
     P.yaw = c.pose[4]; P.pitch = c.pose[5] || 0;             // the camera looks along the nose
