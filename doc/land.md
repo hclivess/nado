@@ -338,6 +338,21 @@ against its database.
   never placed; layer 0 is never changed.
 - **Accounts whose key was rotated** (auth config) do not sign in yet: the server binds the key to the address by
   derivation (proof_sender), not by the account's auth config.
+- **Reach on placed pieces** (2026-11-16). An act on a piece that another player could use or be harmed by needs the
+  player within REACH_M (12 m) of the piece's middle: drawing from a well, claiming a bed, opening a chest, and choosing
+  what a machine makes. Without this, /tp bed made any bed on the planet a teleport, and a commons chest carried goods
+  across the planet with no journey. The player's place comes from their socket, else from where the server keeps them;
+  an unknown place is refused. Reading a machine's state stays free, and so do owner-only acts on the owner's own things:
+  re-boarding your own craft (a pilot gets back in after dying) and launching your own rocket.
+- **Restarts take a fraction of a second.** On a stop, the first step cancels the background loops and closes every
+  socket as 1001 "going away"; the pages reconnect by themselves. run_app waits SHUTDOWN_S (5 s) for requests still in
+  flight. Before this a restart took about 47 s, the framework waiting out its timeout for open sockets. A restart
+  still drops every connected page, so batch server changes.
+- **Every socket's end is logged** in the journal: `ws closed <who> after <s> s code=<code> <clean | error>`. A
+  TimeoutError is the 30 s heartbeat getting no answer within 15 s: a peer that is gone (a sleeping laptop, or the
+  photographer's killed browser behind Cloudflare), which the server is cleaning up.
+- **The photographer's browser profiles** are removed in `finally` and swept before every capture (anything older than
+  a capture can run), so a stop mid-capture leaves nothing in /tmp. 21 profiles, 1.4 GB, had piled up there by 2026-11-16.
 
 ## The API for agents
 
