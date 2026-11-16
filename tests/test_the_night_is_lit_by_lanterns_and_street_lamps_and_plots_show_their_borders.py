@@ -95,10 +95,13 @@ check("plots of one holder share one outline, plots on sale keep each their own"
 check("a border follows the drawn ground and the pieces on it, never a tree",
       "const at = (u, v) => Math.max(earthAt(q.face, u, v), pieceTopAt(p," in page and "const inside = (y) => fieldAt(f, u, v, y) > 0;" in page)
 # THE OUTLINE IS CACHED A PLOT AT A TIME (#150: a 358 ms rebuild at every plot line crossed, measured 2026-11-12): a
-# plot's part is keyed by its kind, pieces, edits, width and which of its edges are drawn, kept in planet metres, and
-# a rebuild only concatenates — the key carries everything the sampling depends on, or a stale outline would stay
-check("a plot's outline is built once for its (kind, pieces, edits, width, edges drawn) and kept; a rebuild concatenates",
-      'const key = [k, nb, ne, wd, drawn.map((d) => (d ? 1 : 0)).join("")].join("|");' in page and "let part = borderCache.get(p);" in page
+# plot's part is keyed by its pieces, edits, width and which of its edges are drawn, kept in planet metres, and a
+# rebuild only concatenates — the key carries everything the sampling depends on, or a stale outline would stay. Its
+# kind is its colour alone, recoloured on the kept shape (2026-11-16: every plot was sampled twice on arrival;
+# tests/test_a_plot_border_that_only_changes_colour_is_not_sampled_again.mjs runs it)
+check("a plot's outline is built once for its (pieces, edits, width, edges drawn) and kept, recoloured for its kind; a rebuild concatenates",
+      'const key = [nb, ne, wd, drawn.map((d) => (d ? 1 : 0)).join("")].join("|");' in page and "let part = borderCache.get(p);" in page
+      and "col: borderColours(k, part.pos.length)" in page
       and "if (!part || part.key !== key) {" in page and "for (const p of [...borderCache.keys()]) if (!keep.has(p)) borderCache.delete(p);" in page)
 check("borders are on by default, and a setting turns them off", "borders: 1," in page and "borders: [0, 1]," in page
       and "const on = SHOT !== null || SET.borders;" in page)

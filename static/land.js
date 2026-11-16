@@ -5477,7 +5477,7 @@ function borderMaterial() {
   return (borderMat = m);
 }
 let borderMesh = null, borderOwn = "", borderSig = "", borderAt = 0;
-const borderCache = new Map();                              // plot -> { key, pos (planet metres), col } (#150)
+const borderCache = new Map();                              // plot -> { key (its shape), kind, pos (planet metres), col } (#150)
 function borderKind(plot) {
   if (SHOT !== null) return plot === SHOT ? "shot" : null;
   const t = titles.get(plot);
@@ -5504,6 +5504,12 @@ function earthAt(f, u, v) {
   else { b = h; a = h - 0.25; while (!inside(a) && a > h - 64) { b = a; a -= 0.25; } }
   for (let n = 0; n < 6; n++) { const m = (a + b) / 2; if (inside(m)) a = m; else b = m; }
   return b;
+}
+/** A border's vertex colours: its kind's colour, once a vertex (n = the position array's length). */
+function borderColours(k, n) {
+  const c = new THREE.Color(BORDER[k]), col = new Float32Array(n);
+  for (let i = 0; i < n; i += 3) { col[i] = c.r; col[i + 1] = c.g; col[i + 2] = c.b; }
+  return col;
 }
 function updateBorders() {
   if (!scene) return;
@@ -5543,11 +5549,16 @@ function updateBorders() {
       const n = q.prow + nr >= 0 && q.pcol + nc >= 0 && q.prow + nr < Wd.FACE_N && q.pcol + nc < Wd.FACE_N ? Wd.plotId(q.face, q.prow + nr, q.pcol + nc) : -1;
       return !(SHOT === null && k !== "sale" && holder && n >= 0 && (titles.get(n) || {}).holder === holder && borderKind(n) === k);
     });
-    const key = [k, nb, ne, wd, drawn.map((d) => (d ? 1 : 0)).join("")].join("|");
+    // THE SHAPE IS KEYED APART FROM THE COLOUR (#150; measured 2026-11-16 at the second X fighter's plot, the outline
+    // builder instrumented in a test browser): on arrival every plot was sampled as "titled", then AGAIN as each
+    // holder's answer came back and turned it "sale" — 49 plots twice, 876 ms and then ~830 ms more in bursts over 2 s,
+    // for a change of colour alone. A kind change recolours the kept shape; only the shape's own inputs re-sample.
+    const key = [nb, ne, wd, drawn.map((d) => (d ? 1 : 0)).join("")].join("|");
     keep.add(p);
     let part = borderCache.get(p);
+    if (part && part.key === key && part.kind !== k) { part = { ...part, kind: k, col: borderColours(k, part.pos.length) }; borderCache.set(p, part); }
     if (!part || part.key !== key) {
-      const c = new THREE.Color(BORDER[k]), pos = [], col = [];
+      const pos = [];
       const at = (u, v) => Math.max(earthAt(q.face, u, v), pieceTopAt(p, (u - q.u0) * Wd.CM, (v - q.v0) * Wd.CM)) + 0.04;
       edges.forEach(([[u0, v0], [du, dv], [iu, iv]], ei) => {
         if (!drawn[ei]) return;
@@ -5556,12 +5567,12 @@ function updateBorders() {
           const s1 = Math.min(16 - 2 * e, s0 + STEP_M), h1 = at(u0 + du * s1, v0 + dv * s1);   // (the ground sampled once a segment end, not once a corner)
           for (const [ss, inn, hh] of [[s0, 0, hPrev], [s1, 0, h1], [s1, wd, h1], [s0, wd, hPrev]]) {
             const x = Wd.posOf(q.face, u0 + du * ss + iu * inn, v0 + dv * ss + iv * inn, hh);
-            pos.push(x[0], x[1], x[2]); col.push(c.r, c.g, c.b);
+            pos.push(x[0], x[1], x[2]);
           }
           hPrev = h1;
         }
       });
-      part = { key, pos: new Float64Array(pos), col: new Float32Array(col) };
+      part = { key, kind: k, pos: new Float64Array(pos), col: borderColours(k, pos.length) };
       borderCache.set(p, part);
     }
     parts.push(part);
