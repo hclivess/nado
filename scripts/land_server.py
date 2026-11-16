@@ -2385,9 +2385,12 @@ class World:
         return nb, b, None
 
     # -- FACTORIES (#148)
-    async def set_machine(self, who, p, b, recipe):
+    async def set_machine(self, who, p, b, recipe, at=False):
         """Choose what machine `b` on plot `p` makes (its owner and their builders; in the commons anyone). recipe None
-        just reads it. Returns (its record, the recipes it can run, error)."""
+        just reads it. Returns (its record, the recipes it can run, error). …SET STANDING AT IT (2026-11-16, the last of
+        the acts on a placed piece that measured no distance — the well's, the bed's and the chest's were closed today):
+        a commons machine was re-set from anywhere on the planet. Choosing a recipe needs the machine's middle within
+        REACH_M of the player's eye, `at` their place (None: refused; False: the server's own call); reading does not."""
         rec = self.plots.get(p)
         b = list(b) if isinstance(b, (list, tuple)) else b
         if not rec or not isinstance(b, list) or b not in rec.get("boxes", []) or b[6] not in MACHINES | {GENERATOR}:
@@ -2400,6 +2403,10 @@ class World:
             return cfg, can, None
         if (await self.holder(p)) is not None and not await self.may_build(p, who):
             return None, can, "not your plot — only its owner and the builders they invite set its machines"
+        face, row, col = plot_coords(p)
+        mid = (col * PLOT + (b[0] + b[3] / 2) / CM, row * PLOT + (b[1] + b[4] / 2) / CM, (b[2] + b[5] / 2) / CM)
+        if at is not False and (not at or int(at[0]) != face or math.dist(mid, (at[1], at[2], at[3] + EYE)) > REACH_M):
+            return None, can, "out of reach — stand within %d m of it" % REACH_M
         if recipe not in can:
             return None, can, "this machine cannot make that"
         cfg = rec.setdefault("machines", {})[chest_key(b)] = {"recipe": recipe, "status": "idle", "made": 0}
@@ -3842,7 +3849,7 @@ def make_app(world, hub, site_origin, wallet_url, secure_cookies=True, shot_page
                     if not addr:
                         await ws.send_json({"t": "machine", "req": m.get("req"), "error": "sign in first"})
                         continue
-                    cfg, can, err = await world.set_machine(addr, m.get("plot"), m.get("box"), m.get("recipe"))
+                    cfg, can, err = await world.set_machine(addr, m.get("plot"), m.get("box"), m.get("recipe"), st.get("pos") or hub.where(world, addr))
                     await ws.send_json({"t": "machine", "req": m.get("req"), "plot": m.get("plot"), "box": m.get("box"), "cfg": cfg, "can": can, "error": err})
                 elif t in ("pad", "launch"):                       # #173: a launch pad's numbers, and the launch
                     if not addr:

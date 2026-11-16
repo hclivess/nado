@@ -78,7 +78,16 @@ async def main():
     _, _, err = await world.set_machine(b, PA, smelter, "iron")
     check("a stranger cannot set a machine on another's plot", err and "not your plot" in err, err)
 
-    cfg, _, err = await world.set_machine(a, PA, smelter, "iron")
+    # SET STANDING AT IT (2026-11-16): a player's call passes their place — from 200 m a commons machine was re-set
+    f0, r0, c0 = S.plot_coords(PA)
+    mid = [f0, c0 * 16 + (smelter[0] + smelter[3] / 2) / 100, r0 * 16 + (smelter[1] + smelter[4] / 2) / 100, (smelter[2] + smelter[5] / 2) / 100]
+    _, _, err = await world.set_machine(a, PA, smelter, "iron", [mid[0], mid[1] + 200, mid[2], mid[3] - 1.6, 0])
+    check("its owner 200 m away cannot set it: out of reach", err and "out of reach" in err, err)
+    _, _, err = await world.set_machine(a, PA, smelter, "iron", None)
+    check("…nor one the server cannot place", err and "out of reach" in err, err)
+    cfg, _, err = await world.set_machine(a, PA, smelter, None, [mid[0], mid[1] + 200, mid[2], mid[3] - 1.6, 0])
+    check("…reading what it makes needs no standing at it", err is None, err)
+    cfg, _, err = await world.set_machine(a, PA, smelter, "iron", [mid[0], mid[1] + 1.5, mid[2], mid[3] - 1.6, 0])
     check("its owner sets the smelter to make iron", err is None and cfg["recipe"] == "iron", err)
 
     # 2. why it waits
