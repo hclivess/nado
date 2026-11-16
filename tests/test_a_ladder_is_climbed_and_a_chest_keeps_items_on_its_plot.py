@@ -83,6 +83,16 @@ async def main():
     box = [200, 200, 15000, 90, 50, 55, 54]
     added, _, ref = await w.boxes(A, p, [box], [])
     check("a chest is placed as a unit piece", added == [box], ref)
+    # STANDING AT IT (2026-11-16): a player's call passes their place — from 200 m a commons chest carried goods
+    # across the planet with no journey
+    f0, r0, c0 = S.plot_coords(p)
+    mid = [f0, c0 * 16 + (box[0] + box[3] / 2) / 100, r0 * 16 + (box[1] + box[4] / 2) / 100, (box[2] + box[5] / 2) / 100]
+    items, err = await w.chest(A, p, box, {"stone": 1}, {}, [mid[0], mid[1] + 200, mid[2], mid[3] - 1.6, 0])
+    check("a player 200 m away cannot open it: out of reach", items is None and "out of reach" in (err or ""), err)
+    items, err = await w.chest(A, p, box, {"stone": 1}, {}, None)
+    check("…nor one the server cannot place", items is None and "out of reach" in (err or ""), err)
+    items, err = await w.chest(A, p, box, {}, {}, [mid[0], mid[1] + 1.5, mid[2], mid[3] - 1.6, 0])
+    check("…a player standing at it can", err is None, err)
     items, err = await w.chest(A, p, box, {"stone": 4, "wood": 3}, {})
     check("items go into the chest exactly", not err and items == {"stone": 4, "wood": 3} and pa["items"].get("stone") == 6 and "wood" not in pa["items"], (items, err, pa["items"]))
     items, err = await w.chest(A, p, box, {"stone": 99}, {})

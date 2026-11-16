@@ -2820,14 +2820,22 @@ class World:
         return [{"id": c["id"], "pose": c["pose"], "pilot": c["pilot"], "pieces": len(c["pieces"])}
                 for c in sorted(self.crafts.values(), key=lambda c: c["id"]) if c["owner"] == who]
 
-    async def chest(self, who, p, b, put, take):
+    async def chest(self, who, p, b, put, take, at=False):
         """Move items between the caller's bag and chest `b` on plot `p` (#114): `put` and `take` are {item: count}. On an
         owned plot only its owner and their builders open it; in the commons a chest is everyone's. All or nothing: a
-        call that cannot move everything it names moves nothing. Returns (the chest's items, error)."""
+        call that cannot move everything it names moves nothing. Returns (the chest's items, error). …STANDING AT IT
+        (2026-11-16, beside the well's and the bed's same gap): opened from anywhere, a commons chest carried goods across
+        the planet with no journey — put in at one end, taken out at the other. The chest's middle within REACH_M of the
+        caller's eye, `at` their place: a player's call always passes it (None: nobody knows where they are — refused);
+        False is the server's own call (a machine, a test), not a player standing anywhere."""
         rec = self.plots.get(p)
         b = list(b) if isinstance(b, (list, tuple)) else b
         if not rec or not isinstance(b, list) or b not in rec.get("boxes", []) or b[6] != CHEST:
             return None, "no such chest here"
+        face, row, col = plot_coords(p)
+        mid = (col * PLOT + (b[0] + b[3] / 2) / CM, row * PLOT + (b[1] + b[4] / 2) / CM, (b[2] + b[5] / 2) / CM)
+        if at is not False and (not at or int(at[0]) != face or math.dist(mid, (at[1], at[2], at[3] + EYE)) > REACH_M):
+            return None, "out of reach — stand within %d m of it" % REACH_M
         if (await self.holder(p)) is not None and not await self.may_build(p, who):
             return None, "not your plot — only its owner and the builders they invite open its chests"
         if not isinstance(put, dict) or not isinstance(take, dict):
@@ -3925,7 +3933,7 @@ def make_app(world, hub, site_origin, wallet_url, secure_cookies=True, shot_page
                     if not addr:
                         await ws.send_json({"t": "chest", "req": m.get("req"), "error": "sign in first"})
                         continue
-                    items, err = await world.chest(addr, m.get("plot"), m.get("box"), m.get("put") or {}, m.get("take") or {})
+                    items, err = await world.chest(addr, m.get("plot"), m.get("box"), m.get("put") or {}, m.get("take") or {}, st.get("pos") or hub.where(world, addr))
                     await ws.send_json({"t": "chest", "req": m.get("req"), "plot": m.get("plot"), "box": m.get("box"),
                                         "items": items, "error": err})
                     if not err:
