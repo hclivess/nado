@@ -1718,13 +1718,19 @@ class World:
         self.pdirty.add(who)
         return None
 
-    async def well(self, who, p, b):
+    async def well(self, who, p, b, at=None):
         """Draw a bucketful of water from well `b` on plot `p` (#155): anyone signed in with a bucket, and a well never runs
-        dry — water anywhere a well is built, not only at a lake."""
+        dry — water anywhere a well is built, not only at a lake. …STANDING AT IT (#206, 2026-11-16: the draw checked no
+        distance, so a bucket filled at any well on the planet from anywhere — every other act is bounded by REACH_M or the
+        pace): the well's middle within REACH_M of the drawer's eye, `at` their place (None: nobody knows where they are)."""
         rec = self.plots.get(p)
         b = list(b) if isinstance(b, (list, tuple)) else b
         if not rec or not isinstance(b, list) or b not in rec.get("boxes", []) or b[6] != WELL:
             return "no such well here"
+        face, row, col = plot_coords(p)
+        mid = (col * PLOT + (b[0] + b[3] / 2) / CM, row * PLOT + (b[1] + b[4] / 2) / CM, (b[2] + b[5] / 2) / CM)
+        if not at or int(at[0]) != face or math.dist(mid, (at[1], at[2], at[3] + EYE)) > REACH_M:
+            return "out of reach — stand within %d m of it" % REACH_M
         pl = self.player(who)
         if not self._has_class(pl, "bucket"):
             return "a well is drawn with a bucket"
@@ -3575,7 +3581,7 @@ def make_app(world, hub, site_origin, wallet_url, secure_cookies=True, shot_page
 
     async def draw_well(request):
         addr, d = need_addr(request), await request.json()
-        err = await world.well(addr, d.get("plot"), d.get("box"))
+        err = await world.well(addr, d.get("plot"), d.get("box"), hub.where(world, addr))
         if not err:
             await hub.inv(world, addr)
         return web.json_response({"ok": not err, "error": err, "inventory": world.inv_json(addr)})
@@ -3953,7 +3959,7 @@ def make_app(world, hub, site_origin, wallet_url, secure_cookies=True, shot_page
                     if not addr:
                         await ws.send_json({"t": "done", "req": m.get("req"), "error": "sign in first"})
                         continue
-                    err = world.eat(addr, m.get("item")) if t == "eat" else await world.well(addr, m.get("plot"), m.get("box"))
+                    err = world.eat(addr, m.get("item")) if t == "eat" else await world.well(addr, m.get("plot"), m.get("box"), st.get("pos") or hub.where(world, addr))
                     await ws.send_json({"t": "done", "req": m.get("req"), "op": t, "error": err})
                     if not err:
                         await hub.inv(world, addr)

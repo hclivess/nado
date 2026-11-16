@@ -7,7 +7,8 @@
   * eating is a reward, never a need: food is eaten one at a time, berries and bread only; a meal makes breaking take
     food.work of its time while it lasts, berries a little while, bread longer, and meals add up only to max_s;
   * a well, built of cobble, planks and cordage, stands on the ground as a piece; Use on it with a bucket draws a
-    bucketful, again and again (it never runs dry); without a bucket it gives nothing; and it is taken down whole.
+    bucketful, again and again (it never runs dry), only to someone standing at it (#206); without a bucket it gives
+    nothing; and it is taken down whole.
 
 Run: python3 tests/test_bread_is_baked_from_a_fields_grain_and_a_well_never_runs_dry.py
 """
@@ -142,6 +143,16 @@ async def main():
     for _ in range(5):
         r = await api("/land/api/well", {"plot": p, "box": well})
     check("with a bucket it gives a bucketful, again and again: it never runs dry", r["ok"] and items().get("water") == 5, r)
+    # STANDING AT IT (#206, 2026-11-16: the draw checked no distance — a bucket filled at any well from anywhere)
+    back = list(world.player(me).get("pos") or [])
+    world.keep_place(me, [f, u + 200.5, v + 0.5, top + 1, 0])
+    r = await api("/land/api/well", {"plot": p, "box": well})
+    check("200 m from the well, no water: out of reach", not r["ok"] and "out of reach" in (r["error"] or "") and items().get("water") == 5, r)
+    world.keep_place(me, [f, u + 0.5, v - 1.5, top + 1, 0])
+    r = await api("/land/api/well", {"plot": p, "box": well})
+    check("…beside it again, a bucketful", r["ok"] and items().get("water") == 6, r)
+    if back:
+        world.keep_place(me, back)
     r = await api("/land/api/well", {"plot": p, "box": well[:6] + [S.CHEST]})
     check("only a well gives water", not r["ok"], r)
     world.workb.clear()
