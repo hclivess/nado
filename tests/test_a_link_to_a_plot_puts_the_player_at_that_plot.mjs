@@ -4,7 +4,7 @@
  * all: a fresh browser asked for 0·4999·3438 stood at the landing, 0·5000·3440. land.js linkPlace reads it — half a
  * metre inside the plot's south edge, looking north across it, so the HUD names the plot asked for (1.5 m off the edge
  * it named the neighbour, 0·4998·3438) — and load() puts the player there over a saved place and over the server's kept
- * one, then drops ?plot= from the address. When the plot's pieces arrive and stand there, the player steps out over the
+ * one, then drops ?plot= from the address — and only it: ?prof=1 beside it is read afterwards (it was lost, 2026-11-16). When the plot's pieces arrive and stand there, the player steps out over the
  * edge (setPlotBoxes). The page's linkPlace and that step run here.
  * Run: node tests/test_a_link_to_a_plot_puts_the_player_at_that_plot.mjs
  */
@@ -28,7 +28,13 @@ ok(["", "?plot=", "?plot=abc", "?plot=-3", "?plot=" + Wd.PLOT_MAX, "?plot=999999
 const ld = page.slice(page.indexOf("function load() {"), page.indexOf("\n}\n", page.indexOf("function load() {")));
 ok(ld.indexOf("const link = linkPlace(location.search);") >= 0 && ld.indexOf("const link = linkPlace(location.search);") < ld.indexOf("restorePlace(d.p"), "load takes the link before a saved place");
 ok(/localPlace = Infinity;/.test(ld) && /if \(m\.pos && \(m\.pos_at \|\| 0\) > localPlace\) takePlace\(m\.pos\);/.test(page), "…and over the server's kept place (taken only when newer than the page's)");
-ok(/history\.replaceState\(null, "", location\.pathname \+ location\.hash\)/.test(ld), "…then drops ?plot= so a reload stays where they walked");
+ok(/history\.replaceState\(null, "", location\.pathname \+ withoutPlot\(location\.search\) \+ location\.hash\)/.test(ld), "…then drops ?plot= so a reload stays where they walked");
+{ // …and ONLY ?plot=: ?prof=1 is read after load, and a plot link with it came up with no profiler (2026-11-16)
+  const j0 = page.indexOf("function withoutPlot(search) {"), withoutPlot = new Function(page.slice(j0, page.indexOf("\n}\n", j0) + 2) + "\nreturn withoutPlot;")();
+  ok(withoutPlot("?plot=" + X + "&prof=1") === "?prof=1" && withoutPlot("?prof=1&plot=" + X + "&plain") === "?prof=1&plain=" && withoutPlot("?plot=" + X) === "", "the rest of the address stays: ?plot=N&prof=1 → ?prof=1; ?plot=N alone → nothing");
+  const prof = page.indexOf('get("prof") === "1"'), loadAt = page.indexOf("function load() {");
+  ok(prof > 0 && loadAt > 0, "(the profiler reads ?prof=1 from the address)");
+}
 ok(/href="\$\{esc\(LAND\)\}\/\?plot=\$\{p\}"/.test(nft), "the market's \"Walk it in Land\" is such a link");
 { // the plot's pieces arrive: standing in one, the player steps out over the south edge; standing clear, they stay
   const sp = page.slice(page.indexOf("function setPlotBoxes(plot, list) {"), page.indexOf("\n}\n", page.indexOf("function setPlotBoxes(plot, list) {")) + 2);

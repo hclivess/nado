@@ -1084,6 +1084,12 @@ function linkPlace(search) {
   const q = Wd.plotCoords(Number(s));
   return [q.face, q.u0 + Wd.PLOT / 2, q.v0 + 0.5, 0, Number(s)];
 }
+/** The address's query without ?plot=, the rest kept as it was (load). */
+function withoutPlot(search) {
+  const q = new URLSearchParams(search); q.delete("plot");
+  const s = q.toString();
+  return s ? "?" + s : "";
+}
 function townSpawn() {
   const q = Wd.plotCoords(TOWN_HALL_PLOT);
   // the door is 8.05-8.95 m in, the street 0-2 m. The landing FACES WEST along the street (yaw -π/2), where Maren the
@@ -1107,7 +1113,9 @@ function load() {
     [P.face, P.u, P.v, P.yaw] = link; P.h = groundAt(P.face, P.u, P.v); P.pitch = -0.2;
     linkArrive = link[4];                                // checked against the plot's pieces when they arrive
     localPlace = Infinity;                               // (the greeting takes the server's place only when it is newer)
-    try { history.replaceState(null, "", location.pathname + location.hash); } catch (e) {}   // a reload stays where they walked
+    // a reload stays where they walked. Only ?plot= goes: the rest is read after this (?prof=1, ?plain, ?gov), and a
+    // plot link with ?prof=1 came up with no profiler while the landing's had one (measuring #150, 2026-11-16)
+    try { history.replaceState(null, "", location.pathname + withoutPlot(location.search) + location.hash); } catch (e) {}
     return;
   }
   const at = d && restorePlace(d.p, W, (f, u, v, h) => { const pf = P.face; P.face = f; const c = collides(u, v, h); P.face = pf; return c; },
