@@ -16,8 +16,21 @@ let fails = 0;
 const ok = (c, m) => { console.log((c ? "ok   " : "FAIL ") + m); if (!c) fails++; };
 ok(/const k = touch \? T\("tUse", "Use"\) : "Q";\n    text = q\.ready \? T\("goalReadyAt", "Done — hand it in to \{who\}: \{q\} \(walk up and press \{k\}\)", \{ who: questEnd\(q\), q: questText\(q\), k \}\)/.test(page),
   "the hand-in line names the key: Use on a phone, Q on a keyboard");
-ok(/T\("goalTalk", "First: talk to \{who\} — walk up and press \{k\}\. There is work\.", \{ who: [^}]*\}\)`?, k: touch \? T\("tUse", "Use"\) : "Q" \}\)/.test(page) || /k: touch \? T\("tUse", "Use"\) : "Q" \}\)/.test(page.slice(page.indexOf('T("goalTalk"'), page.indexOf('T("goalTalk"') + 300)),
-  "…and so does the first errand's line");
+{ // the elder's line, run: the key by name — and "First:" only to a newcomer; a player with experience is told there is
+  // MORE work (playtest 2026-11-16: the town agent, level 2, was told "First: talk to Maren" on every load)
+  const gl = page.slice(page.indexOf("function goalLine() {"), page.indexOf("\n}\n", page.indexOf("function goalLine() {")) + 2);
+  const run = (touch, xp) => {
+    const g = { textContent: "" };
+    const T = (k, d, a = {}) => k + ":" + d.replace(/\{(\w+)\}/g, (_, n) => a[n]);
+    new Function("$", "RULES", "net", "inv", "touch", "T", "roleName", gl + "\ngoalLine();")(() => g,
+      { quests: { npcs: [{ id: "maren", name: "Maren", role: "elder" }] } }, { me: "x" }, { quests: [], xp }, touch, T, () => "Elder");
+    return g.textContent;
+  };
+  ok(run(true, 0).startsWith("goalTalk:First: talk to Maren (Elder)") && run(true, 0).includes("press tUse:Use") && run(false, 0).includes("press Q"),
+    "…and so does the first errand's line: a newcomer is told First: talk to the elder, Use on a phone, Q on a keyboard");
+  ok(run(true, 125).startsWith("goalTalkMore:More work: talk to Maren (Elder)") && run(true, 125).includes("press tUse:Use") && run(false, 125).includes("press Q") && !run(false, 125).includes("First"),
+    "…a player who has earned experience is told MORE work, not First:");
+}
 ok(/\$\("tUse"\)\.onclick = \(\) => useDoor\(\);/.test(page) && /\{ const n = npcAimed\(\); if \(n\) return openNpc\(n\); \}/.test(page.slice(page.indexOf("function useDoor()"), page.indexOf("function useDoor()") + 1200)),
   "the phone's Use button does talk to the person aimed at");
 ok(Object.keys(I).length === 17 && Object.values(I).every((t) => ["land.goalTalk", "land.goalReadyAt"].every((k) => t[k].split("{k}").length === 2 && !t[k].includes("Q"))),

@@ -3145,7 +3145,13 @@ function goalLine() {
     text = q.ready ? T("goalReadyAt", "Done — hand it in to {who}: {q} (walk up and press {k})", { who: questEnd(q), q: questText(q), k }) : T("goalQuest", "Your work: {q}", { q: questText(q) });
   } else {
     const elder = (RULES.quests && RULES.quests.npcs || []).find((n) => n.role === "elder");
-    if (elder) text = T("goalTalk", "First: talk to {who} — walk up and press {k}. There is work.", { who: `${elder.name} (${roleName(elder.role)})`, k: touch ? T("tUse", "Use") : "Q" });
+    // "First:" only to a newcomer: a player who has earned experience was told "First: talk to Maren" on every load
+    // (playtest 2026-11-16, the town agent at level 2) — them it tells there is more work
+    if (elder) {
+      const who = `${elder.name} (${roleName(elder.role)})`, k = touch ? T("tUse", "Use") : "Q";
+      text = (inv.xp || 0) > 0 ? T("goalTalkMore", "More work: talk to {who} — walk up and press {k}.", { who, k })
+        : T("goalTalk", "First: talk to {who} — walk up and press {k}. There is work.", { who, k });
+    }
   }
   if (g.textContent !== text) g.textContent = text;
 }
