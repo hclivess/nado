@@ -157,7 +157,7 @@
   body.touch #touchUi{display:block}
   body.touch #help .keys{display:none}
   #touchUi button{position:fixed;z-index:5;width:58px;height:58px;border-radius:50%;font:inherit;font-size:12px;font-weight:800;color:var(--txt);
-    background:rgba(19,26,35,.7);border:1px solid var(--border);touch-action:none}
+    background:rgba(19,26,35,.7);border:1px solid var(--border);touch-action:none;word-break:keep-all}   /* (keep-all: Japanese チャット broke as チャッ/ト — no spaces, the browser broke anywhere; fitTouchLabels shrinks a whole word instead) */
   #touchUi button.on{border-color:var(--accent2);color:var(--accent2)}   /* a toggle that is on: Fly while flying */
   #tJump{right:18px;bottom:96px}#tDown{right:84px;bottom:96px}#tFly{right:18px;bottom:162px}
   #tBreak{right:150px;bottom:96px}#tPlace{right:84px;bottom:162px}#tPal{right:150px;bottom:162px}

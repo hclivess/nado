@@ -39,5 +39,6 @@ ok(!worst, worst ? `a label still wider than its button: ${worst}` : "in all 17 
 ok(tiny === 0, "…none set under the smallest size");
 ok(unchanged > ids.length * 17 * 0.7, `…and most labels keep their 12 px (${unchanged} of ${ids.length * 17})`);
 ok(/fitTouchLabels\(\); setTimeout\(fitTouchLabels, 1500\);/.test(page) && /relabelNpcs\(\); if \(touch\) fitTouchLabels\(\); \}\);/.test(page), "it runs when the buttons are made, again once the labels are translated, and on every language change");
+ok(/#touchUi button\{[^}]*word-break:keep-all\}/.test(html), "a label is never broken inside a word (Japanese has no spaces: チャット broke as チャッ / ト, playtest 2026-11-16) — the fit shrinks the whole word instead");
 console.log(fails ? `${fails} FAILED` : "all passed");
 process.exit(fails ? 1 : 0);
