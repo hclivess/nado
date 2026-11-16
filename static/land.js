@@ -3601,6 +3601,17 @@ function moistAt(u, v, h) {
     if (blockAt(P.face, u + du, v + dv, h + dh) === B.water) return true;
   return false;
 }
+/** SOWN, IT SAYS WHEN IT IS RIPE (playtest 2026-11-16, the agent's field east of town: tilling named the soil and said
+ *  "sow wheat seed on it", and once sown nothing said how long — a new farmer cannot tell twenty minutes from a day):
+ *  the world server's own rule (crop_due: crop_s × the soil's time, × moist with water near the field's layer). */
+function cropMinutes(u, v, h) {
+  const F = RULES.farming, soil = Wd.soilOf(P.face, u, v, colAt(P.face, u, v));
+  const s = F.soil[soil] && F.soil[soil].time ? F.soil[soil].time : 1;
+  return Math.max(1, Math.round(F.crop_s * s * (moistAt(u, v, h - 1) ? F.moist : 1) / 60));
+}
+function sownNotice(u, v, h) {
+  notify(T("sown", "Sown: ripe in about {n} min — then break it to harvest.", { n: cropMinutes(u, v, h) }), 6000);
+}
 /** Use on the ground: till it when it is turf or earth. False when the aimed cell is no such ground (Use goes on). */
 function tillAt([u, v, h]) {
   const b = blockAt(P.face, u, v, h);
@@ -3938,6 +3949,7 @@ function act(place, mouse) {
       const [cu, cv, ch] = a.prev, lift = inBody(a.prev);
       if (!setBlock(P.face, cu, cv, ch, RULES.items[id].places)) return;
       if (lift) { P.h = ch + 1; P.vh = 0; }                         // standing on it
+      if (RULES.items[id].places === B.wheatyoung) sownNotice(cu, cv, ch);
       return;
     }
     const pl = placement(a);
