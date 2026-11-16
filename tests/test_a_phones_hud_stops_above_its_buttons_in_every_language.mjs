@@ -18,7 +18,8 @@ const i0 = page.indexOf("function fitHud() {"), src = page.slice(i0, page.indexO
 const run = (bottomPlain, bottomTight, fireTop) => {
   const cls = new Set(["tight"]);
   const h = { classList: { remove: (c) => cls.delete(c), add: (c) => cls.add(c) }, getBoundingClientRect: () => ({ bottom: cls.has("tight") ? bottomTight : bottomPlain }) };
-  const f = { offsetParent: {}, getBoundingClientRect: () => ({ top: fireTop }) };
+  // as the real button: position:fixed, so offsetParent null (a stand-in with one hid that fitHud never ran, live)
+  const f = { offsetParent: null, getClientRects: () => [{}], getBoundingClientRect: () => ({ top: fireTop }) };
   new Function("$", src + "\nfitHud();")((id) => (id === "hudInfo" ? h : f));
   return cls.has("tight");
 };

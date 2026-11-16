@@ -2958,7 +2958,9 @@ function hud() {
  *  after every redraw; past the top button row, less 4 px, the HUD takes its tighter type (.tight), else its own. */
 function fitHud() {
   const h = $("hudInfo"), f = $("tFire");
-  if (!h || !f || !f.offsetParent) return;
+  // (shown or not by its client rects: the buttons are position:fixed, whose offsetParent is always null — an
+  // offsetParent test returned here every time, and German stayed 1 px into Fire on the live page)
+  if (!h || !f || !f.getClientRects().length) return;
   h.classList.remove("tight");
   if (h.getBoundingClientRect().bottom > f.getBoundingClientRect().top - 4) h.classList.add("tight");
 }
