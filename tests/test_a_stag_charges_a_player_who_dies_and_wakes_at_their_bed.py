@@ -128,6 +128,11 @@ async def main():
     check("a bed is built", r.get("added") == 1, r)
     r = await (await c.post("/land/api/bed", json={"plot": p, "box": bed[:6] + [S.CHEST]}, headers=h)).json()
     check("only a bed is slept in", not r["ok"], r)
+    # STANDING AT IT (2026-11-16): a bed claimed from anywhere made /tp bed a teleport to any bed on the planet
+    world.keep_place(me, [f, u + 200.5, v + 0.5, 200, 0])
+    r = await (await c.post("/land/api/bed", json={"plot": p, "box": bed}, headers=h)).json()
+    check("200 m from the bed it is not claimed: out of reach", not r["ok"] and "out of reach" in (r["error"] or "") and not pl.get("bed"), r)
+    world.keep_place(me, [f, u + 0.5, v - 1.0, 200, 0])            # beside it (it stands 200 m up: the sleeper too)
     r = await (await c.post("/land/api/bed", json={"plot": p, "box": bed}, headers=h)).json()
     check("Use on a bed: the player will wake there", r["ok"] and pl["bed"][4] == p, r)
     pl["grace"] = 0

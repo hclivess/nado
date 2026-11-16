@@ -1187,13 +1187,19 @@ class World:
             self.pdirty.add(who); out.append(who)
         return out
 
-    def bed(self, who, p, b):
-        """Use on a bed (#162): the player wakes there after a death. The bed must stand; a bed taken down wakes no one."""
+    def bed(self, who, p, b, at=None):
+        """Use on a bed (#162): the player wakes there after a death. The bed must stand; a bed taken down wakes no one.
+        …STANDING AT IT (2026-11-16, found beside the well's #206): a bed was claimed from anywhere, and /tp bed then went
+        there — any bed on the planet a teleport, round the pace every other journey keeps (#167). The bed's middle within
+        REACH_M of the sleeper's eye, `at` their place (None: nobody knows where they are)."""
         rec = self.plots.get(p)
         b = list(b) if isinstance(b, (list, tuple)) else b
         if not rec or not isinstance(b, list) or b not in rec.get("boxes", []) or b[6] != BED:
             return "no such bed here"
         fc, fr = p % FACE_N, (p // FACE_N) % FACE_N
+        mid = (fc * PLOT + (b[0] + b[3] / 2) / CM, fr * PLOT + (b[1] + b[4] / 2) / CM, (b[2] + b[5] / 2) / CM)
+        if not at or int(at[0]) != plot_coords(p)[0] or math.dist(mid, (at[1], at[2], at[3] + EYE)) > REACH_M:
+            return "out of reach — stand within %d m of it" % REACH_M
         self.player(who)["bed"] = [plot_coords(p)[0], fc * PLOT + (b[0] + b[3] / 2) / 100, fr * PLOT + (b[1] + b[4] / 2) / 100, (b[2] + b[5]) / 100, p, b]
         self.pdirty.add(who)
         return None
@@ -3614,7 +3620,7 @@ def make_app(world, hub, site_origin, wallet_url, secure_cookies=True, shot_page
 
     async def bed(request):
         addr, d = need_addr(request), await request.json()
-        err = world.bed(addr, d.get("plot"), d.get("box"))
+        err = world.bed(addr, d.get("plot"), d.get("box"), hub.where(world, addr))
         return web.json_response({"ok": not err, "error": err})
 
     async def hunt(request):
@@ -3953,7 +3959,7 @@ def make_app(world, hub, site_origin, wallet_url, secure_cookies=True, shot_page
                     if t == "quest" and not err:
                         await hub.inv(world, addr)
                 elif t == "bed":                                    # #162: wake here after a death
-                    err = world.bed(addr, m.get("plot"), m.get("box")) if addr else "sign in first"
+                    err = world.bed(addr, m.get("plot"), m.get("box"), st.get("pos") or hub.where(world, addr)) if addr else "sign in first"
                     await ws.send_json({"t": "done", "req": m.get("req"), "op": "bed", "error": err})
                 elif t in ("eat", "well"):                         # FOOD AND WATER (#155)
                     if not addr:
