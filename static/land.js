@@ -2166,7 +2166,22 @@ function animalAimed(reach) {
 let hpMax = 20, lastHp = null;
 // A LANGUAGE CHANGE re-renders what T() wrote into the HUD by hand (#179: the hotbar label stayed "Earth" after a switch
 // to Čeština, the health line's "Level"): i18n.js announces it on window
-window.addEventListener("nado-lang", () => { hotbar(); pieceInfo(); if (lastHp != null) showHp(lastHp); const st = $("hudPlot"); if (st) st.dataset.html = ""; relabelNpcs(); });
+window.addEventListener("nado-lang", () => { hotbar(); pieceInfo(); if (lastHp != null) showHp(lastHp); const st = $("hudPlot"); if (st) st.dataset.html = ""; relabelNpcs(); if (touch) fitTouchLabels(); });
+/** A phone button's label fits its 58 px circle in every language: the longest word of each is measured, and a label
+ *  wider than the button is set smaller (never under TOUCH_MIN_PX) — in Russian "Использовать" ran across into "Сломать"
+ *  beside it, read as one word, and "Поставить" into "Полёт" (playtest 2026-11-16). A label that fits keeps its size. */
+const TOUCH_MIN_PX = 7;
+let fitCtx = null;
+function fitTouchLabels() {
+  fitCtx ||= document.createElement("canvas").getContext("2d");
+  for (const b of document.querySelectorAll("#touchUi button")) {
+    b.style.fontSize = "";
+    const cs = getComputedStyle(b), px = parseFloat(cs.fontSize), room = b.clientWidth - 8;
+    fitCtx.font = `${cs.fontWeight} ${px}px ${cs.fontFamily}`;
+    const w = Math.max(0, ...b.textContent.trim().split(/\s+/).map((x) => fitCtx.measureText(x).width));
+    if (room > 0 && w > room) b.style.fontSize = Math.max(TOUCH_MIN_PX, Math.floor((px * room / w) * 10) / 10) + "px";
+  }
+}
 function showHp(hp, max) {
   if (max) hpMax = max;
   const el = $("hudHp");
@@ -4296,6 +4311,7 @@ function wireInput(canvas) {
     // said, as F says it on a keyboard, with the phone's own buttons (playtest 2026-11-16: the phone's Fly toggled free
     // flight in silence, the button the same either way — nothing told the player they were flying); its look follows
     // P.fly every frame (frame), whoever changed it
+    fitTouchLabels(); setTimeout(fitTouchLabels, 1500);   // once the labels are in the page's language (i18n.js may run after)
     $("tFly").onclick = () => { P.fly = !P.fly; P.vh = 0; notify(P.fly ? T("flyOnTouch", "Flying — Jump to rise, Down to sink; Fly again to walk") : T("flyOff", "Walking"), 2400); };
     $("tBreak").onclick = () => act(false, false);
     $("tPlace").onclick = () => act(true);

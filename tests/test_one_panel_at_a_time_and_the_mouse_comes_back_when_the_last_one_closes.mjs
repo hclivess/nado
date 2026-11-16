@@ -45,7 +45,7 @@ ok(/for \(const id of PANELS\) hidePanel\(id\);\n  conShow\(false\);\n\}/.test(c
 ok(/if \(e\.code === "Escape" && anyPanelOpen\(\)\) \{ closePanels\(\); if \(!touch && \$\("deathCard"\)\.classList\.contains\("hidden"\)\) lockPointer\(\); \}/.test(land), "Escape with a panel open closes them all and gives the mouse back; with none open it leaves the browser's own Escape alone");
 
 // 4. a language change
-ok(/window\.addEventListener\("nado-lang", \(\) => \{ hotbar\(\); pieceInfo\(\); if \(lastHp != null\) showHp\(lastHp\); const st = \$\("hudPlot"\); if \(st\) st\.dataset\.html = "";( relabelNpcs\(\);)? \}\);/.test(land) && /lastHp = hp;/.test(land), "a language change re-renders the hotbar, the piece line, the health line and the plot card");
+ok(/window\.addEventListener\("nado-lang", \(\) => \{ hotbar\(\); pieceInfo\(\); if \(lastHp != null\) showHp\(lastHp\); const st = \$\("hudPlot"\); if \(st\) st\.dataset\.html = "";( relabelNpcs\(\);)?( if \(touch\) fitTouchLabels\(\);)? \}\);/.test(land) && /lastHp = hp;/.test(land), "a language change re-renders the hotbar, the piece line, the health line and the plot card");
 ok(/window\.dispatchEvent\(new CustomEvent\("nado-lang"/.test(readFileSync(join(ROOT, "static", "i18n.js"), "utf8")), "…and i18n.js announces the change on window");
 
 // 5. the gear and the missing rows
