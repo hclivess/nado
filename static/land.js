@@ -2839,11 +2839,14 @@ function drawMap(m) {
     g.fillStyle = `rgb(${rgb[0]},${rgb[1]},${rgb[2]})`;
     g.fillRect(X(u), Y(v + step), Math.ceil(step * px) + 1, Math.ceil(step * px) + 1);
   }
+  const MAP_ME = 6, MAP_SQUARE = 10;                       // your dot's radius; a place's square, half its side (px)
   const mark = (u, v, fill, shape) => {
     const x = X(u), y = Y(v);
     if (x < -8 || y < -8 || x > N + 8 || y > N + 8) return;
     g.fillStyle = fill; g.strokeStyle = "#000"; g.lineWidth = 1.5; g.beginPath();
-    if (shape === "square") g.rect(x - 6, y - 6, 12, 12); else g.arc(x, y, 5, 0, 2 * Math.PI);
+    // A PLACE'S SQUARE IS WIDER THAN YOUR DOT (MAP_SQUARE > MAP_ME): at 12 px it lay wholly under the 6 px dot drawn over
+    // it, and standing in the square the town hall was not on the map at all — one pixel of it (playtest 2026-11-16)
+    if (shape === "square") g.rect(x - MAP_SQUARE, y - MAP_SQUARE, 2 * MAP_SQUARE, 2 * MAP_SQUARE); else g.arc(x, y, 5, 0, 2 * Math.PI);
     g.fill(); g.stroke();
   };
   if (m.town && m.town[0] === P.face) mark(m.town[1], m.town[2], "#e8c547", "square");
@@ -2856,7 +2859,7 @@ function drawMap(m) {
     const s = Math.sin(P.yaw), co = Math.cos(P.yaw), pt = (f, r) => [mx + s * f + co * r, my - co * f + s * r];
     const [a1, a2] = pt(10, 0), [b1, b2] = pt(-6, 6), [c1, c2] = pt(-6, -6);
     g.moveTo(a1, a2); g.lineTo(b1, b2); g.lineTo(c1, c2); g.closePath();
-  } else g.arc(mx, my, 6, 0, 2 * Math.PI);
+  } else g.arc(mx, my, MAP_ME, 0, 2 * Math.PI);
   g.fill(); g.stroke();
   // north, and a scale bar of a round length
   g.fillStyle = "#fff"; g.font = "bold 14px system-ui"; g.textAlign = "center"; g.fillText(T("cpN", "N") + " ↑", N - 24, 22);
