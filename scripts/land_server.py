@@ -3742,6 +3742,7 @@ def make_app(world, hub, site_origin, wallet_url, secure_cookies=True, shot_page
         {t:"set_ok", applied, refused} and {t:"edit"} to every watcher (the sender included, so all agree)."""
         ws = web.WebSocketResponse(heartbeat=30, max_msg_size=1 << 20)
         await ws.prepare(request)
+        opened = time.time()
         addr = world.who(request)
         st = hub.socks[ws] = {"who": addr, "watch": set(), "pos": None, "id": secrets.token_hex(4)}
         # A PLAYER'S LAST PLACE is kept with them (not only in one browser's storage): a signed-in player who comes back —
@@ -4047,6 +4048,12 @@ def make_app(world, hub, site_origin, wallet_url, secure_cookies=True, shot_page
             hub.socks.pop(ws, None)
             if addr and st.get("pos"):
                 world.keep_place(addr, st["pos"])               # where they stood when they left
+            # WHY A PAGE'S SOCKET ENDED, in the journal (2026-11-16: a player's idle page closed every few minutes to an
+            # hour; nginx waits an hour and the page never closes its own, which left the heartbeat or Cloudflare —
+            # nothing recorded which): how long it lived, its close code, and the error if the server ended it (a
+            # heartbeat that got no answer is a ServerTimeoutError)
+            print(f"ws closed {(addr or 'visitor')[:8]} after {time.time() - opened:.0f} s code={ws.close_code} "
+                  f"{type(ws.exception()).__name__ if ws.exception() else 'clean'}", flush=True)
         return ws
 
     app = web.Application(client_max_size=2 << 20)

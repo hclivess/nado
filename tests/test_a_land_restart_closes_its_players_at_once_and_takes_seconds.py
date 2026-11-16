@@ -27,7 +27,7 @@ s = socket.socket(); s.bind(("127.0.0.1", 0)); DEAD = s.getsockname()[1]; s.clos
 data = tempfile.mkdtemp(prefix="land-restart-", dir=os.environ["HOME"])
 env = dict(os.environ, NADO_ALLOW_PYTHON_KERNELS=os.environ.get("NADO_ALLOW_PYTHON_KERNELS", "1"))
 proc = subprocess.Popen([sys.executable, os.path.join(ROOT, "scripts", "land_server.py"), "--data", data, "--port", str(PORT),
-                         "--exec", f"http://127.0.0.1:{DEAD}", "--shot-page", "off"], stdout=subprocess.DEVNULL, stderr=subprocess.PIPE, env=env)
+                         "--exec", f"http://127.0.0.1:{DEAD}", "--shot-page", "off"], stdout=subprocess.PIPE, stderr=subprocess.PIPE, env=env)
 atexit.register(lambda: proc.poll() is None and proc.kill())
 
 
@@ -44,6 +44,12 @@ async def main():
         else:
             check("the world server started", False, proc.stderr.read().decode()[-500:] if proc.poll() is not None else "no answer")
             return
+        # WHY A SOCKET ENDED is logged (2026-11-16: an idle player's page dropped every few minutes and nothing said why):
+        # a visitor that closes its own page logs a clean close with its code
+        async with c.ws_connect(f"http://127.0.0.1:{PORT}/land/ws") as w0:
+            await asyncio.wait_for(w0.receive_json(), 20)
+            await w0.close()
+        await asyncio.sleep(0.5)
         async with c.ws_connect(f"http://127.0.0.1:{PORT}/land/ws") as ws:
             hello = await asyncio.wait_for(ws.receive_json(), 20)
             check("a visitor's page is connected (the server said hello)", hello.get("t") == "hello", hello)
@@ -62,6 +68,10 @@ async def main():
         pass
     gone = time.time() - t0
     check(f"the process is gone {gone:.1f} s after the stop (a live restart measured 46-47 s)", proc.poll() is not None and gone < 10, gone)
+    out = proc.stdout.read().decode() if proc.poll() is not None else ""
+    closes = [l for l in out.splitlines() if l.startswith("ws closed ")]
+    check("each socket's end is logged: how long it lived, its code, clean or the server's error", len(closes) >= 2
+          and any("code=1000 clean" in l for l in closes) and all(" after " in l and " s code=" in l for l in closes), closes)
 
 asyncio.run(main())
 _report.done()
