@@ -2170,16 +2170,28 @@ window.addEventListener("nado-lang", () => { hotbar(); pieceInfo(); if (lastHp !
 /** A phone button's label fits its 58 px circle in every language: the longest word of each is measured, and a label
  *  wider than the button is set smaller (never under TOUCH_MIN_PX) — in Russian "Использовать" ran across into "Сломать"
  *  beside it, read as one word, and "Поставить" into "Полёт" (playtest 2026-11-16). A label that fits keeps its size. */
-const TOUCH_MIN_PX = 7;
+const TOUCH_MIN_PX = 7, TOUCH_PAD_PX = 2, TOUCH_SQUEEZE_PX = 0.5;
 let fitCtx = null;
 function fitTouchLabels() {
   fitCtx ||= document.createElement("canvas").getContext("2d");
   for (const b of document.querySelectorAll("#touchUi button")) {
-    b.style.fontSize = "";
-    const cs = getComputedStyle(b), px = parseFloat(cs.fontSize), room = b.clientWidth - 8;
+    b.style.fontSize = ""; b.style.paddingLeft = b.style.paddingRight = ""; b.style.letterSpacing = "";
+    const cs = getComputedStyle(b), px = parseFloat(cs.fontSize);
+    // the room is inside the button's REAL side padding (6 px each: a fixed 8 px allowance let Russian "Использовать"
+    // run 6 px past its button at the smallest size, measured live 2026-11-16); a label that must shrink takes the
+    // narrow TOUCH_PAD_PX instead, so the longest word fits whole
+    const roomPlain = b.clientWidth - parseFloat(cs.paddingLeft) - parseFloat(cs.paddingRight), roomTight = b.clientWidth - 2 * TOUCH_PAD_PX;
     fitCtx.font = `${cs.fontWeight} ${px}px ${cs.fontFamily}`;
     const w = Math.max(0, ...b.textContent.trim().split(/\s+/).map((x) => fitCtx.measureText(x).width));
-    if (room > 0 && w > room) b.style.fontSize = Math.max(TOUCH_MIN_PX, Math.floor((px * room / w) * 10) / 10) + "px";
+    if (roomPlain > 0 && w > roomPlain) {
+      b.style.paddingLeft = b.style.paddingRight = TOUCH_PAD_PX + "px";
+      const size = Math.max(TOUCH_MIN_PX, Math.floor(Math.min(px, (px * roomTight) / w) * 10) / 10);
+      b.style.fontSize = size + "px";
+      // still too wide at the smallest size (Russian "Использовать": 2 px over with the narrow padding): the letters close
+      // up the rest, at most TOUCH_SQUEEZE_PX each — smaller type would not read on a phone
+      const word = b.textContent.trim().split(/\s+/).reduce((x, y) => (y.length > x.length ? y : x), ""), over = (w * size) / px - roomTight;
+      if (over > 0 && word.length > 1) b.style.letterSpacing = -Math.min(TOUCH_SQUEEZE_PX, Math.ceil((over / (word.length - 1)) * 100) / 100) + "px";
+    }
   }
 }
 function showHp(hp, max) {
