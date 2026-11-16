@@ -139,6 +139,7 @@ POS_SAVE_S = 10                   # a signed-in player's place is kept at most t
 # ground (+ PACE_SLACK), counting at most PACE_DT_MAX s since the last one (waiting buys no jump); /tp goes to the
 # landing or your own bed only.
 REACH_M = 12                      # the page reaches 7 m; its levelling square (shovel, L) works up to ~11 m from the eye
+CRAFT_MAX = 64                     # the most of one recipe made in one request (World.craft)
 PACE_MPS, PACE_SLACK, PACE_DT_MAX = 65.0, 6.0, 5.0      # free flight's fastest is 60 m/s (static/land.js FLY_FAST)
 # (#170: GAME RULES, not measurements — how fast free flight goes is a choice for play, and these bound it with a margin)
 # THE PACE IS JUDGED OVER A WINDOW, NOT PER MESSAGE (#180, playtest 2026-11-11): a page's timers fire after a long frame
@@ -2841,8 +2842,12 @@ class World:
     # -- crafting
     def craft(self, who, rid, times=1):
         r = next((x for x in RULES["recipes"] if x["id"] == rid), None)
-        if not r or not isinstance(times, int) or not 1 <= times <= 64:
+        if not r:
             return "no such recipe"
+        # the count's own refusal: 73 charcoal at once was answered "no such recipe" for a recipe that exists (the town
+        # agent through the API, 2026-11-16) — it sent the caller looking for the recipe, not at the count
+        if not isinstance(times, int) or isinstance(times, bool) or not 1 <= times <= CRAFT_MAX:
+            return f"make 1 to {CRAFT_MAX} at a time"
         pl = self.player(who)
         for need in r.get("with", []):
             if not self._has(pl, need):
