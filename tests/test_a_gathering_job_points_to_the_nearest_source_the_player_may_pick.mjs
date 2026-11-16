@@ -29,15 +29,15 @@ const POINTS = [["cpN", "N"], ["cpNE", "NE"], ["cpE", "E"], ["cpSE", "SE"], ["cp
 const key = (f, u, v, h) => f + ":" + u + ":" + v + ":" + h;
 // the page's sourceHint with the page's helpers stood in for: the world server's region answer (`region`, or a failing
 // fetch), applyPlot writing a plot's edits into the edits map as the page does, the pieces a plot holds (pieceIn)
-const make = (allow, { region = {}, fail = false, pieceIn = () => false, asked = [], at = { face: 0, u: 55047.5, v: 79996.5 } } = {}) => {
+const make = (allow, { region = {}, fail = false, pieceIn = () => false, asked = [], at = { face: 0, u: 55047.5, v: 79996.5 }, hasClass = () => false } = {}) => {
   const edits = new Map(), plotsApplied = new Set();
   const fetch = (url) => { asked.push(url); return fail ? Promise.reject(new Error("offline")) : Promise.resolve({ json: () => ({ plots: region }) }); };
   const applyPlot = (p, list) => { plotsApplied.add(p); const q = Wd.plotCoords(p); for (const [x, z, y, bl] of list) edits.set(key(q.face, q.u0 + x, q.v0 + z, y), bl); };
   const blockAt = (f, u, v, h) => { const e = edits.get(key(f, u, v, h)); return e !== undefined ? e : Wd.terrainBlock(f, u, v, h, (ff, uu, vv) => Wd.column(ff, uu, vv)); };
-  return new Function("RULES", "Wd", "P", "W", "mayBuild", "inv", "questText", "T", "POINTS", "colAt", "edits", "key", "pieceIn", "plotsApplied", "fetch", "applyPlot", "setPlotBoxes", "blockAt",
+  return new Function("RULES", "Wd", "P", "W", "mayBuild", "inv", "questText", "T", "POINTS", "colAt", "edits", "key", "pieceIn", "plotsApplied", "fetch", "applyPlot", "setPlotBoxes", "blockAt", "hasClass",
     "let titlesVer = 0, titlesSig = \"\";\n" + page.slice(a0, b0) + "\ntitlesVer = 1;\nreturn { sourceHint, sourceBlocks, SOURCE_R, SOURCE_STEP };")(   // (the titles' version is declared at the top of the page)
     RULES, Wd, at, Wd.W ?? (1 << 17), allow, { quests: [{ kind: "bring", item: "berries", n: 6 }] },
-    () => "Bring 6 × Berries", (k, fb, v) => fb.replace(/\{(\w+)\}/g, (_, x) => v[x]), POINTS, (f, u, v) => Wd.column(f, u, v), edits, key, pieceIn, plotsApplied, fetch, applyPlot, () => {}, blockAt);
+    () => "Bring 6 × Berries", (k, fb, v) => fb.replace(/\{(\w+)\}/g, (_, x) => v[x]), POINTS, (f, u, v) => Wd.column(f, u, v), edits, key, pieceIn, plotsApplied, fetch, applyPlot, () => {}, blockAt, hasClass);
 };
 const settle = () => new Promise((r) => setTimeout(r, 0));
 const run = async (allow, opt) => { const S = make(allow, opt); const first = S.sourceHint("berries"); await settle(); let h = ""; for (let i = 0; i < 400 && !h; i++) h = S.sourceHint("berries"); return [h, S, first]; };
@@ -61,6 +61,21 @@ const closed = new Set([near[0][1]]);                     // (the nearest bush's
 const [h2] = await run((p) => !closed.has(p));
 const d2 = Number((h2.match(/pick: (\d+) m/) || [])[1]);
 ok(d2 > near[0][0], `2. the nearest bush's plot closed: it walks on to an open one, farther (${d2} m): "${h2}"`);
+{ // WHAT IS DUG (playtest 2026-11-16, a clay errand): clay lies in beds 2-4 layers under the grass; with a shovel in the
+  // bag the hint names the nearest bed and how far down, against every column within 160 m searched here
+  const col = (f, uu, vv) => Wd.column(f, uu, vv);
+  let ref = null;
+  for (let du = -160; du <= 160; du++) for (let dv = -160; dv <= 160; dv++) {
+    const u = 55047 + du, v = 79996 + dv, c = Wd.column(0, u, v), dist = Math.hypot(u + 0.5 - 55047.5, v + 0.5 - 79996.5);
+    if (ref && dist >= ref.dist) continue;
+    for (let k = 1; k <= 4; k++) if (Wd.terrainBlock(0, u, v, c.top - k, col) === Wd.B.clay) { ref = { dist, k }; break; }
+  }
+  const dig = async (has) => { const S2 = make(() => true, { hasClass: has }); S2.sourceHint("clay"); await settle(); let h = ""; for (let i = 0; i < 400 && !h; i++) h = S2.sourceHint("clay"); return h; };
+  const withShovel = await dig((c) => c === "shovel");
+  ok(ref && withShovel.includes(`the nearest you may dig: ${Math.round(ref.dist)} m`) && withShovel.endsWith(`, ${ref.k} m down`),
+    `1c. a clay errand with a shovel: "${withShovel}" (the nearest bed: ${ref && Math.round(ref.dist)} m, ${ref && ref.k} m down)`);
+  ok(await dig(() => false) === "", "…without one the hint says nothing of clay (goalLine names the shovel instead)");
+}
 const [h3] = await run(() => false);
 ok(/none you may pick within 160 m — look in the wilderness/.test(h3), `3. nothing open within reach: "${h3}"`);
 ok(/for \(let n = 0; n < SOURCE_STEP && !s\.done && !s\.found; n\+\+\)/.test(page) && /const SOURCE_R = 160, SOURCE_STEP = 1500, SOURCE_MOVE = 12;/.test(page)
@@ -80,7 +95,7 @@ ok(S.sourceBlocks("iron").length === 0 && S.sourceBlocks("nothing").length === 0
     `6. ONE region request for the circle; the nearest bush picked (its plot's edits, from that answer) or under a laid path is passed over: "${picked}" / "${covered}"`);
 }
 // 7. not before the titles are in (until then every plot reads as open land) — and again when they change
-ok(/if \(!titlesVer\) return "";/.test(page.slice(a0, b0)) && /const job = item \+ "@" \+ P\.face \+ "#" \+ titlesVer \+ "x" \+ \(\(inv\.items \|\| \{\}\)\[item\] \|\| 0\);/.test(page)
+ok(/if \(!titlesVer\) return "";/.test(page.slice(a0, b0)) && /const job = item \+ "@" \+ P\.face \+ "#" \+ titlesVer \+ "x" \+ \(\(inv\.items \|\| \{\}\)\[item\] \|\| 0\) \+ "d" \+ dig\.join\("\."\);/.test(page)   // (…and when a tool to dig it comes into the bag)
    && /if \(sig !== titlesSig\) \{ titlesSig = sig; titlesVer\+\+; \}/.test(page) && !/\n    titlesVer\+\+;/.test(page),
   "7. it waits for the titles (a first scan took a plot for sale for open land) and starts again only when they CHANGE (a bump on every refresh restarted it for ever) — or when the player's own count of the item changes (the bush just emptied stayed named)");
 // 8. the region request failing, the search still runs (on what the page holds) and ends

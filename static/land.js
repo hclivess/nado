@@ -2601,9 +2601,12 @@ function gatheredFrom(item) {
   return "";
 }
 /** The tool an item can only be gathered with, when every block that gives it asks for one ("" when a hand will do):
- *  the first such class's simplest tool — the first in the tools table, its stone one. */
+ *  the first such class's simplest tool — the first in the tools table, its stone one. (Clay is dug, wood chopped,
+ *  cobble mined: the line says the tool is needed, not how it is used.) */
 function toolFor(item) {
   if (!RULES || !RULES.breaking) return "";
+  // (something a recipe makes is made, not gathered: planks come from wood at a workbench, not with an axe)
+  if ((RULES.recipes || []).some((r) => r.makes.some(([id]) => id === item))) return "";
   let cls = "";
   for (const r of Object.values(RULES.breaking)) {
     if (!r || typeof r !== "object" || !Array.isArray(r.yields) || !r.yields.some((y) => Array.isArray(y) && y[0] === item)) continue;
@@ -3094,14 +3097,27 @@ function sourceBlocks(item) {
     if (r && typeof r === "object" && !r.needs && !r.class && Array.isArray(r.yields) && r.yields.some((y) => Array.isArray(y) && y[0] === item) && Wd.LITTER.has(Number(b))) out.push(Number(b));
   return out;
 }
+// …AND WHAT IS DUG, once the player holds the tool (playtest 2026-11-16: a clay errand — clay lies in beds two to four
+// layers under the grass, land-world terrainBlock, so a shovel at the surface gives earth, and the line named nowhere):
+// the ground blocks that give the item to a tool the player has, looked for DIG_DEPTH layers under each cell
+const DIG_DEPTH = 4;
+function digBlocks(item) {
+  const out = [];
+  if (!RULES || !RULES.breaking) return out;
+  for (const [b, r] of Object.entries(RULES.breaking))
+    if (r && typeof r === "object" && !r.needs && r.class && hasClass(r.class) && Array.isArray(r.yields) && r.yields.some((y) => Array.isArray(y) && y[0] === item)
+        && Wd.NATURAL.has(Number(b)) && !Wd.LITTER.has(Number(b))) out.push(Number(b));
+  return out;
+}
 function sourceHint(item) {
-  const want = sourceBlocks(item);
-  if (!want.length) return "";
+  const want = sourceBlocks(item), dig = digBlocks(item);
+  if (!want.length && !dig.length) return "";
   // NOT BEFORE THE TITLES ARE IN: until they load every plot reads as open land (mayBuild), and the first scan after a
   // load pointed at a bush on a plot for sale (playtest 2026-11-15, "12 m E"); a change of titles starts the scan again
   if (!titlesVer) return "";
   // (and again when the player's own count of it changes: picked, the bush just emptied stayed named — "2 m SE")
-  const job = item + "@" + P.face + "#" + titlesVer + "x" + ((inv.items || {})[item] || 0);   // (not "key": that is the page's cell-key function)
+  // (…and when the tool to dig it comes into the bag: the scan looks under the ground from then on)
+  const job = item + "@" + P.face + "#" + titlesVer + "x" + ((inv.items || {})[item] || 0) + "d" + dig.join(".");   // (not "key": that is the page's cell-key function)
   if (!srcScan || srcScan.job !== job || Math.hypot(P.u - srcScan.u0, P.v - srcScan.v0) > SOURCE_MOVE) {
     // THE PLOTS' EDITS FIRST, in ONE request (playtest 2026-11-15: from the landing the hint said 78 m S, then 24 m
     // further, then 14 m further — each bush the far scan named had been picked, which its plot's edits, not loaded at
@@ -3140,17 +3156,28 @@ function sourceHint(item) {
         // (playtest 2026-11-15); blockAt is the page's full answer (the edits included), asked only of a candidate
         if (blockAt(P.face, u, v, h) === lb && !pieceIn([u, v, h])) {
           const dist = Math.hypot(u + 0.5 - P.u, v + 0.5 - P.v);
-          if (!s.best || dist < s.best.dist) s.best = { dist, yaw: Math.atan2(u + 0.5 - P.u, v + 0.5 - P.v) };
+          if (!s.best || dist < s.best.dist) s.best = { dist, yaw: Math.atan2(u + 0.5 - P.u, v + 0.5 - P.v), down: 0 };
           if (s.until === Infinity) s.until = Math.ceil(s.d * Math.SQRT2) + 1;
         }
       }
+      // under the ground: the first layer of it within DIG_DEPTH below the top (the page's full answer: a bed dug out
+      // already is not named)
+      if (dig.length) for (let k = 1; k <= DIG_DEPTH; k++) {
+        if (!dig.includes(blockAt(P.face, u, v, col.top - k))) continue;
+        const dist = Math.hypot(u + 0.5 - P.u, v + 0.5 - P.v);
+        if (!s.best || dist < s.best.dist) s.best = { dist, yaw: Math.atan2(u + 0.5 - P.u, v + 0.5 - P.v), down: k };
+        if (s.until === Infinity) s.until = Math.ceil(s.d * Math.SQRT2) + 1;
+        break;
+      }
     }
-    if (s.d === 0 || ++s.i >= 8 * s.d) { s.d++; s.i = 0; if (s.d > s.until) s.found = { d: Math.round(s.best.dist), yaw: s.best.yaw }; else if (s.d > SOURCE_R) s.done = true; }
+    if (s.d === 0 || ++s.i >= 8 * s.d) { s.d++; s.i = 0; if (s.d > s.until) s.found = { d: Math.round(s.best.dist), yaw: s.best.yaw, down: s.best.down }; else if (s.d > SOURCE_R) s.done = true; }
   }
   const qt = questText({ kind: "bring", item, n: (inv.quests || []).find((x) => x.kind === "bring" && x.item === item)?.n || 1 });
   if (s.found) {
     const pt = POINTS[((Math.round(s.found.yaw / (Math.PI / 4)) % 8) + 8) % 8];
     // one within the player's own metre read "0 m NE" (playtest 2026-11-15, the stone errand): say it is right here
+    if (s.found.down) return s.found.d ? T("goalDig", "Your work: {q} · the nearest you may dig: {d} m {p}, {k} m down", { q: qt, d: s.found.d, p: T(pt[0], pt[1]), k: s.found.down })
+      : T("goalDigHere", "Your work: {q} · right under you, {k} m down", { q: qt, k: s.found.down });
     if (!s.found.d) return T("goalHere", "Your work: {q} · there is one right here", { q: qt });
     return T("goalNear", "Your work: {q} · the nearest you may pick: {d} m {p}", { q: qt, d: s.found.d, p: T(pt[0], pt[1]) });
   }
@@ -3181,7 +3208,7 @@ function goalLine() {
       const cls = toolFor(q.item);
       if (cls && !hasClass(cls)) {
         const tool = Object.keys(RULES.tools).find((t) => RULES.tools[t].class === cls);
-        g.textContent = T("goalTool", "Your work: {q} · it is dug with a {t} — make one in the Bag ({m}).", { q: questText(q), t: nameOf(tool), m: T("make", "Make") });
+        g.textContent = T("goalTool2", "Your work: {q} · you need a {t} for it — make one in the Bag ({m}).", { q: questText(q), t: nameOf(tool), m: T("make", "Make") });
         return;
       }
       const h = sourceHint(q.item); if (h) { g.textContent = h; return; }
