@@ -2951,6 +2951,16 @@ function hud() {
     const rp = $("btnReprice"); if (rp) rp.onclick = () => reprice(plot);
     const ul = $("btnUnlist"); if (ul) ul.onclick = () => unlist(plot);
   }
+  if (touch) fitHud();
+}
+/** On a phone the HUD's lines stop above the buttons under them: in German, signed out, the plot card wrapped onto one
+ *  more line and Settings ran 1 px into Fire (playtest 2026-11-16; measured in all 17 languages, only German). Measured
+ *  after every redraw; past the top button row, less 4 px, the HUD takes its tighter type (.tight), else its own. */
+function fitHud() {
+  const h = $("hudInfo"), f = $("tFire");
+  if (!h || !f || !f.offsetParent) return;
+  h.classList.remove("tight");
+  if (h.getBoundingClientRect().bottom > f.getBoundingClientRect().top - 4) h.classList.add("tight");
 }
 // ---- names: every item, tool and station through i18n (keys land.i.<id>, land.t.<id>, land.s.<id>) ---------------------
 const nameOf = (id) => RULES.items[id] ? T("i." + id, RULES.items[id].name) : RULES.tools[id] ? T("t." + id, RULES.tools[id].name)

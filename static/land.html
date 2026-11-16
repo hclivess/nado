@@ -179,6 +179,10 @@
      (the wilderness sentence, the NADO sentence) folded away — the pill and the buttons stay */
   body.touch #hudInfo{font-size:11px;line-height:1.3;max-width:min(380px,calc(100vw - 130px))}
   body.touch #hudPlot .dim{display:none}
+  /* a phone whose HUD would reach the buttons below it (German, signed out: 1 px over Fire, playtest 2026-11-16) takes the
+     tighter type — set by land.js fitHud, only when needed */
+  body.touch #hudInfo.tight{font-size:10px;line-height:1.2}body.touch #hudInfo.tight #hudPlot{gap:3px 6px;margin-top:2px}
+  body.touch #hudInfo.tight .btn,body.touch #hudInfo.tight button,body.touch #hudInfo.tight .pill{padding-top:3px;padding-bottom:3px}
   @media (max-width:620px){header h1{font-size:15px}.hs{width:34px;height:34px}.hs canvas{width:24px;height:24px}}
 </style>
 </head>

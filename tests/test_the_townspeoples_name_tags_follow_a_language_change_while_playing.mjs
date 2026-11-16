@@ -29,6 +29,6 @@ ok(tag(maren).sub === "الحكيمة" && tag(ida).sub === "الحدّادة", "
 ok(tag(maren).text === "Maren" && tag(maren).position.y === 2.05, "…the name kept, the tag in its old place");
 ok(maren.mesh.children.filter((c) => c.userData.textW).length === 1 && maren.mesh.children.some((c) => c.userData.mark), "…one tag each, the quest mark left alone");
 ok(freed.includes("Maren") && freed.includes("Ida") && !freed.includes("!"), "…and the old pictures freed");
-ok(/window\.addEventListener\("nado-lang", \(\) => \{[^\n]*relabelNpcs\(\); \}\);/.test(page), "it runs on the language change");
+ok(/window\.addEventListener\("nado-lang", \(\) => \{[^\n]*\brelabelNpcs\(\);[^\n]*\}\);/.test(page), "it runs on the language change");
 console.log(fails ? `${fails} FAILED` : "all passed");
 process.exit(fails ? 1 : 0);
