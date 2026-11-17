@@ -1332,10 +1332,37 @@ class World:
         if not pl["items"]["arrow"]:
             del pl["items"]["arrow"]
         self.pdirty.add(who)
+        return await self._fly(who, pl, pos, yaw, pitch, B["draw"], Hn["weapons"]["bow"]["damage"], "arrow", B["recover"], False), None
+
+    async def throw_spear(self, who, pos, yaw, pitch):
+        """A THROWN SPEAR (#157, "a thrown spear" left open by part 1): the spear leaves the hunter's hands along (yaw,
+        pitch) at hunting.ballistics.throw m/s and flies as an arrow does — the throw speed is measured: trained javelin
+        athletes threw replicas of the Schöningen spears at over 35 mph (~15.6 m/s) and over 80 ft (~24 m), and none hit a
+        target at 25 m (Milks, Parker & Pope, Scientific Reports 2019; doc/land-civilisation.md 3b). It is a TOOL, not
+        ammunition: it is out of the bag while it flies and ALWAYS lies where it ended — beside the animal it struck, or
+        where it fell — to be picked up again (pickup); until then the hunter has no spear to strike or throw with."""
+        Hn, B = RULES["hunting"], RULES["hunting"]["ballistics"]
+        pl = self.player(who)
+        tid = next((t for t in pl["tools"] if RULES["tools"].get(t, {}).get("class") == "spear"), None)
+        if tid is None:
+            return None, "throwing needs a spear"
+        if not pos or not all(isinstance(x, (int, float)) and not isinstance(x, bool) and math.isfinite(x) for x in (yaw, pitch)):
+            return None, "aim first"
+        if not self.work(who, Hn["strike_s"]):
+            return None, "too fast"
+        pl["tools"].remove(tid)
+        self.pdirty.add(who)
+        return await self._fly(who, pl, pos, yaw, pitch, B["throw"], Hn["weapons"]["spear"]["damage"], tid, 1.0, True), None
+
+    async def _fly(self, who, pl, pos, yaw, pitch, speed, damage, item, recover, keep_on_hit):
+        """One missile's flight (an arrow, a thrown spear): from the eye at `speed` m/s along (yaw, pitch), falling under g,
+        striking the first animal it passes through where that animal is by then, or landing. What lands is left lying
+        with chance `recover`; with `keep_on_hit` it is left lying where it struck too (a spear is not lost in its prey)."""
+        Hn, B = RULES["hunting"], RULES["hunting"]["ballistics"]
         face, now = int(pos[0]), time.time()
         o = [pos[1], pos[2], pos[3] + 1.5]
         cp = math.cos(pitch)
-        vel = [B["draw"] * cp * math.sin(yaw), B["draw"] * cp * math.cos(yaw), B["draw"] * math.sin(pitch)]
+        vel = [speed * cp * math.sin(yaw), speed * cp * math.cos(yaw), speed * math.sin(pitch)]
         # the ground under the arc, sampled every 0.1 s of flight (4 s at most)
         steps = [(t / 10.0) for t in range(1, 41)]
         arc = [[o[0] + vel[0] * t, o[1] + vel[1] * t, o[2] + vel[2] * t - B["g"] * t * t / 2] for t in steps]
@@ -1346,6 +1373,9 @@ class World:
             fast = a.get("flee", 0) > now or a.get("mad", 0) > now or a.get("angry")
             v = sp if fast else (sp * 0.3 if a.get("walk") else 0)
             return v * math.sin(a["yaw"]), v * math.cos(a["yaw"])
+        def lie(u, v, h):
+            self.drop_seq += 1
+            self.drops[self.drop_seq] = {"id": self.drop_seq, "face": face, "u": u, "v": v, "h": h, "item": item, "n": 1, "until": now + B["drop_s"]}
         near = [(a, moving(a)) for a in self.animals.values() if a["face"] == face and math.hypot(a["u"] - o[0], a["v"] - o[1]) < 120]
         t, dt, prev = 0.0, 0.02, list(o)
         while t < 4.0:
@@ -1355,16 +1385,19 @@ class World:
                 size = Hn["species"][a["kind"]].get("size", [1, 0.5, 1])
                 c = [a["u"] + mu * t, a["v"] + mv * t, a["h"] + size[2] * 0.6]
                 if math.dist(p, c) <= max(size[0], size[2]) * 0.5 + B["pad"]:
-                    res = self._strike(who, pl, a, Hn["weapons"]["bow"]["damage"])
-                    return dict(res, flight=round(t, 2), end=[face, round(p[0], 2), round(p[1], 2), round(p[2], 2)]), None
+                    res = self._strike(who, pl, a, damage)
+                    if keep_on_hit:
+                        lie(c[0], c[1], a["h"])
+                    return dict(res, flight=round(t, 2), end=[face, round(p[0], 2), round(p[1], 2), round(p[2], 2)])
             g = ground[min(len(ground) - 1, int(t * 10))]
             if p[2] <= g:                                     # it lands: some arrows can be picked up where they fell
-                if self.rng.random() < B["recover"]:
-                    self.drop_seq += 1
-                    self.drops[self.drop_seq] = {"id": self.drop_seq, "face": face, "u": p[0], "v": p[1], "h": g, "item": "arrow", "n": 1, "until": now + B["drop_s"]}
-                return {"hit": None, "killed": None, "drops": [], "flight": round(t, 2), "end": [face, round(p[0], 2), round(p[1], 2), round(g, 2)]}, None
+                if self.rng.random() < recover:
+                    lie(p[0], p[1], g)
+                return {"hit": None, "killed": None, "drops": [], "flight": round(t, 2), "end": [face, round(p[0], 2), round(p[1], 2), round(g, 2)]}
             prev = p
-        return {"hit": None, "killed": None, "drops": [], "flight": round(t, 2), "end": [face] + [round(x, 2) for x in prev]}, None
+        if keep_on_hit:                                       # 4 s up and still flying (thrown over a cliff): it lies where it was
+            lie(prev[0], prev[1], ground[-1])
+        return {"hit": None, "killed": None, "drops": [], "flight": round(t, 2), "end": [face] + [round(x, 2) for x in prev]}
 
     def drops_near(self, pos, r):
         now = time.time()
@@ -1379,9 +1412,15 @@ class World:
             return "it is gone"
         if not pos or int(pos[0]) != d["face"] or math.hypot(d["u"] - pos[1], d["v"] - pos[2]) > RULES["hunting"]["ballistics"]["pickup"]:
             return "too far away"
-        del self.drops[did]
         pl = self.player(who)
-        pl["items"][d["item"]] = pl["items"].get(d["item"], 0) + d["n"]
+        if d["item"] in RULES["tools"]:                       # a thrown spear (#157) goes back among the tools, one of a kind
+            if d["item"] in pl["tools"]:
+                return "you carry one already"
+            del self.drops[did]
+            pl["tools"].append(d["item"])
+        else:
+            del self.drops[did]
+            pl["items"][d["item"]] = pl["items"].get(d["item"], 0) + d["n"]
         self.pdirty.add(who)
         return None
 
@@ -3656,6 +3695,13 @@ def make_app(world, hub, site_origin, wallet_url, secure_cookies=True, shot_page
             await hub.inv(world, addr)
         return web.json_response(dict(res or {}, ok=not err, error=err, inventory=world.inv_json(addr)))
 
+    async def throw(request):
+        addr, d = need_addr(request), await request.json()
+        res, err = await world.throw_spear(addr, hub.where(world, addr), d.get("yaw"), d.get("pitch"))
+        if res is not None:
+            await hub.inv(world, addr)
+        return web.json_response(dict(res or {}, ok=not err, error=err, inventory=world.inv_json(addr)))
+
     async def pickup(request):
         addr, d = need_addr(request), await request.json()
         err = world.pickup(addr, d.get("id"), hub.where(world, addr))
@@ -3996,12 +4042,14 @@ def make_app(world, hub, site_origin, wallet_url, secure_cookies=True, shot_page
                     await ws.send_json(dict(res or {}, t="hunt", req=m.get("req"), error=err))
                     if res:                                         # game in the bag, or an arrow spent: the bag changed
                         await hub.inv(world, addr)
-                elif t in ("shoot", "pickup"):                      # BALLISTICS (#157): an arrow loosed; one picked up
+                elif t in ("shoot", "throw", "pickup"):             # BALLISTICS (#157): an arrow loosed, a spear thrown; one picked up
                     if not addr:
                         await ws.send_json({"t": t, "req": m.get("req"), "error": "sign in first"})
                         continue
                     if t == "shoot":
                         res, err = await world.loose_arrow(addr, st.get("pos"), m.get("yaw"), m.get("pitch"))
+                    elif t == "throw":
+                        res, err = await world.throw_spear(addr, st.get("pos"), m.get("yaw"), m.get("pitch"))
                     else:
                         res, err = {}, world.pickup(addr, m.get("id"), st.get("pos"))
                     await ws.send_json(dict(res or {}, t=t, req=m.get("req"), error=err))
@@ -4084,6 +4132,7 @@ def make_app(world, hub, site_origin, wallet_url, secure_cookies=True, shot_page
         web.post("/land/api/bed", bed),
         web.get("/land/api/talk", talk),
         web.post("/land/api/shoot", shoot),
+        web.post("/land/api/throw", throw),
         web.post("/land/api/pickup", pickup),
         web.post("/land/api/quest", quest),
         web.get("/land/api/animals", animals),

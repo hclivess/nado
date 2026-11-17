@@ -1959,14 +1959,21 @@ function connect() {
       }
     } else if (m.t === "bolt_ok") {
       if (!m.error && (m.hit || m.killed)) huntSaid(m);              // a bolt that struck an animal says so as an arrow does
-    } else if (m.t === "shoot" || m.t === "pickup") {
+    } else if (m.t === "shoot" || m.t === "throw" || m.t === "pickup") {
+      if (m.t === "throw" && !m.error && !m.hit && !m.killed && m.end) {   // a thrown spear that missed lies where it fell (#157)
+        const a = arrowsInFlight[arrowsInFlight.length - 1];
+        if (a && m.flight) a.until = Math.min(a.until, m.flight);
+        notify(T("spearMiss", "A miss — the spear fell short or wide. It lies where it fell: walk over it to take it back."));
+      } else if (m.t === "throw" && m.error && m.error !== "too fast") notify(m.error === "throwing needs a spear" ? T("huntNeeds", "Hunting needs a spear or a bow.") : String(m.error));
+      else if (m.t === "throw") { const a = arrowsInFlight[arrowsInFlight.length - 1]; if (a && m.flight) a.until = Math.min(a.until, m.flight); huntSaid(m); }
       if (m.t === "shoot" && m.flight) {
         // the server's arrow ended after `flight` seconds (in a body, or on the ground): the page's own arrow stops there
         const a = arrowsInFlight[arrowsInFlight.length - 1];
         if (a) a.until = Math.min(a.until, m.flight);
       }
-      if (m.error && m.error !== "it is gone" && m.error !== "too far away" && m.error !== "too fast") notify(m.error === "no arrows" ? T("huntArrows", "No arrows — make some from sticks, stone and fiber.") : String(m.error));
-      else if (m.t === "shoot" && !m.error) huntSaid(m);
+      // (a throw's error is said above; "you carry one already" stays quiet: standing on a spear asks again every second)
+      if (m.t !== "throw" && m.error && m.error !== "it is gone" && m.error !== "too far away" && m.error !== "too fast" && m.error !== "you carry one already") notify(m.error === "no arrows" ? T("huntArrows", "No arrows — make some from sticks, stone and fiber.") : String(m.error));
+      else if (m.t === "shoot" && !m.error) huntSaid(m);   // (a throw is answered above)
     } else if (m.t === "hunt") {
       // the strike's answer: a miss the world server explains, a hit (it runs), or game for the bag
       if (m.error === "too far away") notify(T("huntFar", "Too far — get closer, or use a bow."));
@@ -2746,6 +2753,9 @@ function huntAt(an) {
   const spear = hasClass("spear"), bow = hasClass("bow");
   if (!spear && !bow) { notify(T("huntNeeds", "Hunting needs a spear or a bow.")); return true; }
   if (spear && an.d <= H.weapons.spear.reach) { net.send({ t: "hunt", id: an.id, req: ++net.req }); return true; }
+  // beyond a strike: a bow with arrows looses one; else a spear is THROWN at an animal within its throwing reach (#157)
+  if (bow && inv.items.arrow > 0) return loose();
+  if (spear && an.d <= H.ballistics.throw_reach) return throwSpear();
   if (!bow) { notify(T("huntFar", "Too far — get closer, or use a bow.")); return true; }
   return loose();
 }
@@ -2774,6 +2784,24 @@ function loose() {
   net.send({ t: "shoot", yaw: P.yaw, pitch: P.pitch, req: ++net.req });
   return true;
 }
+// A THROWN SPEAR (#157): out of the hands along the look at the measured throw speed (land-recipes hunting.ballistics
+// about_throw), flown here as an arrow is while the world server flies its own; it lies where it ends, to be walked over
+function spearMesh() {
+  const g = new THREE.Group();
+  const shaft = new THREE.Mesh(new THREE.CylinderGeometry(0.018, 0.018, 1.9, 6), new THREE.MeshLambertMaterial({ color: 0x8a6a42 }));
+  shaft.rotation.x = Math.PI / 2; g.add(shaft);
+  const tip = new THREE.Mesh(new THREE.ConeGeometry(0.035, 0.16, 6), new THREE.MeshLambertMaterial({ color: 0x6f6a64 }));
+  tip.rotation.x = Math.PI / 2; tip.position.z = 1.02; g.add(tip);
+  return g;
+}
+function throwSpear() {
+  const B = RULES.hunting.ballistics, cp = Math.cos(P.pitch);
+  const vel = [B.throw * cp * Math.sin(P.yaw), B.throw * cp * Math.cos(P.yaw), B.throw * Math.sin(P.pitch)];
+  const m = spearMesh(); scene.add(m);
+  arrowsInFlight.push({ mesh: m, o: [P.u, P.v, P.h + 1.5], vel, t0: performance.now(), until: 4, face: P.face });
+  net.send({ t: "throw", yaw: P.yaw, pitch: P.pitch, req: ++net.req });
+  return true;
+}
 function arrowsFrame(now, cam) {
   const g = RULES && RULES.hunting ? RULES.hunting.ballistics.g : 9.8;
   for (let i = arrowsInFlight.length - 1; i >= 0; i--) {
@@ -2791,7 +2819,7 @@ function dropsSeen(list) {
   const seen = new Set();
   for (const [id, item, u, v, h] of list || []) {
     seen.add(id);
-    if (!groundArrows.has(id)) { const m = arrowMesh(); scene.add(m); groundArrows.set(id, { mesh: m, u, v, h, item }); }
+    if (!groundArrows.has(id)) { const m = RULES && RULES.tools[item] ? spearMesh() : arrowMesh(); scene.add(m); groundArrows.set(id, { mesh: m, u, v, h, item }); }   // a thrown spear lies as a spear (#157)
   }
   for (const [id, r] of groundArrows) if (!seen.has(id)) { scene.remove(r.mesh); groundArrows.delete(id); }
 }

@@ -143,8 +143,17 @@ The genre's mechanics, in this world's own names and look (no other game's chara
   the world server flies it in 0.02 s steps against where the animal runs, so a far or running target can be missed;
   the page draws it in flight, and a spent arrow lies where it fell for 10 minutes (60% come back) to be walked over and
   picked up. A stone knife: a kill gives hide and bone only to a hunter carrying one. A saw cuts 6 planks from a log
-  (without one: 4) and beams; a chisel makes a wheel of planks and iron. Next: a thrown spear, the plane and the mallet,
-  furniture, doors and windows.
+  (without one: 4) and beams; a chisel makes a wheel of planks and iron. Next: the plane and the mallet, furniture, doors
+  and windows.
+* **a thrown spear — built** (#157): a far animal with no arrows to shoot is thrown at with the spear, out to 24 m. It
+  leaves the hand at 16 m/s and flies as an arrow does. The speed is measured: in Milks, Parker & Pope, "External ballistics
+  of Pleistocene hand-thrown spears: experimental performance data and implications for human evolution" (Scientific
+  Reports, 25 January 2019), six trained javelin athletes threw replicas of the Schöningen spears at over 35 mph
+  (~15.6 m/s; Discover) and over 80 ft (~24 m) — a 15.6 m/s throw at 45° carries 24.8 m — and hit hay-bale targets 58% of
+  the time at 5 m, 25% at 10 and 15 m, 17% at 20 m and never at 25 m (Science News, "Why modern javelin throwers hurled
+  Neandertal spears at hay bales"); the longest unaimed throw was just over 31 m. So 24 m is the throwing reach. The spear
+  is a tool, not ammunition: it leaves the bag while it flies and always lies where it ended — beside the animal it
+  struck, or where it fell — until walked over and taken back; meanwhile the hunter has no spear.
 * **travel and settled land — built** (#167, #168; operator: "pick recommended"): a block is broken only within 12 m of
   where you stand (placed too, except on a plot you may build on), a place moves no faster than anyone can go (about
   65 m/s), /tp goes to the landing or your bed only; no animal spawns on, walks onto or strikes anyone on a plot with

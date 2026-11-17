@@ -4759,7 +4759,10 @@
    "pad": 0.15,
    "recover": 0.6,
    "drop_s": 600,
-   "pickup": 2.5
+   "pickup": 2.5,
+   "throw": 16,
+   "throw_reach": 24,
+   "about_throw": "A thrown spear (#157): throw m/s is measured — trained javelin athletes threw replicas of the Sch\u00f6ningen spears at over 35 mph (~15.6 m/s) and over 80 ft (~24 m); none hit a target at 25 m (Milks, Parker & Pope 2019, Scientific Reports; doc/land-civilisation.md 3b). throw_reach: the farthest animal a spear is thrown at (the page; the server flies whatever is thrown)."
   }
  },
  "market": {

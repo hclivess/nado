@@ -182,12 +182,13 @@ try {
   ok(count(t, "Raw meat") === drops.find(([i]) => i === "meat")[1] && count(t, "Hide") === 1 && count(t, "Bone") === 1, "its meat, hide and bone are in the bag: " + t.slice(0, 200));
   await shot(B, "hunt");
 
-  // 3. a boar fifteen metres off: too far for the spear; a bow and arrows reach it
+  // 3. a boar fifteen metres off: out of a strike's reach, so the spear is THROWN (#157: within throw_reach, no arrows to
+  // shoot) — it hits or misses and leaves the hunter's hands; then a bow and arrows reach it
   await getJ(`/fixture/animal?kind=boar&u=${F.u + 0.5}&v=${F.v + 15.5}`);
   const hBoar = Wd.column(q.face, F.u, F.v + 15).height + 0.6;
   await stand(B, F.u + 0.5, F.v + 0.5, F.top + 1, 0, -Math.atan2(hEye - hBoar, 15));
-  said = await strike(["Too far", "A hit", "You hunted"]);
-  ok(/Too far/.test(said), "a spear does not reach a boar 15 m off: " + said);
+  said = await strike(["Too far", "A hit", "You hunted", "A miss"]);
+  ok(/A hit — the boar|A miss — the spear/.test(said), "a boar 15 m off is out of a strike's reach: Break throws the spear at it: " + said);
   await getJ("/fixture/seed?who=owner&items=" + encodeURIComponent(JSON.stringify({ arrow: 3 })) + "&tools=" + encodeURIComponent(JSON.stringify(["spear", "bow"])));
   await sleep(800);
   said = await strike(["A hit", "You hunted", "Too far", "No arrows", "A miss"]);
