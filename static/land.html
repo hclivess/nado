@@ -138,7 +138,10 @@
   #mapPanel h2{margin:0 0 10px;font-size:16px;display:flex;align-items:center}#mapPanel h2 button{margin-left:auto}
   #mapCanvas{width:min(100%,calc(92vh - 150px));height:auto;aspect-ratio:1;display:block;margin:0 auto;border-radius:8px;background:#1b2430}   /* a short phone screen: the whole map in view, not cut off below (#173) */
   #mapLegend{margin-top:8px;line-height:1.6}#mapLegend b{display:inline-block;width:10px;height:10px;margin:0 4px 0 10px;border-radius:2px;vertical-align:-1px}
-  #mapBtn{pointer-events:auto;margin-top:6px;padding:4px 12px;border-radius:999px;border:1px solid var(--border);background:var(--elev);color:inherit;font:inherit;cursor:pointer}
+  /* every button on the HUD shares this look: #setBtn (added for #179) had no rule and drew as the browser's own grey
+     button beside a dark Map (playtest 2026-11-17) */
+  #mapBtn,#setBtn{pointer-events:auto;margin-top:6px;padding:4px 12px;border-radius:999px;border:1px solid var(--border);background:var(--elev);color:inherit;font:inherit;cursor:pointer}
+  #mapBtn:not(.hidden)+#setBtn{margin-left:6px}
   #wardPanel .card{max-width:min(560px,calc(100vw - 32px));max-height:80vh;overflow:auto;background:var(--elev);border:1px solid var(--border);border-radius:14px;padding:16px;font-size:13px}
   #wardPanel h2{margin:0 0 10px;font-size:16px;display:flex;align-items:center;gap:6px}#wardPanel h2 button:first-of-type{margin-left:auto}
   #wardPanel h3{margin:10px 0 6px;font-size:12px;color:var(--dim)}
