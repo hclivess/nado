@@ -132,6 +132,16 @@ async def main():
     near = [0, lying[0]["u"], lying[0]["v"], lying[0]["h"], 0]
     check("a second spear is not taken while one is carried — it stays lying", world.pickup(me, lying[0]["id"], near) == "you carry one already" and lying[0]["id"] in world.drops)
 
+    # ---- kept across a restart (held in memory only, a restart took every arrow and spear lying out, 2026-11-18) -------
+    keep = dict(lying[0])
+    world.drops[999] = {"id": 999, "face": 0, "u": 1.0, "v": 1.0, "h": 1.0, "item": "arrow", "n": 1, "until": time.time() - 1}
+    world.ddirty = True
+    world.flush()
+    w2 = S.World(data, str(ex.make_url("")).rstrip("/"), "c" * 32)
+    check("a spear lying out is still there after a restart, where it lay", w2.drops.get(keep["id"]) == keep, (keep, w2.drops))
+    check("…what had run out of time is not brought back", 999 not in w2.drops)
+    check("…and a new one takes a fresh number", w2.drop_seq >= keep["id"])
+
     # ---- through the API, with no id: the nearest thing lying within reach (an agent is told of no drops) -------------
     world.drops.clear(); pl["tools"].remove("spear")
     world.keep_place(me, pos)

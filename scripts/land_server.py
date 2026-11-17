@@ -664,7 +664,13 @@ class World:
         self.sdirty = False
         # HUNTING (#156): the animals near players — the world server's own, never saved (they wander off and others come)
         self.animals, self.animal_seq, self.rng = {}, 0, random.Random()
-        self.drops, self.drop_seq = {}, 0                 # things lying on the ground to pick up: arrows that missed (#157)
+        # things lying on the ground to pick up — arrows that missed, a thrown spear (#157) — KEPT ACROSS RESTARTS: held in
+        # memory only, every restart took them, and a thrown spear is a TOOL (found 2026-11-18); each keeps its own expiry
+        try:
+            self.drops = {int(k): d for k, d in json.load(open(os.path.join(self.dir, "drops.json"))).items() if d["until"] > time.time()}
+        except Exception:
+            self.drops = {}
+        self.drop_seq, self.ddirty = max(self.drops, default=0), False
         self.http = self.oracle = None
         self.shots = os.path.join(self.dir, "shots")      # <plot>.jpg + <plot>.json {"ver", "at"} (THE LISTING)
         os.makedirs(self.shots, exist_ok=True)
@@ -723,6 +729,10 @@ class World:
         if self.sdirty:
             self._write("sats.json", self.sats)
             self.sdirty = False
+        if self.ddirty:                                   # what lies on the ground (#157): kept across a restart
+            now = time.time()
+            self._write("drops.json", {str(k): d for k, d in self.drops.items() if d["until"] > now})
+            self.ddirty = False
 
     def _write(self, rel, body):
         path = os.path.join(self.dir, rel)
@@ -1376,6 +1386,7 @@ class World:
         def lie(u, v, h):
             self.drop_seq += 1
             self.drops[self.drop_seq] = {"id": self.drop_seq, "face": face, "u": u, "v": v, "h": h, "item": item, "n": 1, "until": now + B["drop_s"]}
+            self.ddirty = True
         near = [(a, moving(a)) for a in self.animals.values() if a["face"] == face and math.hypot(a["u"] - o[0], a["v"] - o[1]) < 120]
         t, dt, prev = 0.0, 0.02, list(o)
         while t < 4.0:
@@ -1418,9 +1429,11 @@ class World:
                 return "you carry one already"
             del self.drops[did]
             pl["tools"].append(d["item"])
+            self.ddirty = True
         else:
             del self.drops[did]
             pl["items"][d["item"]] = pl["items"].get(d["item"], 0) + d["n"]
+            self.ddirty = True
         self.pdirty.add(who)
         return None
 
