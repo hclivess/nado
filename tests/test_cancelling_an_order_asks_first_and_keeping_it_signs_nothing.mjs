@@ -21,6 +21,7 @@ import { tmpdir } from "node:os";
 import { join, dirname, normalize } from "node:path";
 import { fileURLToPath } from "node:url";
 import { PROTOCOL_JS } from "./protocol_hook.mjs";
+import { sweepStaleProfiles } from "./_cdp_profiles.mjs";
 
 const ROOT = join(dirname(fileURLToPath(import.meta.url)), "..");
 const STATIC = join(ROOT, "static");
@@ -68,12 +69,13 @@ const HTTP = srv.address().port;
 // the history); none → a declared SKIP after the source checks, never a FAIL that reads as a broken page.
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 const PORT = 9300 + ((process.pid + 211) % 600);
+sweepStaleProfiles();                                     // what a killed run left (tests/_cdp_profiles.mjs)
 const prof = mkdtempSync(join(tmpdir(), "cdp-dexcancel-"));
 let chrome = null, ver = null;
 const tried = [];
 for (const bin of [process.env.CHROME, "google-chrome", "google-chrome-stable", "chromium-browser", "chromium"].filter(Boolean)) {
   const c = spawn(bin, ["--headless", "--disable-gpu", "--no-sandbox", "--remote-debugging-port=" + PORT,
-    "--user-data-dir=" + prof, "about:blank"], { stdio: "ignore" });
+    "--user-data-dir=" + prof, "about:blank"], { stdio: "ignore", detached: true });   // its own group: the helpers die with it
   let gone = false;
   c.on("error", () => { gone = true; });
   c.on("exit", () => { gone = true; });
@@ -82,7 +84,7 @@ for (const bin of [process.env.CHROME, "google-chrome", "google-chrome-stable", 
   }
   if (ver) { chrome = c; break; }
   tried.push(bin + (gone ? " (exited)" : " (no CDP in 15 s)"));
-  try { c.kill("SIGKILL"); } catch (e) {}
+  try { process.kill(-c.pid, "SIGKILL"); } catch (e) {}
   await sleep(300);
 }
 if (!chrome) {
@@ -101,7 +103,7 @@ async function until(expr, ms = 15000) {
   for (let t = 0; t < ms; t += 200) { if (await evl(expr).catch(() => false)) return true; await sleep(200); }
   return false;
 }
-function cleanup() { try { chrome.kill("SIGKILL"); } catch (e) {} try { srv.close(); } catch (e) {} try { rmSync(prof, { recursive: true, force: true }); } catch (e) {} }
+function cleanup() { try { chrome && process.kill(-chrome.pid, "SIGKILL"); } catch (e) {} try { srv.close(); } catch (e) {} try { rmSync(prof, { recursive: true, force: true }); } catch (e) {} }
 
 const SIGNER = `!!document.querySelector('iframe[src*="bgsvc"]')`;
 const clickCancel = `(() => { const b = document.querySelector('#otcMine [data-otc="cancel"][data-o="${O}"]'); if (!b) return false; b.click(); return true; })()`;
