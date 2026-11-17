@@ -229,6 +229,14 @@
    "name": "Linen cloak",
    "wear": "back"
   },
+  "leather_boots": {
+   "name": "Leather boots",
+   "wear": "feet"
+  },
+  "leather_gloves": {
+   "name": "Leather gloves",
+   "wear": "hands"
+  },
   "silverore": {
    "name": "Silver ore"
   },
@@ -2796,6 +2804,50 @@
     ],
     [
      "cordage",
+     1
+    ]
+   ],
+   "with": [
+    "needle"
+   ]
+  },
+  {
+   "id": "leather_boots",
+   "makes": [
+    [
+     "leather_boots",
+     1
+    ]
+   ],
+   "uses": [
+    [
+     "leather",
+     2
+    ],
+    [
+     "thread",
+     2
+    ]
+   ],
+   "with": [
+    "needle"
+   ]
+  },
+  {
+   "id": "leather_gloves",
+   "makes": [
+    [
+     "leather_gloves",
+     1
+    ]
+   ],
+   "uses": [
+    [
+     "leather",
+     1
+    ],
+    [
+     "thread",
      1
     ]
    ],

@@ -62,7 +62,7 @@ pa["items"].update({"linen_shirt": 2, "linen_cap": 1, "linen_trousers": 1})
 check("a shirt goes on from the bag", w.wear(A, "body", "linen_shirt") is None and pa["worn"] == {"body": "linen_shirt"} and pa["items"]["linen_shirt"] == 1)
 check("nobody wears what they lack", w.wear(A, "back", "linen_cloak") and "linen_cloak" not in pa["worn"].values())
 check("a garment is worn only in its place", w.wear(A, "legs", "linen_cap") and pa["items"]["linen_cap"] == 1)
-check("…and only in a place there is", w.wear(A, "feet", "linen_cap") is not None)
+check("…and only in a place there is", w.wear(A, "tail", "linen_cap") is not None)   # ("feet" is a place since #128)
 pa["items"]["linen_shirt"] = 1
 w.player(A)["worn"]["body"] = "linen_shirt"
 before = pa["items"]["linen_shirt"]

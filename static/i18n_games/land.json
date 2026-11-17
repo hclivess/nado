@@ -322,7 +322,7 @@
   "land.wNothing": "nothing",
   "land.wPlain": "your own plain clothes",
   "land.wWear": "Wear {i}",
-  "land.wHint": "Sew clothes from linen with a needle — make them in the bag (E). What you wear is what others see.",
+  "land.wHint": "Sew clothes from linen or leather with a needle — make them in the bag (E). What you wear is what others see.",
   "land.needsDrill": "Bedrock — only a drill breaks it.",
   "land.i.silverore": "Silver ore",
   "land.i.goldore": "Gold ore",
@@ -673,7 +673,11 @@
   "land.fKey1": "Key {k} fires the gadgets you bound to it.",
   "land.fKeysN": "Keys {k} fire the gadgets you bound to them.",
   "land.hotGadgets": "Hold a key to fire its gadgets",
-  "land.cKeys": "aimed at a thruster, an engine or a cannon: its key; at the controls: fire the gadgets bound to that key"
+  "land.cKeys": "aimed at a thruster, an engine or a cannon: its key; at the controls: fire the gadgets bound to that key",
+  "land.i.leather_boots": "Leather boots",
+  "land.i.leather_gloves": "Leather gloves",
+  "land.slot.feet": "Feet",
+  "land.slot.hands": "Hands"
  },
  "cs": {
   "land.notYours": "Pozemek {p} patří někomu jinému. Kupte si pozemek, nebo požádejte jeho vlastníka o pozvání.",
@@ -998,7 +1002,7 @@
   "land.wNothing": "nic",
   "land.wPlain": "vlastní obyčejné oblečení",
   "land.wWear": "Obléct: {i}",
-  "land.wHint": "Šijte oblečení ze lnu jehlou — vyrobíte ho v batohu (E). Co nosíte, vidí i ostatní.",
+  "land.wHint": "Šijte oblečení ze lnu nebo z usně jehlou — vyrobíte ho v batohu (E). Co nosíte, vidí i ostatní.",
   "land.needsDrill": "Podloží — prorazí ho jen vrták.",
   "land.i.silverore": "Stříbrná ruda",
   "land.i.goldore": "Zlatá ruda",
@@ -1349,7 +1353,11 @@
   "land.fKey1": "Klávesa {k} spouští zařízení, která jsi k ní přiřadil.",
   "land.fKeysN": "Klávesy {k} spouštějí zařízení, která jsi k nim přiřadil.",
   "land.hotGadgets": "Podrž klávesu a spustíš její zařízení",
-  "land.cKeys": "míříš-li na tryskový motor, motor nebo kanón: jeho klávesa; u řízení: spustí zařízení s tou klávesou"
+  "land.cKeys": "míříš-li na tryskový motor, motor nebo kanón: jeho klávesa; u řízení: spustí zařízení s tou klávesou",
+  "land.i.leather_boots": "Kožené boty",
+  "land.i.leather_gloves": "Kožené rukavice",
+  "land.slot.feet": "Chodidla",
+  "land.slot.hands": "Ruce"
  },
  "es": {
   "land.notYours": "La parcela {p} pertenece a otra persona. Compra una parcela o pide a su dueño que te invite.",
@@ -1674,7 +1682,7 @@
   "land.wNothing": "nada",
   "land.wPlain": "tu propia ropa sencilla",
   "land.wWear": "Ponerse: {i}",
-  "land.wHint": "Cose ropa de lino con una aguja: hazla en la bolsa (E). Lo que llevas es lo que ven los demás.",
+  "land.wHint": "Cose ropa de lino o de cuero con una aguja: hazla en la bolsa (E). Lo que llevas es lo que ven los demás.",
   "land.needsDrill": "Roca madre: solo un taladro la rompe.",
   "land.i.silverore": "Mena de plata",
   "land.i.goldore": "Mena de oro",
@@ -2025,7 +2033,11 @@
   "land.fKey1": "La tecla {k} activa los dispositivos que le asignaste.",
   "land.fKeysN": "Las teclas {k} activan los dispositivos que les asignaste.",
   "land.hotGadgets": "Mantén una tecla para activar sus dispositivos",
-  "land.cKeys": "apuntando a un propulsor, motor o cañón: su tecla; a los mandos: activa los dispositivos de esa tecla"
+  "land.cKeys": "apuntando a un propulsor, motor o cañón: su tecla; a los mandos: activa los dispositivos de esa tecla",
+  "land.i.leather_boots": "Botas de cuero",
+  "land.i.leather_gloves": "Guantes de cuero",
+  "land.slot.feet": "Pies",
+  "land.slot.hands": "Manos"
  },
  "pt": {
   "land.notYours": "O lote {p} pertence a outra pessoa. Compre um lote ou peça ao dono que convide você.",
@@ -2350,7 +2362,7 @@
   "land.wNothing": "nada",
   "land.wPlain": "a tua própria roupa simples",
   "land.wWear": "Vestir: {i}",
-  "land.wHint": "Costure roupa de linho com uma agulha — faça-a no saco (E). O que veste é o que os outros veem.",
+  "land.wHint": "Costure roupa de linho ou de couro com uma agulha — faça-a no saco (E). O que veste é o que os outros veem.",
   "land.needsDrill": "Rocha-mãe — só uma broca a parte.",
   "land.i.silverore": "Minério de prata",
   "land.i.goldore": "Minério de ouro",
@@ -2701,7 +2713,11 @@
   "land.fKey1": "A tecla {k} dispara os dispositivos que lhe atribuíste.",
   "land.fKeysN": "As teclas {k} disparam os dispositivos que lhes atribuíste.",
   "land.hotGadgets": "Mantém uma tecla para disparar os seus dispositivos",
-  "land.cKeys": "a apontar a um propulsor, motor ou canhão: a sua tecla; aos comandos: dispara os dispositivos dessa tecla"
+  "land.cKeys": "a apontar a um propulsor, motor ou canhão: a sua tecla; aos comandos: dispara os dispositivos dessa tecla",
+  "land.i.leather_boots": "Botas de couro",
+  "land.i.leather_gloves": "Luvas de couro",
+  "land.slot.feet": "Pés",
+  "land.slot.hands": "Mãos"
  },
  "fr": {
   "land.notYours": "La parcelle {p} appartient à quelqu'un d'autre. Achetez une parcelle ou demandez à son propriétaire de vous inviter.",
@@ -3026,7 +3042,7 @@
   "land.wNothing": "rien",
   "land.wPlain": "vos propres vêtements simples",
   "land.wWear": "Porter : {i}",
-  "land.wHint": "Cousez des vêtements en lin avec une aiguille — fabriquez-les dans le sac (E). Ce que vous portez, les autres le voient.",
+  "land.wHint": "Cousez des vêtements en lin ou en cuir avec une aiguille — fabriquez-les dans le sac (E). Ce que vous portez, les autres le voient.",
   "land.needsDrill": "Socle rocheux — seule une foreuse le brise.",
   "land.i.silverore": "Minerai d’argent",
   "land.i.goldore": "Minerai d’or",
@@ -3377,7 +3393,11 @@
   "land.fKey1": "La touche {k} déclenche les gadgets que vous lui avez assignés.",
   "land.fKeysN": "Les touches {k} déclenchent les gadgets que vous leur avez assignés.",
   "land.hotGadgets": "Maintenez une touche pour déclencher ses gadgets",
-  "land.cKeys": "visant un propulseur, un moteur ou un canon : sa touche ; aux commandes : déclenche les gadgets de cette touche"
+  "land.cKeys": "visant un propulseur, un moteur ou un canon : sa touche ; aux commandes : déclenche les gadgets de cette touche",
+  "land.i.leather_boots": "Bottes en cuir",
+  "land.i.leather_gloves": "Gants en cuir",
+  "land.slot.feet": "Pieds",
+  "land.slot.hands": "Mains"
  },
  "de": {
   "land.notYours": "Grundstück {p} gehört jemand anderem. Kauf dir ein Grundstück oder bitte den Besitzer um eine Einladung.",
@@ -3702,7 +3722,7 @@
   "land.wNothing": "nichts",
   "land.wPlain": "deine eigene schlichte Kleidung",
   "land.wWear": "Anziehen: {i}",
-  "land.wHint": "Näh Kleidung aus Leinen mit einer Nadel — herstellen im Beutel (E). Was du trägst, sehen die anderen.",
+  "land.wHint": "Näh Kleidung aus Leinen oder Leder mit einer Nadel — herstellen im Beutel (E). Was du trägst, sehen die anderen.",
   "land.needsDrill": "Grundgestein — nur ein Bohrer bricht es.",
   "land.i.silverore": "Silbererz",
   "land.i.goldore": "Golderz",
@@ -4053,7 +4073,11 @@
   "land.fKey1": "Taste {k} feuert die Geräte, die du ihr zugewiesen hast.",
   "land.fKeysN": "Die Tasten {k} feuern die Geräte, die du ihnen zugewiesen hast.",
   "land.hotGadgets": "Taste halten, um ihre Geräte zu feuern",
-  "land.cKeys": "auf ein Triebwerk oder eine Kanone gezielt: seine Taste; am Steuer: feuert die Geräte dieser Taste"
+  "land.cKeys": "auf ein Triebwerk oder eine Kanone gezielt: seine Taste; am Steuer: feuert die Geräte dieser Taste",
+  "land.i.leather_boots": "Lederstiefel",
+  "land.i.leather_gloves": "Lederhandschuhe",
+  "land.slot.feet": "Füße",
+  "land.slot.hands": "Hände"
  },
  "it": {
   "land.notYours": "Il lotto {p} appartiene a qualcun altro. Compra un lotto o chiedi al proprietario di invitarti.",
@@ -4378,7 +4402,7 @@
   "land.wNothing": "niente",
   "land.wPlain": "i tuoi abiti semplici",
   "land.wWear": "Indossa: {i}",
-  "land.wHint": "Cuci vestiti di lino con un ago: preparali nella borsa (E). Ciò che indossi è ciò che vedono gli altri.",
+  "land.wHint": "Cuci vestiti di lino o di cuoio con un ago: preparali nella borsa (E). Ciò che indossi è ciò che vedono gli altri.",
   "land.needsDrill": "Roccia madre: solo un trapano la rompe.",
   "land.i.silverore": "Minerale d’argento",
   "land.i.goldore": "Minerale d’oro",
@@ -4729,7 +4753,11 @@
   "land.fKey1": "Il tasto {k} attiva i dispositivi che gli hai assegnato.",
   "land.fKeysN": "I tasti {k} attivano i dispositivi che gli hai assegnato.",
   "land.hotGadgets": "Tieni premuto un tasto per attivare i suoi dispositivi",
-  "land.cKeys": "mirando a un propulsore, motore o cannone: il suo tasto; ai comandi: attiva i dispositivi di quel tasto"
+  "land.cKeys": "mirando a un propulsore, motore o cannone: il suo tasto; ai comandi: attiva i dispositivi di quel tasto",
+  "land.i.leather_boots": "Stivali di cuoio",
+  "land.i.leather_gloves": "Guanti di cuoio",
+  "land.slot.feet": "Piedi",
+  "land.slot.hands": "Mani"
  },
  "ru": {
   "land.notYours": "Участок {p} принадлежит другому игроку. Купите участок или попросите владельца пригласить вас.",
@@ -5054,7 +5082,7 @@
   "land.wNothing": "ничего",
   "land.wPlain": "своя простая одежда",
   "land.wWear": "Надеть: {i}",
-  "land.wHint": "Шейте одежду из льна иглой — делается в сумке (E). Что вы носите, то видят другие.",
+  "land.wHint": "Шейте одежду из льна или кожи иглой — делается в сумке (E). Что вы носите, то видят другие.",
   "land.needsDrill": "Коренная порода — её пробьёт только бур.",
   "land.i.silverore": "Серебряная руда",
   "land.i.goldore": "Золотая руда",
@@ -5405,7 +5433,11 @@
   "land.fKey1": "Клавиша {k} включает устройства, привязанные к ней.",
   "land.fKeysN": "Клавиши {k} включают устройства, привязанные к ним.",
   "land.hotGadgets": "Удерживай клавишу, чтобы включить её устройства",
-  "land.cKeys": "прицел на двигатель или пушку: его клавиша; за штурвалом: включает устройства этой клавиши"
+  "land.cKeys": "прицел на двигатель или пушку: его клавиша; за штурвалом: включает устройства этой клавиши",
+  "land.i.leather_boots": "Кожаные сапоги",
+  "land.i.leather_gloves": "Кожаные перчатки",
+  "land.slot.feet": "Ступни",
+  "land.slot.hands": "Руки"
  },
  "zh": {
   "land.notYours": "地块 {p} 属于别人。购买一块地，或请它的所有者邀请你。",
@@ -5730,7 +5762,7 @@
   "land.wNothing": "无",
   "land.wPlain": "你自己的朴素衣服",
   "land.wWear": "穿上{i}",
-  "land.wHint": "用针把亚麻布缝成衣服——在背包（E）里制作。你穿什么，别人就看到什么。",
+  "land.wHint": "用针把亚麻布或皮革缝成衣服——在背包（E）里制作。你穿什么，别人就看到什么。",
   "land.needsDrill": "基岩——只有钻机能凿开。",
   "land.i.silverore": "银矿石",
   "land.i.goldore": "金矿石",
@@ -6081,7 +6113,11 @@
   "land.fKey1": "按键 {k} 触发你绑定到它的装置。",
   "land.fKeysN": "按键 {k} 触发你绑定到它们的装置。",
   "land.hotGadgets": "按住按键触发其装置",
-  "land.cKeys": "瞄准推进器、引擎或炮时：设置其按键；操控时：触发绑定到该键的装置"
+  "land.cKeys": "瞄准推进器、引擎或炮时：设置其按键；操控时：触发绑定到该键的装置",
+  "land.i.leather_boots": "皮靴",
+  "land.i.leather_gloves": "皮手套",
+  "land.slot.feet": "脚部",
+  "land.slot.hands": "手部"
  },
  "ja": {
   "land.notYours": "区画 {p} は他の人のものです。区画を購入するか、所有者に招待してもらいましょう。",
@@ -6406,7 +6442,7 @@
   "land.wNothing": "なし",
   "land.wPlain": "自分の素朴な服",
   "land.wWear": "{i}を着る",
-  "land.wHint": "針で亜麻布から服を縫いましょう。バッグ（E）で作れます。着ているものが他の人に見えます。",
+  "land.wHint": "針で亜麻布や革から服を縫いましょう。バッグ（E）で作れます。着ているものが他の人に見えます。",
   "land.needsDrill": "岩盤 — ドリルでしか壊せません。",
   "land.i.silverore": "銀鉱石",
   "land.i.goldore": "金鉱石",
@@ -6757,7 +6793,11 @@
   "land.fKey1": "キー {k} で割り当てた装置が作動します。",
   "land.fKeysN": "キー {k} で割り当てた装置が作動します。",
   "land.hotGadgets": "キーを押し続けると装置が作動",
-  "land.cKeys": "スラスター、エンジン、砲を狙って：そのキー設定；操縦中：そのキーの装置を作動"
+  "land.cKeys": "スラスター、エンジン、砲を狙って：そのキー設定；操縦中：そのキーの装置を作動",
+  "land.i.leather_boots": "革のブーツ",
+  "land.i.leather_gloves": "革の手袋",
+  "land.slot.feet": "足元",
+  "land.slot.hands": "手"
  },
  "ko": {
   "land.notYours": "구역 {p}은(는) 다른 사람의 땅입니다. 구역을 사거나 소유자에게 초대를 요청하세요.",
@@ -7082,7 +7122,7 @@
   "land.wNothing": "없음",
   "land.wPlain": "평범한 내 옷",
   "land.wWear": "{i} 입기",
-  "land.wHint": "바늘로 리넨 옷을 지으세요 — 가방(E)에서 만듭니다. 입은 옷이 다른 사람에게 보입니다.",
+  "land.wHint": "바늘로 리넨이나 가죽으로 옷을 지으세요 — 가방(E)에서 만듭니다. 입은 옷이 다른 사람에게 보입니다.",
   "land.needsDrill": "기반암 — 드릴로만 깰 수 있습니다.",
   "land.i.silverore": "은광석",
   "land.i.goldore": "금광석",
@@ -7433,7 +7473,11 @@
   "land.fKey1": "키 {k}은(는) 거기에 묶은 장치를 작동시킵니다.",
   "land.fKeysN": "키 {k}은(는) 거기에 묶은 장치를 작동시킵니다.",
   "land.hotGadgets": "키를 누르고 있으면 장치가 작동",
-  "land.cKeys": "추진기, 엔진, 포를 겨눌 때: 그 키; 조종 중: 그 키에 묶인 장치 작동"
+  "land.cKeys": "추진기, 엔진, 포를 겨눌 때: 그 키; 조종 중: 그 키에 묶인 장치 작동",
+  "land.i.leather_boots": "가죽 장화",
+  "land.i.leather_gloves": "가죽 장갑",
+  "land.slot.feet": "발",
+  "land.slot.hands": "손"
  },
  "ar": {
   "land.notYours": "القطعة {p} ملك لشخص آخر. اشترِ قطعة، أو اطلب من مالكها أن يدعوك.",
@@ -7758,7 +7802,7 @@
   "land.wNothing": "لا شيء",
   "land.wPlain": "ملابسك البسيطة الخاصة",
   "land.wWear": "ارتدِ {i}",
-  "land.wHint": "خِط الملابس من الكتان بإبرة — اصنعها في الحقيبة (E). ما ترتديه هو ما يراه الآخرون.",
+  "land.wHint": "خِط الملابس من الكتان أو الجلد بإبرة — اصنعها في الحقيبة (E). ما ترتديه هو ما يراه الآخرون.",
   "land.needsDrill": "صخر الأساس — لا يكسره إلا المثقاب.",
   "land.i.silverore": "خام الفضة",
   "land.i.goldore": "خام الذهب",
@@ -8109,7 +8153,11 @@
   "land.fKey1": "المفتاح {k} يشغّل الأجهزة التي ربطتها به.",
   "land.fKeysN": "المفاتيح {k} تشغّل الأجهزة التي ربطتها بها.",
   "land.hotGadgets": "اضغط مطوّلًا على مفتاح لتشغيل أجهزته",
-  "land.cKeys": "مع التصويب على دافع أو محرك أو مدفع: مفتاحه؛ عند القيادة: تشغيل أجهزة ذلك المفتاح"
+  "land.cKeys": "مع التصويب على دافع أو محرك أو مدفع: مفتاحه؛ عند القيادة: تشغيل أجهزة ذلك المفتاح",
+  "land.i.leather_boots": "جزمة جلدية",
+  "land.i.leather_gloves": "قفازات جلدية",
+  "land.slot.feet": "القدمان",
+  "land.slot.hands": "اليدان"
  },
  "hi": {
   "land.notYours": "प्लॉट {p} किसी और का है। कोई प्लॉट खरीदें, या उसके मालिक से आपको आमंत्रित करने को कहें।",
@@ -8434,7 +8482,7 @@
   "land.wNothing": "कुछ नहीं",
   "land.wPlain": "आपके अपने सादे कपड़े",
   "land.wWear": "{i} पहनें",
-  "land.wHint": "सुई से लिनन के कपड़े सिलें — थैले (E) में बनाएँ। आप जो पहनते हैं, वही दूसरे देखते हैं।",
+  "land.wHint": "सुई से लिनन या चमड़े के कपड़े सिलें — थैले (E) में बनाएँ। आप जो पहनते हैं, वही दूसरे देखते हैं।",
   "land.needsDrill": "आधार-शैल — इसे केवल ड्रिल तोड़ती है।",
   "land.i.silverore": "चाँदी का अयस्क",
   "land.i.goldore": "सोने का अयस्क",
@@ -8785,7 +8833,11 @@
   "land.fKey1": "कुंजी {k} उससे जुड़े उपकरण चलाती है।",
   "land.fKeysN": "कुंजियाँ {k} उनसे जुड़े उपकरण चलाती हैं।",
   "land.hotGadgets": "उपकरण चलाने के लिए कुंजी दबाए रखें",
-  "land.cKeys": "थ्रस्टर, इंजन या तोप पर निशाना: उसकी कुंजी; नियंत्रण में: उस कुंजी के उपकरण चलाएँ"
+  "land.cKeys": "थ्रस्टर, इंजन या तोप पर निशाना: उसकी कुंजी; नियंत्रण में: उस कुंजी के उपकरण चलाएँ",
+  "land.i.leather_boots": "चमड़े के जूते",
+  "land.i.leather_gloves": "चमड़े के दस्ताने",
+  "land.slot.feet": "पाँव के पंजे",
+  "land.slot.hands": "हाथ"
  },
  "tr": {
   "land.notYours": "{p} arsası başkasına ait. Bir arsa satın al ya da sahibinden seni davet etmesini iste.",
@@ -9110,7 +9162,7 @@
   "land.wNothing": "hiçbir şey",
   "land.wPlain": "kendi sade giysilerin",
   "land.wWear": "Giy: {i}",
-  "land.wHint": "Ketenden iğneyle giysi dikin — çantada (E) yapılır. Ne giyerseniz başkaları onu görür.",
+  "land.wHint": "Ketenden ya da deriden iğneyle giysi dikin — çantada (E) yapılır. Ne giyerseniz başkaları onu görür.",
   "land.needsDrill": "Ana kaya — onu yalnızca matkap kırar.",
   "land.i.silverore": "Gümüş cevheri",
   "land.i.goldore": "Altın cevheri",
@@ -9461,7 +9513,11 @@
   "land.fKey1": "{k} tuşu ona bağladığın aygıtları çalıştırır.",
   "land.fKeysN": "{k} tuşları onlara bağladığın aygıtları çalıştırır.",
   "land.hotGadgets": "aygıtlarını çalıştırmak için tuşu basılı tut",
-  "land.cKeys": "bir itici, motor veya topa nişan alınca: tuşu; kumandada: o tuşa bağlı aygıtları çalıştır"
+  "land.cKeys": "bir itici, motor veya topa nişan alınca: tuşu; kumandada: o tuşa bağlı aygıtları çalıştır",
+  "land.i.leather_boots": "Deri çizme",
+  "land.i.leather_gloves": "Deri eldiven",
+  "land.slot.feet": "Ayaklar",
+  "land.slot.hands": "Eller"
  },
  "id": {
   "land.notYours": "Petak {p} milik orang lain. Beli sebuah petak, atau minta pemiliknya mengundangmu.",
@@ -9786,7 +9842,7 @@
   "land.wNothing": "tidak ada",
   "land.wPlain": "pakaian polosmu sendiri",
   "land.wWear": "Pakai {i}",
-  "land.wHint": "Jahit pakaian dari linen dengan jarum — buat di tas (E). Apa yang Anda pakai itulah yang dilihat orang lain.",
+  "land.wHint": "Jahit pakaian dari linen atau kulit dengan jarum — buat di tas (E). Apa yang Anda pakai itulah yang dilihat orang lain.",
   "land.needsDrill": "Batuan dasar — hanya bor yang bisa memecahnya.",
   "land.i.silverore": "Bijih perak",
   "land.i.goldore": "Bijih emas",
@@ -10137,7 +10193,11 @@
   "land.fKey1": "Tombol {k} menyalakan perangkat yang kau ikat padanya.",
   "land.fKeysN": "Tombol {k} menyalakan perangkat yang kau ikat padanya.",
   "land.hotGadgets": "tahan tombol untuk menyalakan perangkatnya",
-  "land.cKeys": "membidik pendorong, mesin, atau meriam: tombolnya; di kemudi: menyalakan perangkat tombol itu"
+  "land.cKeys": "membidik pendorong, mesin, atau meriam: tombolnya; di kemudi: menyalakan perangkat tombol itu",
+  "land.i.leather_boots": "Sepatu bot kulit",
+  "land.i.leather_gloves": "Sarung tangan kulit",
+  "land.slot.feet": "Telapak kaki",
+  "land.slot.hands": "Tangan"
  },
  "vi": {
   "land.notYours": "Mảnh đất {p} thuộc về người khác. Hãy mua một mảnh, hoặc nhờ chủ của nó mời bạn.",
@@ -10462,7 +10522,7 @@
   "land.wNothing": "không có",
   "land.wPlain": "quần áo giản dị của bạn",
   "land.wWear": "Mặc {i}",
-  "land.wHint": "Dùng kim may quần áo từ vải lanh — làm trong túi (E). Bạn mặc gì thì người khác thấy nấy.",
+  "land.wHint": "Dùng kim may quần áo từ vải lanh hoặc da — làm trong túi (E). Bạn mặc gì thì người khác thấy nấy.",
   "land.needsDrill": "Đá gốc — chỉ máy khoan mới phá được.",
   "land.i.silverore": "Quặng bạc",
   "land.i.goldore": "Quặng vàng",
@@ -10813,7 +10873,11 @@
   "land.fKey1": "Phím {k} kích hoạt các thiết bị bạn đã gắn vào nó.",
   "land.fKeysN": "Các phím {k} kích hoạt các thiết bị bạn đã gắn vào chúng.",
   "land.hotGadgets": "giữ một phím để kích hoạt thiết bị của nó",
-  "land.cKeys": "nhắm vào động cơ đẩy hoặc pháo: phím của nó; khi điều khiển: kích hoạt thiết bị gắn phím đó"
+  "land.cKeys": "nhắm vào động cơ đẩy hoặc pháo: phím của nó; khi điều khiển: kích hoạt thiết bị gắn phím đó",
+  "land.i.leather_boots": "Ủng da",
+  "land.i.leather_gloves": "Găng tay da",
+  "land.slot.feet": "Bàn chân",
+  "land.slot.hands": "Bàn tay"
  },
  "pl": {
   "land.notYours": "Działka {p} należy do kogoś innego. Kup działkę albo poproś jej właściciela o zaproszenie.",
@@ -11138,7 +11202,7 @@
   "land.wNothing": "nic",
   "land.wPlain": "twoje własne zwykłe ubranie",
   "land.wWear": "Załóż: {i}",
-  "land.wHint": "Szyj ubrania z lnu igłą — zrobisz je w torbie (E). To, co nosisz, widzą inni.",
+  "land.wHint": "Szyj ubrania z lnu lub skóry igłą — zrobisz je w torbie (E). To, co nosisz, widzą inni.",
   "land.needsDrill": "Skała macierzysta — rozbije ją tylko wiertło.",
   "land.i.silverore": "Ruda srebra",
   "land.i.goldore": "Ruda złota",
@@ -11489,6 +11553,10 @@
   "land.fKey1": "Klawisz {k} odpala urządzenia, które do niego przypisałeś.",
   "land.fKeysN": "Klawisze {k} odpalają urządzenia, które do nich przypisałeś.",
   "land.hotGadgets": "przytrzymaj klawisz, by odpalić jego urządzenia",
-  "land.cKeys": "celując w silnik lub działo: jego klawisz; przy sterach: odpala urządzenia tego klawisza"
+  "land.cKeys": "celując w silnik lub działo: jego klawisz; przy sterach: odpala urządzenia tego klawisza",
+  "land.i.leather_boots": "Skórzane buty",
+  "land.i.leather_gloves": "Skórzane rękawice",
+  "land.slot.feet": "Stopy",
+  "land.slot.hands": "Dłonie"
  }
 }

@@ -2051,14 +2051,16 @@ const SKIN = [0xf1d2b6, 0xe0b48f, 0xc68c62, 0x9b6440, 0x6e4229, 0x4a2c1b];   // 
 const HAIR = [0x2a1d14, 0x5a3a22, 0x9c6b3a, 0xd9b26a, 0x8e2f1c, 0xb9b4ad,
   0xf28cb8, 0x5aa9e6, 0x9b7be0, 0x6fd3a0, 0xf4f1ea, 0xff7a3d];               // land_server.py LOOK_HAIR = 12
 const BODIES = 2, FACES = 6;                                                     // land_server.py LOOK_BODY, LOOK_FACE
-const WEAR = { linen_shirt: 0xe6dcc3, linen_trousers: 0xcabd98, linen_cap: 0xeee5cf, linen_cloak: 0xb9a57c };
-const WEAR_SLOTS = ["head", "body", "legs", "back"];
+const WEAR = { linen_shirt: 0xe6dcc3, linen_trousers: 0xcabd98, linen_cap: 0xeee5cf, linen_cloak: 0xb9a57c,
+  leather_boots: 0x5b3a24, leather_gloves: 0x7a5232 };                          // leather: the hunt's hide, tanned (#128)
+const WEAR_SLOTS = ["head", "body", "legs", "back", "feet", "hands"];          // land_server.py WEAR_SLOTS
 function lookColours(seed, look) {
   let h = 0; for (const ch of String(seed)) h = (h * 31 + ch.charCodeAt(0)) >>> 0;
   look = look || {}; const worn = look.worn || {};
   const under = new THREE.Color().setHSL((h % 360) / 360, 0.35, 0.42).getHex();
   return { skin: SKIN[look.skin] ?? SKIN[0], hair: HAIR[look.hair] ?? HAIR[0], top: WEAR[worn.body] ?? under,
-           legs: WEAR[worn.legs] ?? 0x3b3f46, cap: WEAR[worn.head] ?? null, cloak: WEAR[worn.back] ?? null };
+           legs: WEAR[worn.legs] ?? 0x3b3f46, cap: WEAR[worn.head] ?? null, cloak: WEAR[worn.back] ?? null,
+           boots: WEAR[worn.feet] ?? null, gloves: WEAR[worn.hands] ?? null };
 }
 // BACK TO THE KAWAII FIGURES (operator 2026-11-13: "can we replace the human make models in the game? swap them for
 // those blocky characters with kawaii faces that were there at the beginning and clean up after ourselves"), and then
@@ -2091,6 +2093,9 @@ function avatar(seed, look) {
   if (girl) for (const x of [-0.24, 0.24]) box(0.09, 0.3, 0.09, x, 1.6, -0.05, c.hair);             // two pigtails
   if (c.cap != null) box(0.42, 0.14, 0.42, 0, 1.92, 0, c.cap); else box(0.4, 0.1, 0.4, 0, 1.92, 0, c.hair);
   if (c.cloak != null) box(0.62, 1.15, 0.05, 0, 1.0, -0.19, c.cloak);                              // a cloak hangs behind
+  // boots over the foot of each leg and gloves over the end of each arm, a little wider than the limb so they show (#128)
+  if (c.boots != null) for (const x of [-0.13, 0.13]) box(0.25, 0.24, 0.29, x, 0.12, 0.01, c.boots);
+  if (c.gloves != null) for (const x of [-0.37, 0.37]) box(0.19, 0.18, 0.23, x, 0.86, 0, c.gloves);
   const n = boxes.reduce((t, [q]) => t + q.attributes.position.count, 0), pos = new Float32Array(n * 3), nor = new Float32Array(n * 3), col = new Float32Array(n * 3);
   let at = 0;
   for (const [q, cl] of boxes) {
@@ -3783,9 +3788,10 @@ function renderWard() {
     + `<i style="left:30px;top:10px;width:60px;height:60px;z-index:3;border-radius:50%;background:url(${faceUrl(look.face)}) center/cover"></i>`
     + (c.cap != null ? part(26, 0, 68, 24, c.cap, 4, "34px 34px 6px 6px") : part(30, 6, 60, 16, c.hair, 4, "30px 30px 4px 4px"))
     + part(36, 70, 48, 62, c.top, 2, "22px") + part(20, 74, 15, 54, c.top, 2) + part(85, 74, 15, 54, c.top, 2)
-    + part(20, 124, 15, 15, c.skin, 3, "50%") + part(85, 124, 15, 15, c.skin, 3, "50%")
+    + part(20, 124, 15, 15, c.gloves ?? c.skin, 3, "50%") + part(85, 124, 15, 15, c.gloves ?? c.skin, 3, "50%")   // hands, gloved or bare
     + (girl ? part(30, 112, 60, 30, c.top, 3, "4px", "clip-path:polygon(20% 0,80% 0,100% 100%,0 100%)") : "")
-    + part(41, 128, 16, 58, c.legs, 2) + part(63, 128, 16, 58, c.legs, 2) + part(38, 182, 22, 10, 0x3a2e2a, 3, "6px") + part(60, 182, 22, 10, 0x3a2e2a, 3, "6px");
+    + part(41, 128, 16, 58, c.legs, 2) + part(63, 128, 16, 58, c.legs, 2) + part(38, c.boots != null ? 168 : 182, 22, c.boots != null ? 24 : 10, c.boots ?? 0x3a2e2a, 3, "6px")
+    + part(60, c.boots != null ? 168 : 182, 22, c.boots != null ? 24 : 10, c.boots ?? 0x3a2e2a, 3, "6px");   // shoes, or boots up the shin
   const sw = (list, key) => list.map((col, i) => `<button class="sw${look[key] === i ? " on" : ""}" data-${key}="${i}" style="background:${hex(col)}" aria-label="${i + 1}"></button>`).join("");
   // an empty body or legs slot is not bare: the figure wears its own plain clothes there (lookColours: `under` and the
   // grey legs) — the list said "nothing" beside a figure in a shirt and trousers (playtest 2026-11-15)
@@ -3801,7 +3807,7 @@ function renderWard() {
     <h3>${esc(T("wBody", "Body"))}</h3><div class="sws">${[T("wBoy", "Boy"), T("wGirl", "Girl")].map((n, i) => `<button class="chip pl${look.body === i ? " tool" : ""}" data-body="${i}" aria-pressed="${look.body === i}">${esc(n)}</button>`).join("")}</div>
     <h3>${esc(T("wFace", "Face"))}</h3><div class="sws">${Array.from({ length: FACES }, (_, i) => `<button class="sw face${look.face === i ? " on" : ""}" data-face="${i}" style="background:url(${faceUrl(i)}) center/cover" aria-label="${i + 1}"></button>`).join("")}</div>
     <h3>${esc(T("wClothes", "Clothes"))}</h3>${slots}</div></div>
-    <p class="small dim">${esc(T("wHint", "Sew clothes from linen with a needle — make them in the bag (E). What you wear is what others see."))}</p>`;
+    <p class="small dim">${esc(T("wHint", "Sew clothes from linen or leather with a needle — make them in the bag (E). What you wear is what others see."))}</p>`;
   const send = (m) => net.send(Object.assign(m, { req: ++net.req }));
   const lookSend = (part) => send(Object.assign({ t: "look", skin: look.skin, hair: look.hair, body: look.body, face: look.face }, part));
   box.querySelectorAll("[data-skin]").forEach((b) => { b.onclick = () => lookSend({ skin: Number(b.dataset.skin) }); });

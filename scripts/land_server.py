@@ -127,7 +127,7 @@ LONE_ODDS = 40
 # CLOTHES (#111, "the crafted items should be what changes how you look"): a garment sewn from linen (land-recipes.json
 # items with "wear": its slot) is put ON from the bag and taken off back into it — one per slot, kept with the player and
 # shown to everyone near them. The look's other half is chosen, not made: skin and hair, a palette index each.
-WEAR_SLOTS = ("head", "body", "legs", "back")
+WEAR_SLOTS = ("head", "body", "legs", "back", "feet", "hands")   # feet, hands: leather boots and gloves (#128); static/land.js WEAR_SLOTS
 LOOK_SKIN, LOOK_HAIR = 6, 12      # static/land.js SKIN / HAIR palettes (hair: six natural, six bright — #145)
 LOOK_BODY, LOOK_FACE = 2, 6       # static/land.js BODIES / FACES: a body type and a drawn kawaii face (#145)
 POS_SAVE_S = 10                   # a signed-in player's place is kept at most this often (and when they leave)
