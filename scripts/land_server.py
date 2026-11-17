@@ -3704,7 +3704,14 @@ def make_app(world, hub, site_origin, wallet_url, secure_cookies=True, shot_page
 
     async def pickup(request):
         addr, d = need_addr(request), await request.json()
-        err = world.pickup(addr, d.get("id"), hub.where(world, addr))
+        here, did = hub.where(world, addr), d.get("id")
+        # no id: the nearest thing lying within reach — an agent has no page to be told what lies about (a spear it threw
+        # could never be taken back through the API, #157)
+        if did is None and here:
+            near = [(math.hypot(x["u"] - here[1], x["v"] - here[2]), k) for k, x in world.drops.items()
+                    if x["face"] == int(here[0]) and x["until"] > time.time()]
+            did = min(near)[1] if near else None
+        err = world.pickup(addr, did, here) if did is not None else "nothing lies here"
         if not err:
             await hub.inv(world, addr)
         return web.json_response({"ok": not err, "error": err, "inventory": world.inv_json(addr)})

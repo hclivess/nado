@@ -132,6 +132,19 @@ async def main():
     near = [0, lying[0]["u"], lying[0]["v"], lying[0]["h"], 0]
     check("a second spear is not taken while one is carried — it stays lying", world.pickup(me, lying[0]["id"], near) == "you carry one already" and lying[0]["id"] in world.drops)
 
+    # ---- through the API, with no id: the nearest thing lying within reach (an agent is told of no drops) -------------
+    world.drops.clear(); pl["tools"].remove("spear")
+    world.keep_place(me, pos)
+    r = await (await c.post("/land/api/pickup", json={}, headers=h)).json()
+    check("an API pickup with nothing lying near says so", not r["ok"] and r["error"] == "nothing lies here", r)
+    d = await deer(0, 20)
+    pl["tools"].append("spear")
+    r = await throw(*aim_at(d, allow_drop=False))
+    e = r["end"]
+    world.keep_place(me, [0, e[1] + 0.4, e[2], e[3], 0])
+    r = await (await c.post("/land/api/pickup", json={}, headers=h)).json()
+    check("…and from beside a thrown spear, takes it back with no id", r["ok"] and "spear" in r["inventory"]["tools"], r)
+
     # ---- the page -----------------------------------------------------------------------------------------------------
     page = open(os.path.join(ROOT, "static", "land.js"), encoding="utf-8").read()
     hunt = page[page.index("function huntAt(an)"):page.index("\n}\n", page.index("function huntAt(an)"))]
