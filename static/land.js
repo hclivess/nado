@@ -1772,7 +1772,20 @@ async function unlist(plot) {
 
 // ---- the live world (scripts/land_server.py, behind /land/ on land.nadochain.com) --------------------------------------
 // Without it (the page served elsewhere, or the server down) the planet can still be explored, not changed.
-const net = { ws: null, online: false, me: null, req: 0, pending: new Map(), made: new Map(), lastWatch: "", tries: 0, send(m) { try { if (this.ws && this.ws.readyState === 1) this.ws.send(JSON.stringify(m)); } catch (e) {} } };
+// A PLAYER'S OWN ACTION SENT WHILE THE SOCKET IS DOWN SAYS SO: send() dropped it in silence, so between a lost connection
+// and the page's reconnect (up to 30 s apart) a wardrobe Wear, a craft or a quest did nothing and said nothing (playing
+// the agent's page, 2026-11-17: "Wear Leather boots" pressed twice, nothing worn, no word). An action is one carrying a
+// request number, or chat, a name, a teleport or a shot; positions, poses and traces stay quiet. Once per 3 s.
+const NET_ACTS = new Set(["chat", "name", "tp", "bolt"]);
+const net = { ws: null, online: false, me: null, req: 0, pending: new Map(), made: new Map(), lastWatch: "", tries: 0, saidOffline: -1e9,
+  send(m) {
+    try { if (this.ws && this.ws.readyState === 1) { this.ws.send(JSON.stringify(m)); return true; } } catch (e) {}
+    if (m && (m.req || NET_ACTS.has(m.t)) && performance.now() - this.saidOffline > 3000) {
+      this.saidOffline = performance.now();
+      notify(T("offline", "The world server is out of reach — you can explore, but not gather or build."));
+    }
+    return false;
+  } };
 const others = new Map();             // player id -> { mesh, p: [face, u, v, h, yaw], who }
 function connect() {
   let ws;
