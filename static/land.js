@@ -103,7 +103,7 @@ const SNAPS = [1, 5, 10, 25, 50, 100];
 let piece = { w: 100, d: 100, h: 100, snap: 10, shape: 0, rot: 0, tilt: [0, 0, 0], part: 0, mirror: false };   // shape: 0 box, 1 slope, 2 stairs (G cycles; T turns); tilt: yaw, pitch, roll in tenths of a degree (#169); part: a land-shapes.js shape byte, 0 for none (#175)
 const plotBoxes = new Map();          // plot -> { list, idx: Map(1 m bucket -> [box]) }
 let pipeline = null;                  // the post-processed render (or null: the plain render on a weak device)
-let renderer, scene, camera, sun, hemi, atlasTex, matSolid, matClear, matGround, matTrees, matPieces, matGlassy, matBark, matLeaves, matWater, matFlame, ghost, ghost2, farMesh = null, farAt = null;
+let renderer, scene, camera, sun, hemi, atlasTex, matSolid, matClear, matGround, matTrees, matPieces, matGlassy, matBark, matLeaves, matWater, matFlame, matSmoke, ghost, ghost2, farMesh = null, farAt = null;
 // A PHONE ("very laggy on a phone", operator 2026-11-08) is known from the start — before the renderer is made — so
 // what it costs is set for it: 1.25 pixels per CSS pixel (not 2: ~2.6x fewer to shade), 4 chunks of full view (the far
 // land still draws to the horizon), two point lights, no shadows unless asked for (/set shadows 1), and full tree
@@ -1265,6 +1265,7 @@ function done(m) {
     if (m.stones) c.meshes.push(new THREE.Mesh(geom(m.stones), matGround));
     if (m.boulders) { const me = new THREE.Mesh(geom(m.boulders), boulderMaterial()); me.castShadow = true; c.meshes.push(me); }   // (#183 step 5: a grey rock)
     if (m.flames) { const me = new THREE.Mesh(geom(m.flames), matFlame); me.renderOrder = 2; c.meshes.push(me); }
+    if (m.smoke) { const me = new THREE.Mesh(geom(m.smoke), matSmoke); me.renderOrder = 3; c.meshes.push(me); }   // over the flames (#124)
     if (m.water) { const me = new THREE.Mesh(geom(m.water), matWater); me.renderOrder = 1; c.meshes.push(me); }
     if (m.pieces) {
       // one draw group per material (the mesher sorted them), each in its real texture where it has one
@@ -1276,7 +1277,8 @@ function done(m) {
     if (m.grass) c.meshes.push(...grassMeshes(m.grass));
     if (m.solid) c.meshes.push(new THREE.Mesh(geom(m.solid), matSolid));
     if (m.clear) { const me = new THREE.Mesh(geom(m.clear), matClear); me.renderOrder = 1; c.meshes.push(me); }
-    for (const me of c.meshes) { me.castShadow = me.material !== matClear && me.material !== matWater && me.material !== matFlame && !me.isInstancedMesh; me.receiveShadow = me.material !== matFlame; scene.add(me); }
+    // flames and smoke cast no shadow and take none: a smoke card's flat shadow on the ground would show it as a card (#124)
+    for (const me of c.meshes) { const glow = me.material === matFlame || me.material === matSmoke; me.castShadow = me.material !== matClear && me.material !== matWater && !glow && !me.isInstancedMesh; me.receiveShadow = !glow; scene.add(me); }
   }
   if (c.dirty) request(k);
 }
@@ -4200,7 +4202,7 @@ async function bench() {
  *  marks), else "other: <material class>". */
 function drawKind() {
   const names = [[matGround, "ground, stones, far land"], [matTrees, "trees (cells)"], [matBark, "bark"], [matLeaves, "foliage"], [matSolid, "blocks"], [matClear, "glass blocks"],
-    [matPieces, "pieces"], [matGlassy, "glassy pieces"], [matWater, "water"], [matGrass, "grass"], [matFlower, "flowers"], [matForest, "far trees"], [matFlame, "flames"]];
+    [matPieces, "pieces"], [matGlassy, "glassy pieces"], [matWater, "water"], [matGrass, "grass"], [matFlower, "flowers"], [matForest, "far trees"], [matFlame, "flames"], [matSmoke, "smoke"]];
   // (mat: the material a draw uses — a mesh with a list of materials makes one draw a group, each named by its own)
   return (o, mat = o.material) => {
     let k = (names.find(([m]) => m && m === mat) || [])[1];
@@ -5846,6 +5848,19 @@ async function start() {
     matFlame.colorNode = TSL.mix(TSL.vec3(1.0, 0.62, 0.16), TSL.vec3(0.85, 0.16, 0.02), uv.y.pow(0.6)).mul(a.mul(0.9));
     matFlame.opacityNode = a;
     matFlame.positionNode = TSL.positionLocal.add(TSL.vec3(TSL.sin(t.mul(5).add(ph).add(uv.y.mul(4))).mul(uv.y.mul(0.08)), 0, 0));
+  }
+  // SMOKE (#124): grey, NOT additive — smoke dims what is behind it where a flame lights it; puffs billow up the column at
+  // each fire's own phase, thickest just over the flames and gone at the top, and drift sideways a little as they rise
+  matSmoke = new THREE.MeshBasicNodeMaterial({ transparent: true, depthWrite: false, side: THREE.DoubleSide });
+  {
+    const uv = TSL.uv(), ph = TSL.attribute("color", "vec3").x.mul(6.283), t = TSL.time;
+    const puff = TSL.sin(uv.y.mul(7).sub(t.mul(1.6)).add(ph)).mul(0.5).add(0.5).mul(TSL.sin(uv.y.mul(3.1).sub(t.mul(0.9)).add(ph.mul(1.9))).mul(0.3).add(0.7));
+    const body = TSL.float(1).sub(uv.x.sub(0.5).abs().mul(2)).clamp(0, 1).pow(0.8);
+    const fade = TSL.float(1).sub(uv.y).pow(1.3).mul(uv.y.mul(6).clamp(0, 1));          // from nothing at the flames to thick, then thinning out
+    const a = body.mul(fade).mul(puff).mul(0.42);   // (0.55 read as a dark stain on a card close to the eye — the first look)
+    matSmoke.colorNode = TSL.mix(TSL.vec3(0.46, 0.45, 0.44), TSL.vec3(0.70, 0.70, 0.71), uv.y);   // grey at the fire, paler as it rises
+    matSmoke.opacityNode = a;
+    matSmoke.positionNode = TSL.positionLocal.add(TSL.vec3(TSL.sin(t.mul(0.7).add(ph).add(uv.y.mul(2))).mul(uv.y.mul(0.35)), 0, 0));
   }
   matGlassy = new THREE.MeshStandardNodeMaterial({ roughness: 0.04, metalness: 0, transparent: true, depthWrite: false });
   const glassView = TSL.positionView.normalize().negate(), glassFres = TSL.float(1).sub(TSL.normalView.dot(glassView).abs()).pow(3);

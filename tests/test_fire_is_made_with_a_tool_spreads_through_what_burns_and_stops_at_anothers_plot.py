@@ -159,7 +159,7 @@ asyncio.run(main())
 page = open(os.path.join(ROOT, "static", "land.js"), encoding="utf-8").read()
 mesher = open(os.path.join(ROOT, "static", "land-mesher.js"), encoding="utf-8").read()
 check("the page binds X to make fire and draws burning cells as flames that cast no shadow",
-      'if (e.code === "KeyX") ignite();' in page and "if (m.flames)" in page and "me.material !== matFlame && !me.isInstancedMesh" in page
+      'if (e.code === "KeyX") ignite();' in page and "if (m.flames)" in page and "const glow = me.material === matFlame || me.material === matSmoke;" in page and "!glow && !me.isInstancedMesh; me.receiveShadow = !glow;" in page
       and "blk[((k + 1) * N + (j + 1)) * N + (i + 1)] !== B.fire" in mesher)
 r = subprocess.run(["node", "--input-type=module", "-e", """
 const W = await import(%s), M = await import(%s);

@@ -107,6 +107,7 @@ function cells(face, cu, cv, ch, edits) {
 // touching opaque piece is not drawn (a wall of flush planks is its outer skin, not every plank's six faces); a chunk the
 // page marks far (lod 2) skips pieces whose largest side is under LOD_SKIP_CM — detail costs nothing at a distance.
 const LOD_SKIP_CM = 20;
+const SMOKE_H = 4;                                        // m a fire's smoke column rises before it is gone — DESIGN CHOICE (#124)
 // axis and sign of each face. No baked shade: pieces are lit by the real sun and sky (a fixed per-face darkening on top of
 // that, as the cube cells once had, turned a wall in its own shadow black — the first house render, 2026-11-06)
 const BOX_FACES = [{ ax: 2, s: 1 }, { ax: 2, s: -1 }, { ax: 0, s: 1 }, { ax: 0, s: -1 }, { ax: 1, s: 1 }, { ax: 1, s: -1 }];
@@ -360,7 +361,7 @@ export function meshChunk(face, cu, cv, ch, edits, boxes, lod, grassOn = true) {
   // plot, so every tree lies within its own chunk column; each chunk it spans masks its own cells (still the tree's), and
   // the chunk holding its root's ground layer draws the model — once.
   const modelled = new Uint8Array(N * N * N);
-  const bark = mk(), foliage = mk(), stones = mk(), boulders = mk(), flames = mk();   // (boulders: their own material on the page, a grey rock)
+  const bark = mk(), foliage = mk(), stones = mk(), boulders = mk(), flames = mk(), smoke = mk();   // (boulders: their own material on the page, a grey rock)
   // roots up to 3 columns outside the chunk too: their crowns reach the one-cell border the cells are read over, and an
   // unmasked border cell was drawn a second time beside every neighbour's model (the first model render)
   for (let j = -3; j < CHUNK + 3; j++) for (let i = -3; i < CHUNK + 3; i++) {
@@ -480,6 +481,17 @@ export function meshChunk(face, cu, cv, ch, edits, boxes, lod, grassOn = true) {
       }
       flames.idx.push(n, n + 1, n + 2, n, n + 2, n + 3);
     }
+    // SMOKE (#124, "rendered as flames + smoke + light"): two crossed cards rising from the flames' tips, wider as they
+    // rise — the page's smoke material billows them upward and fades them out; the same per-cell phase
+    for (let q = 0; q < 2; q++) {
+      const a = (q / 2) * Math.PI + ph * 2, ca = Math.cos(a), sa = Math.sin(a), n = smoke.n;
+      for (const [s, t] of [[-1, 0], [1, 0], [1, 1], [-1, 1]]) {
+        const w = 0.35 + 0.65 * t;                                   // a narrow base over the flames, a metre wide up top
+        const p = place(gu + 0.5 + ca * s * w, gv + 0.5 + sa * s * w, base0 + 0.8 + t * SMOKE_H);
+        smoke.pos.push(p[0], p[1], p[2]); smoke.nor.push(0, 0, 1); smoke.uv.push((s + 1) / 2, t); smoke.col.push(ph, 0, 0); smoke.n++;
+      }
+      smoke.idx.push(n, n + 1, n + 2, n, n + 2, n + 3);
+    }
   }
   // leaves a player PLACED (or a tree's leaf cell put back into another spot): a small cluster of leaf cards in the cell,
   // in its species' tile — never a surface (the blob)
@@ -571,8 +583,8 @@ export function meshChunk(face, cu, cv, ch, edits, boxes, lod, grassOn = true) {
   const grass = lod >= 2 || !grassOn ? null : scatterGrass(smooth, lod ? GRASS_DENSITY / 3 : GRASS_DENSITY, under);
   const pieces = mk(), glassy = mk();
   if (boxes && boxes.length) meshBoxes(boxes, u0, v0, h0, place, pieces, glassy, lod);
-  if (!smooth.idx.length && !trees.idx.length && !solid.n && !clear.n && !pieces.n && !glassy.n && !bark.n && !foliage.n && !stones.n && !boulders.n && !water.n && !flames.n) return { empty: true };
-  return { anchor, flames: pack(flames), smooth: pack(smooth), trees: pack(trees), solid: pack(solid), clear: pack(clear), pieces: pack(pieces), glassy: pack(glassy),
+  if (!smooth.idx.length && !trees.idx.length && !solid.n && !clear.n && !pieces.n && !glassy.n && !bark.n && !foliage.n && !stones.n && !boulders.n && !water.n && !flames.n && !smoke.n) return { empty: true };
+  return { anchor, flames: pack(flames), smoke: pack(smoke), smooth: pack(smooth), trees: pack(trees), solid: pack(solid), clear: pack(clear), pieces: pack(pieces), glassy: pack(glassy),
            bark: pack(bark), foliage: pack(foliage), stones: pack(stones), boulders: pack(boulders), water: pack(water), grass };
 }
 
