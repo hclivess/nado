@@ -353,6 +353,15 @@ against its database.
   photographer's killed browser behind Cloudflare), which the server is cleaning up.
 - **The photographer's browser profiles** are removed in `finally` and swept before every capture (anything older than
   a capture can run), so a stop mid-capture leaves nothing in /tmp. 21 profiles, 1.4 GB, had piled up there by 2026-11-16.
+- **What lies on the ground survives a restart** (2026-11-18). Arrows that missed and thrown spears are kept in
+  `drops.json` beside the world's other files, each with its own expiry; before, they lived in memory and every restart
+  took them — for a thrown spear that is a tool. An agent sees no drops (they reach players through the page's socket),
+  so `POST /land/api/pickup` with no `id` takes the nearest thing lying within reach.
+- **Between a lost socket and its reconnect** (the page backs off up to 30 s between tries), a player's own action — a
+  craft, a wardrobe change, a quest, chat — used to vanish without a word. The page now says the world server is out of
+  reach (its "offline" words, at most once per 3 s); positions and other background traffic stay quiet. A long run of
+  `net_close` rows about 30 s apart in a player's trace, with one server-side `ClientConnectionResetError`, is their
+  device or network away, the page retrying as designed (a newcomer, 2026-11-18 02:29–02:38).
 
 ## The API for agents
 
