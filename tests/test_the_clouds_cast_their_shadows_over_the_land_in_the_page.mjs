@@ -73,10 +73,20 @@ const FACE = 0, U = 54260.5, V = 80600.5, TOP = Wd.column(FACE, Math.floor(U), M
 if (H + 20 >= Wd.SEA + C.BASE) { console.log("FAIL the eye would hang in the cloud layer"); process.exit(1); }
 const W = 640, HH = 360;
 const up = Wd.frameOf(FACE, U, V).up;
+// the next moment the sun is 40°+ up here (a day is 40 minutes) AND the reference puts a heap's shadow on part of the
+// ground the eye looks down on, with sunlit ground beside it: the clouds drift with the clock, and a moment chosen for the
+// sun alone could hold no shadow in view at all — the walk then failed at some hours of the day on any code ("0 sampled
+// pixels in a heap's shadow", 2026-11-18 01:00, on the code that had passed at 16:00)
+const VOL0 = C.noiseVolume(), GROUND = [];
+for (let du = -150; du <= 150; du += 15) for (let dv = -150; dv <= 150; dv += 15) GROUND.push(Wd.posOf(FACE, U + du, V + dv, TOP));
 let T0 = Date.now() / 1000;
-for (let k = 0; k < 4000; k++) {                 // the next moment the sun is 40°+ up here (a day is 40 minutes)
+for (let k = 0; k < 4000; k++) {
   const t = Date.now() / 1000 + k * 2, s = Cosmos.sunFrom(Wd.PLANET, t - Cosmos.EPOCH).dir;
-  if (s[0] * up[0] + s[1] * up[1] + s[2] * up[2] > Math.sin(0.7)) { T0 = t; break; }
+  if (s[0] * up[0] + s[1] * up[1] + s[2] * up[2] <= Math.sin(0.7)) continue;
+  const dr0 = C.drift(t - Cosmos.EPOCH);
+  let shade = 0, lit = 0;
+  for (const P of GROUND) { const l = C.sunLit(VOL0, P, s, dr0); if (l < 0.35) shade++; else if (l > 0.97) lit++; }
+  if (shade >= GROUND.length * 0.08 && lit >= GROUND.length * 0.3) { T0 = t; break; }
 }
 const HOLD = Math.round(T0 * 1000);
 
