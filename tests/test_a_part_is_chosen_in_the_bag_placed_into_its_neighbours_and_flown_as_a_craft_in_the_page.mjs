@@ -288,6 +288,36 @@ try {
   ok((await inv()).items.thruster === 1, "…for one of the two thrusters left: " + JSON.stringify((await inv()).items));
   await sleep(2000);
   await shot(B, "parts-engine");
+
+  // ---- 5. ATTACH (#187): with Attach on, a piece set against another is centred on the face it touches -------------
+  // a plank beam 3 m wide, 1.5 m tall stands 2 m north of the player; the look meets its south face 60 cm from its west
+  // end and 1.2 m up; with
+  // Attach on, the piece placed there is centred on that face — its middle on the beam's middle, east-west and up-down
+  const sp = spot(4, 11), Y5 = (Wd.column(q.face, Math.floor(sp.u), Math.floor(sp.v + 2)).top + 1) * 100;
+  const beamX = Math.round((sp.u - q.u0 - 0.6) * 100), beamZ = Math.round((sp.v - q.v0 + 2.0) * 100);
+  const beam = [beamX, beamZ, Y5, 300, 60, 150, Wd.B.planks];   // 1.5 m tall: aimed at nearly level, over the grass
+  await getJ("/fixture/seed?who=owner&items=" + enc({ planks: 6 }));          // the beam is paid by volume (2.7 blocks), the plank by its own
+  const bb = await post("/land/api/boxes", { plot: PAid, add: [beam] });
+  ok(bb.added === 1 || (Array.isArray(bb.added) && bb.added.length === 1), "(a plank beam 3 m wide is built 2 m ahead: " + JSON.stringify(bb).slice(0, 120) + ")");
+  await stand(B, sp.u, sp.v, sp.h, 0, -Math.atan2(sp.h + EYE - (Y5 + 120) / 100, 2.0));
+  await tap("#tPal"); await sleep(800);
+  await tap('[data-bagtab="build"]'); await sleep(400);
+  await size(40, 40, 40);
+  await tap("#pzAttach"); await sleep(300);
+  ok(await evl(B, "document.getElementById('pzAttach').getAttribute('aria-pressed') === 'true'"), "Attach is switched on in the bag, beside Mirror");
+  await tap("#palClose"); await sleep(500);
+  ok(await hold("Planks"), "planks are in hand");
+  ok(/centred on what it is set against/.test(await evl(B, "document.getElementById('pieceInfo').textContent")), "…and the piece line says it is centred on what it is set against");
+  const aimAt = await evl(B, "(document.getElementById('aimLine') || {}).textContent || ''");
+  await tap("#tPlace");
+  let att = null;
+  for (let t = 0; t < 30 && !att; t++) { await sleep(500); att = (await plotBoxes()).find((b) => b[6] === Wd.B.planks && b[3] === 40 && b[4] === 40) || null; }
+  ok(att && att[1] + att[4] === beamZ && Math.abs(att[0] + 20 - (beamX + 150)) <= 1 && Math.abs(att[2] + 20 - (Y5 + 75)) <= 1,
+    `Place with Attach on sets the plank against the beam's face CENTRED on it — not 60 cm from its end, where the look met it (beam ${beamX}..${beamX + 300}; plank ${JSON.stringify(att)})`
+    + (att ? "" : ` — aim: "${aimAt}"; said: "${await evl(B, "[...document.querySelectorAll('#alertBar, .notify, #toast')].map((e) => e.innerText).join(' | ')")}"`));
+  await sleep(1500);
+  await shot(B, "parts-attach");
+  for (const x of [att, beam]) if (x) await post("/land/api/boxes", { plot: PAid, remove: [x] });
   ok(errors.length === 0, "no page errors" + (errors.length ? ": " + errors.join(" | ") : ""));
 } catch (e) {
   ok(false, "harness: " + (e && e.stack || e) + "\n" + fxOut.slice(-1500));
