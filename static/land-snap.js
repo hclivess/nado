@@ -75,3 +75,14 @@ export function piecesFor(box, shape, rise) {
   }
   return out;
 }
+
+/** ATTACH POINTS (#187, the Kerbal half: "attach nodes and symmetry"): `box` placed against face `ax` of the piece
+ *  `onto` is centred on that face — its middle on the neighbour's middle along the two axes of the face — as a part
+ *  clicks onto a node in KSP, instead of where the aim happened to hit. `onto` is the neighbour's [x, z, y, w, d, h]
+ *  (the box it stands in, for a turned or tilted one); the placed axis is left as it is (flush against the face).
+ *  Rounded to whole centimetres, as every piece is. */
+export function attachTo(box, onto, ax) {
+  const out = box.slice();
+  for (const i of [0, 1, 2]) if (i !== ax) out[i] = Math.round(onto[i] + onto[i + 3] / 2 - box[i + 3] / 2);
+  return out;
+}

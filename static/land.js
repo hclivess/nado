@@ -32,7 +32,7 @@ import * as Shapes from "./land-shapes.js";
 import * as Cosmos from "./land-cosmos.js";
 import * as Planet from "./land-planet.js";
 import { walk, trunkAt, TRUNK_R, restorePlace } from "./land-walk.js";
-import { snapBox, piecesFor, restOnGround } from "./land-snap.js";
+import { snapBox, piecesFor, restOnGround, attachTo } from "./land-snap.js";
 import { levelOps, earthNeeded, trunkIn, siteLayer, topFirst } from "./land-level.js";
 import { groundWeights } from "./land-mesher.js";
 import * as Forest from "./land-forest.js";
@@ -100,7 +100,7 @@ let mouseHeld = false;
 // any W x D x H in the bag) and lands on a SNAP grid they choose; the ground stays whole cells.
 const PRESETS = [[100, 100, 100], [100, 100, 10], [100, 10, 100], [10, 10, 100], [200, 20, 5], [25, 25, 25], [5, 5, 5], [1, 1, 1]];
 const SNAPS = [1, 5, 10, 25, 50, 100];
-let piece = { w: 100, d: 100, h: 100, snap: 10, shape: 0, rot: 0, tilt: [0, 0, 0], part: 0, mirror: false };   // shape: 0 box, 1 slope, 2 stairs (G cycles; T turns); tilt: yaw, pitch, roll in tenths of a degree (#169); part: a land-shapes.js shape byte, 0 for none (#175)
+let piece = { w: 100, d: 100, h: 100, snap: 10, shape: 0, rot: 0, tilt: [0, 0, 0], part: 0, mirror: false, attach: false };   // shape: 0 box, 1 slope, 2 stairs (G cycles; T turns); tilt: yaw, pitch, roll in tenths of a degree (#169); part: a land-shapes.js shape byte, 0 for none (#175)
 const plotBoxes = new Map();          // plot -> { list, idx: Map(1 m bucket -> [box]) }
 let pipeline = null;                  // the post-processed render (or null: the plain render on a weak device)
 let renderer, scene, camera, sun, hemi, atlasTex, matSolid, matClear, matGround, matTrees, matPieces, matGlassy, matBark, matLeaves, matWater, matFlame, matSmoke, ghost, ghost2, farMesh = null, farAt = null;
@@ -1073,7 +1073,7 @@ function pieceInfo(pressed) {
   const shapeName = part ? partName(part) : [T("shapeBox", "box"), T("shapeSlope", "slope"), T("shapeStairs", "stairs")][piece.shape || 0];
   const tl = piece.tilt || [0, 0, 0], tilted = tl.some((t) => t);
   el.textContent = net.me && id && RULES && !NATURAL_ITEMS.has(id) ? T("pieceInfo", "Piece {w} × {d} × {h} cm · snap {s} cm", { w, d, h, s: piece.snap }) + " · " + shapeName
-    + (tilted ? " · " + T("tiltInfo", "tilt {y}° {p}° {r}°", { y: tl[0] / 10, p: tl[1] / 10, r: tl[2] / 10 }) : "") + (piece.mirror ? " · " + T("mirrorOn", "mirrored") : "") : "";
+    + (tilted ? " · " + T("tiltInfo", "tilt {y}° {p}° {r}°", { y: tl[0] / 10, p: tl[1] / 10, r: tl[2] / 10 }) : "") + (piece.mirror ? " · " + T("mirrorOn", "mirrored") : "") + (piece.attach ? " · " + T("attachOn", "centred on what it is set against") : "") : "";
   save();
 }
 // A NEWCOMER ARRIVES BY THE TOWN HALL ("make people spawn by the town hall by default", operator 2026-11-07): on the
@@ -1122,6 +1122,7 @@ function load() {
     if (!Shapes.isPart(piece.part)) piece.part = 0;       // no part, or a byte that is none (#175): a plain piece
     if (!(Array.isArray(piece.tilt) && piece.tilt.length === 3 && piece.tilt.every((t) => Number.isInteger(t) && t > -1800 && t <= 1800))) piece.tilt = [0, 0, 0];
     piece.mirror = piece.mirror === true;
+    piece.attach = piece.attach === true;
   }
   const link = linkPlace(location.search);
   if (link) {                                            // a link wins over a saved place and the server's kept one
@@ -3464,6 +3465,8 @@ function renderBag() {
       <button class="chip pl" id="pzSquare">${esc(T("tiltSquare", "Square"))}</button></div>
     <div class="tradeform"><button class="chip pl${piece.mirror ? " tool" : ""}" id="pzMirror" aria-pressed="${!!piece.mirror}">${esc(T("mirror", "Mirror"))}</button>
       <span class="dim">${esc(T("mirrorHint", "A piece placed against another gets a twin on that piece's far side, mirrored — wings, engines and cannons in pairs."))}</span></div>
+    <div class="tradeform"><button class="chip pl${piece.attach ? " tool" : ""}" id="pzAttach" aria-pressed="${!!piece.attach}">${esc(T("attach", "Attach"))}</button>
+      <span class="dim">${esc(T("attachHint", "A piece placed against another is centred on the face it touches — an engine on a wing's end, a cannon on its tip."))}</span></div>
     </section>${sec("make")}
     <h3>${esc(T("make", "Make"))}</h3>
     <div class="recipes">${recipes.map((r) => {
@@ -3517,13 +3520,14 @@ function renderBag() {
   $("pzTurn").onclick = () => { turnPiece(); renderBag(); };
   const size = () => {
     const v = (id, max) => Math.max(1, Math.min(max, Math.round(Number($(id).value) || 1)));
-    piece = { w: v("pzW", Wd.PLOT_CM), d: v("pzD", Wd.PLOT_CM), h: v("pzH", Wd.H_CM), snap: Number($("pzS").value), shape: piece.shape, rot: piece.rot, turned: piece.turned, part: piece.part, mirror: piece.mirror,
+    piece = { w: v("pzW", Wd.PLOT_CM), d: v("pzD", Wd.PLOT_CM), h: v("pzH", Wd.H_CM), snap: Number($("pzS").value), shape: piece.shape, rot: piece.rot, turned: piece.turned, part: piece.part, mirror: piece.mirror, attach: piece.attach,
       tilt: ["pzYaw", "pzPitch", "pzRoll"].map((id) => tenths($(id).value)) };
     pieceInfo();
   };
   for (const id of ["pzW", "pzD", "pzH", "pzS", "pzYaw", "pzPitch", "pzRoll"]) $(id).onchange = size;
   $("pzSquare").onclick = () => { piece.tilt = [0, 0, 0]; pieceInfo(); renderBag(); };
   $("pzMirror").onclick = () => { piece.mirror = !piece.mirror; pieceInfo(); renderBag(); };
+  $("pzAttach").onclick = () => { piece.attach = !piece.attach; pieceInfo(); renderBag(); };
   $("ofPost").onclick = () => req({ t: "offer", give: { [$("ofG").value]: Number($("ofGN").value) }, want: { [$("ofW").value]: Number($("ofWN").value) } });
   $("gvGo").onclick = () => {
     const to = $("gvTo").value.trim();
@@ -3562,6 +3566,9 @@ function placement(a) {
     box = restOnGround(box, (x, z) => groundAt(P.face, q.u0 + x / Wd.CM, q.v0 + z / Wd.CM) * Wd.CM);
   }
   if (rec0 && rec0.list.length) box = snapBox(box, rec0.list, a.box ? ax : -1);
+  // ATTACH (#187): with Attach on, a piece set against another is centred on the face it touches (land-snap attachTo),
+  // after the edge snapping, which would otherwise pull it to an edge — the Kerbal attach node beside Mirror's symmetry
+  if (piece.attach && a.box) box = attachTo(box, a.box.b, ax);
   box[0] = Math.max(0, Math.min(Wd.PLOT_CM - w, box[0])); box[1] = Math.max(0, Math.min(Wd.PLOT_CM - d, box[1]));
   // never inside the player
   const me = plotCm(P.face, P.u, P.v, P.h);
