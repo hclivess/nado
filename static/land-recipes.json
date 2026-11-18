@@ -237,6 +237,23 @@
    "name": "Leather gloves",
    "wear": "hands"
   },
+  "wool": {
+   "name": "Wool"
+  },
+  "yarn": {
+   "name": "Yarn"
+  },
+  "wool_cloth": {
+   "name": "Woollen cloth"
+  },
+  "woollen_cloak": {
+   "name": "Woollen cloak",
+   "wear": "back"
+  },
+  "woollen_cap": {
+   "name": "Woollen cap",
+   "wear": "head"
+  },
   "silverore": {
    "name": "Silver ore"
   },
@@ -2856,6 +2873,90 @@
    ]
   },
   {
+   "id": "yarn",
+   "makes": [
+    [
+     "yarn",
+     2
+    ]
+   ],
+   "uses": [
+    [
+     "wool",
+     1
+    ]
+   ],
+   "with": [
+    "spindle"
+   ]
+  },
+  {
+   "id": "wool_cloth",
+   "makes": [
+    [
+     "wool_cloth",
+     1
+    ]
+   ],
+   "uses": [
+    [
+     "yarn",
+     6
+    ]
+   ],
+   "with": [
+    "loom"
+   ]
+  },
+  {
+   "id": "woollen_cloak",
+   "makes": [
+    [
+     "woollen_cloak",
+     1
+    ]
+   ],
+   "uses": [
+    [
+     "wool_cloth",
+     4
+    ],
+    [
+     "yarn",
+     3
+    ],
+    [
+     "cordage",
+     1
+    ]
+   ],
+   "with": [
+    "needle"
+   ]
+  },
+  {
+   "id": "woollen_cap",
+   "makes": [
+    [
+     "woollen_cap",
+     1
+    ]
+   ],
+   "uses": [
+    [
+     "wool_cloth",
+     1
+    ],
+    [
+     "yarn",
+     1
+    ]
+   ],
+   "with": [
+    "needle"
+   ]
+  },
+  {
    "id": "drill",
    "makes": [
     [
@@ -4729,8 +4830,37 @@
     ],
     "angry": 0.0,
     "damage": 0
+   },
+   "sheep": {
+    "hp": 2,
+    "speed": 3.0,
+    "size": [
+     1.1,
+     0.45,
+     0.85
+    ],
+    "biomes": [
+     "grass"
+    ],
+    "drops": [
+     [
+      "meat",
+      2
+     ],
+     [
+      "hide",
+      1
+     ],
+     [
+      "wool",
+      2
+     ]
+    ],
+    "angry": 0.0,
+    "damage": 0
    }
   },
+  "about_sheep": "A WILD SHEEP (#128, wool needs an animal source): a primitive, self-shedding sheep as the Soay of St Kilda, feral there for centuries — adults about 23-36 kg (50-80 lb, The Livestock Conservancy), fleece 1.5-2.25 kg (Rare Breeds Survival Trust; Oklahoma State University breeds), so 2 wool a sheep, plucked by hand (Soay shed their fleece) and needing no knife; it never charges and fights back with nothing (damage 0). speed: scaled as the deer is — the deer runs 4.0 for a white-tailed deer's 64 km/h, and a wild bighorn sheep runs 48 km/h (Garland 1983, J. Zool. Lond. 199:157, Table I), so 4.0 x 48/64 = 3.0. size: drawn to the model (no measured Soay withers height was found).",
   "weapons": {
    "cannon": {
     "reach": 400,

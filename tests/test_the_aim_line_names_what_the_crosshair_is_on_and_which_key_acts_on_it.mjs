@@ -36,7 +36,9 @@ ok(/const a = pt\("aim", \(\) => aim\(\)\);\n  if \(now - aimLineAt > 150\) \{ a
 const at = land.slice(land.indexOf("function aimText(a)"), land.indexOf("/** The NPC under the crosshair"));
 ok(/const k = touch \? T\("tUse", "Use"\) : "Q", b = touch \? T\("tBreak", "Break"\) : T\("kLeft", "left click"\);/.test(at), "the key is Q (the Use button on a phone), the hold the left click (the Break button)");
 ok(/const n = npcAimed\(\);\n  if \(n\) \{ const r = npcs\.get\(n\); return T\("aimFmt", "\{what\} — \{k\} \{v\}", \{ what: r \? r\.name : n, k, v: T\("v\.talk", "talk"\) \}\); \}/.test(at), "a person: their name — Q talk (before anything else)");
-ok(/animalAimed\(8\)[\s\S]*animalName\(r \? r\.kind : "deer"\), v: T\("v\.hunt"/.test(at), "an animal within 8 m: its kind — a weapon hunts it");
+// (its kind from animalAimed's own answer: the line once looked the answer up as a map key, found nothing, and named
+// every animal "deer" — this check pinned that line; the hunt walk now reads the name a sheep gets in the page)
+ok(/animalAimed\(8\)[\s\S]*animalName\(an\.kind\), v: T\("v\.hunt"/.test(at), "an animal within 8 m: its kind — a weapon hunts it");
 ok(/kind === B\.door \|\| kind === B\.chest \? T\("v\.open"/.test(at) && /kind === B\.bed \? T\("v\.sleep"/.test(at) && /kind === B\.well \? T\("v\.draw"/.test(at)
    && /kind === B\.pilotseat \|\| \(CRAFT_SKIN\.has\(kind\) && seatOfAimed\(a\.box\.plot, a\.box\.b\)\) \? T\("v\.board"/.test(at) && /kind === B\.generator \|\| kind === B\.launchpad \|\| isMachine\(kind\) \? T\("v\.use"/.test(at),
    "a door or chest — open; a bed — sleep here; a well — draw water; a seat, or a hull with a seat joined to it — board; a machine or pad — use");

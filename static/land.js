@@ -2075,7 +2075,8 @@ const HAIR = [0x2a1d14, 0x5a3a22, 0x9c6b3a, 0xd9b26a, 0x8e2f1c, 0xb9b4ad,
   0xf28cb8, 0x5aa9e6, 0x9b7be0, 0x6fd3a0, 0xf4f1ea, 0xff7a3d];               // land_server.py LOOK_HAIR = 12
 const BODIES = 2, FACES = 6;                                                     // land_server.py LOOK_BODY, LOOK_FACE
 const WEAR = { linen_shirt: 0xe6dcc3, linen_trousers: 0xcabd98, linen_cap: 0xeee5cf, linen_cloak: 0xb9a57c,
-  leather_boots: 0x5b3a24, leather_gloves: 0x7a5232 };                          // leather: the hunt's hide, tanned (#128)
+  leather_boots: 0x5b3a24, leather_gloves: 0x7a5232,
+  woollen_cloak: 0x6e5a44, woollen_cap: 0x8a7458 };                              // wool: the sheep's own brown, undyed (#128)                          // leather: the hunt's hide, tanned (#128)
 const WEAR_SLOTS = ["head", "body", "legs", "back", "feet", "hands"];          // land_server.py WEAR_SLOTS
 function lookColours(seed, look) {
   let h = 0; for (const ch of String(seed)) h = (h * 31 + ch.charCodeAt(0)) >>> 0;
@@ -2134,7 +2135,7 @@ function avatar(seed, look) {
   return g;
 }
 // ---- ANIMALS (#156, "hunting", operator 2026-11-09): the world server keeps them near players (land_server.py herd) and
-// sends where each is with the players near; the page draws each kind — a deer, a boar, a rabbit — glides it to where
+// sends where each is with the players near; the page draws each kind — a deer, a boar, a rabbit, a sheep — glides it to where
 // the server says, stands it on the drawn ground, and swings its legs while it moves. Break on one under the crosshair
 // strikes it with a spear (close) or a bow (far, an arrow each). A STAG (antlers) charges a player who comes near, and
 // any deer or boar struck fights back (#162: "add aggressive deer and death/respawn mechanism", operator 2026-11-09).
@@ -2143,6 +2144,8 @@ const ANIMAL_LOOK = {
   deer: { body: 0x8a5a33, belly: 0xd9c3a0, len: 1.15, high: 0.85, girth: 0.32, head: 0.18, neck: 0.45 },
   boar: { body: 0x4b3b31, belly: 0x5e4c40, len: 0.95, high: 0.5, girth: 0.34, head: 0.22, neck: 0.12 },
   rabbit: { body: 0x9a8a78, belly: 0xe8e0d4, len: 0.3, high: 0.16, girth: 0.13, head: 0.1, neck: 0.06 },
+  // a wild sheep (#128): the Soay's colouring — a dark brown fleece, a pale belly — stocky in its wool, on short legs
+  sheep: { body: 0x5e4630, belly: 0xd9c9ad, len: 0.85, high: 0.42, girth: 0.36, head: 0.15, neck: 0.16 },
 };
 function animalMesh(kind, angry) {
   const L = ANIMAL_LOOK[kind] || ANIMAL_LOOK.deer, g = new THREE.Group(), legs = [];
@@ -2159,6 +2162,10 @@ function animalMesh(kind, angry) {
   for (const s of [-1, 1]) put(new THREE.SphereGeometry(L.head * 0.12, 8, 6), 0x111111, s * L.head * 0.55, hy + L.head * 0.25, hz + L.head * 0.75);   // eyes
   if (kind === "boar") { put(new THREE.CylinderGeometry(L.head * 0.35, L.head * 0.42, L.head * 0.5, 10), 0x6e5548, 0, hy - L.head * 0.15, hz + L.head * 1.2).rotation.x = Math.PI / 2;
     for (const s of [-1, 1]) put(new THREE.ConeGeometry(0.02, 0.1, 6), 0xeeeadd, s * L.head * 0.4, hy - L.head * 0.2, hz + L.head * 1.05).rotation.x = -0.6; }   // tusks
+  if (kind === "sheep") for (const s of [-1, 1]) {                                                                         // curled horns
+    const h = put(new THREE.TorusGeometry(0.07, 0.022, 6, 12, Math.PI * 1.5), 0xb8a888, s * L.head * 0.62, hy + L.head * 0.3, hz - L.head * 0.25);
+    h.rotation.y = Math.PI / 2;
+  }
   if (kind === "rabbit") for (const s of [-1, 1]) { const e = put(new THREE.CapsuleGeometry(0.025, 0.14, 4, 8), L.body, s * 0.04, hy + 0.12, hz - 0.03); e.rotation.z = s * 0.2; }
   if (kind === "deer") {
     for (const s of [-1, 1]) put(new THREE.ConeGeometry(0.05, 0.12, 8), L.body, s * L.head * 0.7, hy + L.head * 0.6, hz - L.head * 0.4);       // ears
@@ -2496,7 +2503,9 @@ function aimText(a) {
   const n = npcAimed();
   if (n) { const r = npcs.get(n); return T("aimFmt", "{what} — {k} {v}", { what: r ? r.name : n, k, v: T("v.talk", "talk") }); }
   const an = animalAimed(8);
-  if (an) { const r = animals.get(an); return T("aimFmt2", "{what} — {v}", { what: animalName(r ? r.kind : "deer"), v: T("v.hunt", "a weapon hunts it") }); }
+  // animalAimed gives { id, kind, d } — its kind names it (looked up as a map key, the object found nothing and every
+  // animal was named "deer": a boar, a rabbit, a sheep alike — the sheep's hunt walk, 2026-11-18)
+  if (an) return T("aimFmt2", "{what} — {v}", { what: animalName(an.kind), v: T("v.hunt", "a weapon hunts it") });
   { // GADGET KEYS: a thruster or an engine, on a plot or on my parked craft, says the key that fires it and how to set one
     const g = gadgetAimed(a);
     if (g) {
@@ -2745,7 +2754,7 @@ function huntSaid(m) {
     notify((H.species[m.hit] || {}).damage ? T("huntHitFight", "A hit — the {a} turns on you!", { a: animalName(m.hit) }) : T("huntHit", "A hit — the {a} runs!", { a: animalName(m.hit) }));
   } else if (m.end) notify(T("huntMiss", "A miss — the arrow fell short or wide."));
 }
-const animalName = (k) => T("a." + k, { deer: "deer", boar: "boar", rabbit: "rabbit" }[k] || k);
+const animalName = (k) => T("a." + k, { deer: "deer", boar: "boar", rabbit: "rabbit", sheep: "sheep" }[k] || k);
 /** Break on an animal: a spear strike when it is within the spear's reach; else, with a bow, an arrow loosed along the
  *  look (BALLISTICS #157: it flies, falls and can miss — the world server flies it again and judges the hit). */
 function huntAt(an) {
@@ -3857,7 +3866,7 @@ function renderWard() {
     <h3>${esc(T("wBody", "Body"))}</h3><div class="sws">${[T("wBoy", "Boy"), T("wGirl", "Girl")].map((n, i) => `<button class="chip pl${look.body === i ? " tool" : ""}" data-body="${i}" aria-pressed="${look.body === i}">${esc(n)}</button>`).join("")}</div>
     <h3>${esc(T("wFace", "Face"))}</h3><div class="sws">${Array.from({ length: FACES }, (_, i) => `<button class="sw face${look.face === i ? " on" : ""}" data-face="${i}" style="background:url(${faceUrl(i)}) center/cover" aria-label="${i + 1}"></button>`).join("")}</div>
     <h3>${esc(T("wClothes", "Clothes"))}</h3>${slots}</div></div>
-    <p class="small dim">${esc(T("wHint", "Sew clothes from linen or leather with a needle — make them in the bag (E). What you wear is what others see."))}</p>`;
+    <p class="small dim">${esc(T("wHint", "Sew clothes from linen, wool or leather with a needle — make them in the bag (E). What you wear is what others see."))}</p>`;
   const send = (m) => net.send(Object.assign(m, { req: ++net.req }));
   const lookSend = (part) => send(Object.assign({ t: "look", skin: look.skin, hair: look.hair, body: look.body, face: look.face }, part));
   box.querySelectorAll("[data-skin]").forEach((b) => { b.onclick = () => lookSend({ skin: Number(b.dataset.skin) }); });

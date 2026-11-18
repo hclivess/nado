@@ -92,8 +92,9 @@ check("their names and the two places are in all 17 languages", len(L) == 17 and
       [(lang, k) for lang in L for k in keys if not L[lang].get(k)])
 check("…the feet are not called what the legs are, in any language",
       all(L[lang]["land.slot.feet"] != L[lang]["land.slot.legs"] for lang in L))
-check("the wardrobe's hint names leather beside linen", "Sew clothes from linen or leather with a needle" in page
-      and "linen or leather" in L["en"]["land.wHint"])
+# (the hint grows as materials come — "linen, wool or leather" since the sheep, #128 — so it is read for both words)
+hint_page = page.split('T("wHint", "', 1)[1].split('"', 1)[0] if 'T("wHint", "' in page else ""
+check("the wardrobe's hint names leather beside linen", all(w in hint_page and w in L["en"]["land.wHint"] for w in ("linen", "leather")), hint_page)
 
 print("\n" + ("ALL PASS" if not _report.fails else f"{_report.fails} FAILED"))
 sys.exit(1 if _report.fails else 0)

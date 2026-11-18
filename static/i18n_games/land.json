@@ -322,7 +322,7 @@
   "land.wNothing": "nothing",
   "land.wPlain": "your own plain clothes",
   "land.wWear": "Wear {i}",
-  "land.wHint": "Sew clothes from linen or leather with a needle — make them in the bag (E). What you wear is what others see.",
+  "land.wHint": "Sew clothes from linen, wool or leather with a needle — make them in the bag (E). What you wear is what others see.",
   "land.needsDrill": "Bedrock — only a drill breaks it.",
   "land.i.silverore": "Silver ore",
   "land.i.goldore": "Gold ore",
@@ -681,7 +681,13 @@
   "land.spearMiss": "A miss — the spear fell short or wide. It lies where it fell: walk over it to take it back.",
   "land.attach": "Attach",
   "land.attachHint": "A piece placed against another is centred on the face it touches — an engine on a wing's end, a cannon on its tip.",
-  "land.attachOn": "centred on what it is set against"
+  "land.attachOn": "centred on what it is set against",
+  "land.a.sheep": "sheep",
+  "land.i.wool": "Wool",
+  "land.i.yarn": "Yarn",
+  "land.i.wool_cloth": "Woollen cloth",
+  "land.i.woollen_cloak": "Woollen cloak",
+  "land.i.woollen_cap": "Woollen cap"
  },
  "cs": {
   "land.notYours": "Pozemek {p} patří někomu jinému. Kupte si pozemek, nebo požádejte jeho vlastníka o pozvání.",
@@ -1006,7 +1012,7 @@
   "land.wNothing": "nic",
   "land.wPlain": "vlastní obyčejné oblečení",
   "land.wWear": "Obléct: {i}",
-  "land.wHint": "Šijte oblečení ze lnu nebo z usně jehlou — vyrobíte ho v batohu (E). Co nosíte, vidí i ostatní.",
+  "land.wHint": "Šijte oblečení ze lnu, vlny nebo z usně jehlou — vyrobíte ho v batohu (E). Co nosíte, vidí i ostatní.",
   "land.needsDrill": "Podloží — prorazí ho jen vrták.",
   "land.i.silverore": "Stříbrná ruda",
   "land.i.goldore": "Zlatá ruda",
@@ -1365,7 +1371,13 @@
   "land.spearMiss": "Minul jsi — oštěp dopadl krátko nebo vedle. Leží, kde dopadl: přejdi přes něj a vezmeš si ho zpět.",
   "land.attach": "Připojit",
   "land.attachHint": "Díl položený k jinému se vystředí na stěně, které se dotýká — motor na konci křídla, kanón na jeho špičce.",
-  "land.attachOn": "vystředěno na tom, k čemu je položeno"
+  "land.attachOn": "vystředěno na tom, k čemu je položeno",
+  "land.a.sheep": "ovce",
+  "land.i.wool": "Vlna",
+  "land.i.yarn": "Příze",
+  "land.i.wool_cloth": "Vlněná látka",
+  "land.i.woollen_cloak": "Vlněný plášť",
+  "land.i.woollen_cap": "Vlněná čepice"
  },
  "es": {
   "land.notYours": "La parcela {p} pertenece a otra persona. Compra una parcela o pide a su dueño que te invite.",
@@ -1690,7 +1702,7 @@
   "land.wNothing": "nada",
   "land.wPlain": "tu propia ropa sencilla",
   "land.wWear": "Ponerse: {i}",
-  "land.wHint": "Cose ropa de lino o de cuero con una aguja: hazla en la bolsa (E). Lo que llevas es lo que ven los demás.",
+  "land.wHint": "Cose ropa de lino, lana o cuero con una aguja: hazla en la bolsa (E). Lo que llevas es lo que ven los demás.",
   "land.needsDrill": "Roca madre: solo un taladro la rompe.",
   "land.i.silverore": "Mena de plata",
   "land.i.goldore": "Mena de oro",
@@ -2049,7 +2061,13 @@
   "land.spearMiss": "Fallo: la lanza se quedó corta o se desvió. Está donde cayó: pasa por encima para recuperarla.",
   "land.attach": "Acoplar",
   "land.attachHint": "Una pieza colocada contra otra se centra en la cara que toca: un motor en el extremo de un ala, un cañón en su punta.",
-  "land.attachOn": "centrada en lo que toca"
+  "land.attachOn": "centrada en lo que toca",
+  "land.a.sheep": "oveja",
+  "land.i.wool": "Lana",
+  "land.i.yarn": "Hilo de lana",
+  "land.i.wool_cloth": "Paño de lana",
+  "land.i.woollen_cloak": "Capa de lana",
+  "land.i.woollen_cap": "Gorro de lana"
  },
  "pt": {
   "land.notYours": "O lote {p} pertence a outra pessoa. Compre um lote ou peça ao dono que convide você.",
@@ -2374,7 +2392,7 @@
   "land.wNothing": "nada",
   "land.wPlain": "a tua própria roupa simples",
   "land.wWear": "Vestir: {i}",
-  "land.wHint": "Costure roupa de linho ou de couro com uma agulha — faça-a no saco (E). O que veste é o que os outros veem.",
+  "land.wHint": "Costure roupa de linho, lã ou couro com uma agulha — faça-a no saco (E). O que veste é o que os outros veem.",
   "land.needsDrill": "Rocha-mãe — só uma broca a parte.",
   "land.i.silverore": "Minério de prata",
   "land.i.goldore": "Minério de ouro",
@@ -2733,7 +2751,13 @@
   "land.spearMiss": "Falhou — a lança ficou curta ou desviou-se. Está onde caiu: passe por cima dela para a recuperar.",
   "land.attach": "Acoplar",
   "land.attachHint": "Uma peça colocada contra outra fica centrada na face que toca — um motor na ponta de uma asa, um canhão na sua extremidade.",
-  "land.attachOn": "centrada naquilo em que encosta"
+  "land.attachOn": "centrada naquilo em que encosta",
+  "land.a.sheep": "ovelha",
+  "land.i.wool": "Lã",
+  "land.i.yarn": "Fio de lã",
+  "land.i.wool_cloth": "Pano de lã",
+  "land.i.woollen_cloak": "Capa de lã",
+  "land.i.woollen_cap": "Gorro de lã"
  },
  "fr": {
   "land.notYours": "La parcelle {p} appartient à quelqu'un d'autre. Achetez une parcelle ou demandez à son propriétaire de vous inviter.",
@@ -3058,7 +3082,7 @@
   "land.wNothing": "rien",
   "land.wPlain": "vos propres vêtements simples",
   "land.wWear": "Porter : {i}",
-  "land.wHint": "Cousez des vêtements en lin ou en cuir avec une aiguille — fabriquez-les dans le sac (E). Ce que vous portez, les autres le voient.",
+  "land.wHint": "Cousez des vêtements en lin, en laine ou en cuir avec une aiguille — fabriquez-les dans le sac (E). Ce que vous portez, les autres le voient.",
   "land.needsDrill": "Socle rocheux — seule une foreuse le brise.",
   "land.i.silverore": "Minerai d’argent",
   "land.i.goldore": "Minerai d’or",
@@ -3417,7 +3441,13 @@
   "land.spearMiss": "Raté — la lance est tombée trop court ou à côté. Elle gît là où elle est tombée : passez dessus pour la reprendre.",
   "land.attach": "Fixer",
   "land.attachHint": "Une pièce posée contre une autre est centrée sur la face qu'elle touche — un moteur au bout d'une aile, un canon à sa pointe.",
-  "land.attachOn": "centrée sur ce qu'elle touche"
+  "land.attachOn": "centrée sur ce qu'elle touche",
+  "land.a.sheep": "mouton",
+  "land.i.wool": "Laine",
+  "land.i.yarn": "Fil de laine",
+  "land.i.wool_cloth": "Drap de laine",
+  "land.i.woollen_cloak": "Cape de laine",
+  "land.i.woollen_cap": "Bonnet de laine"
  },
  "de": {
   "land.notYours": "Grundstück {p} gehört jemand anderem. Kauf dir ein Grundstück oder bitte den Besitzer um eine Einladung.",
@@ -3742,7 +3772,7 @@
   "land.wNothing": "nichts",
   "land.wPlain": "deine eigene schlichte Kleidung",
   "land.wWear": "Anziehen: {i}",
-  "land.wHint": "Näh Kleidung aus Leinen oder Leder mit einer Nadel — herstellen im Beutel (E). Was du trägst, sehen die anderen.",
+  "land.wHint": "Näh Kleidung aus Leinen, Wolle oder Leder mit einer Nadel — herstellen im Beutel (E). Was du trägst, sehen die anderen.",
   "land.needsDrill": "Grundgestein — nur ein Bohrer bricht es.",
   "land.i.silverore": "Silbererz",
   "land.i.goldore": "Golderz",
@@ -4101,7 +4131,13 @@
   "land.spearMiss": "Daneben — der Speer fiel zu kurz oder zur Seite. Er liegt, wo er fiel: geh darüber, um ihn wiederzunehmen.",
   "land.attach": "Andocken",
   "land.attachHint": "Ein an ein anderes gesetztes Teil wird auf die berührte Fläche zentriert — ein Triebwerk am Flügelende, eine Kanone an seiner Spitze.",
-  "land.attachOn": "auf das Angrenzende zentriert"
+  "land.attachOn": "auf das Angrenzende zentriert",
+  "land.a.sheep": "Schaf",
+  "land.i.wool": "Wolle",
+  "land.i.yarn": "Wollgarn",
+  "land.i.wool_cloth": "Wollstoff",
+  "land.i.woollen_cloak": "Wollumhang",
+  "land.i.woollen_cap": "Wollmütze"
  },
  "it": {
   "land.notYours": "Il lotto {p} appartiene a qualcun altro. Compra un lotto o chiedi al proprietario di invitarti.",
@@ -4426,7 +4462,7 @@
   "land.wNothing": "niente",
   "land.wPlain": "i tuoi abiti semplici",
   "land.wWear": "Indossa: {i}",
-  "land.wHint": "Cuci vestiti di lino o di cuoio con un ago: preparali nella borsa (E). Ciò che indossi è ciò che vedono gli altri.",
+  "land.wHint": "Cuci vestiti di lino, lana o cuoio con un ago: preparali nella borsa (E). Ciò che indossi è ciò che vedono gli altri.",
   "land.needsDrill": "Roccia madre: solo un trapano la rompe.",
   "land.i.silverore": "Minerale d’argento",
   "land.i.goldore": "Minerale d’oro",
@@ -4785,7 +4821,13 @@
   "land.spearMiss": "Mancato: la lancia è caduta corta o di lato. Giace dove è caduta: passaci sopra per riprenderla.",
   "land.attach": "Aggancia",
   "land.attachHint": "Un pezzo posato contro un altro si centra sulla faccia che tocca: un motore all'estremità di un'ala, un cannone sulla sua punta.",
-  "land.attachOn": "centrato su ciò che tocca"
+  "land.attachOn": "centrato su ciò che tocca",
+  "land.a.sheep": "pecora",
+  "land.i.wool": "Lana",
+  "land.i.yarn": "Filato",
+  "land.i.wool_cloth": "Panno di lana",
+  "land.i.woollen_cloak": "Mantello di lana",
+  "land.i.woollen_cap": "Berretto di lana"
  },
  "ru": {
   "land.notYours": "Участок {p} принадлежит другому игроку. Купите участок или попросите владельца пригласить вас.",
@@ -5110,7 +5152,7 @@
   "land.wNothing": "ничего",
   "land.wPlain": "своя простая одежда",
   "land.wWear": "Надеть: {i}",
-  "land.wHint": "Шейте одежду из льна или кожи иглой — делается в сумке (E). Что вы носите, то видят другие.",
+  "land.wHint": "Шейте одежду из льна, шерсти или кожи иглой — делается в сумке (E). Что вы носите, то видят другие.",
   "land.needsDrill": "Коренная порода — её пробьёт только бур.",
   "land.i.silverore": "Серебряная руда",
   "land.i.goldore": "Золотая руда",
@@ -5469,7 +5511,13 @@
   "land.spearMiss": "Промах — копьё упало с недолётом или в сторону. Оно лежит там, где упало: пройдите по нему, чтобы подобрать.",
   "land.attach": "Крепление",
   "land.attachHint": "Деталь, приставленная к другой, встаёт по центру грани, которой касается, — двигатель на конце крыла, пушка на его кончике.",
-  "land.attachOn": "по центру того, к чему приставлено"
+  "land.attachOn": "по центру того, к чему приставлено",
+  "land.a.sheep": "овца",
+  "land.i.wool": "Шерсть",
+  "land.i.yarn": "Пряжа",
+  "land.i.wool_cloth": "Шерстяная ткань",
+  "land.i.woollen_cloak": "Шерстяной плащ",
+  "land.i.woollen_cap": "Шерстяная шапка"
  },
  "zh": {
   "land.notYours": "地块 {p} 属于别人。购买一块地，或请它的所有者邀请你。",
@@ -5794,7 +5842,7 @@
   "land.wNothing": "无",
   "land.wPlain": "你自己的朴素衣服",
   "land.wWear": "穿上{i}",
-  "land.wHint": "用针把亚麻布或皮革缝成衣服——在背包（E）里制作。你穿什么，别人就看到什么。",
+  "land.wHint": "用针把亚麻布、毛呢或皮革缝成衣服——在背包（E）里制作。你穿什么，别人就看到什么。",
   "land.needsDrill": "基岩——只有钻机能凿开。",
   "land.i.silverore": "银矿石",
   "land.i.goldore": "金矿石",
@@ -6153,7 +6201,13 @@
   "land.spearMiss": "没投中——长矛落得太近或偏了。它就躺在落下的地方：走过去就能拿回来。",
   "land.attach": "对接",
   "land.attachHint": "贴着另一个部件放置时，会对准所接触那一面的中心——引擎装在机翼末端，炮装在翼尖。",
-  "land.attachOn": "对准所贴部件的中心"
+  "land.attachOn": "对准所贴部件的中心",
+  "land.a.sheep": "绵羊",
+  "land.i.wool": "羊毛",
+  "land.i.yarn": "毛线",
+  "land.i.wool_cloth": "毛呢",
+  "land.i.woollen_cloak": "羊毛斗篷",
+  "land.i.woollen_cap": "羊毛帽"
  },
  "ja": {
   "land.notYours": "区画 {p} は他の人のものです。区画を購入するか、所有者に招待してもらいましょう。",
@@ -6478,7 +6532,7 @@
   "land.wNothing": "なし",
   "land.wPlain": "自分の素朴な服",
   "land.wWear": "{i}を着る",
-  "land.wHint": "針で亜麻布や革から服を縫いましょう。バッグ（E）で作れます。着ているものが他の人に見えます。",
+  "land.wHint": "針で亜麻布や毛織物や革から服を縫いましょう。バッグ（E）で作れます。着ているものが他の人に見えます。",
   "land.needsDrill": "岩盤 — ドリルでしか壊せません。",
   "land.i.silverore": "銀鉱石",
   "land.i.goldore": "金鉱石",
@@ -6837,7 +6891,13 @@
   "land.spearMiss": "外れた——槍は届かないか逸れて落ちた。落ちた場所にある。上を歩けば拾える。",
   "land.attach": "取り付け",
   "land.attachHint": "別の部品に当てて置くと、触れている面の中心に合わせて付きます——翼の端にエンジン、その先に砲。",
-  "land.attachOn": "当てた面の中心に"
+  "land.attachOn": "当てた面の中心に",
+  "land.a.sheep": "ヒツジ",
+  "land.i.wool": "羊毛",
+  "land.i.yarn": "毛糸",
+  "land.i.wool_cloth": "毛織物",
+  "land.i.woollen_cloak": "羊毛のマント",
+  "land.i.woollen_cap": "毛糸の帽子"
  },
  "ko": {
   "land.notYours": "구역 {p}은(는) 다른 사람의 땅입니다. 구역을 사거나 소유자에게 초대를 요청하세요.",
@@ -7162,7 +7222,7 @@
   "land.wNothing": "없음",
   "land.wPlain": "평범한 내 옷",
   "land.wWear": "{i} 입기",
-  "land.wHint": "바늘로 리넨이나 가죽으로 옷을 지으세요 — 가방(E)에서 만듭니다. 입은 옷이 다른 사람에게 보입니다.",
+  "land.wHint": "바늘로 리넨이나 양모나 가죽으로 옷을 지으세요 — 가방(E)에서 만듭니다. 입은 옷이 다른 사람에게 보입니다.",
   "land.needsDrill": "기반암 — 드릴로만 깰 수 있습니다.",
   "land.i.silverore": "은광석",
   "land.i.goldore": "금광석",
@@ -7521,7 +7581,13 @@
   "land.spearMiss": "빗나갔습니다 — 창이 모자라게 또는 옆으로 떨어졌습니다. 떨어진 곳에 있으니 그 위로 걸어가면 다시 주울 수 있습니다.",
   "land.attach": "부착",
   "land.attachHint": "다른 부품에 붙여 놓으면 닿은 면의 가운데에 맞춰집니다 — 날개 끝에 엔진, 그 끝에 대포.",
-  "land.attachOn": "붙인 면의 가운데에"
+  "land.attachOn": "붙인 면의 가운데에",
+  "land.a.sheep": "양",
+  "land.i.wool": "양털",
+  "land.i.yarn": "털실",
+  "land.i.wool_cloth": "모직물",
+  "land.i.woollen_cloak": "양모 망토",
+  "land.i.woollen_cap": "털모자"
  },
  "ar": {
   "land.notYours": "القطعة {p} ملك لشخص آخر. اشترِ قطعة، أو اطلب من مالكها أن يدعوك.",
@@ -7846,7 +7912,7 @@
   "land.wNothing": "لا شيء",
   "land.wPlain": "ملابسك البسيطة الخاصة",
   "land.wWear": "ارتدِ {i}",
-  "land.wHint": "خِط الملابس من الكتان أو الجلد بإبرة — اصنعها في الحقيبة (E). ما ترتديه هو ما يراه الآخرون.",
+  "land.wHint": "خِط الملابس من الكتان أو الصوف أو الجلد بإبرة — اصنعها في الحقيبة (E). ما ترتديه هو ما يراه الآخرون.",
   "land.needsDrill": "صخر الأساس — لا يكسره إلا المثقاب.",
   "land.i.silverore": "خام الفضة",
   "land.i.goldore": "خام الذهب",
@@ -8205,7 +8271,13 @@
   "land.spearMiss": "أخطأت — سقط الرمح قصيرًا أو بعيدًا عن الهدف. إنه حيث سقط: امشِ فوقه لتستعيده.",
   "land.attach": "تثبيت",
   "land.attachHint": "القطعة الموضوعة على أخرى تتوسّط الوجه الذي تلمسه — محرك على طرف الجناح، ومدفع على رأسه.",
-  "land.attachOn": "في وسط ما وُضعت عليه"
+  "land.attachOn": "في وسط ما وُضعت عليه",
+  "land.a.sheep": "خروف",
+  "land.i.wool": "صوف",
+  "land.i.yarn": "غزل صوفي",
+  "land.i.wool_cloth": "قماش صوفي",
+  "land.i.woollen_cloak": "عباءة صوفية",
+  "land.i.woollen_cap": "قبعة صوفية"
  },
  "hi": {
   "land.notYours": "प्लॉट {p} किसी और का है। कोई प्लॉट खरीदें, या उसके मालिक से आपको आमंत्रित करने को कहें।",
@@ -8530,7 +8602,7 @@
   "land.wNothing": "कुछ नहीं",
   "land.wPlain": "आपके अपने सादे कपड़े",
   "land.wWear": "{i} पहनें",
-  "land.wHint": "सुई से लिनन या चमड़े के कपड़े सिलें — थैले (E) में बनाएँ। आप जो पहनते हैं, वही दूसरे देखते हैं।",
+  "land.wHint": "सुई से लिनन, ऊन या चमड़े के कपड़े सिलें — थैले (E) में बनाएँ। आप जो पहनते हैं, वही दूसरे देखते हैं।",
   "land.needsDrill": "आधार-शैल — इसे केवल ड्रिल तोड़ती है।",
   "land.i.silverore": "चाँदी का अयस्क",
   "land.i.goldore": "सोने का अयस्क",
@@ -8889,7 +8961,13 @@
   "land.spearMiss": "चूक गए — भाला कम दूरी पर या बगल में गिरा। वह जहाँ गिरा वहीं पड़ा है: उसके ऊपर से चलकर वापस लें।",
   "land.attach": "जोड़ें",
   "land.attachHint": "किसी दूसरे टुकड़े से सटाकर रखा गया टुकड़ा उस सतह के बीचोंबीच बैठता है जिसे वह छूता है — पंख के सिरे पर इंजन, उसकी नोक पर तोप।",
-  "land.attachOn": "जिससे सटाया उसके बीचोंबीच"
+  "land.attachOn": "जिससे सटाया उसके बीचोंबीच",
+  "land.a.sheep": "भेड़",
+  "land.i.wool": "ऊन",
+  "land.i.yarn": "ऊनी धागा",
+  "land.i.wool_cloth": "ऊनी कपड़ा",
+  "land.i.woollen_cloak": "ऊनी लबादा",
+  "land.i.woollen_cap": "ऊनी टोपी"
  },
  "tr": {
   "land.notYours": "{p} arsası başkasına ait. Bir arsa satın al ya da sahibinden seni davet etmesini iste.",
@@ -9214,7 +9292,7 @@
   "land.wNothing": "hiçbir şey",
   "land.wPlain": "kendi sade giysilerin",
   "land.wWear": "Giy: {i}",
-  "land.wHint": "Ketenden ya da deriden iğneyle giysi dikin — çantada (E) yapılır. Ne giyerseniz başkaları onu görür.",
+  "land.wHint": "Ketenden, yünden ya da deriden iğneyle giysi dikin — çantada (E) yapılır. Ne giyerseniz başkaları onu görür.",
   "land.needsDrill": "Ana kaya — onu yalnızca matkap kırar.",
   "land.i.silverore": "Gümüş cevheri",
   "land.i.goldore": "Altın cevheri",
@@ -9573,7 +9651,13 @@
   "land.spearMiss": "Iska — mızrak kısa ya da yana düştü. Düştüğü yerde duruyor: geri almak için üzerinden geçin.",
   "land.attach": "Bağla",
   "land.attachHint": "Başka bir parçaya dayanarak konan parça değdiği yüzün ortasına oturur — kanat ucuna motor, ucuna top.",
-  "land.attachOn": "dayandığı yüzün ortasında"
+  "land.attachOn": "dayandığı yüzün ortasında",
+  "land.a.sheep": "koyun",
+  "land.i.wool": "Yün",
+  "land.i.yarn": "İplik",
+  "land.i.wool_cloth": "Yün kumaş",
+  "land.i.woollen_cloak": "Yün pelerin",
+  "land.i.woollen_cap": "Yün bere"
  },
  "id": {
   "land.notYours": "Petak {p} milik orang lain. Beli sebuah petak, atau minta pemiliknya mengundangmu.",
@@ -9898,7 +9982,7 @@
   "land.wNothing": "tidak ada",
   "land.wPlain": "pakaian polosmu sendiri",
   "land.wWear": "Pakai {i}",
-  "land.wHint": "Jahit pakaian dari linen atau kulit dengan jarum — buat di tas (E). Apa yang Anda pakai itulah yang dilihat orang lain.",
+  "land.wHint": "Jahit pakaian dari linen, wol atau kulit dengan jarum — buat di tas (E). Apa yang Anda pakai itulah yang dilihat orang lain.",
   "land.needsDrill": "Batuan dasar — hanya bor yang bisa memecahnya.",
   "land.i.silverore": "Bijih perak",
   "land.i.goldore": "Bijih emas",
@@ -10257,7 +10341,13 @@
   "land.spearMiss": "Meleset — tombak jatuh terlalu dekat atau melenceng. Tombak tergeletak di tempat jatuhnya: lewati untuk mengambilnya kembali.",
   "land.attach": "Pasang",
   "land.attachHint": "Bagian yang dipasang pada bagian lain diletakkan di tengah sisi yang disentuhnya — mesin di ujung sayap, meriam di pucuknya.",
-  "land.attachOn": "di tengah bagian yang ditempeli"
+  "land.attachOn": "di tengah bagian yang ditempeli",
+  "land.a.sheep": "domba",
+  "land.i.wool": "Wol",
+  "land.i.yarn": "Benang wol",
+  "land.i.wool_cloth": "Kain wol",
+  "land.i.woollen_cloak": "Jubah wol",
+  "land.i.woollen_cap": "Topi wol"
  },
  "vi": {
   "land.notYours": "Mảnh đất {p} thuộc về người khác. Hãy mua một mảnh, hoặc nhờ chủ của nó mời bạn.",
@@ -10582,7 +10672,7 @@
   "land.wNothing": "không có",
   "land.wPlain": "quần áo giản dị của bạn",
   "land.wWear": "Mặc {i}",
-  "land.wHint": "Dùng kim may quần áo từ vải lanh hoặc da — làm trong túi (E). Bạn mặc gì thì người khác thấy nấy.",
+  "land.wHint": "Dùng kim may quần áo từ vải lanh, len hoặc da — làm trong túi (E). Bạn mặc gì thì người khác thấy nấy.",
   "land.needsDrill": "Đá gốc — chỉ máy khoan mới phá được.",
   "land.i.silverore": "Quặng bạc",
   "land.i.goldore": "Quặng vàng",
@@ -10941,7 +11031,13 @@
   "land.spearMiss": "Trượt rồi — ngọn giáo rơi ngắn hoặc lệch. Nó nằm ở chỗ rơi: đi qua để nhặt lại.",
   "land.attach": "Gắn",
   "land.attachHint": "Chi tiết đặt sát chi tiết khác sẽ được canh giữa mặt mà nó chạm — động cơ ở đầu cánh, pháo ở mũi cánh.",
-  "land.attachOn": "canh giữa chỗ đặt sát"
+  "land.attachOn": "canh giữa chỗ đặt sát",
+  "land.a.sheep": "cừu",
+  "land.i.wool": "Len",
+  "land.i.yarn": "Sợi len",
+  "land.i.wool_cloth": "Vải len",
+  "land.i.woollen_cloak": "Áo choàng len",
+  "land.i.woollen_cap": "Mũ len"
  },
  "pl": {
   "land.notYours": "Działka {p} należy do kogoś innego. Kup działkę albo poproś jej właściciela o zaproszenie.",
@@ -11266,7 +11362,7 @@
   "land.wNothing": "nic",
   "land.wPlain": "twoje własne zwykłe ubranie",
   "land.wWear": "Załóż: {i}",
-  "land.wHint": "Szyj ubrania z lnu lub skóry igłą — zrobisz je w torbie (E). To, co nosisz, widzą inni.",
+  "land.wHint": "Szyj ubrania z lnu, wełny lub skóry igłą — zrobisz je w torbie (E). To, co nosisz, widzą inni.",
   "land.needsDrill": "Skała macierzysta — rozbije ją tylko wiertło.",
   "land.i.silverore": "Ruda srebra",
   "land.i.goldore": "Ruda złota",
@@ -11625,6 +11721,12 @@
   "land.spearMiss": "Pudło — włócznia upadła za blisko lub obok. Leży tam, gdzie upadła: przejdź po niej, by ją odzyskać.",
   "land.attach": "Mocuj",
   "land.attachHint": "Element przyłożony do innego zostaje wyśrodkowany na ścianie, której dotyka — silnik na końcu skrzydła, działo na jego czubku.",
-  "land.attachOn": "wyśrodkowany na tym, do czego przyłożony"
+  "land.attachOn": "wyśrodkowany na tym, do czego przyłożony",
+  "land.a.sheep": "owca",
+  "land.i.wool": "Wełna",
+  "land.i.yarn": "Przędza",
+  "land.i.wool_cloth": "Sukno wełniane",
+  "land.i.woollen_cloak": "Wełniany płaszcz",
+  "land.i.woollen_cap": "Wełniana czapka"
  }
 }

@@ -182,6 +182,18 @@ try {
   ok(count(t, "Raw meat") === drops.find(([i]) => i === "meat")[1] && count(t, "Hide") === 1 && count(t, "Bone") === 1, "its meat, hide and bone are in the bag: " + t.slice(0, 200));
   await shot(B, "hunt");
 
+  // 2b. a wild sheep (#128): drawn in the page, hunted with the spear, its wool in the bag — plucked, no knife needed
+  await getJ(`/fixture/animal?kind=sheep&u=${F.u + 0.5}&v=${F.v + 3}`);
+  await sleep(2500);
+  ok(await until(B, "document.getElementById('aimLine') && /sheep/.test(document.getElementById('aimLine').textContent)", 15000),
+    "a sheep stands where the deer fell, and the aim line names it: " + await evl(B, "(document.getElementById('aimLine') || {}).textContent"));
+  await shot(B, "sheep");
+  said = await strike(["A hit", "You hunted", "Too far"]);
+  for (let i = 0; i < 3 && !/You hunted a sheep/.test(said); i++) said = await strike(["A hit", "You hunted", "Too far"]);
+  ok(/You hunted a sheep/.test(said), "…a spear brings it down: " + said);
+  const ts = await bag();
+  ok(count(ts, "Wool") === R.hunting.species.sheep.drops.find(([i]) => i === "wool")[1], "…and its wool is in the bag: " + ts.slice(0, 220));
+
   // 3. a boar fifteen metres off: out of a strike's reach, so the spear is THROWN (#157: within throw_reach, no arrows to
   // shoot) — it hits or misses and leaves the hunter's hands; then a bow and arrows reach it
   await getJ(`/fixture/animal?kind=boar&u=${F.u + 0.5}&v=${F.v + 15.5}`);
