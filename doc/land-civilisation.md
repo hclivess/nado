@@ -124,6 +124,14 @@ The genre's mechanics, in this world's own names and look (no other game's chara
 * **2 hunting — built** (#156): deer, boar and rabbits wander near players (the world server keeps them, 5 within
   48 m of each, by biome) and run from a player within 9 m; a stone spear strikes close, a bow far for an arrow; game
   gives meat, hide and bone; meat is cooked at the campfire (a meal), hide and lime tan into leather at a tanning rack.
+* **clothes of leather and wool — built** (#128, 2026-11-17/18): leather boots and gloves (a needle, leather and linen
+  thread) worn in two new places, feet and hands; a WILD SHEEP in the grassland — a primitive, self-shedding sheep as the
+  Soay of St Kilda (body 23-36 kg, fleece 1.5-2.25 kg: breed registers; speed scaled from Garland 1983 as the deer's) —
+  that never charges and gives 2 wool, plucked by hand; wool is spun into yarn, woven into woollen cloth and sewn into a
+  woollen cloak and cap. Grassland spawns now pick among deer, rabbit and sheep. Next: plant dyes (woad, madder, weld —
+  new plants and a dye vat), an apron.
+* **fire's smoke — built** (#124): a grey column rises from every burning cell, dimming what is behind it; no shadow.
+  Still open there, each the operator's call: ash or charcoal left behind, rain putting fires out, fire hurting players.
 * **markets, part 1 — built** (#161): the trading stand; offers made and taken at stands, seen within 64 m (a market),
   gifts handed over in person (8 m), the market keeps 5% of what the maker receives. Still open: tools that wear, food that
   spoils, decay; then post, telegraph and the internet widening a market.
