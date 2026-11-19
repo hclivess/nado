@@ -3424,6 +3424,46 @@ addEventListener("resize", hudUnderHeader);
 const BAG_TABS = ["have", "build", "make", "trade"];
 let makeOrder = null;                                      // the Make list's order while the Bag stays open (renderBag)
 let bagTab = (() => { try { const t = localStorage.getItem("nado_land_bagtab"); return BAG_TABS.includes(t) ? t : "have"; } catch (e) { return "have"; } })();
+// WHERE THE WATER IS (#206, playtest 2026-11-16: bread wanted water and the nearest was the sea 1.8 km from the town hall,
+// which nothing in the game said): a recipe that needs water the player lacks says how far the nearest water is and which
+// way. The planet's own water — a column whose ground lies under the sea surface — searched outward in square rings on a
+// 16 m grid (a pond narrower than that can be missed), out to WATER_RINGS rings, in slices of WATER_SLICE columns so a
+// phone never stalls (393 ms for the town's 1.8 km in node); the answer is kept for the 64 m square the player stands in.
+const WATER_RINGS = 200, WATER_SLICE = 1500;
+let waterNear = { key: null, res: undefined };            // res: undefined while searching, null if none, else { d, b }
+function nearestWater() {
+  const key = P.face + ":" + Math.floor(P.u / 64) + ":" + Math.floor(P.v / 64);
+  if (waterNear.key === key) return waterNear.res;
+  const job = waterNear = { key, res: undefined }, f = P.face, u0 = Math.floor(P.u), v0 = Math.floor(P.v);
+  let r = 1, k = 0;                                        // ring r holds 8r cells: 2r a side, k = 0 .. 8r - 1
+  const step = () => {
+    if (waterNear !== job) return;                         // the player moved on: a newer search owns the answer
+    for (let n = 0; n < WATER_SLICE; n++) {
+      if (k === 8 * r) { r++; k = 0; if (r > WATER_RINGS) { job.res = null; if (bagOpen()) renderBag(); return; } }
+      const j = (k % (2 * r)) - r, [du, dv] = [[j, -r], [r, j], [-j, r], [-r, -j]][Math.floor(k / (2 * r))];
+      k++;
+      const u = u0 + du * 16, v = v0 + dv * 16;      // (the search keeps to this face)
+      if (u < 0 || v < 0 || u >= Wd.W || v >= Wd.W) continue;
+      if (Wd.column(f, u, v).top < Wd.SEA) {
+        job.res = { d: Math.round(Math.hypot(u - P.u, v - P.v)), b: (Math.round(Math.atan2(u - P.u, v - P.v) * 180 / Math.PI) + 360) % 360 };
+        if (bagOpen()) renderBag();
+        return;
+      }
+    }
+    setTimeout(step, 0);
+  };
+  setTimeout(step, 0);
+  return undefined;
+}
+/** The water hint for recipe r, or "" when it needs none or the player has enough. */
+function waterHint(r) {
+  const need = (r.uses.find(([id]) => id === "water") || [])[1];
+  if (!need || (inv.items.water || 0) >= need) return "";
+  const w = nearestWater();
+  return " · " + (w === undefined ? T("waterLook", "looking for the nearest water…")
+    : w === null ? T("waterNone", "no water within 3 km — a well gives it")
+    : T("waterAt", "the nearest water is {d} m away, bearing {b}° (north 0°, east 90°) — a bucket draws it", { d: w.d, b: w.b }));
+}
 function renderBag() {
   if (!RULES) return;
   // signed out, the way in is HERE (playtest 2026-11-15, a visitor on a phone: the Bag said "Sign in to gather…" with
@@ -3488,7 +3528,8 @@ function renderBag() {
       // COUNTS AS "n × name", TOOLS AS A "needs:" LIST (#179, playtest in Czech: "6 Klacky", "2 Kámen", "s Kamenná sekera" —
       // a number before a noun needs its plural form and "s" the instrumental, in each of 17 languages for ~190 names):
       // the Bag's own quantity notation and a label reads right in every language without declining a single name
-      const need = r.uses.map(([id, n]) => `${n} × ${nameOf(id)}`).join(" + ") + ((r.with || []).length ? " · " + T("with", "needs: {w}", { w: r.with.map(nameOf).join(", ") }) : "");
+      const need = r.uses.map(([id, n]) => `${n} × ${nameOf(id)}`).join(" + ") + ((r.with || []).length ? " · " + T("with", "needs: {w}", { w: r.with.map(nameOf).join(", ") }) : "")
+        + waterHint(r);                                                       // (#206) where the water is, when it is lacking
       const own = r.makes.every(([id]) => inv.tools.includes(id) || inv.stations.includes(id));
       return `<div class="rcp${canMake(r) && !own ? "" : " off"}"><div><b>${esc(out)}</b><div class="dim">${esc(need)}</div></div>
         <button class="ghost" data-make="${r.id}" ${canMake(r) && !own ? "" : "disabled"}>${esc(own ? T("haveIt", "You have it") : T("makeGo", "Make"))}</button></div>`;

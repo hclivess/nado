@@ -704,7 +704,10 @@
   "land.i.woollen_cloak_red": "Red woollen cloak",
   "land.i.woollen_cap_red": "Red woollen cap",
   "land.i.woollen_cloak_green": "Green woollen cloak",
-  "land.i.woollen_cap_green": "Green woollen cap"
+  "land.i.woollen_cap_green": "Green woollen cap",
+  "land.waterLook": "looking for the nearest water…",
+  "land.waterNone": "no water within 3 km — a well gives it",
+  "land.waterAt": "the nearest water is {d} m away, bearing {b}° (north 0°, east 90°) — a bucket draws it"
  },
  "cs": {
   "land.notYours": "Pozemek {p} patří někomu jinému. Kupte si pozemek, nebo požádejte jeho vlastníka o pozvání.",
@@ -1411,7 +1414,10 @@
   "land.i.woollen_cloak_red": "Červený vlněný plášť",
   "land.i.woollen_cap_red": "Červená vlněná čepice",
   "land.i.woollen_cloak_green": "Zelený vlněný plášť",
-  "land.i.woollen_cap_green": "Zelená vlněná čepice"
+  "land.i.woollen_cap_green": "Zelená vlněná čepice",
+  "land.waterLook": "hledám nejbližší vodu…",
+  "land.waterNone": "do 3 km žádná voda — dá ji studna",
+  "land.waterAt": "nejbližší voda je {d} m odsud, azimut {b}° (sever 0°, východ 90°) — nabereš ji vědrem"
  },
  "es": {
   "land.notYours": "La parcela {p} pertenece a otra persona. Compra una parcela o pide a su dueño que te invite.",
@@ -2118,7 +2124,10 @@
   "land.i.woollen_cloak_red": "Capa de lana roja",
   "land.i.woollen_cap_red": "Gorro de lana rojo",
   "land.i.woollen_cloak_green": "Capa de lana verde",
-  "land.i.woollen_cap_green": "Gorro de lana verde"
+  "land.i.woollen_cap_green": "Gorro de lana verde",
+  "land.waterLook": "buscando el agua más cercana…",
+  "land.waterNone": "no hay agua a menos de 3 km — un pozo la da",
+  "land.waterAt": "el agua más cercana está a {d} m, rumbo {b}° (norte 0°, este 90°) — se saca con un cubo"
  },
  "pt": {
   "land.notYours": "O lote {p} pertence a outra pessoa. Compre um lote ou peça ao dono que convide você.",
@@ -2825,7 +2834,10 @@
   "land.i.woollen_cloak_red": "Capa de lã vermelha",
   "land.i.woollen_cap_red": "Gorro de lã vermelho",
   "land.i.woollen_cloak_green": "Capa de lã verde",
-  "land.i.woollen_cap_green": "Gorro de lã verde"
+  "land.i.woollen_cap_green": "Gorro de lã verde",
+  "land.waterLook": "a procurar a água mais próxima…",
+  "land.waterNone": "não há água a menos de 3 km — um poço dá-a",
+  "land.waterAt": "a água mais próxima está a {d} m, rumo {b}° (norte 0°, leste 90°) — tira-se com um balde"
  },
  "fr": {
   "land.notYours": "La parcelle {p} appartient à quelqu'un d'autre. Achetez une parcelle ou demandez à son propriétaire de vous inviter.",
@@ -3532,7 +3544,10 @@
   "land.i.woollen_cloak_red": "Cape de laine rouge",
   "land.i.woollen_cap_red": "Bonnet de laine rouge",
   "land.i.woollen_cloak_green": "Cape de laine verte",
-  "land.i.woollen_cap_green": "Bonnet de laine vert"
+  "land.i.woollen_cap_green": "Bonnet de laine vert",
+  "land.waterLook": "recherche de l'eau la plus proche…",
+  "land.waterNone": "pas d'eau à moins de 3 km — un puits en donne",
+  "land.waterAt": "l'eau la plus proche est à {d} m, cap {b}° (nord 0°, est 90°) — un seau la puise"
  },
  "de": {
   "land.notYours": "Grundstück {p} gehört jemand anderem. Kauf dir ein Grundstück oder bitte den Besitzer um eine Einladung.",
@@ -4239,7 +4254,10 @@
   "land.i.woollen_cloak_red": "Roter Wollumhang",
   "land.i.woollen_cap_red": "Rote Wollmütze",
   "land.i.woollen_cloak_green": "Grüner Wollumhang",
-  "land.i.woollen_cap_green": "Grüne Wollmütze"
+  "land.i.woollen_cap_green": "Grüne Wollmütze",
+  "land.waterLook": "suche das nächste Wasser…",
+  "land.waterNone": "kein Wasser im Umkreis von 3 km — ein Brunnen gibt es",
+  "land.waterAt": "das nächste Wasser ist {d} m entfernt, Peilung {b}° (Norden 0°, Osten 90°) — ein Eimer schöpft es"
  },
  "it": {
   "land.notYours": "Il lotto {p} appartiene a qualcun altro. Compra un lotto o chiedi al proprietario di invitarti.",
@@ -4946,7 +4964,10 @@
   "land.i.woollen_cloak_red": "Mantello di lana rosso",
   "land.i.woollen_cap_red": "Berretto di lana rosso",
   "land.i.woollen_cloak_green": "Mantello di lana verde",
-  "land.i.woollen_cap_green": "Berretto di lana verde"
+  "land.i.woollen_cap_green": "Berretto di lana verde",
+  "land.waterLook": "cerco l'acqua più vicina…",
+  "land.waterNone": "niente acqua entro 3 km — un pozzo la dà",
+  "land.waterAt": "l'acqua più vicina è a {d} m, rotta {b}° (nord 0°, est 90°) — la si attinge con un secchio"
  },
  "ru": {
   "land.notYours": "Участок {p} принадлежит другому игроку. Купите участок или попросите владельца пригласить вас.",
@@ -5653,7 +5674,10 @@
   "land.i.woollen_cloak_red": "Красный шерстяной плащ",
   "land.i.woollen_cap_red": "Красная шерстяная шапка",
   "land.i.woollen_cloak_green": "Зелёный шерстяной плащ",
-  "land.i.woollen_cap_green": "Зелёная шерстяная шапка"
+  "land.i.woollen_cap_green": "Зелёная шерстяная шапка",
+  "land.waterLook": "ищу ближайшую воду…",
+  "land.waterNone": "воды нет в пределах 3 км — её даёт колодец",
+  "land.waterAt": "ближайшая вода в {d} м, азимут {b}° (север 0°, восток 90°) — набирается ведром"
  },
  "zh": {
   "land.notYours": "地块 {p} 属于别人。购买一块地，或请它的所有者邀请你。",
@@ -6360,7 +6384,10 @@
   "land.i.woollen_cloak_red": "红色羊毛斗篷",
   "land.i.woollen_cap_red": "红色羊毛帽",
   "land.i.woollen_cloak_green": "绿色羊毛斗篷",
-  "land.i.woollen_cap_green": "绿色羊毛帽"
+  "land.i.woollen_cap_green": "绿色羊毛帽",
+  "land.waterLook": "正在寻找最近的水源…",
+  "land.waterNone": "3 公里内没有水——水井可以取水",
+  "land.waterAt": "最近的水源在 {d} 米外,方位 {b}°(北 0°,东 90°)——用水桶取水"
  },
  "ja": {
   "land.notYours": "区画 {p} は他の人のものです。区画を購入するか、所有者に招待してもらいましょう。",
@@ -7067,7 +7094,10 @@
   "land.i.woollen_cloak_red": "赤い羊毛のマント",
   "land.i.woollen_cap_red": "赤い毛糸の帽子",
   "land.i.woollen_cloak_green": "緑の羊毛のマント",
-  "land.i.woollen_cap_green": "緑の毛糸の帽子"
+  "land.i.woollen_cap_green": "緑の毛糸の帽子",
+  "land.waterLook": "いちばん近い水を探しています…",
+  "land.waterNone": "3 km 以内に水がありません — 井戸から汲めます",
+  "land.waterAt": "いちばん近い水は {d} m 先、方位 {b}°(北 0°、東 90°)— バケツで汲めます"
  },
  "ko": {
   "land.notYours": "구역 {p}은(는) 다른 사람의 땅입니다. 구역을 사거나 소유자에게 초대를 요청하세요.",
@@ -7774,7 +7804,10 @@
   "land.i.woollen_cloak_red": "빨간 양모 망토",
   "land.i.woollen_cap_red": "빨간 털모자",
   "land.i.woollen_cloak_green": "초록 양모 망토",
-  "land.i.woollen_cap_green": "초록 털모자"
+  "land.i.woollen_cap_green": "초록 털모자",
+  "land.waterLook": "가장 가까운 물을 찾는 중…",
+  "land.waterNone": "3km 안에 물이 없습니다 — 우물에서 길을 수 있습니다",
+  "land.waterAt": "가장 가까운 물은 {d}m 떨어져 있고 방위 {b}°입니다(북 0°, 동 90°) — 양동이로 길어 옵니다"
  },
  "ar": {
   "land.notYours": "القطعة {p} ملك لشخص آخر. اشترِ قطعة، أو اطلب من مالكها أن يدعوك.",
@@ -8481,7 +8514,10 @@
   "land.i.woollen_cloak_red": "عباءة صوفية حمراء",
   "land.i.woollen_cap_red": "قبعة صوفية حمراء",
   "land.i.woollen_cloak_green": "عباءة صوفية خضراء",
-  "land.i.woollen_cap_green": "قبعة صوفية خضراء"
+  "land.i.woollen_cap_green": "قبعة صوفية خضراء",
+  "land.waterLook": "جارٍ البحث عن أقرب ماء…",
+  "land.waterNone": "لا ماء ضمن 3 كم — البئر تعطيه",
+  "land.waterAt": "أقرب ماء على بعد {d} م، باتجاه {b}° (الشمال 0°، الشرق 90°) — يُستقى بدلو"
  },
  "hi": {
   "land.notYours": "प्लॉट {p} किसी और का है। कोई प्लॉट खरीदें, या उसके मालिक से आपको आमंत्रित करने को कहें।",
@@ -9188,7 +9224,10 @@
   "land.i.woollen_cloak_red": "लाल ऊनी लबादा",
   "land.i.woollen_cap_red": "लाल ऊनी टोपी",
   "land.i.woollen_cloak_green": "हरा ऊनी लबादा",
-  "land.i.woollen_cap_green": "हरी ऊनी टोपी"
+  "land.i.woollen_cap_green": "हरी ऊनी टोपी",
+  "land.waterLook": "सबसे नज़दीकी पानी ढूँढ रहे हैं…",
+  "land.waterNone": "3 km के भीतर पानी नहीं — कुआँ पानी देता है",
+  "land.waterAt": "सबसे नज़दीकी पानी {d} m दूर है, दिशा {b}° (उत्तर 0°, पूर्व 90°) — बाल्टी से भरें"
  },
  "tr": {
   "land.notYours": "{p} arsası başkasına ait. Bir arsa satın al ya da sahibinden seni davet etmesini iste.",
@@ -9895,7 +9934,10 @@
   "land.i.woollen_cloak_red": "Kırmızı yün pelerin",
   "land.i.woollen_cap_red": "Kırmızı yün bere",
   "land.i.woollen_cloak_green": "Yeşil yün pelerin",
-  "land.i.woollen_cap_green": "Yeşil yün bere"
+  "land.i.woollen_cap_green": "Yeşil yün bere",
+  "land.waterLook": "en yakın su aranıyor…",
+  "land.waterNone": "3 km içinde su yok — bir kuyu verir",
+  "land.waterAt": "en yakın su {d} m uzakta, kerteriz {b}° (kuzey 0°, doğu 90°) — kovayla çekilir"
  },
  "id": {
   "land.notYours": "Petak {p} milik orang lain. Beli sebuah petak, atau minta pemiliknya mengundangmu.",
@@ -10602,7 +10644,10 @@
   "land.i.woollen_cloak_red": "Jubah wol merah",
   "land.i.woollen_cap_red": "Topi wol merah",
   "land.i.woollen_cloak_green": "Jubah wol hijau",
-  "land.i.woollen_cap_green": "Topi wol hijau"
+  "land.i.woollen_cap_green": "Topi wol hijau",
+  "land.waterLook": "mencari air terdekat…",
+  "land.waterNone": "tidak ada air dalam 3 km — sumur memberinya",
+  "land.waterAt": "air terdekat berjarak {d} m, arah {b}° (utara 0°, timur 90°) — ditimba dengan ember"
  },
  "vi": {
   "land.notYours": "Mảnh đất {p} thuộc về người khác. Hãy mua một mảnh, hoặc nhờ chủ của nó mời bạn.",
@@ -11309,7 +11354,10 @@
   "land.i.woollen_cloak_red": "Áo choàng len đỏ",
   "land.i.woollen_cap_red": "Mũ len đỏ",
   "land.i.woollen_cloak_green": "Áo choàng len xanh lục",
-  "land.i.woollen_cap_green": "Mũ len xanh lục"
+  "land.i.woollen_cap_green": "Mũ len xanh lục",
+  "land.waterLook": "đang tìm nguồn nước gần nhất…",
+  "land.waterNone": "không có nước trong vòng 3 km — giếng cho nước",
+  "land.waterAt": "nguồn nước gần nhất cách {d} m, hướng {b}° (bắc 0°, đông 90°) — múc bằng xô"
  },
  "pl": {
   "land.notYours": "Działka {p} należy do kogoś innego. Kup działkę albo poproś jej właściciela o zaproszenie.",
@@ -12016,6 +12064,9 @@
   "land.i.woollen_cloak_red": "Czerwony wełniany płaszcz",
   "land.i.woollen_cap_red": "Czerwona wełniana czapka",
   "land.i.woollen_cloak_green": "Zielony wełniany płaszcz",
-  "land.i.woollen_cap_green": "Zielona wełniana czapka"
+  "land.i.woollen_cap_green": "Zielona wełniana czapka",
+  "land.waterLook": "szukam najbliższej wody…",
+  "land.waterNone": "brak wody w promieniu 3 km — da ją studnia",
+  "land.waterAt": "najbliższa woda jest {d} m stąd, azymut {b}° (północ 0°, wschód 90°) — zaczerpniesz ją wiadrem"
  }
 }
