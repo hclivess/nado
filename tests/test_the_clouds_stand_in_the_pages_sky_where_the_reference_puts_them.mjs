@@ -151,15 +151,27 @@ try {
   const right = norm(cross(fw, fr.up)), cu = cross(right, fw), th = Math.tan((36 * Math.PI) / 180);
   const sun = Cosmos.sunFrom(Wd.PLANET, HOLD / 1000 - Cosmos.EPOCH).dir;
   const L = C.light(sun, [2.4, 2.3, 2.1], [0.47, 0.67, 0.86], [0.03, 0.16, 0.58]), dr = C.drift(HOLD / 1000 - Cosmos.EPOCH), vol = C.noiseVolume();
-  let inN = 0, inD = 0, outN = 0, outD = 0;
+  // the reference's opacity on the sampling grid first, so a clear pixel can be told from one at a heap's edge
+  const alpha = new Map();
   for (let y = 110; y < A.h - 40; y += 6) for (let x = 8; x < A.w - 8; x += 6) {      // (clear of the corner texts)
     const sx = ((2 * (x + 0.5)) / A.w - 1) * th * (A.w / A.h), sy = (1 - (2 * (y + 0.5)) / A.h) * th;
     const d = norm([0, 1, 2].map((i) => fw[i] + right[i] * sx + cu[i] * sy));
     if (d[0] * fr.up[0] + d[1] * fr.up[1] + d[2] * fr.up[2] < 0.12) continue;      // the sky only
-    const a = C.march(vol, eye, d, L, dr)[3], o = (y * A.w + x) * 4;
-    const diff = (Math.abs(A.px[o] - B.px[o]) + Math.abs(A.px[o + 1] - B.px[o + 1]) + Math.abs(A.px[o + 2] - B.px[o + 2])) / 3;
-    if (a > 0.8) { inN++; inD += diff; } else if (a < 0.02) { outN++; outD += diff; }
+    alpha.set(x + "," + y, C.march(vol, eye, d, L, dr)[3]);
   }
+  let inN = 0, inD = 0, outN = 0, outD = 0, edgeN = 0, edgeD = 0;
+  for (const [k, a] of alpha) {
+    const [x, y] = k.split(",").map(Number), o = (y * A.w + x) * 4;
+    const diff = (Math.abs(A.px[o] - B.px[o]) + Math.abs(A.px[o + 1] - B.px[o + 1]) + Math.abs(A.px[o + 2] - B.px[o + 2])) / 3;
+    if (a > 0.8) { inN++; inD += diff; continue; }
+    if (a >= 0.02) continue;
+    // a clear pixel beside a heap is not clear sky to the eye: the page draws the clouds at a lower resolution and
+    // softens their edge, so its rim reaches a grid step past where the reference's opacity falls to nothing. Counting
+    // those made the mean ride on how much rim the drifting field put in view (8.0 once, 4.3 and 4.9 minutes later, #209).
+    const ring = [[-6, -6], [0, -6], [6, -6], [-6, 0], [6, 0], [-6, 6], [0, 6], [6, 6]].map(([dx, dy]) => alpha.get((x + dx) + "," + (y + dy)));
+    if (ring.every((b) => b === undefined || b < 0.02)) { outN++; outD += diff; } else { edgeN++; edgeD += diff; }
+  }
+  console.log(`  (measured: ${edgeN} clear pixels beside a heap, mean change ${(edgeD / Math.max(1, edgeN)).toFixed(1)}, left out of the clear-sky mean)`);
   ok(inN > 40 && outN > 40, `the view holds both heaps and clear sky by the reference (${inN} and ${outN} sampled pixels)`);
   ok(inN > 0 && inD / inN > 25, `the page draws a cloud where the reference sees a heap (mean change ${(inD / Math.max(1, inN)).toFixed(1)} of 255)`);
   ok(outN > 0 && outD / outN < 8, `…and clear sky where it sees none (mean change ${(outD / Math.max(1, outN)).toFixed(1)} of 255)`);
