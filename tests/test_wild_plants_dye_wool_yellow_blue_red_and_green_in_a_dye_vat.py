@@ -68,8 +68,11 @@ check("each is drawn as its own model, never as a pebble",
 r = subprocess.run(["node", "--input-type=module", "-e", """
 const T = await import(%r);
 const out = {};
-for (const f of ["weldModel", "woadModel", "madderModel", "clubmossModel"]) { const m = T[f](7), l = T[f](7, true), tall = Math.max(...m.bark.pos.filter((_, i) => i %% 3 === 2));
-  out[f] = { tris: (m.bark.idx.length + m.leaves.idx.length) / 3, lite: (l.bark.idx.length + l.leaves.idx.length) / 3, tall }; }
+const tris = (m) => (m.bark.idx.length + m.leaves.idx.length) / 3;
+for (const f of ["weldModel", "woadModel", "madderModel", "clubmossModel"]) { let o = { tris: 0, lite: 0, tall: 0 };
+  for (let sd = 1; sd <= 50; sd++) { const m = T[f](sd), l = T[f](sd, true);   // the heaviest and tallest of fifty plants
+    o = { tris: Math.max(o.tris, tris(m)), lite: Math.max(o.lite, tris(l)), tall: Math.max(o.tall, ...m.bark.pos.filter((_, i) => i %% 3 === 2)) }; }
+  out[f] = o; }
 console.log(JSON.stringify(out));""" % os.path.join(ROOT, "static", "land-trees.js")], capture_output=True, text=True, timeout=60)
 M = json.loads(r.stdout.strip().splitlines()[-1]) if r.stdout.strip() else {}
 check("…each lighter than a clump of flax (168 triangles), and lighter still from the middle level on (a phone, #150)",

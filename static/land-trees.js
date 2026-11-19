@@ -314,6 +314,10 @@ export function weldModel(seed, lite = false) {
     const s0 = [b0[0] + (top[0] - b0[0]) * (1 - sp), b0[1] + (top[1] - b0[1]) * (1 - sp), h * (1 - sp)];
     tube(bark, [b0, s0], [0.007, 0.006], 3, (i) => i * 0.3, 0, [1.3, 2.9, 1.1]);
     tube(bark, [s0, top], [lite ? 0.026 : 0.02, 0.006], lite ? 3 : 5, (i) => 0.3 + i * 0.4, 0, [4.4, 4.9, 1.0]);   // the spike
+    // narrow wavy leaves all up the stem below the spike (photo: Wikipedia Reseda luteola; the first model had them at
+    // the base only)
+    if (!lite) for (let j = 1; j <= 3; j++) { const c = [b0[0] + (s0[0] - b0[0]) * j / 4, b0[1] + (s0[1] - b0[1]) * j / 4, s0[2] * j / 4];
+      cluster(leaves, R, c, 0.13, 0, sub(c, [0, 0, 0.04]), 0.25, [0.9, 1.05, 0.8]); }
   }
   for (let k = 0; k < (lite ? 3 : 6); k++) {
     const a = R() * Math.PI * 2, d = 0.06 + R() * 0.05;
@@ -321,25 +325,24 @@ export function weldModel(seed, lite = false) {
   }
   return { bark, leaves };
 }
-/** WOAD (B.woad): a rosette of blue-green (glaucous) leaves, and 2-4 stems 0.5-1.2 m (Ecoflora) branching at the top into
- *  a broad panicle of small yellow flowers (RHS; Ecoflora "a large terminal panicle"). */
+/** WOAD (B.woad): a rosette of blue-green (glaucous) leaves, and a stem 0.5-1.2 m (Ecoflora) branching at the top into
+ *  a broad panicle of small yellow flowers (RHS; Ecoflora "a large terminal panicle") — a mass of yellow clusters, not
+ *  lone heads (photo: Wikipedia Isatis tinctoria, land research dyes/photos; the first model's single heads read sparse). */
 export function woadModel(seed, lite = false) {
-  const R = rng(seed), bark = part(), leaves = part(), n = 2 + Math.floor(R() * 3);
-  for (let k = 0; k < n; k++) {
-    const a = R() * Math.PI * 2, r = 0.03 + R() * 0.07, h = 0.5 + R() * 0.7, lean = (R() - 0.5) * 0.1;
-    const b0 = [Math.cos(a) * r, Math.sin(a) * r, 0], top = [b0[0] + Math.cos(a) * lean, b0[1] + Math.sin(a) * lean, h];
-    const fork = [(b0[0] + top[0] * 3) / 4, (b0[1] + top[1] * 3) / 4, h * 0.78];
-    if (lite && k % 2) continue;
-    tube(bark, [b0, fork, top], [0.008, 0.006, 0.004], 3, (i) => i * 0.35, 0, [1.2, 2.6, 1.5]);
-    for (let j = 0; j < (lite ? 3 : 6); j++) {                                // the panicle: short branches, each a yellow head
-      const b = R() * Math.PI * 2, l = 0.06 + R() * 0.1, tip = add(fork, [Math.cos(b) * l, Math.sin(b) * l, (top[2] - fork[2]) * (0.4 + R() * 0.7)]);
-      tube(bark, [fork, tip], [0.004, 0.003], 3, () => 0.6, 0, [1.2, 2.6, 1.5]);
-      head(bark, tip, 0.035, 0.01, [6.0, 5.2, 0.9], 0.6);
-    }
+  const R = rng(seed), bark = part(), leaves = part();
+  // the stem to 1.05 m: the clusters stand up to a sixth over its top, so the plant stays within the sourced 1.2 m
+  const a = R() * Math.PI * 2, h = 0.5 + R() * 0.55, lean = (R() - 0.5) * 0.1;
+  const top = [Math.cos(a) * lean, Math.sin(a) * lean, h], fork = [top[0] * 0.75, top[1] * 0.75, h * 0.72];
+  tube(bark, [[0, 0, 0], fork, top], [0.009, 0.007, 0.004], 3, (i) => i * 0.35, 0, [1.2, 2.6, 1.5]);
+  for (let j = 0; j < 7; j++) {                                              // the panicle: branches, each tip a cluster
+    const b = R() * Math.PI * 2, l = 0.08 + R() * 0.12, tip = add(fork, [Math.cos(b) * l, Math.sin(b) * l, (top[2] - fork[2]) * (0.5 + R() * 0.7)]);
+    if (lite && j % 2) continue;
+    tube(bark, [fork, tip], [0.004, 0.003], 3, () => 0.6, 0, [1.2, 2.6, 1.5]);
+    for (let c = 0; c < (lite ? 2 : 3); c++) head(bark, add(tip, [(R() - 0.5) * 0.06, (R() - 0.5) * 0.06, R() * 0.03]), 0.045, 0.01, [6.0, 5.2, 0.9], 0.6);
   }
   for (let k = 0; k < (lite ? 4 : 8); k++) {
-    const a = R() * Math.PI * 2, d = 0.07 + R() * 0.08;
-    cluster(leaves, R, [Math.cos(a) * d, Math.sin(a) * d, 0.06 + R() * 0.06], 0.2, 0, [0, 0, 0.03], 0.15, [0.7, 0.95, 1.35]);
+    const b = R() * Math.PI * 2, d = 0.07 + R() * 0.08;
+    cluster(leaves, R, [Math.cos(b) * d, Math.sin(b) * d, 0.06 + R() * 0.06], 0.2, 0, [0, 0, 0.03], 0.15, [0.7, 0.95, 1.35]);
   }
   return { bark, leaves };
 }
