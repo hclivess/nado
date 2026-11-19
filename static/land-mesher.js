@@ -22,7 +22,8 @@
 import { CHUNK, H, R0, W, B, BLOCKS, ATLAS_TILES, NATURAL, CM, DEEP_MIN, TREE_WOOD, TREE_LEAVES, isTree, opaque, dirOf, frameOf, wrap, column, terrainBlock, fieldOf, treeAt, treeCell, LITTER, shapeOf, isPart, toneBlock, FLOWERS, saplingTree, soilOf, isTurned, rotOf, turnVec, boxAabb } from "./land-world.js";
 import * as Shapes from "./land-shapes.js";
 import { forestTile, hash3, treeTurn, treeSize } from "./land-forest.js";
-import { treeModel, leafCellModel, twigModel, flaxModel, saplingModel, flowerModel, wheatModel, berryBushModel } from "./land-trees.js";
+import { treeModel, leafCellModel, twigModel, flaxModel, saplingModel, flowerModel, wheatModel, berryBushModel, weldModel, woadModel, madderModel, clubmossModel } from "./land-trees.js";
+const DYE_MODEL = new Map([[B.weld, weldModel], [B.woad, woadModel], [B.madder, madderModel], [B.clubmoss, clubmossModel]]);   // (#128)
 
 const N = CHUNK + 2;                                     // cells with the border: real index r in -1..16 is r + 1
 const TILE_COLS = 8;                                      // the atlas is TILE_COLS tiles across (static/land.js paints it)
@@ -464,6 +465,10 @@ export function meshChunk(face, cu, cv, ch, edits, boxes, lod, grassOn = true) {
                                                              col.height - 0.02, rot, 1, 0.001 + hash3(gv, gu, 41) * 6.28, place, bark, foliage, null);
     else if (b === B.berrybush) placeModel(berryBushModel(1 + Math.floor(hash3(gu, gv, 43) * 997), lod >= 1), face, gu + 0.5, gv + 0.5, col.height - 0.02, rot, 1,
                                            0.001 + hash3(gv, gu, 47) * 6.28, place, bark, foliage, null);
+    // DYE PLANTS (#128): weld, woad, madder on the meadow, clubmoss on the forest floor — each its own model (an unknown
+    // litter block falls through to the pebble below, so a plant without a line here is drawn as a stone)
+    else if (DYE_MODEL.has(b)) placeModel(DYE_MODEL.get(b)(1 + Math.floor(hash3(gu, gv, 53) * 997), lod >= 1), face, gu + 0.5, gv + 0.5, col.height - 0.02, rot, 1,
+                                          0.001 + hash3(gv, gu, 59) * 6.28, place, bark, foliage, null);
     else if (b === B.boulder) pebble(boulders, face, gu + 0.5, gv + 0.5, col.height, 0.45 + 0.35 * hash3(gv, gh, gu), hash3(gu, gv, 13), rot, place, true);
     else pebble(stones, face, gu + ou, gv + ov, col.height, 0.11 + 0.1 * hash3(gv, gh, gu), hash3(gu, gv, 11), rot, place);
   }

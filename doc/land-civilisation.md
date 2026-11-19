@@ -128,8 +128,15 @@ The genre's mechanics, in this world's own names and look (no other game's chara
   thread) worn in two new places, feet and hands; a WILD SHEEP in the grassland — a primitive, self-shedding sheep as the
   Soay of St Kilda (body 23-36 kg, fleece 1.5-2.25 kg: breed registers; speed scaled from Garland 1983 as the deer's) —
   that never charges and gives 2 wool, plucked by hand; wool is spun into yarn, woven into woollen cloth and sewn into a
-  woollen cloak and cap. Grassland spawns now pick among deer, rabbit and sheep. Next: plant dyes (woad, madder, weld —
-  new plants and a dye vat), an apron.
+  woollen cloak and cap. Grassland spawns now pick among deer, rabbit and sheep.
+* **plant dyes — built** (#128, 2026-11-19): four wild plants — WELD (yellow) and WOAD (blue) pulled by hand on the
+  meadow, MADDER (red) whose metre-long roots are dug with a shovel, CLUBMOSS on the forest floor — and a DYE VAT fired
+  from clay at the kiln. A woollen cloak or cap is dyed yellow with weld, red with madder (each fixed with clubmoss),
+  blue with woad and nothing else (indigo is a vat dye, it needs no mordant), and green by dyeing the blue one over with
+  weld, as Lincoln green was made: eight dyed garments, each drawn in its colour. Sources in the rules' "dyes" section
+  and land research dyes/notes.md. The mordant is a DESIGN CHOICE: Land has no alum; clubmoss stores aluminium and works
+  as one in experiment (Duff & Sinclair 1988), but archaeology has not proven it was used so. Only wool is dyed (it takes
+  these dyes best); dyeing linen, and the apron, are what is left of #128.
 * **fire's smoke — built** (#124): a grey column rises from every burning cell, dimming what is behind it; no shadow.
   Still open there, each the operator's call: ash or charcoal left behind, rain putting fires out, fire hurting players.
 * **markets, part 1 — built** (#161): the trading stand; offers made and taken at stands, seen within 64 m (a market),

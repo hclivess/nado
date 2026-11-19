@@ -2075,8 +2075,13 @@ const HAIR = [0x2a1d14, 0x5a3a22, 0x9c6b3a, 0xd9b26a, 0x8e2f1c, 0xb9b4ad,
   0xf28cb8, 0x5aa9e6, 0x9b7be0, 0x6fd3a0, 0xf4f1ea, 0xff7a3d];               // land_server.py LOOK_HAIR = 12
 const BODIES = 2, FACES = 6;                                                     // land_server.py LOOK_BODY, LOOK_FACE
 const WEAR = { linen_shirt: 0xe6dcc3, linen_trousers: 0xcabd98, linen_cap: 0xeee5cf, linen_cloak: 0xb9a57c,
-  leather_boots: 0x5b3a24, leather_gloves: 0x7a5232,
-  woollen_cloak: 0x6e5a44, woollen_cap: 0x8a7458 };                              // wool: the sheep's own brown, undyed (#128)                          // leather: the hunt's hide, tanned (#128)
+  leather_boots: 0x5b3a24, leather_gloves: 0x7a5232,                             // leather: the hunt's hide, tanned (#128)
+  woollen_cloak: 0x6e5a44, woollen_cap: 0x8a7458,                                // wool: the sheep's own brown, undyed (#128)
+  // DYED WOOL (#128, land-recipes.json "dyes"): weld's clear yellow, woad's indigo blue, madder's red, woad then weld's
+  // green — the shades a design choice after the dyes' usual results (CAMEO Weld dye: "golden yellow" with alum); the
+  // cap a little lighter than the cloak, as the undyed pair is
+  woollen_cloak_yellow: 0xc9a227, woollen_cap_yellow: 0xd8b43c, woollen_cloak_blue: 0x2f4f86, woollen_cap_blue: 0x3d609a,
+  woollen_cloak_red: 0x9c2f2a, woollen_cap_red: 0xb03c33, woollen_cloak_green: 0x3f6b35, woollen_cap_green: 0x4d7d42 };
 const WEAR_SLOTS = ["head", "body", "legs", "back", "feet", "hands"];          // land_server.py WEAR_SLOTS
 function lookColours(seed, look) {
   let h = 0; for (const ch of String(seed)) h = (h * 31 + ch.charCodeAt(0)) >>> 0;

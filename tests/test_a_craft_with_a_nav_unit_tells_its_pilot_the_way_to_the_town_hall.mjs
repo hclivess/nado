@@ -135,11 +135,14 @@ try {
   await getJ("/fixture/seed?who=owner&items=" + encodeURIComponent(JSON.stringify({ steel_plate: 2, thruster: 2, pilot_seat: 1, nav_unit: 1 })) + "&tools=" + encodeURIComponent(JSON.stringify(["pick"])));
   const { token } = await getJ("/fixture/owner_token");
   // 1. the craft: on a flat strip, resting on the ground
+  // a plant on the meadow (flax, a flower, a dye plant — walk-through litter) is no obstacle to a craft set down on the
+  // ground: the strip this looked for first had a weld plant in it once the dye plants grew (#128)
+  const clear = (b) => b === Wd.B.air || (Wd.LITTER.has(b) && !Wd.BLOCKS[b].solid);
   let site = null;
   for (let du = 2; du < 12 && !site; du++) for (let dv = 4; dv < 12 && !site; dv++) {
     const u = q.u0 + du, v = q.v0 + dv, top = Wd.column(q.face, u, v).top;
     const cols = []; for (let a = 0; a < 4; a++) for (let b = -1; b < 3; b++) cols.push([u + a, v + b]);
-    if (cols.every(([cu, cv]) => Wd.column(q.face, cu, cv).top === top && Wd.terrainBlock(q.face, cu, cv, top + 1) === Wd.B.air && Wd.terrainBlock(q.face, cu, cv, top + 2) === Wd.B.air))
+    if (cols.every(([cu, cv]) => Wd.column(q.face, cu, cv).top === top && clear(Wd.terrainBlock(q.face, cu, cv, top + 1)) && Wd.terrainBlock(q.face, cu, cv, top + 2) === Wd.B.air))
       site = { du, dv, top };
   }
   ok(!!site, "a flat site for the craft");

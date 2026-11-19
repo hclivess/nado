@@ -75,7 +75,8 @@ for (const lod of [0, 1, 2]) {
 // 4. the rule
 const R = JSON.parse(readFileSync(join(ROOT, "static", "land-recipes.json"), "utf8")).breaking[String(b)];
 ok(R && R.needs === "pick" && R.class === "pick" && R.yields.some(([k]) => k === "cobble") && R.bonus && R.bonus[0] === "stone" && R.hard >= 3, `breaking a boulder needs a pick and yields cobble and stone (${JSON.stringify(R)})`);
-ok(/N_BLOCKS = 86/.test(readFileSync(join(ROOT, "scripts", "land_server.py"), "utf8")) && Wd.BLOCKS.length === 86, "the world server counts the block");
+// (the count grows as blocks are added — the dye plants of #128 came after the boulder — so it is read for agreement)
+ok(new RegExp("N_BLOCKS = " + Wd.BLOCKS.length + "\\b").test(readFileSync(join(ROOT, "scripts", "land_server.py"), "utf8")) && Wd.B.boulder < Wd.BLOCKS.length, "the world server counts the block");
 const page = readFileSync(join(ROOT, "static", "land.js"), "utf8");
 ok(/if \(m\.boulders\) \{ const me = new THREE\.Mesh\(geom\(m\.boulders\), boulderMaterial\(\)\); me\.castShadow = true;/.test(page) && /TSL\.luminance\(TSL\.texture\(col, uv\)\.rgb\)/.test(page) && /m\.normalNode = TSL\.normalMap\(TSL\.texture\(nor, uv\)/.test(page), "the page draws the boulders in their own material: the rock texture's brightness under the tint, with the rock's normal map, casting shadows");
 console.log(fails ? `${fails} FAILED` : "all passed");

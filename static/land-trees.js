@@ -300,6 +300,83 @@ export function flowerModel(seed, kind) {
   }
   return { bark, leaves };
 }
+// DYE PLANTS (#128; land research dyes/notes.md, each size from the sources there). Stems and flowers in the bark part,
+// tinted as flax's are (the tints lift the bark texture); leaves as cards. LITE as flax: half the stems from the middle
+// level on, the RNG drawn all the same so the plant is the same plant.
+/** WELD (B.weld): a few erect hairless stems 1-1.5 m (RHS; NZ flora 50-150 cm), the top half of each a dense slender spike
+ *  of small yellow-green flowers (spikes up to 60-80 cm, weeds.org.au), from a low rosette of narrow leaves. */
+export function weldModel(seed, lite = false) {
+  const R = rng(seed), bark = part(), leaves = part(), n = 2 + Math.floor(R() * 3);
+  for (let k = 0; k < n; k++) {
+    const a = R() * Math.PI * 2, r = 0.03 + R() * 0.08, h = 1.0 + R() * 0.5, lean = (R() - 0.5) * 0.14, sp = 0.4 + R() * 0.15;
+    if (lite && k % 2) continue;
+    const b0 = [Math.cos(a) * r, Math.sin(a) * r, 0], top = [b0[0] + Math.cos(a) * lean, b0[1] + Math.sin(a) * lean, h];
+    const s0 = [b0[0] + (top[0] - b0[0]) * (1 - sp), b0[1] + (top[1] - b0[1]) * (1 - sp), h * (1 - sp)];
+    tube(bark, [b0, s0], [0.007, 0.006], 3, (i) => i * 0.3, 0, [1.3, 2.9, 1.1]);
+    tube(bark, [s0, top], [lite ? 0.026 : 0.02, 0.006], lite ? 3 : 5, (i) => 0.3 + i * 0.4, 0, [4.4, 4.9, 1.0]);   // the spike
+  }
+  for (let k = 0; k < (lite ? 3 : 6); k++) {
+    const a = R() * Math.PI * 2, d = 0.06 + R() * 0.05;
+    cluster(leaves, R, [Math.cos(a) * d, Math.sin(a) * d, 0.04], 0.14, 0, [0, 0, 0.02], 0.1, [0.9, 1.05, 0.8]);
+  }
+  return { bark, leaves };
+}
+/** WOAD (B.woad): a rosette of blue-green (glaucous) leaves, and 2-4 stems 0.5-1.2 m (Ecoflora) branching at the top into
+ *  a broad panicle of small yellow flowers (RHS; Ecoflora "a large terminal panicle"). */
+export function woadModel(seed, lite = false) {
+  const R = rng(seed), bark = part(), leaves = part(), n = 2 + Math.floor(R() * 3);
+  for (let k = 0; k < n; k++) {
+    const a = R() * Math.PI * 2, r = 0.03 + R() * 0.07, h = 0.5 + R() * 0.7, lean = (R() - 0.5) * 0.1;
+    const b0 = [Math.cos(a) * r, Math.sin(a) * r, 0], top = [b0[0] + Math.cos(a) * lean, b0[1] + Math.sin(a) * lean, h];
+    const fork = [(b0[0] + top[0] * 3) / 4, (b0[1] + top[1] * 3) / 4, h * 0.78];
+    if (lite && k % 2) continue;
+    tube(bark, [b0, fork, top], [0.008, 0.006, 0.004], 3, (i) => i * 0.35, 0, [1.2, 2.6, 1.5]);
+    for (let j = 0; j < (lite ? 3 : 6); j++) {                                // the panicle: short branches, each a yellow head
+      const b = R() * Math.PI * 2, l = 0.06 + R() * 0.1, tip = add(fork, [Math.cos(b) * l, Math.sin(b) * l, (top[2] - fork[2]) * (0.4 + R() * 0.7)]);
+      tube(bark, [fork, tip], [0.004, 0.003], 3, () => 0.6, 0, [1.2, 2.6, 1.5]);
+      head(bark, tip, 0.035, 0.01, [6.0, 5.2, 0.9], 0.6);
+    }
+  }
+  for (let k = 0; k < (lite ? 4 : 8); k++) {
+    const a = R() * Math.PI * 2, d = 0.07 + R() * 0.08;
+    cluster(leaves, R, [Math.cos(a) * d, Math.sin(a) * d, 0.06 + R() * 0.06], 0.2, 0, [0, 0, 0.03], 0.15, [0.7, 0.95, 1.35]);
+  }
+  return { bark, leaves };
+}
+/** MADDER (B.madder): a scrambling perennial, its stems sprawling and leaning on one another to half a metre here (it
+ *  climbs to 1.5 m with support), leaves in whorls of 4-7, 5-10 cm long, and red berries ripening black (Wikipedia Rubia
+ *  tinctorum). Its dye is in the roots, under the ground: nothing of them is drawn. */
+export function madderModel(seed, lite = false) {
+  const R = rng(seed), bark = part(), leaves = part(), n = 4 + Math.floor(R() * 3);
+  for (let k = 0; k < n; k++) {
+    const a = R() * Math.PI * 2, l = 0.35 + R() * 0.3, h = 0.3 + R() * 0.25;
+    const pts = [[0, 0, 0], [Math.cos(a) * l * 0.4, Math.sin(a) * l * 0.4, h * 0.8], [Math.cos(a) * l, Math.sin(a) * l, h]];
+    if (lite && k % 2) continue;
+    tube(bark, pts, [0.006, 0.005, 0.003], 3, (i) => i * 0.4, 0, [1.1, 2.4, 0.9]);
+    for (let j = 1; j <= (lite ? 2 : 4); j++) {                              // a whorl of leaves every so often along it
+      const t = j / 5, c = [Math.cos(a) * l * t, Math.sin(a) * l * t, h * Math.min(1, t * 1.6)];
+      cluster(leaves, R, c, 0.12, 0, sub(c, [0, 0, 0.05]), 0.3, [0.8, 0.95, 0.75]);
+    }
+    if (R() < 0.5) tube(bark, [add(pts[2], [0, 0, -0.006]), add(pts[2], [0, 0, 0.006])], [0.003, 0.006, 0.003], 3, () => 0.4, 0, R() < 0.5 ? [5.6, 0.6, 0.7] : [0.5, 0.4, 0.5]);
+  }
+  return { bark, leaves };
+}
+/** CLUBMOSS (B.clubmoss): creeping stems along the ground with upright, flat-branched shoots 5-30 cm, some carrying
+ *  long-stalked spore cones in groups of up to four (Wikipedia Diphasiastrum complanatum). */
+export function clubmossModel(seed, lite = false) {
+  const R = rng(seed), bark = part(), leaves = part();
+  for (let k = 0; k < (lite ? 6 : 12); k++) {
+    const a = R() * Math.PI * 2, d = R() * 0.35, h = 0.05 + R() * 0.25, b0 = [Math.cos(a) * d, Math.sin(a) * d, 0];
+    tube(bark, [b0, add(b0, [0, 0, h])], [0.006, 0.003], 3, () => 0.2, 0, [1.4, 3.0, 1.0]);
+    cluster(leaves, R, add(b0, [0, 0, h * 0.7]), 0.08 + h * 0.4, 0, b0, 0.15, [0.8, 1.05, 0.7]);
+    if (k % 4 === 0) {                                                        // a stalk of spore cones, within the shoot's 30 cm
+      const st = add(b0, [0, 0, Math.min(h + 0.08, 0.26)]);
+      tube(bark, [b0, st], [0.003, 0.002], 3, () => 0.3, 0, [1.4, 3.0, 1.0]);
+      tube(bark, [st, add(st, [0, 0, 0.035])], [0.006, 0.004], 3, () => 0.3, 0, [3.6, 3.9, 1.4]);
+    }
+  }
+  return { bark, leaves };
+}
 /** A sapling (land-world B.sapling): a thin whip of a stem, half a metre, with a few young leaves near its top. */
 export function saplingModel(seed) {
   const R = rng(seed), bark = part(), leaves = part(), h = 0.4 + R() * 0.15;

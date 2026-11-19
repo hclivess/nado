@@ -48,10 +48,11 @@ for (let du = 0; du < 600; du += 2) for (let dv = 0; dv < 600; dv += 2) {
 ok(lit[B.wheat] > 50 && lit[B.berrybush] > 50, `wild grain (${lit[B.wheat]}) and berry bushes (${lit[B.berrybush]}) grow on the land`);
 ok(by.grass[B.wheat] > 0 && by.grass[B.berrybush] > 0 && (by.forest[B.berrybush] || 0) > 0 && !by.forest[B.wheat],
    "grain in the meadows, berry bushes in meadow and wood");
-// the older litter is where it was: the new food is only where the older rule gave nothing (its hash case comes last)
+// the older litter is where it was: the new food is only where the older rule gave nothing (its hash case comes last;
+// the dye plants of #128 come after it, their own test pins that)
 const src = readFileSync(join(ROOT, "static", "land-world.js"), "utf8"), lf = src.slice(src.indexOf("export function litterAt"), src.indexOf("// ---- THE DEEP"));
-ok(/FLOWERS\[hash32\(face \+ 67[^\n]*\n[^\n]*\n[^\n]*\n\s*: hash32\(face \+ 71[^\n]*B\.wheat : hh % 97 === 17 \? B\.berrybush : 0;/.test(lf)
-   && /hh % 9 === 2 \? B\.twigs : hh % 71 === 13 \? B\.berrybush : 0/.test(lf), "…only where no older litter stood: pebbles, sticks, flax and flowers keep their places");
+ok(/FLOWERS\[hash32\(face \+ 67[^\n]*\n[^\n]*\n[^\n]*\n\s*: hash32\(face \+ 71[^\n]*B\.wheat : hh % 97 === 17 \? B\.berrybush(\s*$| : 0;)/m.test(lf)
+   && /hh % 9 === 2 \? B\.twigs : hh % 71 === 13 \? B\.berrybush(\s*$| : 0)/m.test(lf), "…only where no older litter stood: pebbles, sticks, flax and flowers keep their places");
 ok(W.SWEPT.has(B.wheat) && W.SWEPT.has(B.berrybush) && !W.SWEPT.has(B.wheatyoung), "wild food is swept up by a block put there; a sown crop is not");
 
 // 2. soils

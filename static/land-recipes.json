@@ -254,6 +254,50 @@
    "name": "Woollen cap",
    "wear": "head"
   },
+  "weld": {
+   "name": "Weld"
+  },
+  "woad": {
+   "name": "Woad leaves"
+  },
+  "madder_root": {
+   "name": "Madder root"
+  },
+  "clubmoss": {
+   "name": "Clubmoss"
+  },
+  "woollen_cloak_yellow": {
+   "name": "Yellow woollen cloak",
+   "wear": "back"
+  },
+  "woollen_cloak_blue": {
+   "name": "Blue woollen cloak",
+   "wear": "back"
+  },
+  "woollen_cloak_red": {
+   "name": "Red woollen cloak",
+   "wear": "back"
+  },
+  "woollen_cloak_green": {
+   "name": "Green woollen cloak",
+   "wear": "back"
+  },
+  "woollen_cap_yellow": {
+   "name": "Yellow woollen cap",
+   "wear": "head"
+  },
+  "woollen_cap_blue": {
+   "name": "Blue woollen cap",
+   "wear": "head"
+  },
+  "woollen_cap_red": {
+   "name": "Red woollen cap",
+   "wear": "head"
+  },
+  "woollen_cap_green": {
+   "name": "Green woollen cap",
+   "wear": "head"
+  },
   "silverore": {
    "name": "Silver ore"
   },
@@ -725,6 +769,9 @@
   "tanning_rack": {
    "name": "Tanning rack"
   },
+  "dye_vat": {
+   "name": "Dye vat"
+  },
   "mint": {
    "name": "Mint"
   }
@@ -965,6 +1012,24 @@
     "needs": "pick",
     "yields": [["cobble", 3]],
     "bonus": ["stone", 4]
+  },
+  "86": {
+    "hard": 0.3,
+    "yields": [["weld", 2]]
+  },
+  "87": {
+    "hard": 0.3,
+    "yields": [["woad", 2]]
+  },
+  "88": {
+    "hard": 1.5,
+    "class": "shovel",
+    "needs": "shovel",
+    "yields": [["madder_root", 2]]
+  },
+  "89": {
+    "hard": 0.4,
+    "yields": [["clubmoss", 2]]
   },
   "34": {
    "hard": 0.2,
@@ -2957,6 +3022,228 @@
    ]
   },
   {
+   "id": "dye_vat",
+   "makes": [
+    [
+     "dye_vat",
+     1
+    ]
+   ],
+   "uses": [
+    [
+     "clay",
+     6
+    ],
+    [
+     "wood",
+     2
+    ]
+   ],
+   "with": [
+    "kiln"
+   ]
+  },
+  {
+   "id": "woollen_cloak_yellow",
+   "makes": [
+    [
+     "woollen_cloak_yellow",
+     1
+    ]
+   ],
+   "uses": [
+    [
+     "woollen_cloak",
+     1
+    ],
+    [
+     "weld",
+     4
+    ],
+    [
+     "clubmoss",
+     2
+    ]
+   ],
+   "with": [
+    "dye_vat"
+   ]
+  },
+  {
+   "id": "woollen_cloak_blue",
+   "makes": [
+    [
+     "woollen_cloak_blue",
+     1
+    ]
+   ],
+   "uses": [
+    [
+     "woollen_cloak",
+     1
+    ],
+    [
+     "woad",
+     4
+    ]
+   ],
+   "with": [
+    "dye_vat"
+   ]
+  },
+  {
+   "id": "woollen_cloak_red",
+   "makes": [
+    [
+     "woollen_cloak_red",
+     1
+    ]
+   ],
+   "uses": [
+    [
+     "woollen_cloak",
+     1
+    ],
+    [
+     "madder_root",
+     4
+    ],
+    [
+     "clubmoss",
+     2
+    ]
+   ],
+   "with": [
+    "dye_vat"
+   ]
+  },
+  {
+   "id": "woollen_cloak_green",
+   "makes": [
+    [
+     "woollen_cloak_green",
+     1
+    ]
+   ],
+   "uses": [
+    [
+     "woollen_cloak_blue",
+     1
+    ],
+    [
+     "weld",
+     4
+    ],
+    [
+     "clubmoss",
+     2
+    ]
+   ],
+   "with": [
+    "dye_vat"
+   ]
+  },
+  {
+   "id": "woollen_cap_yellow",
+   "makes": [
+    [
+     "woollen_cap_yellow",
+     1
+    ]
+   ],
+   "uses": [
+    [
+     "woollen_cap",
+     1
+    ],
+    [
+     "weld",
+     1
+    ],
+    [
+     "clubmoss",
+     1
+    ]
+   ],
+   "with": [
+    "dye_vat"
+   ]
+  },
+  {
+   "id": "woollen_cap_blue",
+   "makes": [
+    [
+     "woollen_cap_blue",
+     1
+    ]
+   ],
+   "uses": [
+    [
+     "woollen_cap",
+     1
+    ],
+    [
+     "woad",
+     1
+    ]
+   ],
+   "with": [
+    "dye_vat"
+   ]
+  },
+  {
+   "id": "woollen_cap_red",
+   "makes": [
+    [
+     "woollen_cap_red",
+     1
+    ]
+   ],
+   "uses": [
+    [
+     "woollen_cap",
+     1
+    ],
+    [
+     "madder_root",
+     1
+    ],
+    [
+     "clubmoss",
+     1
+    ]
+   ],
+   "with": [
+    "dye_vat"
+   ]
+  },
+  {
+   "id": "woollen_cap_green",
+   "makes": [
+    [
+     "woollen_cap_green",
+     1
+    ]
+   ],
+   "uses": [
+    [
+     "woollen_cap_blue",
+     1
+    ],
+    [
+     "weld",
+     1
+    ],
+    [
+     "clubmoss",
+     1
+    ]
+   ],
+   "with": [
+    "dye_vat"
+   ]
+  },
+  {
    "id": "drill",
    "makes": [
     [
@@ -4614,6 +4901,9 @@
   }
  ],
  "wilderness_regrow_s": 900,
+ "dyes": {
+  "about": "PLANT DYES (#128, doc/land-civilisation.md; land research dyes/notes.md). WELD gives yellow: luteolin, fixed with a mordant to a clear yellow, the most-used natural yellow until the 1700s (CAMEO, MFA Boston: Weld dye); it grows on disturbed, dry ground (RHS; theferns.info), pulled up whole. WOAD gives blue from its leaves: indigo, a vat dye made soluble by fermenting the leaves, which needs NO mordant (MDPI Heritage 2023; PMC12479568, 2025). MADDER gives red from its roots, over a metre long and up to 12 mm thick, red outside (Wikipedia Rubia tinctorum) - dug, so a shovel; fixed with alum at 12-20 % of the fibre's weight (Mother Earth Gardener; Sunset/Duerr). GREEN is woad's blue dyed over with weld, as Lincoln green was (Wikipedia Reseda luteola). THE MORDANT IS CLUBMOSS, a DESIGN CHOICE: Land has no alum; clubmoss stores aluminium and acts as an alum mordant in experiment (Duff & Sinclair 1988), was found at Viking York in dyeing quantities (Hall 1983) and was once used in Finland to dye wool (Wikipedia Diphasiastrum complanatum) - but its use AS the mordant is not proven by archaeology, and imported alum was likely the main source. It grows on the forest floor, as it does in dry conifer forest. Only wool is dyed: wool, a protein fibre, takes these dyes best. GAME RULES, chosen for play and not measurements: one measure of dye for each woollen cloth in the garment (a cloak 4, a cap 1) and half as much clubmoss (at least 1), the dye vat's clay and wood, each plant's yield and its stands' rarity on the planet (static/land-world.js litterAt)."
+ },
  "flight": {
   "about": "#147 (doc/land-tech-to-flight.md): a craft is built pieces touching one another, with a pilot seat and at least one thruster. Its mass is each piece's volume x its material's density (t per m3; a unit part by its own mass); it rises only if its thrusters (kN each) beat its weight. Read by the page (it flies the craft) and the world server (it bounds what a pilot may claim). #175: a PART (static/land-shapes.js) weighs the material actually in it — its shape's share of its box, a tenth of that for a hollow skin (a hull, a nose, a wing, a canopy, a dome) — and an ENGINE part is as many thrusters as its volume comes to, each weighing and pushing as one. PAINTED PLATE (white 28, red 21, yellow 23, black 27) is steel plate (density 1.5) with a pigment worked in at the workbench: white from lime (whitewash is slaked-lime paint), black from charcoal (carbon black: charred wood), red from iron ore (red ochre is hematite, an iron oxide and an ore of iron), yellow from iron ore and clay (ochre is a clay earth pigment of ferric oxide and clay; real yellow ochre is the hydrated oxide, limonite — Land has one iron ore) — land research paint/. ORANGE 22, GREEN 24, BLUE 25, PURPLE 26 (#187): orange from more iron ore to the clay than yellow (ochre ranges \"from yellow to deep orange\" with its iron oxide and clay, paint/wikipedia-Ochre l.13), green from copper ore (malachite, a copper ore, \"used as a mineral pigment ... in green paints from antiquity until c. 1800\", paint/wikipedia-Malachite l.82), blue at the kiln from copper ore, sand and lime (Egyptian blue: silica, lime and a copper compound heated to 800-1000 C, paint/wikipedia-Egyptian_blue l.13 and l.40; its small share of alkali is left out), purple at the kiln from the red and the blue pigment together (a DESIGN CHOICE: purple ochre is red ochre of coarser grain, Ochre l.25, which no recipe could tell from red). One measure of pigment painting four plates is a DESIGN CHOICE. (#170) GAME RULES, chosen for play and not measurements: thrust_kn (30 kN a thruster), every density here (a block of plate or glass is chosen far lighter than the solid material, so a craft of plates lifts on a few thrusters), and the unit masses of the thruster (0.4 t), the pilot seat (0.15 t) and the nav unit (0.02 t). The rocket engine's, the tank's and the satellite's masses are the rocket section's, scaled from the RS-25 and cited there. vmax and aero are cited above.",
   "g": 9.8,

@@ -52,7 +52,7 @@ CHALLENGE_TTL = 300
 SESSION_TTL = 7 * 86400
 sid = lambda token: hashlib.blake2b(token.encode(), digest_size=32).hexdigest()   # a session's name on disk (World.sessions)
 FACE_N, PLOT, W, H = L.FACE_N, L.PLOT, L.FACE_N * L.PLOT, 256
-N_BLOCKS = 86                     # static/land-world.js BLOCKS.length (tests/test_the_land_planet_… checks the two agree)
+N_BLOCKS = 90                     # static/land-world.js BLOCKS.length (tests/test_the_land_planet_… checks the two agree)
 DOOR = 37                         # static/land-world.js B.door: a piece that swings open and shut ("door" op)
 THRUSTER, SEAT = 65, 66           # static/land-world.js B.thruster, B.pilotseat: a craft's working parts (FLIGHT, #147)
 SMELTER, ASSEMBLER, GENERATOR = 67, 68, 69   # static/land-world.js: FACTORIES (#148) — machines and their power
@@ -84,7 +84,8 @@ SEA = 96                          # static/land-world.js SEA: the sea surface la
 STAND = 75                        # static/land-world.js B.stand: a trading stand — offers are made and taken at one (#161)
 BED = 48                          # static/land-world.js B.bed: Use on one and a player wakes there after a death (#162)
 WELL = 74                         # static/land-world.js B.well: Use on it with a bucket draws water (#155)
-SWEPT = {34, 35, 51, BERRYBUSH, WHEAT} | FLOWERS   # static/land-world.js SWEPT: pebble, twigs, flax, flowers, wild food — a placed block takes their place
+DYE_PLANTS = {86, 87, 88, 89}   # static/land-world.js DYE_PLANTS (#128): weld, woad, madder, clubmoss
+SWEPT = {34, 35, 51, BERRYBUSH, WHEAT} | FLOWERS | DYE_PLANTS   # static/land-world.js SWEPT: pebble, twigs, flax, flowers, wild food, dye plants — a placed block takes their place
 # THE DEEP (#129, doc/land-core.md): layers below 0, down to DEEP_MIN (static/land-world.js DEEP_MIN), are the deep crust.
 # Nobody owns them — anyone signed in digs and builds there, under an owned plot too — and a dug deep cell never grows
 # back: a mine stays a mine. The deep is kept with the plot above it but is never part of that plot's commitment.
@@ -178,7 +179,7 @@ PLANET = 0
 # with nothing left to burn it dies. It spreads ONLY where its starter may build (the commons, their own plot, a plot
 # they are invited to): nobody can burn another's plot. Fires are transient: a restart puts them out.
 FIRE = 55
-BURNS = {1: 2, 7: 0, 31: 0, 8: 0, 32: 0, 33: 0, 35: 0, 51: 0, 52: 0, 58: 0, 59: 0, 60: 0, 61: 0, 70: 0, 71: 0, 72: 0}   # land-world BURNS (the test checks they agree)
+BURNS = {1: 2, 7: 0, 31: 0, 8: 0, 32: 0, 33: 0, 35: 0, 51: 0, 52: 0, 58: 0, 59: 0, 60: 0, 61: 0, 70: 0, 71: 0, 72: 0, 86: 0, 87: 0, 88: 0, 89: 0}   # land-world BURNS (the test checks they agree)
 PIECE_BURNS = {9, 15, 39, 38, 37, 40, 45, 46, 47, 48, 49, 50, 53, 54}  # land-world PIECE_BURNS
 BURN_TICKS = {7: 8, 31: 8, 1: 3}  # ticks a cell takes to burn through (default 3: leaves, litter, plants)
 PIECE_TICKS = 6                   # ticks a built piece takes to burn down

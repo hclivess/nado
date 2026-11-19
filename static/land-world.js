@@ -277,6 +277,13 @@ export const BLOCKS = [
   // by the mesher as a rock of the pebble's kind a metre and a half across (litter: never a cube), SOLID to the player
   // and to a craft (the cell), broken only with a pick (land-recipes.json breaking), never swept by a placed block
   { key: "boulder", solid: true, see: true, tex: [4, 4, 4] },
+  // DYE PLANTS (#128, doc/land-civilisation.md "Dyes", sources in /root/land-research/dyes/notes.md): weld (yellow) and
+  // woad (blue) on the meadow, pulled up by hand; madder (red), whose dye is in its metre-long roots, dug with a shovel;
+  // clubmoss on the forest floor, the mordant that fixes weld and madder. Litter, drawn as models (land-trees.js).
+  { key: "weld", solid: false, see: true, tex: [11, 11, 11] },
+  { key: "woad", solid: false, see: true, tex: [11, 11, 11] },
+  { key: "madder", solid: false, see: true, tex: [11, 11, 11] },
+  { key: "clubmoss", solid: false, see: true, tex: [11, 11, 11] },
 ];
 export const B = Object.fromEntries(BLOCKS.map((b, i) => [b.key, i]));
 export const ATLAS_TILES = 63;              // tiles 0..62 (0 unused; the farm's blocks reuse earth's and leaves')
@@ -447,22 +454,23 @@ export function treeCell(t, du, dv, dh) {
 // leaves, which nobody could find without reading the source. A litter cell is the air cell just above the ground; it is
 // a function of place like everything else, and like every gathered cell in the commons it lies there again later.
 export const FLOWERS = [B.poppy, B.cornflower, B.daisy, B.buttercup];
-export const LITTER = new Set([B.pebble, B.twigs, B.flax, B.sapling, ...FLOWERS, B.berrybush, B.wheat, B.wheatyoung, B.boulder]);   // drawn as models; walked through (a boulder: solid)
+export const DYE_PLANTS = [B.weld, B.woad, B.madder, B.clubmoss];      // (#128) litter: drawn as models, swept by a placed block
+export const LITTER = new Set([B.pebble, B.twigs, B.flax, B.sapling, ...FLOWERS, B.berrybush, B.wheat, B.wheatyoung, B.boulder, ...DYE_PLANTS]);   // drawn as models; walked through (a boulder: solid)
 // A BLOCK TAKES THE PLACE OF LOOSE LITTER (a pebble, twigs, flax, a wild flower) and the placer picks it up, as in every
 // block game's tall grass: they filled the meadow's air cells, so a block aimed at a flowery spot went into the empty
 // cell over it, a metre up ("sometimes it places it above", 2026-11-08). A planted sapling is someone's — never swept.
 // scripts/land_server.py SWEPT is the same set.
-export const SWEPT = new Set([B.pebble, B.twigs, B.flax, ...FLOWERS, B.berrybush, B.wheat]);   // a sown crop is not swept: someone's field
+export const SWEPT = new Set([B.pebble, B.twigs, B.flax, ...FLOWERS, B.berrybush, B.wheat, ...DYE_PLANTS]);   // a sown crop is not swept: someone's field
 // WHAT BURNS (#124), and what it leaves: a cell of grass burns to bare earth, wood, leaves, litter and plants to air; a
 // built piece of these materials burns down whole (scripts/land_server.py FIRE). Stone, earth, sand, brick, metal,
 // glass and water do not burn — they are what stops a fire.
 export const BURNS = new Map([[B.grass, B.dirt], [B.log, 0], [B.birchlog, 0], [B.leaves, 0], [B.needles, 0], [B.fronds, 0],
   [B.twigs, 0], [B.flax, 0], [B.sapling, 0], [B.poppy, 0], [B.cornflower, 0], [B.daisy, 0], [B.buttercup, 0],
-  [B.berrybush, 0], [B.wheat, 0], [B.wheatyoung, 0]]);
+  [B.berrybush, 0], [B.wheat, 0], [B.wheatyoung, 0], [B.weld, 0], [B.woad, 0], [B.madder, 0], [B.clubmoss, 0]]);
 export const PIECE_BURNS = new Set([B.planks, B.darkwood, B.thatch, B.beam, B.door, B.window, B.table, B.chair, B.bench,
   B.bed, B.fence, B.torch, B.ladder, B.chest]);
 export const BOULDER_MEADOW = 1600, BOULDER_WOOD = 900;   // columns per boulder: one in a 40 m square of meadow, one in a 30 m square of wood
-/** The litter on column (face, u, v): B.boulder, B.pebble, B.twigs, B.flax, a flower, wild grain, a berry bush or 0. */
+/** The litter on column (face, u, v): B.boulder, B.pebble, B.twigs, B.flax, a flower, wild grain, a berry bush, a dye plant or 0. */
 export function litterAt(face, u, v, col) {
   if (col.top <= SEA) return 0;
   // BOULDERS (#183 step 5: the concept picture's mossy boulder; land research look/step5/OBSERVED.md, the Tahoe erratic):
@@ -481,8 +489,17 @@ export function litterAt(face, u, v, col) {
       : hash32(face + 61, v >> 3, u >> 3) % 7 === 0 && hh % 4 === 1 ? FLOWERS[hash32(face + 67, v >> 3, u >> 3) % 4]
       // WILD GRAIN in stands like flax (one 8 m region in eleven), BERRY BUSHES scattered at the meadow's edge (#153) —
       // only where nothing else stood, so every older litter cell is where it was
-      : hash32(face + 71, v >> 3, u >> 3) % 11 === 0 && hh % 5 < 2 ? B.wheat : hh % 97 === 17 ? B.berrybush : 0;
-    case "forest": return hh % 23 === 4 ? B.pebble : hh % 9 === 2 ? B.twigs : hh % 71 === 13 ? B.berrybush : 0;   // a forest floor is strewn with sticks
+      : hash32(face + 71, v >> 3, u >> 3) % 11 === 0 && hh % 5 < 2 ? B.wheat : hh % 97 === 17 ? B.berrybush
+      // DYE PLANTS in stands like flax (#128) — weld and woad, plants of dry and disturbed ground, one 8 m region in
+      // thirteen each; madder rarer, one in seventeen. A design choice for how often, not a measured one. Last in the
+      // chain, so every older litter cell is where it was.
+      : hash32(face + 79, v >> 3, u >> 3) % 13 === 0 && hh % 5 < 2 ? B.weld
+      : hash32(face + 83, v >> 3, u >> 3) % 13 === 0 && hh % 5 < 2 ? B.woad
+      : hash32(face + 89, v >> 3, u >> 3) % 17 === 0 && hh % 6 < 2 ? B.madder : 0;
+    // a forest floor is strewn with sticks; CLUBMOSS (#128) creeps over it in patches (dry conifer forest, Wikipedia
+    // Diphasiastrum complanatum) — one 8 m region in six, a cell in four of it, after everything older
+    case "forest": return hh % 23 === 4 ? B.pebble : hh % 9 === 2 ? B.twigs : hh % 71 === 13 ? B.berrybush
+      : hash32(face + 97, v >> 3, u >> 3) % 6 === 0 && hh % 4 === 3 ? B.clubmoss : 0;
     case "desert": return hh % 13 === 6 ? B.pebble : 0;
     case "rock": return hh % 6 === 1 ? B.pebble : 0;
     case "beach": return hh % 23 === 5 ? B.pebble : hh % 41 === 7 ? B.twigs : 0;

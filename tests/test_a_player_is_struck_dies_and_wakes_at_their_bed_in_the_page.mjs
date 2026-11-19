@@ -140,11 +140,14 @@ try {
   const hud = () => evl(B, "(document.getElementById('hudHp') || {}).textContent || ''");
   // an open site: the bed's two columns and the three south of it, flat, with nothing over them for 5 m (a tree's crown
   // stood over the first site, and the look found its leaves before the bed)
+  // a plant on the ground (flax, a flower, a dye plant — walk-through litter) is no obstacle to a bed or to a player:
+  // the site this looked for first had one in it once the dye plants grew (#128)
+  const clear = (b, dh) => b === Wd.B.air || (dh === 1 && Wd.LITTER.has(b) && !Wd.BLOCKS[b].solid);
   let site = null;
   for (let du = 2; du < 12 && !site; du++) for (let dv = 4; dv < 12 && !site; dv++) {
     const cols = []; for (let a = 0; a < 2; a++) for (let b = -3; b <= 0; b++) cols.push([q.u0 + du + a, q.v0 + dv + b]);
     const tops = cols.map(([cu, cv]) => Wd.column(q.face, cu, cv).top);
-    if (Math.max(...tops) - Math.min(...tops) <= 1 && cols.every(([cu, cv], k) => [1, 2, 3, 4, 5].every((dh) => Wd.terrainBlock(q.face, cu, cv, tops[k] + dh) === Wd.B.air)))
+    if (Math.max(...tops) - Math.min(...tops) <= 1 && cols.every(([cu, cv], k) => [1, 2, 3, 4, 5].every((dh) => clear(Wd.terrainBlock(q.face, cu, cv, tops[k] + dh), dh))))
       site = { du, dv, top: Math.max(...tops) };
   }
   ok(!!site, "an open site for a bed");
