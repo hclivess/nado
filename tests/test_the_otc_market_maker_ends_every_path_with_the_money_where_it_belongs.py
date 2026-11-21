@@ -158,5 +158,66 @@ check("a second claim is not sent while ours is unmined", len(sent(c, "eth_claim
 c.receipts[ra["claim_tx"]] = 1; M.step(None, ra, now=20); M.step(None, rb, now=20)
 check("once the first claim mined, the second goes out", len(sent(c, "eth_claim")) == 2 and rb.get("claim_tx"), c.sent)
 
+# 9. KEEPING THE BOOK FILLED (operator 2026-11-21: "fill the order book" — 80 NADO of asks from 0.00067 ETH a NADO)
+class Book:
+    """The refill's world: the wallet's spendable balance and its orders on the book, beside the Chain stubs."""
+    def __init__(b, c, spend_nado):
+        b.c, b.spend, b.orders, b.posted = c, int(spend_nado * M.RAW), {}, []
+        M.balance = lambda addr: b.spend
+        M.book = lambda addr: [(o, st, n) for o, (st, n) in b.orders.items()]
+        M.root = lambda: {"cursor": c.cur, "block_ts": 1_800_000_000}
+        def blob(kd, p, label):
+            c.sent.append((p["method"], p["args"]))
+            if p["method"] == "post":
+                on_disk = os.path.exists(M.rec_path(p["args"][0]))
+                b.posted.append((p["args"][0], p["args"][2], p["args"][4], on_disk))
+                b.orders[p["args"][0]] = (1, p["args"][2])       # the order lands open
+        M.blob = blob
+
+KD = {"address": "ndoMAKER"}
+check("the ladder: eight asks of 10 NADO from 0.00067 ETH a NADO, each 5 % over the last, exact to the wei",
+      M.LADDER[0] == (10, "0.0067") and len(M.LADDER) == 8 and M.LADDER[-1][1] == "0.00942757" and M.BUDGET_NADO == 80, M.LADDER)
+c = Chain(); c.install(); b = Book(c, 200)
+r0 = M.refill(KD)
+check("an empty book: the lowest rung is posted, its secret on disk BEFORE the order",
+      r0 and r0["rung"] == 0 and b.posted[0][1] == 10 * M.RAW and b.posted[0][2] == "0.0067" and b.posted[0][3], b.posted)
+M.refill(KD)
+check("one rung a pass: the next pass posts rung 1", [p[2] for p in b.posted] == ["0.0067", "0.007035"], b.posted)
+for _ in range(10): M.refill(KD)
+check("…to the budget and no further: 80 NADO, all eight rungs, no ninth order",
+      len(b.posted) == 8 and sorted(r["rung"] for r in M.mine()) == list(range(8)), [p[2] for p in b.posted])
+
+c = Chain(); c.install(); b = Book(c, 25)
+b.orders[999] = (1, 10 * M.RAW)                                # a BTC ask posted by hand, open: its 10 NADO are owed
+M.refill(KD); M.refill(KD)
+check("the wallet covers what it may yet lock: 25 NADO spendable, 10 owed to a hand-posted ask -> one rung, not two",
+      len(b.posted) == 1, b.posted)
+b.orders[999] = (2, 10 * M.RAW)
+M.refill(KD)
+check("…a taken order not yet locked is still owed", len(b.posted) == 1, b.posted)
+
+c = Chain(); c.install(); b = Book(c, 40)
+r0 = M.refill(KD); r1 = M.refill(KD)
+oid1 = r1["oid"]; locked = M.rec_path(oid1); rr = json.load(open(locked)); rr["l1_lock"] = "L1"; M.save(rr)
+b.orders[oid1] = (2, 10 * M.RAW); b.spend -= 10 * M.RAW        # taken and locked: its NADO left the balance into the lock
+M.refill(KD)
+check("a taken order whose NADO is already locked is not owed twice (40 spendable: three rungs fit)", len(b.posted) == 3, b.posted)
+
+c = Chain(); c.install(); b = Book(c, 200)
+r0 = M.refill(KD); M.refill(KD)
+r0 = json.load(open(M.rec_path(r0["oid"]))); r0["done"] = "settled"; M.save(r0); del b.orders[r0["oid"]]
+r2 = M.refill(KD)
+check("a rung whose position ended is posted again", r2 and r2["rung"] == 0 and len(b.posted) == 3, b.posted)
+
+c = Chain(); c.install(); b = Book(c, 200)
+rn = M.refill(KD); del b.orders[rn["oid"]]                     # the post never landed
+c.od = {"st": 0, "expn": None, "namt": None}
+c.cur = rn["posted_cur"] + 100; M.step(None, rn)
+check("a post not on the book yet keeps its rung (it may still land)", not rn.get("done") and M.refill(KD)["rung"] == 1, rn)
+rn = json.load(open(M.rec_path(rn["oid"])))
+c.cur = rn["posted_cur"] + M.NOT_POSTED_BLOCKS + 1; M.step(None, rn)
+check("…never on the book 200 blocks after posting: done, its rung freed and posted again",
+      rn.get("done") == "not_posted" and M.refill(KD)["rung"] == 0, rn)
+
 print("ALL PASS — every otc_mm path ends with the money where it belongs" if not fails else f"{fails} FAILED")
 raise SystemExit(1 if fails else 0)

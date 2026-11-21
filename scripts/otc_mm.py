@@ -27,7 +27,15 @@ ETH_RPC = "https://ethereum-rpc.publicnode.com"
 HTLC = "0x16a2714026cf9ace31cf4fd9b20fcedc3721e71b"     # static/dex.js NETS.eth.htlc (mainnet)
 PAYOUT = "0x406Ed37679f237EA099985D8C9CE96B538F916b0"    # operator-chosen proceeds address (also pays claim gas)
 BLOCKS = 28330                                           # ≈ 48 h at 6.1 s
-LADDER = [(2, "0.0041"), (2, "0.0045"), (2, "0.00496"), (2, "0.00546"), (2, "0.006")]   # (NADO, ETH)
+# THE LADDER (operator 2026-11-21: "fill the order book"; centred where the last real interest was — 1 NADO for 0.00067 ETH,
+# the order then being taken — asks only, 80 NADO of the node wallet): eight asks of 10 NADO, each rung 5 % over the one
+# below, so the price has room to find itself. ETH amounts exact to the wei (Decimal), never a float.
+from decimal import Decimal as _D
+CENTRE, STEP_PCT, RUNG_NADO, RUNGS = _D("0.00067"), _D("1.05"), 10, 8
+LADDER = [(RUNG_NADO, format((RUNG_NADO * CENTRE * STEP_PCT ** i).quantize(_D("1e-8")).normalize(), "f")) for i in range(RUNGS)]   # (NADO, ETH)
+BUDGET_NADO = 80                    # the most the ladder's live positions may hold (operator 2026-11-21)
+REFILL_S = 60                       # how often the watcher tops the ladder up — one rung a pass
+NOT_POSTED_BLOCKS = 200             # a position whose order is still not on the book this long after posting never landed
 RAW = 10 ** 10
 
 
@@ -101,19 +109,68 @@ def save(rec, new=False):
     os.chown(p, *(lambda s: (s.st_uid, s.st_gid))(os.stat(PRIV)))
 
 
+def post_one(kd, nado, ethamt, rung=None):
+    """Post one ASK: its record (with the secret) written to disk BEFORE the order exists, then the order."""
+    r = root(); cur, now = int(r["cursor"]), int(r["block_ts"])     # CHAIN time, as the dApp does
+    s = os.urandom(32).hex(); H = hashlib.sha256(bytes.fromhex(s)).hexdigest()
+    o = int.from_bytes(os.urandom(4), "big") or 7
+    expn = cur + BLOCKS
+    expf = min(now + (O.FOREIGN_MIN_S + BLOCKS * 6 - O.FOREIGN_MARGIN_S) // 2, now + 29 * 24 * 3600)
+    rec = {"oid": o, "kind": "ask", "hashlock": H, "secret": s, "net": "eth", "nado": str(nado), "foreign": ethamt,
+           "addr": PAYOUT, "expn": expn, "expf": expf, "maker": kd["address"], "posted": now, "posted_cur": cur, "mm": "otc_mm.py"}
+    if rung is not None:
+        rec["rung"] = rung
+    save(rec, new=True)                                   # the secret is on disk BEFORE the order exists
+    blob(kd, {"op": "call", "contract": OTC, "method": "post",
+              "args": [o, O.ASK, nado * RAW, "eth", ethamt, PAYOUT, H, *O.vm_hashlock_parts(s), expn, expf]}, "post")
+    log(f"posted ASK #{o}{'' if rung is None else f' (rung {rung})'}: {nado} NADO for {ethamt} ETH (1 NADO = {float(ethamt)/nado:.6g} ETH), expn {expn}")
+    return rec
+
+
+def balance(addr):
+    """The wallet's SPENDABLE NADO, raw (bonded stake is not spendable)."""
+    a = get(L1 + "/get_account?address=" + addr)
+    return int((a.get("account") or a).get("balance", 0))
+
+
+def book(addr):
+    """The wallet's orders on the book as the contract holds them: [(oid, st, namt raw)]."""
+    s = get(EX + f"/exec/contract?ns=default&cid={OTC}&provisional=1").get("storage", {})
+    m = lambda k: dict(s[k]) if isinstance(s.get(k), list) else (s.get(k) or {})
+    mk, st, maker, namt = m("mk"), m("st"), m("maker"), m("namt")
+    return [(int(o), int(st.get(o) or 0), int(namt.get(o) or 0)) for o in mk if maker.get(o) == addr]
+
+
+def refill(kd):
+    """KEEP THE BOOK FILLED (operator 2026-11-21): post the lowest rung of LADDER that no live position of ours holds — one
+    a pass — while BOTH hold after it:
+      * the ladder's live positions carry at most BUDGET_NADO, and
+      * the wallet's spendable balance covers every NADO it may yet have to lock: an ask's NADO is locked only when it
+        is TAKEN, so every order of ours still open or taken-but-unlocked on the book (the ladder's, and any posted by
+        hand — a BTC ask this service does not handle) is owed, plus the new rung and its fees.
+    A rung frees when its position ends (step: settled, expired, cancelled, or never posted). Returns the record or None."""
+    live = mine()
+    held = {r.get("rung") for r in live if r.get("rung") is not None}
+    committed = sum(_D(r["nado"]) for r in live if r.get("rung") is not None)
+    locked = {r["oid"] for r in live if r.get("l1_lock")}
+    bk = book(kd["address"]); onbook = {o for o, _, _ in bk}
+    owed = sum(n for o, st, n in bk if st == 1 or (st == 2 and o not in locked))
+    owed += sum(int(_D(r["nado"]) * RAW) for r in live if r["oid"] not in onbook)   # posted, not on the book yet
+    spend = balance(kd["address"])
+    for i, (nado, ethamt) in enumerate(LADDER):
+        if i in held:
+            continue
+        if committed + nado > BUDGET_NADO:
+            return None
+        if spend - owed < nado * RAW + 10 * MIN_TX_FEE:
+            return None
+        return post_one(kd, nado, ethamt, rung=i)
+    return None
+
+
 def post(kd):
     for nado, ethamt in LADDER:
-        r = root(); cur, now = int(r["cursor"]), int(r["block_ts"])     # CHAIN time, as the dApp does
-        s = os.urandom(32).hex(); H = hashlib.sha256(bytes.fromhex(s)).hexdigest()
-        o = int.from_bytes(os.urandom(4), "big") or 7
-        expn = cur + BLOCKS
-        expf = min(now + (O.FOREIGN_MIN_S + BLOCKS * 6 - O.FOREIGN_MARGIN_S) // 2, now + 29 * 24 * 3600)
-        rec = {"oid": o, "kind": "ask", "hashlock": H, "secret": s, "net": "eth", "nado": str(nado), "foreign": ethamt,
-               "addr": PAYOUT, "expn": expn, "expf": expf, "maker": kd["address"], "posted": now, "mm": "otc_mm.py"}
-        save(rec, new=True)                                   # the secret is on disk BEFORE the order exists
-        blob(kd, {"op": "call", "contract": OTC, "method": "post",
-                  "args": [o, O.ASK, nado * RAW, "eth", ethamt, PAYOUT, H, *O.vm_hashlock_parts(s), expn, expf]}, "post")
-        log(f"posted ASK #{o}: {nado} NADO for {ethamt} ETH (1 NADO = {float(ethamt)/nado:.6g} ETH), expn {expn}")
+        post_one(kd, nado, ethamt)
         time.sleep(2)
     t0 = time.time()
     while time.time() - t0 < 600:
@@ -194,6 +251,10 @@ def step(kd, rec, now=None):
         save(rec); log(f"#{o} {rec['done']}" + (f", our lock {lock['status']}" if lock else ""))
         return
     if st not in (1, 2):
+        # NEVER POSTED: the record is written before its order is sent, so a refused or dropped post leaves a record with
+        # no order — it held its ladder rung (refill) for good. Not on the book NOT_POSTED_BLOCKS after posting: done.
+        if st == 0 and not rec.get("l1_lock") and cur > int(rec.get("posted_cur", cur)) + NOT_POSTED_BLOCKS:
+            rec["done"] = "not_posted"; save(rec); log(f"#{o} never reached the book — rung freed")
         return
     if cur >= int(od["expn"] or rec["expn"]):                 # past the order's window: close it (anyone may)
         if due(rec, "expire_sent"):
@@ -255,14 +316,22 @@ def step(kd, rec, now=None):
 
 
 def watch(kd):
-    """Never exits: a service with no live order waits for the next one (an exit would be a restart loop)."""
+    """Never exits: a service with no live order waits for the next one (an exit would be a restart loop). Every
+    REFILL_S it tops the ladder up by one rung (refill)."""
     log("watching", [r["oid"] for r in mine()])
+    last = 0.0
     while True:
         for rec in mine():
             try:
                 step(kd, rec)
             except Exception as e:
                 log(f"#{rec['oid']} error: {e}")
+        if time.time() - last >= REFILL_S:
+            last = time.time()
+            try:
+                refill(kd)
+            except Exception as e:
+                log(f"refill error: {e}")
         time.sleep(20)
 
 
