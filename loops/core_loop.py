@@ -5072,7 +5072,8 @@ class CoreClient(threading.Thread):
 
     def maybe_auto_vote(self):
         """AUTO-VOTE 'yes' on open treasury proposals paying a WHITELISTED recipient (memserver.auto_vote,
-        allow-list memserver.auto_vote_allow, default ["faucet"]). Throttled to once per epoch.
+        allow-list memserver.auto_vote_allow, default config.CONFIG_DEFAULTS["auto_vote_allow"]: the operator's address and
+        "faucet", the wallet's own shipped list — operator 2026-11-21). Throttled to once per epoch.
 
         WHY THE NODE AND NOT JUST THE WALLET: treasury quorum is counted in BONDED SHARES. The browser
         wallet has auto-voted since the feature shipped, but measured on betanet-2, 108 of 117 open miners
@@ -5081,9 +5082,9 @@ class CoreClient(threading.Thread):
         construction: the treasury accumulated 109 NADO and paid out nothing, ever, because the only
         parties with weight had no way to say yes. Whitelisting is meaningless unless that side votes.
 
-        SAFETY IS THE WHITELIST, NOT THE FLAG. A listed recipient is the only thing this will ever approve,
-        and the shipped default is the reserved `faucet` escrow — keyless and impossible to redirect — so
-        the default behaviour cannot move treasury funds to any individual's address. A vote carries a
+        SAFETY IS THE WHITELIST, NOT THE FLAG. A listed recipient is the only thing this will ever approve.
+        The shipped default names the reserved `faucet` escrow and the operator's own address (the operator's
+        decision, 2026-11-21); every other recipient is left to a human. A vote carries a
         small anti-spam fee, so this refuses to guess: it votes only on proposals it can see it has NOT
         already voted on, mirroring the wallet's `voted` rule (which is 'has cast a vote, yes OR no', so a
         deliberate `no` is never flipped to yes)."""

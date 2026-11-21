@@ -140,16 +140,33 @@ def test_self_port(ip, port):
 _config_memo = {}     # path -> ((mtime_ns, size, inode), dict) — see get_config
 
 
-def get_config(config_path: str = None):
-    """Load the node config dict from private/config.json. Raises on a missing file — callers either
-    checked config_found() first or WANT the loud failure (a node without a config must not limp along
-    on invented defaults).
+# THE SHIPPED DEFAULTS, MERGED UNDER EVERY NODE'S OWN CONFIG (operator 2026-11-21: "the correct logic is to merge the
+# default json to every node which doesnt have its own configured ... make that design like that"). get_config()
+# returned config.json verbatim, so a default added later reached only nodes installed afterwards (CLAUDE.md rule 9):
+# the auto-vote allow-list sat at `faucet` on every node while the wallet shipped the operator's address beside it.
+# Now a key a node's file does not set takes its value here; a key it sets wins. Merged IN MEMORY only — no node's file
+# is rewritten (update_config reads the raw file, so flipping one knob never pins the rest), and create_config no longer
+# writes these keys, so a new install keeps following them too.
+# INVARIANT: only keys whose value here equals what the code did when the key was absent, or a change the operator
+# asked for. NEVER merged: per-install values (port, ip, server_key, config_version); `archive` (operator 2026-08-17: no
+# silent change to a node's archive setting); min_peers, max_rollbacks, finality_depth, block_time (absent means the
+# protocol constant, which a literal here would pin). tests/test_config_defaults_reach_every_node.py holds this.
+CONFIG_DEFAULTS = {
+    "auto_bond_percent": AUTO_BOND_DEFAULT_PERCENT,
+    "auto_update": True,
+    "challenger": True,
+    "relay_port": 80,
+    "auto_heal": True,
+    "history_retention_blocks": 0,
+    "tx_history_retention_blocks": 0,
+    # the node's auto-vote allow-list: the wallet's own shipped list (static/interface.js AUTO_VOTE_DEFAULT_ALLOW) —
+    # the operator's address and the reserved faucet escrow (operator 2026-11-21: "push with the defaults from the wallet")
+    "auto_vote_allow": "b7a08de8351e3af97f6f2bbcb19f2a8c722abad81c3460caf9,faucet",
+}
 
-    MEMOIZED PER FILE VERSION (2026-09-06): peer_ops.me_to() calls this on every /peers request, so the
-    relay re-read and re-parsed the JSON file on its event loop 4-5 times a second — 12 % of event-loop
-    CPU (py-spy). The memo is keyed on (mtime_ns, size, inode), so update_config's atomic rename (a new
-    inode) or any in-place edit is seen on the very next call; a stat is ~2 us against ~80 us for
-    open+read+parse. Returns a FRESH copy each call: callers mutate the dict (update_config's merge)."""
+
+def _raw_config(config_path: str = None):
+    """config.json exactly as written — what update_config persists over (never the merged defaults)."""
     path = config_path or _config_path()
     st = os.stat(path)
     key = (st.st_mtime_ns, st.st_size, st.st_ino)
@@ -161,12 +178,26 @@ def get_config(config_path: str = None):
     return dict(hit[1])
 
 
+def get_config(config_path: str = None):
+    """Load the node config dict from private/config.json. Raises on a missing file — callers either
+    checked config_found() first or WANT the loud failure (a node without a config must not limp along
+    on invented defaults).
+
+    MEMOIZED PER FILE VERSION (2026-09-06): peer_ops.me_to() calls this on every /peers request, so the
+    relay re-read and re-parsed the JSON file on its event loop 4-5 times a second — 12 % of event-loop
+    CPU (py-spy). The memo is keyed on (mtime_ns, size, inode), so update_config's atomic rename (a new
+    inode) or any in-place edit is seen on the very next call; a stat is ~2 us against ~80 us for
+    open+read+parse. Returns a FRESH copy each call: callers mutate the dict (update_config's merge).
+    The node's file over CONFIG_DEFAULTS: a key the file does not set takes the shipped default."""
+    return {**CONFIG_DEFAULTS, **_raw_config(config_path)}
+
+
 def update_config(new_config: dict, config_path: str = None):
     """Read-merge-write: overlay `new_config` keys onto the existing config and persist. Keys not
     mentioned pass through untouched, so a caller can flip one knob without knowing (or wiping)
     the full schema. Atomic rename so a concurrent reader never sees a partial file."""
     config_path = config_path or _config_path()
-    config = get_config(config_path)
+    config = _raw_config(config_path)        # the file as written: never persist the merged defaults (they would pin)
     for key, value in new_config.items():
         config[key] = value
 
@@ -327,6 +358,9 @@ def create_config(ip: str, config_path: str = None):
         "max_registrations_window": 3600
     }
 
+    # the merged defaults are NOT written: a value on disk is a node's own choice and would pin it (CONFIG_DEFAULTS)
+    for k in CONFIG_DEFAULTS:
+        config_contents.pop(k, None)
     if not os.path.exists(config_path):
         with open(config_path, "w") as outfile:
             json.dump(config_contents, outfile)

@@ -9,8 +9,9 @@ paid out, with zero proposals ever opened. Whitelisting a recipient is meaningle
 the weight actually votes.
 
 THE SAFETY PROPERTY IS THE WHITELIST, NOT THE FLAG. A listed recipient is the only thing the node will
-ever auto-approve, and the shipped default is the reserved `faucet` escrow — keyless, so the default
-behaviour cannot move treasury funds to any individual's address. These checks pin that boundary, because
+ever auto-approve. The shipped default is the reserved `faucet` escrow and the operator's address — the
+wallet's own shipped list, by the operator's decision of 2026-11-21 (it was `faucet` alone, and no node
+ever voted on a proposal paying the operator). These checks pin that boundary, because
 an auto-voter that drifted past it would be a governance capture bug, not a convenience regression:
 
   * a whitelisted recipient is picked; a non-whitelisted one is NOT, and is left for a human;
@@ -93,6 +94,18 @@ def main():
         from protocol import RESERVED_RECIPIENTS
         check("the default whitelist entry is a RESERVED, keyless recipient",
               "faucet" in RESERVED_RECIPIENTS)
+        # the node's default is the wallet's shipped list, entry for entry — one decision, not two that drift
+        import re
+        _ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+        msrc = open(os.path.join(_ROOT, "memserver.py")).read()
+        from config import CONFIG_DEFAULTS
+        node = re.match(r"(.*)", CONFIG_DEFAULTS.get("auto_vote_allow", ""))
+        wallet = re.search(r'const AUTO_VOTE_DEFAULT_ALLOW = \[([^\]]*)\];', open(os.path.join(_ROOT, "static", "interface.js")).read())
+        nl = sorted(a.strip().lower() for a in node.group(1).split(",")) if node else None
+        wl = sorted(a.strip().strip('"').lower() for a in wallet.group(1).split(",")) if wallet else None
+        check(f"the node's default allow-list is the wallet's shipped list ({nl})", nl is not None and nl == wl)
+        check("…and it is the node's fallback when neither the environment nor config.json names one",
+              'self.config.get("auto_vote_allow", CONFIG_DEFAULTS["auto_vote_allow"])' in msrc)
 
     # ---- and the loop must actually consult the allow-list --------------------------------------------
     import inspect

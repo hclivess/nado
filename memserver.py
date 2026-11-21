@@ -3,7 +3,7 @@ import os
 import queue
 import threading
 
-from config import get_protocol, get_timestamp_seconds, get_config
+from config import get_protocol, get_timestamp_seconds, get_config, CONFIG_DEFAULTS
 from hashing import blake2b_hash
 from ops.account_ops import get_account, get_finalized_height
 from ops.block_ops import get_block_ends_info
@@ -254,13 +254,17 @@ class MemServer:
         # was decorative until the side holding the weight also votes.
         #
         # The whitelist is the safety property, not the flag: a node will only ever auto-approve a spend to
-        # a listed recipient. The default is the reserved `faucet` escrow — keyless, public-good, and
-        # impossible to redirect — so the shipped behaviour cannot move funds to anyone's address. Operators
-        # widen it deliberately (NADO_AUTO_VOTE_ALLOW="faucet,<addr>") or switch it off entirely.
+        # a listed recipient. THE SHIPPED DEFAULT (operator 2026-11-21, "can you change the default config.json and
+        # push?") is the wallet's own shipped list (static/interface.js AUTO_VOTE_DEFAULT_ALLOW): the operator's
+        # address and the reserved `faucet` escrow. Until then it was `faucet` alone, and no node ever voted on a
+        # proposal paying the operator ("dex funding" sat at 73 of 1,354 shares). A config template entry alone
+        # would reach only nodes installed afterwards — so it is in config.CONFIG_DEFAULTS, merged under every node's
+        # own config. Every other recipient is still left to a human. Operators
+        # narrow or widen it (NADO_AUTO_VOTE_ALLOW="faucet,<addr>", or auto_vote_allow in config.json) or switch it off.
         self.auto_vote = _flag("NADO_AUTO_VOTE", "auto_vote", True)
         _allow = _os.environ.get("NADO_AUTO_VOTE_ALLOW")
         if _allow is None:
-            _allow = self.config.get("auto_vote_allow", "faucet")
+            _allow = self.config.get("auto_vote_allow", CONFIG_DEFAULTS["auto_vote_allow"])   # (merged by get_config; the fallback for a raw dict)
         self.auto_vote_allow = [a.strip().lower() for a in str(_allow).split(",") if a.strip()]
 
         # ROLLING MODE (non-consensus): archive=True (default) keeps ALL block bodies; False runs a

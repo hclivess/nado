@@ -14,7 +14,9 @@ def main():
     d = tempfile.mkdtemp(); p = os.path.join(d, "config.json")
     json.dump({"ip": "1.1.1.1", "port": 1}, open(p, "w"))
     a = cfg.get_config(p); b = cfg.get_config(p)
-    assert a == b == {"ip": "1.1.1.1", "port": 1} and a is not b
+    # the file over the shipped defaults (config.CONFIG_DEFAULTS, merged since 2026-11-21: a key the file does not set
+    # takes the default)
+    assert a == b == {**cfg.CONFIG_DEFAULTS, "ip": "1.1.1.1", "port": 1} and a is not b
     a["ip"] = "mutated"
     assert cfg.get_config(p)["ip"] == "1.1.1.1", "callers must not see each other's mutations"
     cfg.update_config({"ip": "2.2.2.2"}, p)
