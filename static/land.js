@@ -5851,8 +5851,13 @@ function shotSetup() {
 }
 // true = skip drawing this frame: until the world has meshed and stayed settled 4 s nothing is drawn — a headless
 // browser draws in software, and every frame drawn while loading only slowed the meshing (a photo took ~10 minutes)
+// ?settle=1 — the same wait from the PLAYER'S OWN EYES (the look work, operator 2026-11-21 with a Chlorophyll Engine meadow
+// shot: "keep going until you match the graphical fidelity"): a photo of what a player sees, taken by a software-rendered
+// browser, came out with no trees and no clouds — the far forest was still queued behind slow frames (one result applied
+// a frame at 0.4 frames a second), not missing for players. Nothing drawn until the world has meshed and settled.
+const SETTLE = new URLSearchParams(location.search).get("settle") === "1";
 function shotTick(now) {
-  if (SHOT === null || document.title === "shot-ready") return false;
+  if ((SHOT === null && !SETTLE) || document.title === "shot-ready") return false;
   applyFinished();                                          // (the frame returns early below while chunks are in flight: their results must still land)
   if (queue.length || inflight.size || !chunks.size) { shotBusyAt = now; return true; }
   if (now - shotBusyAt < 4000) return true;

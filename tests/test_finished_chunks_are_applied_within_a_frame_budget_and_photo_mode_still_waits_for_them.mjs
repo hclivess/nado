@@ -6,6 +6,9 @@
  *      MESH_BUDGET_MS, at least one a frame, so three chunks landing together are spread over frames;
  *   2. photo mode, which returns from the frame early while chunks are in flight, still applies the results it waits
  *      for (or it waited forever: inflight never emptied);
+ *   2b. ?settle=1 makes the same wait from the player's own eyes (a photo of what a player sees, from a software-rendered
+ *      browser: without it the far forest stayed queued behind 0.4-fps frames and the photo showed no trees), and the
+ *      page without either flag draws every frame as before;
  *   3. the ownership outline is cached a plot at a time (kind, pieces, edits, width, edges drawn) and a rebuild only
  *      concatenates the kept parts — the 358 ms rebuild at every plot line crossed.
  * Run: node tests/test_finished_chunks_are_applied_within_a_frame_budget_and_photo_mode_still_waits_for_them.mjs
@@ -21,6 +24,9 @@ ok(/const finished = \[\], MESH_BUDGET_MS = \d+;/.test(page) && page.includes("w
 ok(page.includes('pt("mesh", applyFinished);'), "…from the frame loop");
 const shot = page.slice(page.indexOf("function shotTick(now) {"), page.indexOf("function shotTick(now) {") + 400);
 ok(shot.includes("applyFinished();") && shot.indexOf("applyFinished();") < shot.indexOf("if (queue.length || inflight.size"), "photo mode applies the results it waits for before judging what is in flight");
+ok(page.includes('const SETTLE = new URLSearchParams(location.search).get("settle") === "1";') && shot.startsWith('function shotTick(now) {\n  if ((SHOT === null && !SETTLE) || document.title === "shot-ready") return false;'),
+  "?settle=1 makes the same wait from the player's own eyes; with neither flag every frame is drawn");
+ok(page.includes("if (shotTick(now)) return;") && !/SHOT !== null && SETTLE|shotSetup\(\)[^\n]*SETTLE/.test(page), "…and it moves no one: only photo mode sets the camera (shotSetup)");
 ok(page.includes("let part = borderCache.get(p);") && page.includes("if (!part || part.key !== key) {") && page.includes("for (const p of [...borderCache.keys()]) if (!keep.has(p)) borderCache.delete(p);"), "the ownership outline is cached a plot at a time and pruned to the plots around");
 console.log(fails ? `${fails} FAILED` : "all passed");
 process.exit(fails ? 1 : 0);
