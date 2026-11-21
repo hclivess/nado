@@ -175,11 +175,15 @@ class Book:
         M.blob = blob
 
 KD = {"address": "ndoMAKER"}
-check("the ladder: eight asks of 10 NADO from 0.00067 ETH a NADO, each 5 % over the last, exact to the wei",
-      M.LADDER[0] == (10, "0.0067") and len(M.LADDER) == 8 and M.LADDER[-1][1] == "0.00942757", M.LADDER)
-check("the ladder is OFF (operator 2026-11-21: the node wallet's NADO to staking instead): a budget of 0 posts nothing",
-      M.BUDGET_NADO == 0 and (lambda c, b: (M.refill(KD), b.posted)[1] == [])(*(lambda c: (c, Book(c, 500)))((lambda c: (c.install(), c)[1])(Chain()))))
-M.BUDGET_NADO = 80                                             # the refill's own behaviour, as it was when on
+check("the ladder (funded 2026-11-22): eight asks of 50 NADO from 0.00067 ETH a NADO, each 5 % over the last, exact to the wei, 400 in all",
+      M.LADDER[0] == (50, "0.0335") and len(M.LADDER) == 8 and M.LADDER[-1][1] == "0.04713786" and M.BUDGET_NADO == 400
+      and abs(float(M.LADDER[-1][1]) / 50 - 0.00067 * 1.05 ** 7) < 1e-9, M.LADDER)
+_b = M.BUDGET_NADO; M.BUDGET_NADO = 0
+check("a budget of 0 posts nothing (the switch it was on 2026-11-21, when the wallet's NADO went to staking)",
+      (lambda c, b: (M.refill(KD), b.posted)[1] == [])(*(lambda c: (c, Book(c, 500)))((lambda c: (c.install(), c)[1])(Chain()))))
+# the refill's own behaviour on a small ladder of its own (10 NADO rungs, an 80 budget) — the logic, not today's numbers
+M.LADDER = [(10, format((10 * M._D("0.00067") * M._D("1.05") ** i).quantize(M._D("1e-8")).normalize(), "f")) for i in range(8)]
+M.BUDGET_NADO = 80
 c = Chain(); c.install(); b = Book(c, 200)
 r0 = M.refill(KD)
 check("an empty book: the lowest rung is posted, its secret on disk BEFORE the order",

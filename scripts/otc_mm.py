@@ -31,12 +31,13 @@ BLOCKS = 28330                                           # ≈ 48 h at 6.1 s
 # the order then being taken — asks only, 80 NADO of the node wallet): eight asks of 10 NADO, each rung 5 % over the one
 # below, so the price has room to find itself. ETH amounts exact to the wei (Decimal), never a float.
 from decimal import Decimal as _D
-CENTRE, STEP_PCT, RUNG_NADO, RUNGS = _D("0.00067"), _D("1.05"), 10, 8
+# FUNDED (operator 2026-11-22: the treasury's "dex funding" — 452 NADO — sent to the node wallet: "please open orders in dex
+# reasonably"): eight asks of 50 NADO, 400 in all, the rest kept for fees and a rung re-posted after a fill.
+CENTRE, STEP_PCT, RUNG_NADO, RUNGS = _D("0.00067"), _D("1.05"), 50, 8
 LADDER = [(RUNG_NADO, format((RUNG_NADO * CENTRE * STEP_PCT ** i).quantize(_D("1e-8")).normalize(), "f")) for i in range(RUNGS)]   # (NADO, ETH)
-# THE LADDER IS OFF (operator 2026-11-21, an hour after "fill the order book": "please remove the orders placed from my
-# own balance of this nodes wallet ... and put them into staking"). 0: refill posts nothing; `cancel` takes the open asks
-# off the book. Was 80.
-BUDGET_NADO = 0                     # the most the ladder's live positions may hold
+# THE BUDGET (operator 2026-11-22, the dex funding in the wallet): 400 NADO — the whole ladder. It was 0 from 2026-11-21
+# ("put them into staking" — the wallet's own NADO off the book); `cancel` still takes the open asks off.
+BUDGET_NADO = 400                   # the most the ladder's live positions may hold
 REFILL_S = 60                       # how often the watcher tops the ladder up — one rung a pass
 NOT_POSTED_BLOCKS = 200             # a position whose order is still not on the book this long after posting never landed
 RAW = 10 ** 10
