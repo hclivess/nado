@@ -10693,14 +10693,28 @@ const AUTO_VOTE_ALLOW_KEY = "nado_auto_vote_allow_v2";
 // matches no proposal on a format-2 chain, and the list would silently approve only "faucet".
 const AUTO_VOTE_PREV_DEFAULTS = [["27f2870bb2969a4d2b9d4eea303bedea996b9ccc93479f"],
                                  ["27f2870bb2969a4d2b9d4eea303bedea996b9ccc93479f", "faucet"]];
-function autoVoteEnabled() {
-  try { return (localStorage.getItem("nado_auto_vote_yes") || "1") === "1"; } catch (e) { return true; }
+// THREE MODES, ONE CHOICE (operator 2026-11-21: "people will probably abuse this ... auto vote on whitelisted / auto vote
+// on all / no auto vote"): "list" — yes on proposals paying a listed recipient (the default, as before); "all" — yes on
+// every open proposal, a deliberate choice; "off". Until then a CLEARED recipient box meant "approve everyone", one
+// stray delete away; now everyone is its own mode and an empty list in "list" mode approves no one. A wallet without a
+// stored mode keeps what it had: switched off stays off, a deliberately cleared list (which meant everyone) is "all",
+// anything else "list".
+const AUTO_VOTE_MODES = ["list", "all", "off"];
+function autoVoteMode() {
+  try {
+    const m = localStorage.getItem("nado_auto_vote_mode");
+    if (AUTO_VOTE_MODES.includes(m)) return m;
+    if (localStorage.getItem("nado_auto_vote_yes") === "0") return "off";
+    if (localStorage.getItem(AUTO_VOTE_ALLOW_KEY) === "") return "all";
+    return "list";
+  } catch (e) { return "list"; }
 }
+function autoVoteEnabled() { return autoVoteMode() !== "off"; }
 function autoVoteAllow() {
   try {
     const raw = localStorage.getItem(AUTO_VOTE_ALLOW_KEY);
     if (raw === null) return AUTO_VOTE_DEFAULT_ALLOW.slice();   // untouched -> the shipped default
-    const list = raw.split(/[\s,]+/).filter(Boolean);           // "" means the user CLEARED it: any recipient
+    const list = raw.split(/[\s,]+/).filter(Boolean);           // "" means the user CLEARED it (autoVoteMode reads that as "all")
     // NON-DESTRUCTIVE UPGRADE: a stored list identical to the PREVIOUS shipped default was never a real
     // choice, so it follows the default forward and picks up "faucet". A list the user actually edited —
     // including one they cleared, and including one they deliberately removed faucet from — is returned
@@ -10714,25 +10728,26 @@ function autoVoteAllow() {
 /* WHICH proposals to auto-vote — pure, so the fee-safety rules are testable without a DOM or a chain.
  * Returns {pick:[...], reason} where reason is "" when pick is authoritative. Every rule here exists to
  * stop the wallet spending fees in a loop, which is the only way this feature can quietly hurt someone. */
-function autoVotePicks(props, canPropose, submitted, allow) {
+function autoVotePicks(props, canPropose, submitted, allow, mode = "list") {
   if (!canPropose) return { pick: [], reason: "ineligible" };
   const open = (props || []).filter(p => p && p.status === "open");
   // A node that does not report `voted` cannot tell us what we already did. Voting anyway re-submits a
   // fee-bearing vote on EVERY refresh (a re-vote overwrites, so it is silent), and renderQuorum runs on a
   // timer — so refuse rather than guess.
   if (open.some(p => typeof p.voted !== "boolean")) return { pick: [], reason: "no_voted_flag" };
-  // WHITELIST: when set, only proposals paying one of these recipients are auto-approved; everything else
-  // waits for a human. Empty means "any recipient", which is the plain form of the feature. `voted` is
+  // THE MODE (autoVoteMode): "all" approves every open proposal; "list" only those paying a listed recipient — an EMPTY
+  // list approves no one (it meant everyone until "all" became its own choice, 2026-11-21); "off" nothing. `voted` is
   // "has cast a vote, yes OR no", so a deliberate no is never flipped to yes.
+  if (mode === "off") return { pick: [], reason: "" };
   const wl = (allow || []).map(a => String(a).trim().toLowerCase()).filter(Boolean);
-  const ok = (p) => !wl.length || wl.indexOf(String(p.recipient || "").toLowerCase()) !== -1;
+  const ok = (p) => mode === "all" || wl.indexOf(String(p.recipient || "").toLowerCase()) !== -1;
   return { pick: open.filter(p => !p.voted && !submitted.has(p.pid) && ok(p)), reason: "" };
 }
 
 async function autoVoteYes(props, canPropose) {
   const note = $("qAutoYesMsg");
   if (!autoVoteEnabled() || _autoVoting || !state.wallet) return;
-  const { pick: todo, reason } = autoVotePicks(props, canPropose, _autoVoted, autoVoteAllow());
+  const { pick: todo, reason } = autoVotePicks(props, canPropose, _autoVoted, autoVoteAllow(), autoVoteMode());
   if (reason === "no_voted_flag") {
     if (note) note.innerHTML = '<span class="warn">' + i18("quorum.autoYesNoFlag",
       "Auto-vote is idle: this node doesn't report whether you've already voted, and voting blindly would resubmit a fee every refresh.") + "</span>";
@@ -10785,11 +10800,11 @@ async function autoVoteTick(now = Date.now()) {
   return true;
 }
 function wireAutoVoteToggle() {
-  const el = $("qAutoYes");
+  const el = $("qAutoMode");
   if (!el) return;
-  el.checked = autoVoteEnabled();      // ON by default, scoped to AUTO_VOTE_DEFAULT_ALLOW
+  el.value = autoVoteMode();           // "list" by default, scoped to AUTO_VOTE_DEFAULT_ALLOW
   const row = $("qAutoYesRow"), ta = $("qAutoYesAllow");
-  const show = () => { if (row) row.classList.toggle("hidden", !el.checked); };
+  const show = () => { if (row) row.classList.toggle("hidden", el.value !== "list"); };   // the recipients matter in "list" alone
   if (ta && !ta._wired) {
     ta._wired = true;
     ta.value = autoVoteAllow().join("\n");
@@ -10803,9 +10818,10 @@ function wireAutoVoteToggle() {
   }
   show();
   el.onchange = () => {
-    try { localStorage.setItem("nado_auto_vote_yes", el.checked ? "1" : "0"); } catch (e) {}
+    if (!AUTO_VOTE_MODES.includes(el.value)) return;
+    try { localStorage.setItem("nado_auto_vote_mode", el.value); } catch (e) {}
     show();
-    if (el.checked) renderQuorum().catch(() => {});
+    if (el.value !== "off") renderQuorum().catch(() => {});
     else { const n = $("qAutoYesMsg"); if (n) n.textContent = ""; }
   };
 }

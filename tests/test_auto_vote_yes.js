@@ -16,7 +16,7 @@ const SRC = fs.readFileSync(path.join(__dirname, "..", "static", "interface.js")
 
 // Lift the pure function out of the wallet bundle rather than re-typing it — a copy in the test would
 // happily keep passing after the real one changed, which is the failure mode this repo keeps hitting.
-const m = SRC.match(/function autoVotePicks\(props, canPropose, submitted, allow\) \{[\s\S]*?\n\}/);
+const m = SRC.match(/function autoVotePicks\(props, canPropose, submitted, allow, mode = "list"\) \{[\s\S]*?\n\}/);
 if (!m) { console.error("FAIL  could not find autoVotePicks in static/interface.js"); process.exit(1); }
 const autoVotePicks = new Function(m[0] + "; return autoVotePicks;")();
 
@@ -28,16 +28,18 @@ function check(name, fn) {
 function eq(a, b, m) { if (a !== b) throw new Error((m || "") + " expected " + JSON.stringify(b) + ", got " + JSON.stringify(a)); }
 
 const P = (pid, status, voted, recipient) => ({ pid, status, voted, recipient: recipient || "x",
+// (the rules below are the mode-independent ones — already voted, already sent, not open — checked in "all", where no
+// recipient list narrows the pick)
                                                 amount: 1, memo: "", nonce: 1, expiry: 9 });
 
 check("picks open proposals we have not voted on", () => {
-  const r = autoVotePicks([P("a", "open", false), P("b", "open", false)], true, new Set());
+  const r = autoVotePicks([P("a", "open", false), P("b", "open", false)], true, new Set(), [], "all");
   eq(r.reason, "");
   eq(r.pick.length, 2);
 });
 
 check("never re-votes something already voted on chain", () => {
-  const r = autoVotePicks([P("a", "open", true), P("b", "open", false)], true, new Set());
+  const r = autoVotePicks([P("a", "open", true), P("b", "open", false)], true, new Set(), [], "all");
   eq(r.pick.length, 1);
   eq(r.pick[0].pid, "b");
 });
@@ -45,12 +47,12 @@ check("never re-votes something already voted on chain", () => {
 check("never re-votes something submitted this session", () => {
   // A vote takes a few blocks to confirm, so the next refresh still sees voted=false. Without this the
   // wallet pays the fee again on every timer tick until the block lands.
-  const r = autoVotePicks([P("a", "open", false)], true, new Set(["a"]));
+  const r = autoVotePicks([P("a", "open", false)], true, new Set(["a"]), [], "all");
   eq(r.pick.length, 0);
 });
 
 check("ignores proposals that are not open", () => {
-  const r = autoVotePicks([P("a", "passed", false), P("b", "executed", false)], true, new Set());
+  const r = autoVotePicks([P("a", "passed", false), P("b", "executed", false)], true, new Set(), [], "all");
   eq(r.pick.length, 0, "passed/executed proposals must never be voted on");
 });
 
@@ -80,9 +82,20 @@ check("handles an empty or missing proposal list", () => {
   eq(autoVotePicks(undefined, true, new Set()).pick.length, 0);
 });
 
-check("an empty whitelist means any recipient", () => {
-  const r = autoVotePicks([P("a", "open", false, "alice"), P("b", "open", false, "bob")], true, new Set(), []);
-  eq(r.pick.length, 2);
+// THREE MODES (operator 2026-11-21: "people will probably abuse this ... auto vote on whitelisted / auto vote on all / no
+// auto vote"): an empty list meant "everyone" until "all" became its own choice — one stray delete away from voting yes
+// on every proposal, now once a minute from every tab
+check("in the whitelisted mode an EMPTY list approves no one", () => {
+  const r = autoVotePicks([P("a", "open", false, "alice"), P("b", "open", false, "bob")], true, new Set(), [], "list");
+  eq(r.pick.length, 0);
+  eq(autoVotePicks([P("a", "open", false, "alice")], true, new Set(), []).pick.length, 0, "and the whitelisted mode is the default");
+});
+check("\"every proposal\" approves every open one not yet voted on, whatever the list says", () => {
+  const r = autoVotePicks([P("a", "open", false, "alice"), P("b", "open", false, "bob"), P("c", "open", true, "carol")], true, new Set(), ["alice"], "all");
+  eq(r.pick.map(p => p.pid).join(","), "a,b");
+});
+check("\"off\" approves nothing", () => {
+  eq(autoVotePicks([P("a", "open", false, "alice")], true, new Set(), ["alice"], "off").pick.length, 0);
 });
 
 check("a whitelist restricts to its recipients", () => {
@@ -114,11 +127,17 @@ check("the shipped default is ON but SCOPED to a recipient list", () => {
   // Shipping this ON means a wallet casts fee-bearing governance votes unattended. That is only defensible
   // while it is NARROW: a default of "approve every proposal" would hand a yes vote to whoever proposed
   // first. Pin both halves — enabled by default, AND a non-empty default recipient list.
-  const en = SRC.match(/function autoVoteEnabled\(\)[\s\S]*?\n\}/);
-  if (!en) throw new Error("autoVoteEnabled not found");
-  const enabled = new Function("localStorage", en[0] + "; return autoVoteEnabled();");
-  eq(enabled({ getItem: () => null }), true, "untouched wallet must default ON");
-  eq(enabled({ getItem: () => "0" }), false, "an explicit off must stick");
+  const md = SRC.match(/const AUTO_VOTE_MODES = \[[^\]]*\];\nfunction autoVoteMode\(\) \{[\s\S]*?\n\}\nfunction autoVoteEnabled\(\) \{[^\n]*\}/);
+  const kl0 = SRC.match(/const AUTO_VOTE_ALLOW_KEY = "[^"]+";/);
+  if (!md || !kl0) throw new Error("autoVoteMode / autoVoteEnabled not found");
+  const mode = (store) => new Function("localStorage", kl0[0] + "\n" + md[0] + "; return [autoVoteMode(), autoVoteEnabled()];")({ getItem: (k) => (k in store ? store[k] : null) });
+  const ALLOW = kl0[0].match(/"([^"]+)"/)[1];
+  eq(JSON.stringify(mode({})), JSON.stringify(["list", true]), "an untouched wallet must default to the whitelisted mode, ON");
+  eq(mode({ nado_auto_vote_yes: "0" })[0], "off", "an explicit off from the old switch must stick");
+  eq(mode({ [ALLOW]: "" })[0], "all", "a deliberately cleared list (which meant everyone) keeps meaning everyone, now as its own mode");
+  eq(mode({ [ALLOW]: "abc" })[0], "list", "a wallet with its own list is in the whitelisted mode");
+  eq(mode({ nado_auto_vote_mode: "off", [ALLOW]: "" })[0], "off", "a chosen mode wins over everything older");
+  eq(mode({ nado_auto_vote_mode: "bogus" })[0], "list", "an unknown stored mode falls back to the default");
 
   const dl = SRC.match(/const AUTO_VOTE_DEFAULT_ALLOW = \[[^\]]*\];/);
   if (!dl) throw new Error("AUTO_VOTE_DEFAULT_ALLOW not found");
@@ -148,7 +167,7 @@ check("an untouched wallet only approves the default recipients", () => {
   eq(r.pick.length, 0, "the default list must not approve an unrelated recipient");
   const r2 = autoVotePicks([P("b", "open", false, def[0])], true, new Set(), def);
   eq(r2.pick.length, 1, "the default list must approve its own recipient");
-  eq(mk("").length, 0, "CLEARING the box means any recipient — an explicit user choice, not the default");
+  eq(mk("").length, 0, "a CLEARED box is no recipients (autoVoteMode reads a wallet's old cleared box as \"all\")");
   // every earlier shipped default follows forward — the gen-27 one named the operator's OLD address, which matches no
   // proposal on a format-2 chain — while a list the user edited stays exactly as stored
   const prevs = new Function(pl[0] + "; return AUTO_VOTE_PREV_DEFAULTS;")();
@@ -180,12 +199,18 @@ check("the UI discloses that it is on and what it votes for", () => {
   // A default that spends someone's fees and casts their governance vote must be visible in the UI, not
   // only in the code. This is the check that stops it from quietly becoming silent.
   const html = fs.readFileSync(path.join(__dirname, "..", "static", "interface.html"), "utf8");
-  const i = html.indexOf("quorum.autoYesSub");
+  const i = html.indexOf("quorum.autoModeSub");
   if (i < 0) throw new Error("the auto-vote description is missing from interface.html");
   const txt = html.slice(i, html.indexOf("</span>", i)).toLowerCase();
-  for (const phrase of ["on by default", "fee", "switch this off"]) {
+  for (const phrase of ["on by default", "fee", "switch this off", "once a minute"]) {
     if (txt.indexOf(phrase) === -1) throw new Error('the description must say "' + phrase + '"');
   }
+  // the three modes, as one choice, the whitelisted one first (and the default the code reads)
+  const sel = html.slice(html.indexOf('<select id="qAutoMode"'), html.indexOf("</select>", html.indexOf('<select id="qAutoMode"')));
+  const vals = [...sel.matchAll(/<option value="([a-z]+)"/g)].map((m) => m[1]).join(",");
+  eq(vals, "list,all,off", "the mode choice offers whitelisted, every proposal and off, in that order");
+  const ls = html.slice(html.indexOf("quorum.autoModeListSub"), html.indexOf("</span>", html.indexOf("quorum.autoModeListSub"))).toLowerCase();
+  if (ls.indexOf("empty list approves no one") === -1) throw new Error("the recipient box must say an empty list approves no one");
 });
 
 check("it never executes a payout", () => {
