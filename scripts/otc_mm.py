@@ -33,7 +33,10 @@ BLOCKS = 28330                                           # ≈ 48 h at 6.1 s
 from decimal import Decimal as _D
 CENTRE, STEP_PCT, RUNG_NADO, RUNGS = _D("0.00067"), _D("1.05"), 10, 8
 LADDER = [(RUNG_NADO, format((RUNG_NADO * CENTRE * STEP_PCT ** i).quantize(_D("1e-8")).normalize(), "f")) for i in range(RUNGS)]   # (NADO, ETH)
-BUDGET_NADO = 80                    # the most the ladder's live positions may hold (operator 2026-11-21)
+# THE LADDER IS OFF (operator 2026-11-21, an hour after "fill the order book": "please remove the orders placed from my
+# own balance of this nodes wallet ... and put them into staking"). 0: refill posts nothing; `cancel` takes the open asks
+# off the book. Was 80.
+BUDGET_NADO = 0                     # the most the ladder's live positions may hold
 REFILL_S = 60                       # how often the watcher tops the ladder up — one rung a pass
 NOT_POSTED_BLOCKS = 200             # a position whose order is still not on the book this long after posting never landed
 RAW = 10 ** 10
@@ -161,11 +164,38 @@ def refill(kd):
         if i in held:
             continue
         if committed + nado > BUDGET_NADO:
-            return None
+            return _hold(f"budget: {committed} of {BUDGET_NADO} NADO on the ladder")
         if spend - owed < nado * RAW + 10 * MIN_TX_FEE:
-            return None
+            # SAID, NOT SILENT (2026-11-21: one rung went up and the rest never did, with nothing in the log — the wallet
+            # had 15 NADO spendable, and an hour went to finding that out)
+            return _hold(f"wallet: {spend / RAW:.2f} NADO spendable, {owed / RAW:.2f} owed to orders that may yet lock — "
+                         f"rung {i} ({nado} NADO) waits for more")
+        _hold(None)
         return post_one(kd, nado, ethamt, rung=i)
+    return _hold("the ladder is full")
+
+
+_held_why = None
+def _hold(why):
+    """Log why the ladder is not growing — once per change of reason, not every pass."""
+    global _held_why
+    if why != _held_why and why is not None:
+        log("refill holds: " + why)
+    _held_why = why
     return None
+
+
+def cancel(kd):
+    """Take every OPEN ask of ours off the book (a cancel only works while nobody has taken it; a taken one runs its
+    course in watch). Each position then ends as "cancelled" in step(). Returns how many were sent."""
+    n = 0
+    for rec in mine():
+        o = rec["oid"]
+        if int(order(o)["st"] or 0) == 1:
+            blob(kd, {"op": "call", "contract": OTC, "method": "cancel", "args": [o]}, "cancel")
+            log(f"#{o} cancel sent ({rec['nado']} NADO for {rec['foreign']} ETH)"); n += 1
+    log(f"{n} open ask(s) cancelled")
+    return n
 
 
 def post(kd):
@@ -337,4 +367,5 @@ def watch(kd):
 
 if __name__ == "__main__":
     kd = load_keys(file=os.path.join(PRIV, "keys.dat"))
-    sys.exit(post(kd) if sys.argv[1] == "post" else watch(kd))
+    cmd = sys.argv[1]
+    sys.exit(post(kd) if cmd == "post" else (0 if cancel(kd) >= 0 else 1) if cmd == "cancel" else watch(kd))

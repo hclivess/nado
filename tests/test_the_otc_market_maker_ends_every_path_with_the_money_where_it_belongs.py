@@ -176,7 +176,10 @@ class Book:
 
 KD = {"address": "ndoMAKER"}
 check("the ladder: eight asks of 10 NADO from 0.00067 ETH a NADO, each 5 % over the last, exact to the wei",
-      M.LADDER[0] == (10, "0.0067") and len(M.LADDER) == 8 and M.LADDER[-1][1] == "0.00942757" and M.BUDGET_NADO == 80, M.LADDER)
+      M.LADDER[0] == (10, "0.0067") and len(M.LADDER) == 8 and M.LADDER[-1][1] == "0.00942757", M.LADDER)
+check("the ladder is OFF (operator 2026-11-21: the node wallet's NADO to staking instead): a budget of 0 posts nothing",
+      M.BUDGET_NADO == 0 and (lambda c, b: (M.refill(KD), b.posted)[1] == [])(*(lambda c: (c, Book(c, 500)))((lambda c: (c.install(), c)[1])(Chain()))))
+M.BUDGET_NADO = 80                                             # the refill's own behaviour, as it was when on
 c = Chain(); c.install(); b = Book(c, 200)
 r0 = M.refill(KD)
 check("an empty book: the lowest rung is posted, its secret on disk BEFORE the order",
@@ -218,6 +221,22 @@ rn = json.load(open(M.rec_path(rn["oid"])))
 c.cur = rn["posted_cur"] + M.NOT_POSTED_BLOCKS + 1; M.step(None, rn)
 check("…never on the book 200 blocks after posting: done, its rung freed and posted again",
       rn.get("done") == "not_posted" and M.refill(KD)["rung"] == 0, rn)
+
+# 10. a held ladder says why, once — not silently (the first live run held at one rung for an hour, its log empty)
+c = Chain(); c.install(); b = Book(c, 15); said = []; M.log = lambda *a: said.append(" ".join(map(str, a))); M._held_why = None
+M.refill(KD); M.refill(KD); M.refill(KD)
+holds = [x for x in said if x.startswith("refill holds")]
+check("a ladder the wallet cannot grow says why, once: " + (holds[0] if holds else "nothing said"),
+      len(b.posted) == 1 and len(holds) == 1 and "15.00 NADO spendable" in holds[0] and "10.00 owed" in holds[0], said)
+b.spend += 20 * M.RAW; M.refill(KD); b.spend -= 20 * M.RAW; M.refill(KD)
+check("…and again when it holds anew after growing", len([x for x in said if x.startswith("refill holds")]) == 2 and len(b.posted) == 2, said)
+
+# 11. cancel: every OPEN ask of ours off the book; a taken one is left to run its course
+c = Chain(); c.install(); b = Book(c, 200); ra = M.refill(KD); rb = M.refill(KD)
+st = {ra["oid"]: 1, rb["oid"]: 2}; M.order = lambda o: {"st": st[o]}
+n = M.cancel(KD)
+check("cancel takes the open ask off the book and leaves the taken one to finish",
+      n == 1 and sent(c, "cancel") == [("cancel", [ra["oid"]])], c.sent)
 
 print("ALL PASS — every otc_mm path ends with the money where it belongs" if not fails else f"{fails} FAILED")
 raise SystemExit(1 if fails else 0)
