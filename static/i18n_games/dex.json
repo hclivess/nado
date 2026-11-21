@@ -618,7 +618,9 @@
   "dex.limGivePh": "amount you give",
   "dex.limWantPh": "amount you want",
   "dex.limExpiryLbl": "Expiry, in blocks",
-  "dex.ftNote": "Everything here is public and verifiable on-chain. Supplying liquidity carries risk: if the price moves, you withdraw a different mix than you put in. Not investment advice."
+  "dex.ftNote": "Everything here is public and verifiable on-chain. Supplying liquidity carries risk: if the price moves, you withdraw a different mix than you put in. Not investment advice.",
+  "dex.tNoneX": "No swap has settled in this market yet.",
+  "dex.tTaker": "Taker"
  },
  "cs": {
   "dex.loading": "Načítám uvedení…",
@@ -1239,7 +1241,9 @@
   "dex.limGivePh": "množství, které dáváte",
   "dex.limWantPh": "množství, které chcete",
   "dex.limExpiryLbl": "Platnost, v blocích",
-  "dex.ftNote": "Vše zde je veřejné a ověřitelné na řetězci. Dodávání likvidity nese riziko: pokud se cena pohne, vyberete jiný poměr, než jste vložili. Nejde o investiční poradenství."
+  "dex.ftNote": "Vše zde je veřejné a ověřitelné na řetězci. Dodávání likvidity nese riziko: pokud se cena pohne, vyberete jiný poměr, než jste vložili. Nejde o investiční poradenství.",
+  "dex.tNoneX": "Na tomto trhu se zatím nevypořádal žádný swap.",
+  "dex.tTaker": "Příjemce"
  },
  "es": {
   "dex.loading": "Cargando lanzamientos…",
@@ -1860,7 +1864,9 @@
   "dex.limGivePh": "cantidad que das",
   "dex.limWantPh": "cantidad que quieres",
   "dex.limExpiryLbl": "Vencimiento, en bloques",
-  "dex.ftNote": "Todo aquí es público y verificable en cadena. Aportar liquidez conlleva riesgo: si el precio se mueve, retiras una combinación distinta de la que pusiste. No es asesoramiento de inversión."
+  "dex.ftNote": "Todo aquí es público y verificable en cadena. Aportar liquidez conlleva riesgo: si el precio se mueve, retiras una combinación distinta de la que pusiste. No es asesoramiento de inversión.",
+  "dex.tNoneX": "Aún no se ha liquidado ningún intercambio en este mercado.",
+  "dex.tTaker": "Tomador"
  },
  "pt": {
   "dex.loading": "Carregando lançamentos…",
@@ -2481,7 +2487,9 @@
   "dex.limGivePh": "quantidade que você dá",
   "dex.limWantPh": "quantidade que você quer",
   "dex.limExpiryLbl": "Expiração, em blocos",
-  "dex.ftNote": "Tudo aqui é público e verificável on-chain. Fornecer liquidez envolve risco: se o preço mudar, você saca uma combinação diferente da que colocou. Não é recomendação de investimento."
+  "dex.ftNote": "Tudo aqui é público e verificável on-chain. Fornecer liquidez envolve risco: se o preço mudar, você saca uma combinação diferente da que colocou. Não é recomendação de investimento.",
+  "dex.tNoneX": "Ainda nenhuma troca foi liquidada neste mercado.",
+  "dex.tTaker": "Tomador"
  },
  "fr": {
   "dex.loading": "Chargement des lancements…",
@@ -3102,7 +3110,9 @@
   "dex.limGivePh": "montant que vous donnez",
   "dex.limWantPh": "montant que vous voulez",
   "dex.limExpiryLbl": "Expiration, en blocs",
-  "dex.ftNote": "Tout ici est public et vérifiable on-chain. Fournir de la liquidité comporte un risque : si le prix bouge, vous retirez un mélange différent de celui que vous avez déposé. Ceci n'est pas un conseil en investissement."
+  "dex.ftNote": "Tout ici est public et vérifiable on-chain. Fournir de la liquidité comporte un risque : si le prix bouge, vous retirez un mélange différent de celui que vous avez déposé. Ceci n'est pas un conseil en investissement.",
+  "dex.tNoneX": "Aucun échange n'a encore été réglé sur ce marché.",
+  "dex.tTaker": "Preneur"
  },
  "de": {
   "dex.loading": "Launches werden geladen…",
@@ -3723,7 +3733,9 @@
   "dex.limGivePh": "Menge, die du gibst",
   "dex.limWantPh": "Menge, die du willst",
   "dex.limExpiryLbl": "Ablauf, in Blöcken",
-  "dex.ftNote": "Alles hier ist öffentlich und on-chain überprüfbar. Liquidität bereitzustellen birgt Risiken: Bewegt sich der Preis, hebst du eine andere Mischung ab, als du eingezahlt hast. Keine Anlageberatung."
+  "dex.ftNote": "Alles hier ist öffentlich und on-chain überprüfbar. Liquidität bereitzustellen birgt Risiken: Bewegt sich der Preis, hebst du eine andere Mischung ab, als du eingezahlt hast. Keine Anlageberatung.",
+  "dex.tNoneX": "In diesem Markt wurde noch kein Tausch abgewickelt.",
+  "dex.tTaker": "Nehmer"
  },
  "it": {
   "dex.loading": "Caricamento dei lanci…",
@@ -4344,7 +4356,9 @@
   "dex.limGivePh": "importo che dai",
   "dex.limWantPh": "importo che vuoi",
   "dex.limExpiryLbl": "Scadenza, in blocchi",
-  "dex.ftNote": "Tutto qui è pubblico e verificabile on-chain. Fornire liquidità comporta rischi: se il prezzo si muove, ritiri un mix diverso da quello che hai versato. Non è una consulenza finanziaria."
+  "dex.ftNote": "Tutto qui è pubblico e verificabile on-chain. Fornire liquidità comporta rischi: se il prezzo si muove, ritiri un mix diverso da quello che hai versato. Non è una consulenza finanziaria.",
+  "dex.tNoneX": "Nessuno scambio è ancora stato regolato in questo mercato.",
+  "dex.tTaker": "Taker"
  },
  "ru": {
   "dex.loading": "Загрузка запусков…",
@@ -4965,7 +4979,9 @@
   "dex.limGivePh": "сколько вы отдаёте",
   "dex.limWantPh": "сколько вы хотите",
   "dex.limExpiryLbl": "Срок, в блоках",
-  "dex.ftNote": "Всё здесь публично и проверяемо ончейн. Предоставление ликвидности связано с риском: если цена изменится, вы выведете другое соотношение, чем внесли. Не является инвестиционной рекомендацией."
+  "dex.ftNote": "Всё здесь публично и проверяемо ончейн. Предоставление ликвидности связано с риском: если цена изменится, вы выведете другое соотношение, чем внесли. Не является инвестиционной рекомендацией.",
+  "dex.tNoneX": "На этом рынке ещё не завершено ни одного обмена.",
+  "dex.tTaker": "Тейкер"
  },
  "zh": {
   "dex.loading": "正在加载发行…",
@@ -5586,7 +5602,9 @@
   "dex.limGivePh": "你付出的数量",
   "dex.limWantPh": "你想要的数量",
   "dex.limExpiryLbl": "过期时间（区块数）",
-  "dex.ftNote": "这里的一切都是公开的，可在链上验证。提供流动性存在风险：如果价格变动，你撤出的资产组合将与投入时不同。不构成投资建议。"
+  "dex.ftNote": "这里的一切都是公开的，可在链上验证。提供流动性存在风险：如果价格变动，你撤出的资产组合将与投入时不同。不构成投资建议。",
+  "dex.tNoneX": "此市场尚无已结算的兑换。",
+  "dex.tTaker": "吃单方"
  },
  "ja": {
   "dex.loading": "ローンチを読み込み中…",
@@ -6207,7 +6225,9 @@
   "dex.limGivePh": "渡す数量",
   "dex.limWantPh": "欲しい数量",
   "dex.limExpiryLbl": "有効期限（ブロック数）",
-  "dex.ftNote": "ここにあるものはすべて公開されており、オンチェーンで検証できます。流動性の提供にはリスクがあります：価格が動くと、預け入れたときとは異なる組み合わせで引き出すことになります。投資助言ではありません。"
+  "dex.ftNote": "ここにあるものはすべて公開されており、オンチェーンで検証できます。流動性の提供にはリスクがあります：価格が動くと、預け入れたときとは異なる組み合わせで引き出すことになります。投資助言ではありません。",
+  "dex.tNoneX": "この市場ではまだスワップが決済されていません。",
+  "dex.tTaker": "テイカー"
  },
  "ko": {
   "dex.loading": "런치 불러오는 중…",
@@ -6828,7 +6848,9 @@
   "dex.limGivePh": "주는 수량",
   "dex.limWantPh": "원하는 수량",
   "dex.limExpiryLbl": "만료(블록 수)",
-  "dex.ftNote": "여기의 모든 것은 공개되어 있으며 온체인에서 검증할 수 있습니다. 유동성 공급에는 위험이 따릅니다: 가격이 움직이면 넣은 것과 다른 구성으로 인출하게 됩니다. 투자 조언이 아닙니다."
+  "dex.ftNote": "여기의 모든 것은 공개되어 있으며 온체인에서 검증할 수 있습니다. 유동성 공급에는 위험이 따릅니다: 가격이 움직이면 넣은 것과 다른 구성으로 인출하게 됩니다. 투자 조언이 아닙니다.",
+  "dex.tNoneX": "이 시장에서는 아직 결제된 스왑이 없습니다.",
+  "dex.tTaker": "테이커"
  },
  "ar": {
   "dex.loading": "جارٍ تحميل الإطلاقات…",
@@ -7449,7 +7471,9 @@
   "dex.limGivePh": "الكمية التي تعطيها",
   "dex.limWantPh": "الكمية التي تريدها",
   "dex.limExpiryLbl": "مدة الصلاحية، بالكتل",
-  "dex.ftNote": "كل شيء هنا علني وقابل للتحقق على السلسلة. تزويد السيولة ينطوي على مخاطر: إذا تحرّك السعر، تسحب مزيجًا مختلفًا عمّا أودعته. ليست نصيحة استثمارية."
+  "dex.ftNote": "كل شيء هنا علني وقابل للتحقق على السلسلة. تزويد السيولة ينطوي على مخاطر: إذا تحرّك السعر، تسحب مزيجًا مختلفًا عمّا أودعته. ليست نصيحة استثمارية.",
+  "dex.tNoneX": "لم تُسوَّ أي مبادلة في هذا السوق بعد.",
+  "dex.tTaker": "الآخذ"
  },
  "hi": {
   "dex.loading": "लॉन्च लोड हो रहे हैं…",
@@ -8070,7 +8094,9 @@
   "dex.limGivePh": "आप जितना देंगे",
   "dex.limWantPh": "आप जितना चाहते हैं",
   "dex.limExpiryLbl": "एक्सपायरी, ब्लॉक में",
-  "dex.ftNote": "यहाँ सब कुछ सार्वजनिक है और ऑन-चेन सत्यापित किया जा सकता है। लिक्विडिटी देने में जोखिम है: अगर कीमत बदलती है, तो आप जो डाला था उससे अलग मिश्रण निकालते हैं। यह निवेश सलाह नहीं है।"
+  "dex.ftNote": "यहाँ सब कुछ सार्वजनिक है और ऑन-चेन सत्यापित किया जा सकता है। लिक्विडिटी देने में जोखिम है: अगर कीमत बदलती है, तो आप जो डाला था उससे अलग मिश्रण निकालते हैं। यह निवेश सलाह नहीं है।",
+  "dex.tNoneX": "इस बाज़ार में अभी तक कोई स्वैप निपटा नहीं है।",
+  "dex.tTaker": "टेकर"
  },
  "tr": {
   "dex.loading": "Lansmanlar yükleniyor…",
@@ -8691,7 +8717,9 @@
   "dex.limGivePh": "verdiğin miktar",
   "dex.limWantPh": "istediğin miktar",
   "dex.limExpiryLbl": "Süre, blok cinsinden",
-  "dex.ftNote": "Buradaki her şey herkese açıktır ve zincir üzerinde doğrulanabilir. Likidite sağlamak risk taşır: fiyat değişirse, yatırdığından farklı bir karışım çekersin. Yatırım tavsiyesi değildir."
+  "dex.ftNote": "Buradaki her şey herkese açıktır ve zincir üzerinde doğrulanabilir. Likidite sağlamak risk taşır: fiyat değişirse, yatırdığından farklı bir karışım çekersin. Yatırım tavsiyesi değildir.",
+  "dex.tNoneX": "Bu piyasada henüz hiçbir takas sonuçlanmadı.",
+  "dex.tTaker": "Alıcı taraf"
  },
  "id": {
   "dex.loading": "Memuat peluncuran…",
@@ -9312,7 +9340,9 @@
   "dex.limGivePh": "jumlah yang Anda berikan",
   "dex.limWantPh": "jumlah yang Anda inginkan",
   "dex.limExpiryLbl": "Kedaluwarsa, dalam blok",
-  "dex.ftNote": "Semua di sini publik dan bisa diverifikasi on-chain. Menyediakan likuiditas mengandung risiko: jika harga bergerak, Anda menarik campuran yang berbeda dari yang Anda setor. Bukan saran investasi."
+  "dex.ftNote": "Semua di sini publik dan bisa diverifikasi on-chain. Menyediakan likuiditas mengandung risiko: jika harga bergerak, Anda menarik campuran yang berbeda dari yang Anda setor. Bukan saran investasi.",
+  "dex.tNoneX": "Belum ada swap yang diselesaikan di pasar ini.",
+  "dex.tTaker": "Pengambil"
  },
  "vi": {
   "dex.loading": "Đang tải các đợt ra mắt…",
@@ -9933,7 +9963,9 @@
   "dex.limGivePh": "số lượng bạn đưa",
   "dex.limWantPh": "số lượng bạn muốn",
   "dex.limExpiryLbl": "Thời hạn, tính bằng khối",
-  "dex.ftNote": "Mọi thứ ở đây đều công khai và có thể xác minh on-chain. Cung cấp thanh khoản có rủi ro: nếu giá thay đổi, bạn sẽ rút ra một tổ hợp khác với lúc bỏ vào. Không phải lời khuyên đầu tư."
+  "dex.ftNote": "Mọi thứ ở đây đều công khai và có thể xác minh on-chain. Cung cấp thanh khoản có rủi ro: nếu giá thay đổi, bạn sẽ rút ra một tổ hợp khác với lúc bỏ vào. Không phải lời khuyên đầu tư.",
+  "dex.tNoneX": "Chưa có giao dịch hoán đổi nào được tất toán trên thị trường này.",
+  "dex.tTaker": "Bên khớp lệnh"
  },
  "pl": {
   "dex.loading": "Wczytywanie premier…",
@@ -10554,6 +10586,8 @@
   "dex.limGivePh": "kwota, którą dajesz",
   "dex.limWantPh": "kwota, którą chcesz",
   "dex.limExpiryLbl": "Ważność, w blokach",
-  "dex.ftNote": "Wszystko tutaj jest publiczne i weryfikowalne w łańcuchu. Dostarczanie płynności niesie ryzyko: jeśli cena się zmieni, wypłacisz inną mieszankę niż wpłaciłeś. To nie jest porada inwestycyjna."
+  "dex.ftNote": "Wszystko tutaj jest publiczne i weryfikowalne w łańcuchu. Dostarczanie płynności niesie ryzyko: jeśli cena się zmieni, wypłacisz inną mieszankę niż wpłaciłeś. To nie jest porada inwestycyjna.",
+  "dex.tNoneX": "Na tym rynku nie rozliczono jeszcze żadnej wymiany.",
+  "dex.tTaker": "Biorca"
  }
 }

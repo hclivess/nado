@@ -1104,6 +1104,26 @@ function bookOf(net) {
   const bb = bids[0] ? bids[0].px : 0, ba = asks[0] ? asks[0].px : 0;
   return { bids, asks, bb, ba, mid: bb && ba ? (bb + ba) / 2 : (bb || ba) };
 }
+// ---- the cross-chain market's trades (operator 2026-11-22: "there is no trade history"): the trades table was the AMM
+// pools' alone, so a settled ETH or BTC swap showed nowhere but as a price on the chart. A trade here is an order the swap
+// contract holds SETTLED (st 3) in this market — the contract is the record, as for the book — newest first: when it was
+// filled (its fill height, at ~6 s a block), who bought NADO and who sold it (the taker of an ask bought it), the price in
+// NADO per coin as the book shows it, both amounts, and the taker.
+function xTrades(key) {
+  return otcOrders().filter((od) => od.st === 3 && mktKeyOf(od) === key && od.kind !== OTC_INTRA)
+    .sort((a, b) => (b.fillh || 0) - (a.fillh || 0)).slice(0, 40);
+}
+function renderXTrades(boxId, key, coin) {
+  const box = $(boxId); if (!box) return;
+  const list = xTrades(key);
+  if (!list.length) { box.innerHTML = `<p class="small dim">${esc(LT("tNoneX", "No swap has settled in this market yet."))}</p>`; return; }
+  const ago = (od) => (dapp.cursor && od.fillh ? fmtAgo(Date.now() - Math.max(0, dapp.cursor - od.fillh) * 6000) : "—");
+  box.innerHTML = `<div class="mtwrap"><table class="mt-table trades"><thead><tr><th>${esc(LT("tTime", "Time"))}</th><th>${esc(LT("tType", "Type"))}</th><th>${esc(LT("mtPrice", "Price (NADO)"))}</th><th>NADO</th><th>${esc(coin)}</th><th>${esc(LT("tTaker", "Taker"))}</th></tr></thead><tbody>`
+    + list.map((od) => { const buy = od.kind === OTC_ASK;     // the taker of an ask bought the NADO
+      return `<tr><td class="dim">${esc(ago(od))}</td><td class="${buy ? "up" : "dn"}">${esc(buy ? LT("tBuy", "Buy") : LT("tSell", "Sell"))}</td>`
+        + `<td>${fmtPrice(otcPrice(od))}</td><td>${esc(rawToNado(String(od.namtRaw)))}</td><td>${esc(od.wamt)}</td>`
+        + `<td class="dim" title="${esc(od.taker || "")}">${esc(shortAddr(od.taker))}</td></tr>`; }).join("") + `</tbody></table></div>`;
+}
 function renderXMarket() {
   if (wantMarket) { const hit = xMarkets("main").concat(xMarkets("test")).find((m) => m.coin.toUpperCase() === wantMarket);
     if (hit) { setEnv(envOf(hit.net)); xsel = hit.key; wantMarket = null; } }
@@ -1179,6 +1199,7 @@ function renderXMarket() {
       : LT("reqBtc", "No extra wallet needed: this page builds and signs the Bitcoin side itself and shows you the address to fund.");
   }
   renderChart(XKEY(xsel), "NADO", `1 ${net.coin} =`);
+  renderXTrades("mktTrades", xsel, net.coin);
   renderBookDepth(b, net.coin, blk ? (xEnv === "main" ? LT("depthSoonMain", "trading opens when the swap contract is live — try Testnet") : LT("depthSoonTest", "trading opens when the swap program is live")) : "");
   syncUrl(false);
 }
@@ -2474,7 +2495,7 @@ function renderMarket() {
 // the cross-chain book (whose prices are order-book mids, not trades)
 function boardFor(amm) {
   const show = (id, on) => { const e = $(id); if (e) e.classList.toggle("hidden", !on); };
-  show("mktTf", amm); show("mktTradesWrap", amm); show("mktRanges", !amm);
+  show("mktTf", amm); show("mktTradesWrap", true); show("mktRanges", !amm);   // trades in both venues (the cross-chain ones: xTrades)
   const svg = $("mktChart"); if (svg && svg._amm !== amm) { svg._amm = amm; svg.innerHTML = ""; svg._cs = null; }
 }
 // --- the price line chart: SVG, crosshair + tooltip (dataviz interaction layer) ---
@@ -2592,6 +2613,9 @@ async function refresh() {
     await ixStats();
     samplePrices(lastSto);
     await otcRefresh();
+    // the chain's height for a visitor too: it came only with a signed-in wallet's refresh, so a signed-out page measured
+    // nothing against it — every swap's "when" read "—" (2026-11-22) and every countdown waited on a cursor it never got
+    await dapp._cursor().catch(() => {});
     render();
     renderTicker();
     swapAutopilot().catch(() => {});
