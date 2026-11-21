@@ -197,5 +197,41 @@ check("it never executes a payout", () => {
 });
 
 console.log();
-if (fails) { console.log(fails + " FAILURES"); process.exit(1); }
-console.log("ALL PASS");
+// ---- FROM EVERY TAB, ON A TIMER (operator 2026-11-21: "default tab and all other tabs should also check periodically and
+// vote ... unless of course an address was removed from the whitelist"). The real autoVoteTick, lifted, against stubs.
+const tm = SRC.match(/const AUTO_VOTE_EVERY_MS = (\d+);\nlet _autoVoteAt = 0;\nasync function autoVoteTick\(now = Date\.now\(\)\) \{[\s\S]*?\n\}/);
+check("the wallet's poll asks for auto-votes on every pass, whatever tab is open", () => {
+  const poll = SRC.slice(SRC.indexOf("async function pollOnce() {"), SRC.indexOf("async function pollOnce() {") + 1200);
+  if (!poll.includes("autoVoteTick().catch(() => {});")) throw new Error("pollOnce does not call autoVoteTick");
+  if (!tm) throw new Error("autoVoteTick not found");
+});
+function tickWorld({ bonded, enabled = true, allow = ["me", "faucet"] }) {
+  const w = { asked: [], voted: [], fetched: 0 };
+  const env = {
+    state: { wallet: { address: "W" } }, _autoVoting: false, B_MIN_RAW: 10n,
+    autoVoteEnabled: () => enabled, relayBase: () => "",
+    getAccount: async () => ({ bonded: String(bonded) }),
+    fetch: async (u) => { w.fetched++; w.asked.push(u); return { json: async () => ({ proposals: [P("p1", "open", false, "me"), P("p2", "open", false, "stranger")] }) }; },
+    autoVoteYes: async (props, can) => { w.voted.push(autoVotePicks(props, can, new Set(), allow).pick.map((x) => x.pid)); },
+  };
+  const f = new Function(...Object.keys(env), tm[0] + "; return autoVoteTick;")(...Object.values(env));
+  return { w, f };
+}
+(async () => {
+  const a = tickWorld({ bonded: 50 });
+  await a.f(1_000_000); await a.f(1_030_000); await a.f(1_061_000);
+  check("…once a minute: three polls in 61 s ask twice", () => eq(a.w.fetched, 2));
+  check("…with this wallet's own vote state (the node's `voted` flag)", () => eq(a.w.asked[0], "/treasury_status?address=W"));
+  check("…and votes only the allow-listed recipient", () => eq(JSON.stringify(a.w.voted[0]), JSON.stringify(["p1"])));
+  const r = tickWorld({ bonded: 50, allow: ["faucet"] });
+  await r.f(2_000_000);
+  check("an address taken off the allow-list gets no vote on the next pass", () => eq(JSON.stringify(r.w.voted[0]), "[]"));
+  const u = tickWorld({ bonded: 5 });
+  await u.f(3_000_000);
+  check("an unbonded wallet (no vote would count) asks nothing further", () => eq(u.w.fetched, 0));
+  const off = tickWorld({ bonded: 50, enabled: false });
+  await off.f(4_000_000);
+  check("switched off, it does nothing", () => eq(off.w.fetched + off.w.voted.length, 0));
+  console.log(fails ? fails + " FAILED" : "ALL PASS");
+  process.exit(fails ? 1 : 0);
+})();

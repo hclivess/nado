@@ -4357,6 +4357,7 @@ async function pollOnce() {
   if (!netAdopted) refreshNetIdentity().catch(() => {});   // boot fetch lost to a blip: keep trying until adopted
   relayMaintain().catch(() => {});                          // pool refresh (time-gated) + drift back home
   if (state.wallet) { try { await fetchWalletView(state.wallet.address); } catch (e) { /* getters fall back */ } }
+  autoVoteTick().catch(() => {});                           // (every tab, once a minute — see autoVoteTick)
   try {
     const latest = await getLatestBlock();
     if (latest && typeof latest.block_number === "number") {
@@ -10762,6 +10763,26 @@ async function autoVoteYes(props, canPropose) {
       [6000, 15000, 30000].forEach(t => setTimeout(() => renderQuorum().catch(() => {}), t));
     }
   } finally { _autoVoting = false; }
+}
+// FROM EVERY TAB, ON A TIMER (operator 2026-11-21: "default tab and all other tabs should also check periodically and
+// vote"): autoVoteYes ran only when the Quorum view was drawn — opening that tab, or just after a vote there — so a wallet
+// left on its home screen never voted, and "dex funding" sat at 73 of 1,354 shares. The wallet's poll (every tab) now
+// asks once a minute: this wallet's bonded stake (no vote counts without it — an unbonded wallet asks nothing further),
+// then the open proposals WITH its own vote state, and hands them to autoVoteYes — the same rules: votes only, never a
+// payout; allow-listed recipients only, the list read fresh each pass (an address taken off the list gets no further
+// vote, "unless of course an address was removed from the whitelist"); each proposal once; idle without the node's
+// `voted` flag.
+const AUTO_VOTE_EVERY_MS = 60000;
+let _autoVoteAt = 0;
+async function autoVoteTick(now = Date.now()) {
+  if (!autoVoteEnabled() || !state.wallet || _autoVoting || now - _autoVoteAt < AUTO_VOTE_EVERY_MS) return false;
+  _autoVoteAt = now;
+  const acc = await getAccount(state.wallet.address);
+  const canPropose = BigInt((acc && acc.bonded) || 0) >= B_MIN_RAW;
+  if (!canPropose) return false;
+  const d = await (await fetch(relayBase() + "/treasury_status?address=" + encodeURIComponent(state.wallet.address), { cache: "no-store" })).json();
+  await autoVoteYes(d.proposals || [], canPropose);
+  return true;
 }
 function wireAutoVoteToggle() {
   const el = $("qAutoYes");
