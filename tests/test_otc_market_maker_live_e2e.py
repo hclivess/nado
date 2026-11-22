@@ -20,10 +20,16 @@ from signatures import generate_keydict              # noqa: E402
 MODE = sys.argv[1] if len(sys.argv) > 1 else ""
 if MODE not in ("pay", "walk"):
     raise SystemExit("LIVE test: python3 tests/test_otc_market_maker_live_e2e.py pay|walk")
-ST = os.path.join(M.PRIV, f"otc_mm_e2e_{MODE}_state.json")
-NADO_AMT, ETH_AMT = "0.1", "0.0002"                  # 0.1 NADO (raw 1e9) for 0.0002 ETH
+# A RUN'S NAME AND PRICE (operator 2026-11-22: "just make a few trades then so we know its not broken"): E2E_RUN names a
+# fresh run (its own state file — the 2026-11-04 runs' files would otherwise be resumed as finished), E2E_ETH the ETH for
+# the 0.1 NADO, so a check trade prints at the book's own price (0.000067 = the ladder's 0.00067 a NADO), not at a price
+# nobody quotes. Defaults: the 2026-11-04 run.
+RUN = os.environ.get("E2E_RUN", "")
+ST = os.path.join(M.PRIV, f"otc_mm_e2e_{MODE}{'_' + RUN if RUN else ''}_state.json")
+from decimal import Decimal as _D
+NADO_AMT, ETH_AMT = "0.1", os.environ.get("E2E_ETH", "0.0002")          # 0.1 NADO (raw 1e9) for ETH_AMT ETH
 RAW_AMT = 10 ** 9
-WEI = 200000000000000
+WEI = int(_D(ETH_AMT) * 10 ** 18)
 
 
 def save(s):
