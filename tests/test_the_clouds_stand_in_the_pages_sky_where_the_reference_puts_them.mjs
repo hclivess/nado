@@ -159,9 +159,14 @@ try {
     if (d[0] * fr.up[0] + d[1] * fr.up[1] + d[2] * fr.up[2] < 0.12) continue;      // the sky only
     alpha.set(x + "," + y, C.march(vol, eye, d, L, dr)[3]);
   }
-  let inN = 0, inD = 0, outN = 0, outD = 0, edgeN = 0, edgeD = 0;
+  let inN = 0, inD = 0, outN = 0, outD = 0, edgeN = 0, edgeD = 0, hidN = 0;
   for (const [k, a] of alpha) {
     const [x, y] = k.split(",").map(Number), o = (y * A.w + x) * 4;
+    // SKY ONLY, AS DRAWN: a pixel the clouds-off render shows as something other than sky (blue over green and red) is a
+    // tree or a bush standing in front of it. Since the trees are drawn tree-sized (16-20 m, 2026-11-21) the crowns at this
+    // place reach over the elevation the reference samples, and a cloud's shadow drifting across one read as "the clear
+    // sky changed" (4.5 before, 11.5-14.3 after; the difference image showed the crown, not the sky).
+    if (!(B.px[o + 2] > B.px[o + 1] && B.px[o + 2] > B.px[o])) { hidN++; continue; }
     const diff = (Math.abs(A.px[o] - B.px[o]) + Math.abs(A.px[o + 1] - B.px[o + 1]) + Math.abs(A.px[o + 2] - B.px[o + 2])) / 3;
     if (a > 0.8) { inN++; inD += diff; continue; }
     if (a >= 0.02) continue;
@@ -171,6 +176,7 @@ try {
     const ring = [[-6, -6], [0, -6], [6, -6], [-6, 0], [6, 0], [-6, 6], [0, 6], [6, 6]].map(([dx, dy]) => alpha.get((x + dx) + "," + (y + dy)));
     if (ring.every((b) => b === undefined || b < 0.02)) { outN++; outD += diff; } else { edgeN++; edgeD += diff; }
   }
+  console.log(`  (${hidN} sampled pixels behind a tree or a bush, left out)`);
   console.log(`  (measured: ${edgeN} clear pixels beside a heap, mean change ${(edgeD / Math.max(1, edgeN)).toFixed(1)}, left out of the clear-sky mean)`);
   ok(inN > 40 && outN > 40, `the view holds both heaps and clear sky by the reference (${inN} and ${outN} sampled pixels)`);
   ok(inN > 0 && inD / inN > 25, `the page draws a cloud where the reference sees a heap (mean change ${(inD / Math.max(1, inN)).toFixed(1)} of 255)`);

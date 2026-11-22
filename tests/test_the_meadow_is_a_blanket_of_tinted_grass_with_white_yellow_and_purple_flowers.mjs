@@ -44,7 +44,7 @@ ok(tb && page.includes("tan = ((r * 613) % 1) < 0.17") && tb.every(([r, g, b]) =
   "…tinted by the clump's own number from one green to another (blue never under 0.75: no yellow cast), one in six the tan of grass gone to seed: " + JSON.stringify(tb));
 const paint = page.match(/g\.fillStyle = `rgb\(\$\{Math\.round\(255 \* L(?: \* ([\d.]+))?\)\}, \$\{Math\.round\(255 \* L\)\}, \$\{Math\.round\(255 \* L \* ([\d.]+)\)\}\)`/);
 const red = paint ? Number(paint[1] || 1) : NaN, blue = paint ? Number(paint[2]) : NaN;   // (no factor: red level with the green)
-ok(paint && red >= 0.78 && red <= 1.0 && blue >= 0.3 && blue <= 0.5,   // (the paint's blue starts high: lit and tone-mapped it reads ~0.2-0.3, measured)
+ok(paint && red >= 0.78 && red <= 1.0 && blue >= 0.3 && blue <= 0.4,   // (a third, the reference's ratio: 0.45 had been set against the bloom's veil)
    `the painted blades are the reference's olive: red ${red} and blue ${blue} of the green`);
 ok(page.includes("h = 0.58 + rnd() * 0.22, s = 0.05") && page.includes("h = (flower ? 0.4 : 0.2) + rnd() * 0.3"), "a flower clump's heads stand over the cards' tops on taller stems");
 ok(/const FLOWER_HEADS = \[\[0\.9, 0\.9, 0\.82\], \[0\.95, 0\.72, 0\.1\], \[0\.55, 0\.3, 0\.8\]/.test(page) && page.includes('TSL.mix(TSL.vec3(1), TSL.instanceColor, TSL.attribute("head", "float"))'), "a flower clump's heads take one of white, yellow, purple; its blades stay green");

@@ -4,7 +4,8 @@
  * like from 1996"; the sky had no cloud at all). static/land-clouds.js is the definition the page's GPU march repeats;
  * this measures it, never assumes it:
  *   1. its real numbers are the cited ones, moved into this planet's air the way land-planet.js airAt moves the air;
- *   2. the sky is SCATTERED: 3–4 oktas of the planet's base shell is under cloud (Okta l.19) — not a clear sky, not
+ *   2. the sky holds FEW TO SCATTERED cumulus: 2–3 oktas of the planet's base shell under cloud (Okta l.19; 3–4 until the
+ *      Chlorophyll shot of 2026-11-22, beside which it read as a pale layer) — not a clear sky, not
  *      overcast — and no hemisphere is bare (the field is not one heap the size of a continent);
  *   3. every heap stands on the one flat base and under the layer's top: no cloud below the base or above the top, and
  *      every cloudy column's cloud begins within the base's soft underside;
@@ -50,8 +51,8 @@ for (let i = 0; i < N; i++) {
   if (i % 20 === 0) pts.push(p);
 }
 const oktas = (8 * hit) / N, oN = (8 * north) / nN, oS = (8 * (hit - north)) / (N - nN);
-ok(oktas >= C.REAL.oktas[0] && oktas <= C.REAL.oktas[1], `the sky is scattered: ${oktas.toFixed(2)} oktas of the base under cloud (SCT: 3–4)`);
-ok(oN > 2.5 && oS > 2.5 && oN < 5 && oS < 5, `…on both hemispheres (${oN.toFixed(2)} and ${oS.toFixed(2)} oktas)`);
+ok(oktas >= C.REAL.oktas[0] && oktas <= C.REAL.oktas[1], `the sky holds few to scattered cumulus: ${oktas.toFixed(2)} oktas of the base under cloud (${C.REAL.oktas.join('–')}, the Chlorophyll shot's sky)`);
+ok(oN > 1.5 && oS > 1.5 && oN < 4 && oS < 4, `…on both hemispheres (${oN.toFixed(2)} and ${oS.toFixed(2)} oktas)`);
 
 // 3. one flat base, one top
 let under = 0, over = 0, lowest = 0, cloudy = 0;

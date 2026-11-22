@@ -31,7 +31,9 @@ export const REAL = {
   base: 1200,       // m above the ground — "in temperate regions, the cloud bases studied ranged from 500 to 1500 m above
                     // ground level" (Cumulus cloud l.48); 1,200 is a DESIGN CHOICE inside that range
   wind: 5,          // m/s — a gentle breeze, Beaufort force 3: 3.4–5.4 m/s (Beaufort scale l.64); a DESIGN CHOICE inside it
-  oktas: [3, 4],    // eighths of the sky covered — "scattered", SCT: 3–4 oktas (Okta l.19), the concept picture's sky
+  // eighths of the sky covered — 2-3 oktas, between "few" (1-2) and "scattered" (3-4) (Okta l.19): the Chlorophyll shot's sky
+  // (operator 2026-11-22), small cumulus on deep blue — at 3-4 the sky read as a pale layer beside it. Was [3, 4] (#183).
+  oktas: [2, 3],
 };
 export const BASE = REAL.base * AIR;             // 418.6 m above the sea: the flat base every heap stands on
 export const WIND = REAL.wind * AIR;             // 1.74 m/s along the latitudes, with the planet's turn
@@ -44,7 +46,7 @@ export const RB = R0 + SEA + BASE, RT = RB + THICK, RG = R0 + SEA;   // radii (m
 // the density's shape — DESIGN CHOICES, tuned against the photographs (THR is set by the cover: see the test)
 export const K = {
   heapW: 0.7,       // the heap noise's share of a column's cover (the rest is the field's)
-  thr: 0.495,       // cover above this is cloud: gives 3–4 oktas (measured by test_clouds…, never assumed)
+  thr: 0.52,        // cover above this is cloud: gives 2.5 oktas (measured: 0.495 -> 3.61, 0.52 -> 2.48, 0.54 -> 1.73)
   rise: 0.2,        // cover above thr that makes a heap of full height
   dome: 0.55,       // a heap's top against its cover: < 1 = steep sides under a rounded top
   soft: 0.3,        // the share of THICK over which a heap thins out toward its top surface

@@ -4765,9 +4765,10 @@ function grassCardTexture() {
       // third pass: (77, 95, 36) near against the reference's (50, 62, 20) — the hue right, still 1.5x bright; fourth, measured
       // LIVE (2026-11-22): (32, 48, 15) near and (52, 77, 34) mid — overshot dark, and green (red 0.65 of the green against 0.81)
       const L = 0.11 + 0.32 * t1 ** 0.8;                            // dark at the root (0.11) to light at the tip (0.43)
-      // fifth, sunlit with clouds off (a cloud's shadow made the earlier readings a lottery): (42, 49, 10) — blue a fifth of
-      // the green against the reference's third: the light and the tone map take blue down, so the paint starts higher
-      g.fillStyle = `rgb(${Math.round(255 * L * 0.92)}, ${Math.round(255 * L)}, ${Math.round(255 * L * 0.45)})`;
+      // blue a third of the green, as the reference's grass reads (near 50, 62, 20; mid 86, 100, 38). It was raised to 0.45
+      // against a reading of (42, 49, 10), then measured blue-grey (68, 83, 36) — the bloom's veil (BLOOM_THRESHOLD) had
+      // added the blue, not the paint; with the veil gone the paint is the reference's own ratio
+      g.fillStyle = `rgb(${Math.round(255 * L * 0.92)}, ${Math.round(255 * L)}, ${Math.round(255 * L * 0.34)})`;
       g.beginPath(); g.moveTo(xa - wa / 2, ya); g.lineTo(xa + wa / 2, ya); g.lineTo(xb + wb / 2, yb); g.lineTo(xb - wb / 2, yb); g.closePath(); g.fill();
     }
   }
@@ -5142,6 +5143,7 @@ function thatchTexture() {
 // COLOUR GRADING ("we need professional color grading too", operator 2026-11-07): a filmic grade on the finished,
 // tone-mapped image — a gentle S-curve for contrast, a touch more saturation, split toning (shadows a little cool,
 // highlights a little warm, as film and most graded games read daylight) and a soft vignette that draws the eye in.
+const BLOOM_THRESHOLD = 2.0;                 // over the sky's brightness: only the sun and its glints bloom (buildPipeline)
 const GRADE = { sat: 1.12, curve: 0.22, cool: [0.965, 0.99, 1.05], warm: [1.05, 1.0, 0.93], vignette: 0.42 };
 function grade(img) {
   const c0 = img.rgb, luma = c0.dot(TSL.vec3(0.2126, 0.7152, 0.0722));
@@ -5164,7 +5166,11 @@ function buildPipeline() {
     aoPass.radius.value = 0.6;
     const main = TSL.pass(scene, camera);
     main.contextNode = TSL.builtinAOContext(aoPass.getTextureNode().sample(TSL.screenUV).r);
-    const lit = main.add(bloom(main, 0.18, 0.35, 0.92));
+    // THE BLOOM CATCHES THE SUN, NOT THE SKY (2026-11-22, beside the Chlorophyll shot): at a threshold of 0.92 the whole
+    // bright sky and every cloud bloomed, and blurred over the frame that is a grey veil — the same view drawn with
+    // ?plain measured the far forest (32, 51, 27) and a shaded patch (30, 44, 13), with the effects (54, 68, 54) and
+    // (75, 84, 47), against the reference's (43, 54, 28). The sun disc is drawn at 6x (sunDisc below), so 2.0 keeps its glow.
+    const lit = main.add(bloom(main, 0.18, 0.35, BLOOM_THRESHOLD));
     pl.outputColorTransform = false;                       // tone map + sRGB first, grade, then anti-alias the finished image
     pl.outputNode = fxaa(grade(TSL.renderOutput(lit)));
     return pl;
