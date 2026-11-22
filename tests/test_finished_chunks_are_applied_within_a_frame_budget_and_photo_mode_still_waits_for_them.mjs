@@ -22,10 +22,13 @@ const ok = (c, m) => { console.log((c ? "ok   " : "FAIL ") + m); if (!c) fails++
 ok(page.includes('w.onmessage = (e) => { w.busy = false; finished.push(e.data); pump(); };'), "a worker's result is queued, not applied in its handler");
 ok(/const finished = \[\], MESH_BUDGET_MS = \d+;/.test(page) && page.includes("while (finished.length && (n === 0 || performance.now() - t0 < MESH_BUDGET_MS)) { done(finished.shift()); n++; }"), "…applied within the frame's mesh budget, at least one a frame");
 ok(page.includes('pt("mesh", applyFinished);'), "…from the frame loop");
-const shot = page.slice(page.indexOf("function shotTick(now) {"), page.indexOf("function shotTick(now) {") + 400);
+const shot = page.slice(page.indexOf("function shotTick(now) {"), page.indexOf("function shotTick(now) {") + 900);
 ok(shot.includes("applyFinished();") && shot.indexOf("applyFinished();") < shot.indexOf("if (queue.length || inflight.size"), "photo mode applies the results it waits for before judging what is in flight");
 ok(page.includes('const SETTLE = new URLSearchParams(location.search).get("settle") === "1";') && shot.startsWith('function shotTick(now) {\n  if ((SHOT === null && !SETTLE) || document.title === "shot-ready") return false;'),
   "?settle=1 makes the same wait from the player's own eyes; with neither flag every frame is drawn");
+ok(shot.includes("if (SET.clouds && cloudSky && cloudMaps === 0) return false;") && shot.indexOf("cloudMaps === 0") < shot.indexOf('document.title = "shot-ready"'),
+  "…and waits, drawing, for the first cloud map before it is ready (the clouds are marched a tile a frame)");
+ok(page.includes("const per = SETTLE && cloudMaps === 0 ? tx * ty - cloudTileI : 1;"), "…marching that first map whole in one frame on a ?settle=1 photo, a tile a frame otherwise");
 ok(page.includes("if (shotTick(now)) return;") && !/SHOT !== null && SETTLE|shotSetup\(\)[^\n]*SETTLE/.test(page), "…and it moves no one: only photo mode sets the camera (shotSetup)");
 ok(page.includes("let part = borderCache.get(p);") && page.includes("if (!part || part.key !== key) {") && page.includes("for (const p of [...borderCache.keys()]) if (!keep.has(p)) borderCache.delete(p);"), "the ownership outline is cached a plot at a time and pruned to the plots around");
 console.log(fails ? `${fails} FAILED` : "all passed");

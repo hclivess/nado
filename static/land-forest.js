@@ -14,14 +14,14 @@
 // (`root`) and its offset from the root (`off`), and the material collapses the card onto its root inside the meshed
 // disc. Felled trees still stand in the far forest until the player is near enough to mesh their chunk: the far view
 // knows the planet as it was generated, not its edits — the same as the far ground, which shows no building either.
-import { CHUNK, SEA, posOf, frameOf, treeRoots } from "./land-world.js";
+import { CHUNK, SEA, posOf, frameOf, treeRoots, column, wrap } from "./land-world.js";
 
 export const TILE = 256;                         // columns along a forest tile's edge (16 chunks)
 /** The atlas: one slot per (kind, height) treeAt can name, left to right then UP — uv (0, 0) is slot 0's bottom-left. A
  *  slot is `wide` x `tall` metres of the model seen from its side, its root's ground `foot` above the slot's bottom. */
 export const SLOTS = [["broadleaf", 4], ["broadleaf", 5], ["birch", 6], ["birch", 7], ["conifer", 6], ["conifer", 7],
   ["conifer", 8], ["conifer", 9], ["conifer", 10], ["palm", 6], ["palm", 7]];
-export const ATLAS = { cols: 6, rows: 2, wide: 5.2, tall: 13, foot: 0.4 };
+export const ATLAS = { cols: 6, rows: 2, wide: 9.2, tall: 22, foot: 0.4 };   // (5.2 x 13 until the trees were drawn taller than their cells, #210)
 export const slotOf = (kind, height) => SLOTS.findIndex((s) => s[0] === kind && s[1] === height);
 
 /** The mesher's place hash, in [0, 1): a tree's turn, size and phase are read from it (land-mesher placeTree), and the
@@ -70,4 +70,60 @@ export function forestTile(face, tu, tv) {
     }
   }
   return { n, anchor, pos, off, nor, uv, root, col, idx };
+}
+
+// THE CANOPY BEYOND THE TREES (the Chlorophyll bar, operator 2026-11-21: a meadow under hills covered in forest to the
+// horizon; its engine draws a far tile "as one aggregate" once a tree is a few pixels). The card trees above reach
+// FOREST_RANGE (1.15 km); past them the hills were bare ground to the fog (2.9 km) — the band where the reference's
+// forests are. A canopy tile is ONE heightfield over a forest tile, CANOPY_STEP metres a cell: a vertex in forest stands
+// at the crown tops its climate grows (the same species rule as treeAt: conifers cold or high, birch and conifer in the
+// cool, broadleaf and birch in the mild), thinner toward the forest's edge, with a crown's bump; a vertex out of the
+// forest sinks under the ground, so a forest's edge is a wall down to the meadow as a real tree line is. It is drawn from
+// the planet's forest field, not tree by tree: at this distance a tree is a few pixels and the field is what reads.
+export const CANOPY_STEP = 8;                    // metres a cell — a design choice (a crown is 3-5 m; a cell is ~2 px at 2 km)
+// A CANOPY TILE IS 1,024 m (four forest tiles a side): at one forest tile (256 m) the band from the card trees' reach to the
+// far ground's edge took ~75 meshes, a draw call each, and a page drawing in software slowed enough that a flown craft's
+// engine reports (sent from the frame) fell behind (the pilot walk, 2026-11-22). Sixteen times the area a mesh: ~6-9 draws.
+export const CANOPY_TILE = 1024;
+/** Crown-top height over the ground (m) where `col` is forest, or 0: the mean of what treeAt grows there, times how far
+ *  inside the forest it stands (its density), at least half — and a lone meadow tree is too sparse to make canopy. */
+export function canopyHeight(col) {
+  if (col.top <= SEA) return 0;
+  if (col.biome === "snow") return col.wet > 0 ? 8.5 * 2.0 * 0.7 : 0;           // taiga where it is wet (treeAt: conifers 6-9, drawn x2)
+  if (col.biome !== "forest") return 0;
+  const cold = col.temp < -0.12 || col.top > SEA + 60, cool = col.temp < 0.05;
+  // treeAt's species and heights averaged by their shares, times their DRAWN scale (land-species.js: the trees are drawn
+  // taller than their cells, #210): cold 80 % conifer x2 + 20 % birch x2.2; cool 30/30/40 conifer/birch/broadleaf; mild
+  // 18 % birch, 82 % broadleaf x3
+  const mean = cold ? 8.0 * 2.04 : cool ? 6.6 * 2.46 : 5.0 * 2.86;
+  const inside = Math.min(1, Math.max(0, (col.woods - 0.12) / 0.25));
+  return mean * (0.55 + 0.45 * inside);
+}
+/** The canopy of CANOPY_TILE tile (tu, tv) of `face`: { n cells drawn, anchor, pos (from the anchor), col (shade), idx } or { n: 0 }. */
+export function canopyTile(face, tu, tv) {
+  const T = CANOPY_TILE, S = CANOPY_STEP, N = T / S, u0 = tu * T, v0 = tv * T, anchor = posOf(face, u0 + T / 2, v0 + T / 2, SEA);
+  const H = new Float32Array((N + 1) * (N + 1)), G = new Float32Array((N + 1) * (N + 1));
+  let any = false;
+  for (let j = 0; j <= N; j++) for (let i = 0; i <= N; i++) {
+    const u = u0 + i * S, v = v0 + j * S, w = wrap(face, u, v), c = column(w.face, w.u, w.v), k = j * (N + 1) + i;
+    G[k] = c.height; H[k] = canopyHeight(c); if (H[k] > 0) any = true;
+  }
+  if (!any) return { n: 0 };
+  const pos = new Float32Array((N + 1) * (N + 1) * 3), col = new Float32Array((N + 1) * (N + 1) * 3), idx = [];
+  for (let j = 0; j <= N; j++) for (let i = 0; i <= N; i++) {
+    const k = j * (N + 1) + i, u = u0 + i * S, v = v0 + j * S, r = hash3(u, v, face + 31);
+    // a crown's bump: up to 40 % of the height up or down, so the top reads as many crowns, not a lawn
+    const h = H[k] > 0 ? G[k] + H[k] * (0.8 + 0.4 * r) : G[k] - 3;
+    const p = posOf(face, u, v, h);
+    pos[k * 3] = p[0] - anchor[0]; pos[k * 3 + 1] = p[1] - anchor[1]; pos[k * 3 + 2] = p[2] - anchor[2];
+    const sh = 0.8 + 0.35 * hash3(v, u, face + 7);                               // each crown its own shade
+    col[k * 3] = sh; col[k * 3 + 1] = sh; col[k * 3 + 2] = sh;
+  }
+  let n = 0;
+  for (let j = 0; j < N; j++) for (let i = 0; i < N; i++) {
+    const a = j * (N + 1) + i, b = a + 1, c = a + N + 1, d = c + 1;
+    if (!(H[a] > 0 || H[b] > 0 || H[c] > 0 || H[d] > 0)) continue;
+    idx.push(a, b, d, a, d, c); n++;
+  }
+  return { n, anchor, pos, col, idx: (N + 1) * (N + 1) > 65535 ? new Uint32Array(idx) : new Uint16Array(idx) };
 }

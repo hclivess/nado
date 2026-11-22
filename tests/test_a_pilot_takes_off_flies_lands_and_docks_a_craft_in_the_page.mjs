@@ -134,14 +134,26 @@ try {
   await getJ("/fixture/seed?who=owner&items=" + encodeURIComponent(JSON.stringify({ steel_plate: 2, thruster: 2, pilot_seat: 1 })) + "&tools=" + encodeURIComponent(JSON.stringify(["pick"])));
   const { token } = await getJ("/fixture/owner_token");
   // 1. the craft: on a flat strip, resting on the ground
+  // a plant on the meadow (flax, a flower, a dye plant — walk-through litter) is no obstacle to a craft set down on the
+  // ground: the strip this looked for first had one in it once the dye plants grew (#128)
+  const clear = (b) => b === Wd.B.air || (Wd.LITTER.has(b) && !Wd.BLOCKS[b].solid);
   let site = null;
   for (let du = 2; du < 12 && !site; du++) for (let dv = 4; dv < 12 && !site; dv++) {
     const u = q.u0 + du, v = q.v0 + dv, top = Wd.column(q.face, u, v).top;
     const cols = []; for (let a = 0; a < 4; a++) for (let b = -1; b < 3; b++) cols.push([u + a, v + b]);
-    if (cols.every(([cu, cv]) => Wd.column(q.face, cu, cv).top === top && Wd.terrainBlock(q.face, cu, cv, top + 1) === Wd.B.air && Wd.terrainBlock(q.face, cu, cv, top + 2) === Wd.B.air))
+    if (cols.every(([cu, cv]) => Wd.column(q.face, cu, cv).top === top && clear(Wd.terrainBlock(q.face, cu, cv, top + 1)) && Wd.terrainBlock(q.face, cu, cv, top + 2) === Wd.B.air))
       site = { du, dv, top };
   }
   ok(!!site, "a flat site for the craft");
+  // …and the litter on it and on the ground the player stands and aims across cleared first, as a player would gather it:
+  // a pebble or a plant there is what the aim meets before the thruster — the strip, the ground south of it where the
+  // player boards, and the ground east of it where step 5 stands 2.6 m off the eastmost thruster and looks back
+  const litter = [];
+  for (let a = -1; a < 9; a++) for (let b = -4; b < 4; b++) {
+    const cu = q.u0 + site.du + a, cv = q.v0 + site.dv + b, h = Wd.column(q.face, cu, cv).top + 1;
+    if (Wd.terrainBlock(q.face, cu, cv, h) !== Wd.B.air) litter.push([q.face, cu, cv, h]);
+  }
+  if (litter.length) await getJ("/fixture/clear?cells=" + encodeURIComponent(JSON.stringify(litter)));
   const X = site.du * 100, Z = site.dv * 100, Y = (site.top + 1) * 100;
   const hull = [X, Z, Y, 300, 150, 10, 64], seat = [X + 110, Z + 30, Y + 10, 80, 90, 110, 66];
   const thr1 = [X + 20, Z - 100, Y, 100, 100, 140, 65], thr2 = [X + 180, Z - 100, Y, 100, 100, 140, 65];
@@ -199,7 +211,10 @@ try {
   await until(B, "/engines 100 %/.test(document.getElementById('hudPos').textContent)", 10000);   // a slow page draws the HUD late
   const climbing = await evl(B, "document.getElementById('hudPos').textContent");
   ok(/engines 100 %/.test(climbing), "…climbing, the HUD shows the engines at full: " + climbing.slice(0, 90));
-  const engUp = (await getJ(`/land/api/crafts?face=${q.face}&u=${su}&v=${sv}`)).crafts[0].eng;
+  // the page reports its engines on an interval, so the world server catches up with the HUD a moment later — waited for,
+  // not read once (it read [0.26, 0.26, 0, 0] the instant the HUD said 100 %, under load, 2026-11-21)
+  let engUp = null;
+  for (let t = 0; t < 20 && !(engUp && engUp[0] === 1 && engUp[1] === 1); t++) { if (t) await sleep(500); engUp = (await getJ(`/land/api/crafts?face=${q.face}&u=${su}&v=${sv}`)).crafts[0].eng; }
   ok(engUp && engUp[0] === 1 && engUp[1] === 1, "…and the world server holds that, for others to draw its exhaust: " + JSON.stringify(engUp));
   await evl(B, "document.getElementById('tJump').dispatchEvent(new Event('touchend')), true");
   await sleep(1500);
@@ -259,6 +274,14 @@ try {
   const part = boxes.filter((b) => b[6] === 65).sort((a, b) => b[0] - a[0])[0];       // the eastmost thruster
   const pc = { u: q.u0 + (part[0] + part[3] / 2) / 100, v: q.v0 + (part[1] + part[4] / 2) / 100, h: (part[2] + part[5] / 2) / 100 };
   const tu = pc.u + 2.6, tv = pc.v, th = Wd.column(q.face, Math.floor(tu), Math.floor(tv)).top + 1;
+  // the ground between the docked thruster and where the player stands cleared of litter first: where the craft comes
+  // down depends on how the flight went, and a loose stone in that line is what the aim met (twice, 2026-11-21)
+  { const lit = [];
+    for (let du = -1; du <= 4; du++) for (let dv = -2; dv <= 2; dv++) {
+      const cu = Math.floor(pc.u) + du, cv = Math.floor(pc.v) + dv, h = Wd.column(q.face, cu, cv).top + 1;
+      if (Wd.terrainBlock(q.face, cu, cv, h) !== Wd.B.air) lit.push([q.face, cu, cv, h]);
+    }
+    if (lit.length) await getJ("/fixture/clear?cells=" + encodeURIComponent(JSON.stringify(lit))); }
   await stand(B, tu, tv, th, -Math.PI / 2, -Math.atan2(th + EYE - pc.h, 2.6));
   await send(B, "Input.dispatchKeyEvent", { type: "keyDown", code: "Slash", key: "/", windowsVirtualKeyCode: 191 });
   await send(B, "Input.dispatchKeyEvent", { type: "keyUp", code: "Slash", key: "/", windowsVirtualKeyCode: 191 });
@@ -315,7 +338,9 @@ try {
     await sleep(4000);
     await send(B, "Page.bringToFront", {});
     let said = "";
-    for (let k = 0; k < 12 && !/Given to/.test(said); k++) {      // the player near shows up in the owner's page
+    // the player near shows up in the owner's page once its own page has connected and reported where it stands — up to
+    // ~100 s on a software-rendered browser at load (12 tries, ~30 s, ran out on 2026-11-21 with the forest's canopy queued)
+    for (let k = 0; k < 40 && !/Given to/.test(said); k++) {
       await send(B, "Input.dispatchKeyEvent", { type: "keyDown", code: "Slash", key: "/", windowsVirtualKeyCode: 191 });
       await send(B, "Input.dispatchKeyEvent", { type: "keyUp", code: "Slash", key: "/", windowsVirtualKeyCode: 191 });
       await until(B, "document.activeElement && document.activeElement.id === 'conIn'", 8000);

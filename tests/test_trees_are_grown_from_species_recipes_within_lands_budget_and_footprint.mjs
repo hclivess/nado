@@ -6,7 +6,8 @@
  *      its MIT notice travels with them;
  *   2. a species' shape survives the adaptation: a fir is a cone (its crown far narrower at the top than at the bottom),
  *      an oak's crown spreads wider for its height than a birch's;
- *   3. every model fits Land: within its tree's footprint (REACH), its top where its cells end, and within the frame
+ *   3. every model fits Land: DRAWN taller than its cells (#210: the species' DRAWN scale times the cells' top, its crown
+ *      within REACH x REACH_SCALE — the cells stay as they were, 3 m and more up), and within the frame
  *      budget near and far (vertices per model, measured against the builder it replaced);
  *   4. the same seed grows the same tree, another seed another;
  *   5. the mesher still caches a few variants per kind and height, so a forest costs its distinct models only.
@@ -51,11 +52,17 @@ ok(mean < 0.6 && Math.max(...tapers) < 0.7,
    `a fir is a narrow cone, as Solstice requires of its own (top third / bottom third: ${mean.toFixed(2)} on average over 8 trees < 0.6, none above 0.7: ${tapers.map((t) => t.toFixed(2)).join(" ")})`);
 const o = stats(T.treeModel("broadleaf", 5, 7, 0)), bi = stats(T.treeModel("birch", 7, 7, 0));
 ok(o.reach / o.top > bi.reach / bi.top, `an oak spreads wider for its height than a birch (${(o.reach / o.top).toFixed(2)} vs ${(bi.reach / bi.top).toFixed(2)})`);
+// DRAWN TALLER THAN THE CELLS (#210, the Chlorophyll bar): the drawn heights within the sourced ranges' reach (Wikipedia:
+// beech typically 25-35 m, ~20 m in the open; silver birch 15-25 m; Norway spruce 35-55 m — ours stay under the spruce, a
+// design choice so the town is not dwarfed), and no taller than DRAWN times the cells allow
+{ const tops = { broadleaf: S.drawnTop("broadleaf", 4), birch: S.drawnTop("birch", 6), conifer: S.drawnTop("conifer", 7) };
+  ok(tops.broadleaf >= 15 && tops.birch >= 15 && tops.conifer >= 15 && tops.conifer <= 55,
+     `the smallest of each kind is drawn tree-sized: broadleaf ${tops.broadleaf.toFixed(1)} m, birch ${tops.birch.toFixed(1)} m, conifer ${tops.conifer.toFixed(1)} m (cells: 4-7 m)`); }
 const BUDGET = { 0: 2800, 2: 520 };                    // the builder it replaced: 2,196 near (its fir) and 381 far at most
 for (const [k, h] of [["broadleaf", 4], ["broadleaf", 5], ["birch", 6], ["birch", 7], ["conifer", 6], ["conifer", 10], ["bush", 1]]) for (const lod of [0, 2]) {
-  const m = stats(T.treeModel(k, h, 4242, lod)), top = S.ADAPT[k].top(h);
-  ok(m.reach <= T.REACH + 1e-9 && m.verts <= BUDGET[lod] && Math.abs(m.top - top) < 0.9,
-     `${k} ${h} m (lod ${lod}): within its footprint (${m.reach.toFixed(2)} m), its top where its cells end (${m.top.toFixed(1)} of ${top.toFixed(1)} m), ${m.verts} vertices within ${BUDGET[lod]}`);
+  const m = stats(T.treeModel(k, h, 4242, lod)), top = S.drawnTop(k, h), reach = T.REACH * (S.REACH_SCALE[k] || 1), d = S.DRAWN[k] || 1;
+  ok(m.reach <= reach + 1e-9 && m.verts <= BUDGET[lod] && Math.abs(m.top - top) < 0.9 * d,
+     `${k} ${h} m (lod ${lod}): within its drawn reach (${m.reach.toFixed(2)} of ${reach.toFixed(2)} m), its top at its drawn height (${m.top.toFixed(1)} of ${top.toFixed(1)} m), ${m.verts} vertices within ${BUDGET[lod]}`);
 }
 // 4
 const a = T.treeModel("broadleaf", 5, 11, 0), a2 = T.treeModel("broadleaf", 5, 11, 0), b = T.treeModel("broadleaf", 5, 12, 0);

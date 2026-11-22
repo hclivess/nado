@@ -111,6 +111,19 @@ export function parseSpecies(text) {
 //   stems    how many stems each level may grow, near ([limbs, branches, twigs]) and far ([limbs]: far away a tree is its
 //            trunk, its limbs and their leaves) — each level its own budget, so the outermost shoots that carry the
 //            leaves are never starved by the levels inside them
+// DRAWN TALLER THAN THE CELLS (#210; the Chlorophyll bar, operator 2026-11-21 — "nothing waits on me you go ahead"): the
+// planet's trees are 4-10 m in cells where real ones are 15-55 m (Wikipedia: Fagus sylvatica "typically 25-35 m", 20 m in
+// the open; Betula pendula "typically 15 to 25 m"; Picea abies "35-55 m"), so no forest of them read as one. The CELLS
+// stay as they are — felling, gathering, the town's edits and every build keep their meaning — and the drawn tree grows
+// DRAWN times its cell height, its crown out to REACH_SCALE times the footprint. A tree's cells start 3 m or more up
+// (land-world treeCell), over a player's head and jump, so the taller drawing leaves no wall where anyone walks; what
+// it leaves is a leaf cell beside the trunk 3-6 m up, which only a builder or a pilot meets. The scales are design
+// choices, under the sources (a 4 m broadleaf drawn ~17 m, its crown ~13 m across), so a tree stays within a few plots
+// and the town's houses are not dwarfed.
+export const DRAWN = { broadleaf: 3.0, birch: 2.2, conifer: 2.0, bush: 1 };
+export const REACH_SCALE = { broadleaf: 2.6, birch: 1.5, conifer: 1.7, bush: 1 };
+export const CARD_SCALE = { broadleaf: 1.9, birch: 1.5, conifer: 1.4, bush: 1 };   // the cards grow with the crown, so it stays full
+export const drawnTop = (kind, H0) => ADAPT[kind].top(H0) * (DRAWN[kind] || 1);
 export const ADAPT = {
   broadleaf: { recipe: "oak", top: (H0) => H0 + 1.3, span0: 0.45, card: [0.85, 1.3], tile: 0, girth: 0.3,
                stems: { 0: [9, 26, 70], 2: [8] }, cards: { 0: 230, 2: 80 }, wood: [2, 1] },
@@ -118,12 +131,16 @@ export const ADAPT = {
            stems: { 0: [11, 30, 70], 2: [10] }, cards: { 0: 200, 2: 80 }, wood: [2, 1] },
   // a fir's needles cover its whorl branches end to end (sprays along each branch, as a fir reads from afar); its side
   // shoots are not grown — on their own they were tiny cards on bare poles
-  conifer: { recipe: "fir", top: (H0) => H0 + 1.6, span0: 0.22, card: [0.34, 0.55], tile: 2, girth: 0.28,
+  // FULLER (the Chlorophyll bar, operator 2026-11-21: "yours looks like shit"; photographed beside it, every conifer read as a
+  // bare pole with tufts — one narrow spray a whorl branch): sprays 0.6-0.9 m (were 0.34-0.55), 126 near, 120 middle, 64 far
+  // (were 120, 110, 56), so the needles close over the whorls — the most the near tree's 2,800-vertex budget (#150) holds:
+  // 2,780 drawn taller (#210). The short upper sprays narrow faster (land-trees.js) so the crown stays a fir's narrow cone.
+  conifer: { recipe: "fir", top: (H0) => H0 + 1.6, span0: 0.22, card: [0.6, 0.9], tile: 2, girth: 0.28,
              // #150: the middle level keeps 70 of the 100 limbs and 110 of the 120 needle sprays — its needles still sit on
              // wood and its crown stays full (photographed beside the near and far models: 60 limbs and the default 88
              // sprays read sparse at the top). Its far depth, the bare trunk, is too bare beside a player on Low, where
              // level 1 is the nearest level drawn. Bark is the cost (1,260 triangles at 100 limbs); a spray is cheap.
-             stems: { 0: [100], 1: [70], 2: [48] }, cards: { 0: 120, 1: 110, 2: 56 }, wood: [1, 0], sprays: true, segs: 2 },
+             stems: { 0: [100], 1: [70], 2: [48] }, cards: { 0: 126, 1: 120, 2: 64 }, wood: [1, 0], sprays: true, segs: 2 },
   bush: { recipe: "bush", top: () => 1.15, span0: 0, card: [0.5, 0.8], tile: 0, girth: 0.03,
           stems: { 0: [22, 40], 2: [16] }, cards: { 0: 60, 2: 24 }, wood: [1, -1] },
 };
@@ -187,7 +204,11 @@ export function growPlant(kind, H0, R, lod) {
   const levels = sp.levels.map((lv, i) => (i === 0 && A.span0 ? { ...lv, span: [Math.max(lv.span[0], A.span0), lv.span[1]] } : lv));
   const lean = [(R() * 2 - 1) * 0.05, (R() * 2 - 1) * 0.05, 0];
   const trunk = grow(R, [0, 0, -sp.trunk.radius], add([0, 0, 1], lean), sp.height + sp.trunk.radius, sp.trunk.radius, sp.trunk.radius * 0.25,
-                     { upturn: 0.02, droop: 0, gnarl: sp.trunk.gnarl }, far ? 4 : 6);
+                     { upturn: 0.02, droop: 0, gnarl: sp.trunk.gnarl },
+                     // a ring about every 2 m of the DRAWN trunk near the player (6 at least): felling hides every trunk
+                     // section reaching over its cut, and drawn taller than its cells (#210) six rings made each section
+                     // ~2.8 m — a cut 2 m up took the stump with the tree
+                     far ? 4 : Math.max(6, Math.round(drawnTop(kind, H0) / 2)));
   const stems = [{ ...trunk, depth: 0 }];
   let gen = [0];
   const caps = A.stems[far ? 2 : lod === 1 && A.stems[1] ? 1 : 0];   // a kind may give its middle level a budget of its own (#150: the conifer)
@@ -217,11 +238,11 @@ export function growPlant(kind, H0, R, lod) {
     }
     if (next.length) gen = next;
   });
-  // FIT TO LAND: the plant's top to the tree's (its cells end at H0 + 1), its crown inside the footprint; radii follow the
-  // height's scale, the trunk to Land's girth
+  // FIT TO LAND: the plant's top to its DRAWN top (DRAWN times the cells' top), its crown inside REACH_SCALE times the
+  // footprint; radii follow the height's scale, the trunk to Land's girth
   let top = 0, reach = 0;
   for (const s of stems) for (const q of s.pts) { top = Math.max(top, q[2]); reach = Math.max(reach, Math.hypot(q[0], q[1])); }
-  const sz = A.top(H0) / top, sxy = Math.min(sz, (0.92 * 2.45) / Math.max(reach, 1e-6)), girth = A.girth / (sp.trunk.radius * sz);
+  const sz = drawnTop(kind, H0) / top, sxy = Math.min(sz, (0.92 * 2.45 * (REACH_SCALE[kind] || 1)) / Math.max(reach, 1e-6)), girth = A.girth / (sp.trunk.radius * sz);
   for (const s of stems) {
     s.pts = s.pts.map((q) => [q[0] * sxy, q[1] * sxy, q[2] * sz]);
     s.radii = s.radii.map((r) => r * sz * girth);
@@ -229,5 +250,5 @@ export function growPlant(kind, H0, R, lod) {
   }
   let c = [0, 0, 0], n = 0;
   for (const i of gen) for (const q of stems[i].pts) { c = add(c, q); n++; }
-  return { stems, leafy: gen, centre: n ? mul(c, 1 / n) : [0, 0, A.top(H0) * 0.7] };
+  return { stems, leafy: gen, centre: n ? mul(c, 1 / n) : [0, 0, drawnTop(kind, H0) * 0.7] };
 }

@@ -1252,6 +1252,7 @@ function applyFinished() {
 function done(m) {
   const k = inflight.get(m.id); inflight.delete(m.id);
   if (k && k[0] === "F") return forestDone(k.slice(2), m);  // a tile of the forest beyond the chunks (#183)
+  if (k && k[0] === "C") return canopyDone(k.slice(2), m);  // a tile of the canopy beyond the far trees
   const c = chunks.get(k);
   if (!c) return;
   c.busy = false; c.ready = true;                           // (ready: meshed once — updateForest hides the far trees it now draws)
@@ -1475,6 +1476,56 @@ function updateForest() {
   forestNear.value.set(pcu, pcv, viewDist * viewDist + 1);
 }
 
+// ---- THE CANOPY BEYOND THE FAR TREES (the Chlorophyll bar, operator 2026-11-21: "keep going until you match the graphical
+// fidelity"; its engine streams a far tile's trees out and draws the tile "as one aggregate"). The card trees end at
+// forestRange(); past them, out to the far ground's edge, the hills were bare — the band where the reference's forests
+// stand. A canopy tile (land-forest.js canopyTile, built in the mesher workers) is one heightfield over the forest a tile
+// holds, Forest.CANOPY_TILE (1,024 m) a side: one draw for what as cards would be ~60 000 trees. It is drawn only past
+// the card trees' reach (canopyIn) so the two never stand in one place; on Low that reach is halved and the canopy starts
+// there — the cheaper of the two takes the far half.
+const CANOPY_RANGE = PHONE ? 1400 : 1700;      // m — to the far ground's edge (buildFar: 36 cells of 48 m each way)
+const canopy = new Map();                      // "face:tu:tv" -> { mesh, busy, n }
+let matCanopy = null, canopyIn = null, canopyCells = 0;
+function canopyMaterial() {
+  canopyIn = TSL.uniform(forestRange());
+  const m = new THREE.MeshStandardNodeMaterial({ roughness: 0.9, metalness: 0, alphaTest: 0.5 });
+  // a forest's mass from far off: dark leaf green (the reference's far forest measures rgb 44, 56, 30), each crown its own
+  // shade (the vertex colour), lit by the sun and shaded by the clouds as the far trees are
+  m.colorNode = shadeByClouds(TSL.vec3(0.035, 0.062, 0.018).mul(TSL.attribute("color", "vec3")));
+  m.opacityNode = TSL.step(canopyIn, TSL.positionWorld.sub(TSL.cameraPosition).length());   // none inside the card trees' reach
+  matCanopy = m;
+}
+function canopyDone(k, m) {
+  const f = canopy.get(k);
+  if (!f) return;
+  f.busy = false;
+  if (!m.n) return;
+  if (!matCanopy) canopyMaterial();
+  const g = new THREE.BufferGeometry();
+  g.setAttribute("position", new THREE.BufferAttribute(m.pos, 3)); g.setAttribute("color", new THREE.BufferAttribute(m.col, 3));
+  g.setIndex(new THREE.BufferAttribute(m.idx, 1)); g.computeVertexNormals(); g.computeBoundingSphere();
+  f.mesh = new THREE.Mesh(g, matCanopy); f.mesh.userData.anchor = m.anchor; f.n = m.n; canopyCells += m.n;
+  f.mesh.receiveShadow = true;
+  scene.add(f.mesh);
+}
+/** The canopy tiles in the band from the card trees' reach to CANOPY_RANGE, the rest dropped. */
+function updateCanopy() {
+  const T = Forest.CANOPY_TILE, face = P.face, Rin = forestRange(), want = new Set();
+  if (canopyIn) canopyIn.value = Rin;
+  for (let tv = Math.floor((P.v - CANOPY_RANGE) / T); tv <= Math.floor((P.v + CANOPY_RANGE) / T); tv++)
+    for (let tu = Math.floor((P.u - CANOPY_RANGE) / T); tu <= Math.floor((P.u + CANOPY_RANGE) / T); tu++) {
+      const du = Math.max(tu * T - P.u, 0, P.u - (tu + 1) * T), dv = Math.max(tv * T - P.v, 0, P.v - (tv + 1) * T);
+      const fu = Math.max(Math.abs(tu * T - P.u), Math.abs((tu + 1) * T - P.u)), fv = Math.max(Math.abs(tv * T - P.v), Math.abs((tv + 1) * T - P.v));
+      if (du * du + dv * dv > CANOPY_RANGE * CANOPY_RANGE || fu * fu + fv * fv < Rin * Rin) continue;   // out of reach, or all within the card trees'
+      const k = face + ":" + tu + ":" + tv; want.add(k);
+      if (!canopy.has(k)) { canopy.set(k, { mesh: null, busy: true, n: 0 }); queue.push({ id: ++reqId, k: "C:" + k, forest: 1, canopy: 1, face, tu, tv, cu: tu * (T / CHUNK) + T / CHUNK / 2, cv: tv * (T / CHUNK) + T / CHUNK / 2 }); }
+    }
+  pump();
+  for (const [k, f] of canopy) if (!want.has(k) && !f.busy) {
+    if (f.mesh) { scene.remove(f.mesh); f.mesh.geometry.dispose(); canopyCells -= f.n; }
+    canopy.delete(k);
+  }
+}
 
 // ---- THE BUILT LAND SEEN FROM FAR (#193; operator 2026-11-12: "the village is only visible from like 50 meters away,
 // this means that large cities will be completely invisible - we must fix this, and efficiently so"). Pieces exist only
@@ -4153,7 +4204,7 @@ function applySetting(k) {
   if (!renderer) return;                                                       // before start(): start() applies them all
   if (k === "res") { renderer.setPixelRatio(basePR() * SET.res / 100); if (stars) stars.material.size = starPx(1.6); if (satPts) satPts.material.size = starPx(3.2); }
   if (k === "shadows") shadowQuality();
-  if (k === "view") { viewDist = SET.view; if (scene && scene.fog) scene.fog.near = viewDist * CHUNK * 0.9; updateChunks(); buildFar(); updateForest(); }   // (the far trees' reach follows the preset, #150)
+  if (k === "view") { viewDist = SET.view; updateChunks(); buildFar(); updateForest(); }   // (the far trees' reach follows the preset, #150)
   if (k === "effects") pipeline = buildPipeline();                             // the post-processing is built again, or dropped
 }
 /** The sun's shadow for SET.shadows: the cascades' map size, count and reach. The cascades clone the sun's shadow when
@@ -4657,7 +4708,8 @@ function groundMaterial() {
   // the meadow's own colour, varying over tens of metres — lusher, drier, darker patches — so from above it reads as a
   // living field, not one pale wash ("bland untextured marches", operator 2026-11-06)
   const patch = TSL.mx_noise_float(uvw.xy.mul(0.021)).mul(0.5).add(TSL.mx_noise_float(uvw.xy.mul(0.083)).mul(0.25)).add(0.5).clamp(0, 1);
-  const meadow = TSL.mix(TSL.vec3(0.46, 0.78, 0.30), TSL.vec3(0.80, 0.86, 0.38), patch).mul(TSL.float(0.82).add(TSL.mx_noise_float(uvw.xy.mul(0.31)).mul(0.12)));
+  const meadow = TSL.mix(TSL.vec3(0.50, 0.66, 0.28), TSL.vec3(0.70, 0.78, 0.34), patch)   // (#183 → the Chlorophyll shot: was 0.80, 0.86, 0.38 at the dry end — a yellow field)
+    .mul(TSL.float(0.82).add(TSL.mx_noise_float(uvw.xy.mul(0.31)).mul(0.12)));
   const color = tri(tex[0]).mul(meadow).mul(w1.x).add(tri(tex[1]).mul(w1.y)).add(rock.mul(w1.z)).add(two(tex[3]).mul(w1.w))
     .add(two(tex[4]).mul(w2.x)).add(two(tex[5]).mul(w2.y));
   const m = new THREE.MeshStandardNodeMaterial({ metalness: 0 });
@@ -4688,14 +4740,21 @@ function grassCardTexture() {
   let seed = 4242;
   const rnd = () => { seed = (seed * 16807) % 2147483647; return seed / 2147483647; };
   g.clearRect(0, 0, N, N);
-  for (let i = 0; i < 16; i++) {
-    const x0 = N / 2 + (rnd() - 0.5) * 120, h = 120 + rnd() * 130, lean = (rnd() - 0.5) * 90, w = 7 + rnd() * 8;
+  // MEASURED AGAINST THE CHLOROPHYLL SHOT (operator 2026-11-21, "keep going until you match the graphical fidelity"; land
+  // research look/ref-chlorophyll-10M-trees-2026-11-21.webp): its near grass averages rgb (50, 62, 20), ours read
+  // (110, 133, 24) — twice as bright and a third the blue, so it read lime-yellow; and its blades are fine. Now 28 blades of
+  // 4-9 px (was 16 of 7-15: 2-4 cm blades read as straps), dark at the root, the blue a third of the green.
+  for (let i = 0; i < 28; i++) {
+    const x0 = N / 2 + (rnd() - 0.5) * 140, h = 110 + rnd() * 140, lean = (rnd() - 0.5) * 100, w = 4 + rnd() * 5;
     const segs = 6;
     for (let k = 0; k < segs; k++) {
       const t0 = k / segs, t1 = (k + 1) / segs;                     // the blade as a bent, tapering strip: six strips of a gradient
       const xa = x0 + lean * t0 * t0, ya = N - h * t0, xb = x0 + lean * t1 * t1, yb = N - h * t1, wa = w * (1 - t0), wb = w * (1 - t1);
-      const L = 0.22 + 0.5 * t1 ** 0.8;                             // dark at the root (0.22) to light at the tip (0.72)
-      g.fillStyle = `rgb(${Math.round(255 * L * 0.82)}, ${Math.round(255 * L)}, ${Math.round(255 * L * 0.26)})`;   // a warm, yellowish green (the concept's), not a pure one
+      // second pass, measured: the first read (78, 111, 31) near and (82, 122, 46) mid against the reference's (50, 62, 20)
+      // and (86, 100, 38) — still 1.6x bright near, and too pure a green (red 0.70 of the green against its 0.81-0.86)
+      // third pass: (77, 95, 36) near against the reference's (50, 62, 20) — the hue right, still 1.5x bright
+      const L = 0.09 + 0.27 * t1 ** 0.8;                            // dark at the root (0.09) to light at the tip (0.36)
+      g.fillStyle = `rgb(${Math.round(255 * L * 0.9)}, ${Math.round(255 * L)}, ${Math.round(255 * L * 0.34)})`;    // the reference's olive: red 0.9 of the green, blue a third
       g.beginPath(); g.moveTo(xa - wa / 2, ya); g.lineTo(xa + wa / 2, ya); g.lineTo(xb + wb / 2, yb); g.lineTo(xb - wb / 2, yb); g.closePath(); g.fill();
     }
   }
@@ -4798,7 +4857,7 @@ function grassMeshes(gr) {
       // the tint, by the clump's own number: from a deeper green to a warm yellow-green, and one clump in six the tan of
       // grass gone to seed — the concept picture's meadow is many greens with tan through it, never one green
       const t = (r * 389) % 1, tan = ((r * 613) % 1) < 0.17;
-      grass.setMatrixAt(gi, m); grass.setColorAt(gi++, tan ? c.setRGB(1.05, 0.92, 0.55) : c.setRGB(0.8 + 0.4 * t, 0.95 + 0.08 * t, 0.85 - 0.4 * t));
+      grass.setMatrixAt(gi, m); grass.setColorAt(gi++, tan ? c.setRGB(1.05, 0.92, 0.55) : c.setRGB(0.92 + 0.16 * t, 0.95 + 0.06 * t, 1.0 - 0.18 * t));   // (was blue 0.85 - 0.4 t: the yellow cast)
     }
   }
   flowers.count = fi;
@@ -5177,6 +5236,7 @@ function satSky(at, opacity) {
 }
 const TWI_LOW = Math.sin(-12 * Math.PI / 180), TWI_HIGH = Math.sin(2 * Math.PI / 180);   // the sky's light: from nautical twilight's end to 2° up
 const MOON_I = 1.3, NIGHT_FILL = 1.5;                      // a moonlit night: the moon and the sky's fill at full night (were 0.9, 1.1)
+const HAZE_DENSITY = 0.00036;                 // m^-1 of the squared-exponential haze (scene.fog): see where it is set
 function sky(fr) {
   const star = Cosmos.sunFrom(Wd.PLANET), sd = new THREE.Vector3(...star.dir), up = new THREE.Vector3(fr.up[0], fr.up[1], fr.up[2]);
   const elev = sd.dot(up);                                  // the sun's height over this player's horizon (-1..1)
@@ -5442,17 +5502,23 @@ function cloudsFrame(cam, fr) {
   }
   if (shadowCentre) shadowO.shift.value.set(cam[0] - shadowCentre[0], cam[1] - shadowCentre[1], cam[2] - shadowCentre[2]);
   const [tx, ty] = CLOUD_TILES, back = cloudRT[1 - cloudFront];
-  cloudTile.position.set(((cloudTileI % tx) + 0.5) / tx, (Math.floor(cloudTileI / tx) + 0.5) / ty, 0);
-  const was = renderer.getRenderTarget(), ac = renderer.autoClear;
-  renderer.autoClear = false;                               // the other tiles of the back map stay as they were marched
-  const mrt0 = renderer.getMRT(); renderer.setMRT(cloudMRT);   // both targets: the light and the distance
-  renderer.setRenderTarget(back); renderer.render(cloudScene, cloudCam); renderer.setRenderTarget(was);
-  renderer.setMRT(mrt0); renderer.autoClear = ac;
-  if (++cloudTileI === tx * ty) {                           // the back map is whole: it is the sky now
-    cloudTileI = 0; cloudFront = 1 - cloudFront; cloudMaps++;
-    for (const [i, n] of cloudTex) n.value = cloudRT[cloudFront].textures[i];
-    cloudO.up.value.set(...cloudLatch.up); cloudO.east.value.set(...cloudLatch.east); cloudO.north.value.set(...cloudLatch.north);
-    cloudEye = cloudLatch.eye;                                // the map on the dome was marched from here
+  // a tile a frame — but the FIRST map whole in one frame on a ?settle=1 photo: there the page draws a frame only now and
+  // then between meshing, and the 32 tiles never finished (no photo after 33 minutes, 2026-11-21)
+  const per = SETTLE && cloudMaps === 0 ? tx * ty - cloudTileI : 1;
+  for (let j = 0; j < per; j++) {
+    cloudTile.position.set(((cloudTileI % tx) + 0.5) / tx, (Math.floor(cloudTileI / tx) + 0.5) / ty, 0);
+    const was = renderer.getRenderTarget(), ac = renderer.autoClear;
+    renderer.autoClear = false;                               // the other tiles of the back map stay as they were marched
+    const mrt0 = renderer.getMRT(); renderer.setMRT(cloudMRT);   // both targets: the light and the distance
+    renderer.setRenderTarget(back); renderer.render(cloudScene, cloudCam); renderer.setRenderTarget(was);
+    renderer.setMRT(mrt0); renderer.autoClear = ac;
+    if (++cloudTileI === tx * ty) {                           // the back map is whole: it is the sky now
+      cloudTileI = 0; cloudFront = 1 - cloudFront; cloudMaps++;
+      for (const [i, n] of cloudTex) n.value = cloudRT[cloudFront].textures[i];
+      cloudO.up.value.set(...cloudLatch.up); cloudO.east.value.set(...cloudLatch.east); cloudO.north.value.set(...cloudLatch.north);
+      cloudEye = cloudLatch.eye;                                // the map on the dome was marched from here
+      break;
+    }
   }
   if (cloudEye) cloudO.shift.value.set(cam[0] - cloudEye[0], cam[1] - cloudEye[1], cam[2] - cloudEye[2]);   // (doubles, then metres)
   cloudSky.visible = cloudMaps > 0;
@@ -5602,6 +5668,7 @@ function frame(now) {
   for (const c of chunks.values()) if (c.anchor) for (const me of c.meshes) me.position.set(c.anchor[0] - cam[0], c.anchor[1] - cam[1], c.anchor[2] - cam[2]);
   for (const m of [farMesh, farSea, borderMesh, farBoxMesh]) if (m) { const a = m.userData.anchor; m.position.set(a[0] - cam[0], a[1] - cam[1], a[2] - cam[2]); }
   for (const f of forest.values()) if (f.mesh) { const a = f.mesh.userData.anchor; f.mesh.position.set(a[0] - cam[0], a[1] - cam[1], a[2] - cam[2]); }
+  for (const f of canopy.values()) if (f.mesh) { const a = f.mesh.userData.anchor; f.mesh.position.set(a[0] - cam[0], a[1] - cam[1], a[2] - cam[2]); }   // (the canopy beyond them)
   for (const [id, c] of crafts) if (c.pose) { craftPlace(c.mesh, c.pose, cam); engineFrame(id, c, cam, now); }
   animalsFrame(Math.min(0.1, (now - (frame.lastAnimals || now)) / 1000), cam); frame.lastAnimals = now;
   hitDirFrame(now);
@@ -5820,6 +5887,7 @@ function updateBorders() {
 function slow() {
   pt("chunks", updateChunks);
   pt("forest", updateForest);
+  pt("canopy", updateCanopy);
   pt("borders", updateBorders);
   pt("net", netTick);
   if (!farAt || farAt.face !== P.face || Math.abs(farAt.u - P.u) > 400 || Math.abs(farAt.v - P.v) > 400) pt("far", buildFar);
@@ -5861,6 +5929,9 @@ function shotTick(now) {
   applyFinished();                                          // (the frame returns early below while chunks are in flight: their results must still land)
   if (queue.length || inflight.size || !chunks.size) { shotBusyAt = now; return true; }
   if (now - shotBusyAt < 4000) return true;
+  // THE SKY TOO: the cloud map is marched a tile a frame (CLOUD_TILES, 32 a cycle) and shown at its first swap — the
+  // first settled photo was taken four frames in, with no clouds yet. Frames are drawn until the first map is in.
+  if (SET.clouds && cloudSky && cloudMaps === 0) return false;
   if (++shotFrames > 3) document.title = "shot-ready";             // a few frames drawn first: shaders compiled, shadows cast
   return false;
 }
@@ -5889,7 +5960,11 @@ async function start() {
   $("hudGpu").textContent = renderer.backend && renderer.backend.isWebGPUBackend ? "WebGPU" : "WebGL2";
   $("hudGpu").onclick = () => { SET.stats = SET.stats ? 0 : 1; saveSet(); };
   scene = new THREE.Scene();
-  scene.fog = new THREE.Fog(0xb7d6ef, viewDist * CHUNK * 0.9, 2900);
+  // CLEARER AIR (the Chlorophyll bar, operator 2026-11-21): linear fog from the view's edge to 2.9 km was already 32 % thick
+  // at 1 km, so the forest band read a pale blue-grey (77, 100, 81) where the reference's distant forest is dark green
+  // (44, 56, 30). Aerial haze grows with distance squared here: ~12 % at 1 km, ~37 % at the far ground's edge (1.7 km),
+  // ~66 % at 2.9 km — the land still melts into the sky at its edge. HAZE_DENSITY is a design choice tuned to that shot.
+  scene.fog = new THREE.FogExp2(0xb7d6ef, HAZE_DENSITY);
   camera = new THREE.PerspectiveCamera(SET.fov, innerWidth / innerHeight, 0.08, 4000);
   camera.position.set(0, 0, 0);
   sun = new THREE.DirectionalLight(0xfff4e0, 3);

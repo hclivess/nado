@@ -21,7 +21,7 @@
 // Positions are metres RELATIVE TO THE CHUNK'S ANCHOR; the page places each mesh at anchor - camera in doubles.
 import { CHUNK, H, R0, W, B, BLOCKS, ATLAS_TILES, NATURAL, CM, DEEP_MIN, TREE_WOOD, TREE_LEAVES, isTree, opaque, dirOf, frameOf, wrap, column, terrainBlock, fieldOf, treeAt, treeCell, LITTER, shapeOf, isPart, toneBlock, FLOWERS, saplingTree, soilOf, isTurned, rotOf, turnVec, boxAabb } from "./land-world.js";
 import * as Shapes from "./land-shapes.js";
-import { forestTile, hash3, treeTurn, treeSize } from "./land-forest.js";
+import { forestTile, canopyTile, hash3, treeTurn, treeSize } from "./land-forest.js";
 import { treeModel, leafCellModel, twigModel, flaxModel, saplingModel, flowerModel, wheatModel, berryBushModel, weldModel, woadModel, madderModel, clubmossModel } from "./land-trees.js";
 const DYE_MODEL = new Map([[B.weld, weldModel], [B.woad, woadModel], [B.madder, madderModel], [B.clubmoss, clubmossModel]]);   // (#128)
 
@@ -894,6 +894,10 @@ if (typeof self !== "undefined" && typeof window === "undefined" && typeof self.
   self.onmessage = (e) => {
     const m = e.data;
     let res;
+    if (m.canopy) {                                         // a tile of the canopy beyond the far trees (land-forest.js canopyTile)
+      try { res = canopyTile(m.face, m.tu, m.tv); } catch (err) { res = { n: 0, error: String(err && err.message || err) }; }
+      return self.postMessage(Object.assign({ id: m.id }, res), res.n ? [res.pos, res.col, res.idx].map((a) => a.buffer) : []);
+    }
     if (m.forest) {                                         // a tile of the forest beyond the chunks (#183, land-forest.js)
       try { res = forestTile(m.face, m.tu, m.tv); } catch (err) { res = { n: 0, error: String(err && err.message || err) }; }
       return self.postMessage(Object.assign({ id: m.id }, res), res.n ? [res.pos, res.off, res.nor, res.uv, res.root, res.col, res.idx].map((a) => a.buffer) : []);

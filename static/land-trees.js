@@ -18,7 +18,7 @@
 //
 // Leaf atlas: 2 x 2 tiles, (t & 1, t >> 1) — 0 broadleaf cluster, 1 birch cluster, 2 needle spray (twig along v),
 // 3 palm frond (rachis along v). Bark: tile 0 bark, 1 birch (static/land.js picks the texture).
-import { growPlant, ADAPT, at } from "./land-species.js";
+import { growPlant, ADAPT, at, drawnTop, REACH_SCALE, CARD_SCALE } from "./land-species.js";
 export const LEAF_TILE = { broadleaf: 0, birch: 1, conifer: 2, palm: 3, bush: 0 };
 export const REACH = 2.45;                     // no vertex further than this from the trunk's axis (the cells reach 2.5)
 
@@ -34,7 +34,9 @@ const cross = (a, b) => [a[1] * b[2] - a[2] * b[1], a[2] * b[0] - a[0] * b[2], a
 const norm = (a) => { const l = Math.hypot(a[0], a[1], a[2]) || 1; return [a[0] / l, a[1] / l, a[2] / l]; };
 const dirAt = (az, el) => [Math.cos(az) * Math.cos(el), Math.sin(az) * Math.cos(el), Math.sin(el)];
 // keep a point inside the footprint: pull it toward the axis when it strays past REACH
-const clampR = (p) => { const r = Math.hypot(p[0], p[1]); return r <= REACH ? p : [p[0] * REACH / r, p[1] * REACH / r, p[2]]; };
+// (a grown tree's crown reaches REACH x its kind's REACH_SCALE — drawn taller than its cells, #210 — set while it grows)
+let reachNow = REACH;
+const clampR = (p) => { const r = Math.hypot(p[0], p[1]); return r <= reachNow ? p : [p[0] * reachNow / r, p[1] * reachNow / r, p[2]]; };
 
 function part() { return { pos: [], nor: [], uv: [], tile: [], col: [], wind: [], n: 0, idx: [] }; }
 
@@ -107,7 +109,8 @@ function grownModel(kind, H0, R, lod) {
   // THREE LEVELS (#150, measured 2026-11-12 at the landing on Low: bark 70k triangles, the single biggest item — every
   // tree within 64 m was the full near model, a chunk at LOD1 (48–64 m) got no middle): lod 1 keeps the near stems and
   // limbs but a five-sided trunk, three-quarters of the cards grown a little, and no second needle card
-  const bark = part(), leaves = part(), A = ADAPT[kind], far = lod >= 2, mid = lod === 1, top = A.top(H0), brown = [1, 1, 1];
+  const bark = part(), leaves = part(), A = ADAPT[kind], far = lod >= 2, mid = lod === 1, top = drawnTop(kind, H0), brown = [1, 1, 1];
+  reachNow = REACH * (REACH_SCALE[kind] || 1);
   const { stems, leafy, centre } = growPlant(kind, H0, R, lod);
   const barkTile = kind === "birch" ? 1 : 0;
   for (const s of stems) {
@@ -124,7 +127,9 @@ function grownModel(kind, H0, R, lod) {
     // A ROOT FLARE (#181, playtest 2026-11-11: "tree trunks end in a flat faceted cut standing on the grass — no root
     // flare, so trees look placed, not grown"): the trunk's girth swells toward the ground — half as wide again at the
     // root, fading out by a tenth of the tree's height — and its first ring sits a hand under the surface
-    const radii = s.depth === 0 ? s.radii.map((r, i) => r * (1 + 0.5 * Math.max(0, 1 - s.pts[i][2] / (0.1 * H0)) ** 2)) : s.radii;
+    // (over a tenth of the DRAWN height, and no wider than at the ground: drawn taller than its cells (#210) the first
+    // ring sits 0.47 m under the surface, and the unclamped term kept swelling below it — a 1 m trunk base)
+    const radii = s.depth === 0 ? s.radii.map((r, i) => r * (1 + 0.5 * Math.min(1, Math.max(0, 1 - s.pts[i][2] / (0.1 * top))) ** 2)) : s.radii;
     const pts = s.depth === 0 ? s.pts.map((p, i) => (i === 0 ? [p[0], p[1], p[2] - 0.08] : p)) : s.pts;
     // the wind: a trunk sways from its crown, a limb more toward its tip, a twig most
     tube(bark, pts.map(clampR), radii, sides, (i) => 0.02 * (s.pts[i][2] / top) ** 2 + 0.035 * s.depth * (i / last), barkTile, brown);
@@ -138,12 +143,12 @@ function grownModel(kind, H0, R, lod) {
     for (let k = 0; k < count; k++) {
       // mostly toward the tip, where the newest growth is (tree.rs add_leaves)
       const t = A.sprays ? (k + 0.5) / count : 0.25 + 0.75 * Math.pow((k + R()) / count, 0.7), { p, d } = at(s, t);
-      const size = (A.card[0] + R() * (A.card[1] - A.card[0])) * grow, sway = 0.1 + 0.08 * (p[2] / top) + 0.05 * R();
+      const size = (A.card[0] + R() * (A.card[1] - A.card[0])) * grow * (CARD_SCALE[kind] || 1), sway = 0.1 + 0.08 * (p[2] / top) + 0.05 * R();
       const tint = tintOf(R, [1, 1, 1], kind === "conifer" ? 0.2 : 0.3);
       if (A.sprays) {                                     // needle sprays along the branch, end to end: the twig along v
         // a spray as wide as its branch is long allows: short branches near the top carry narrow sprays, so the crown
         // narrows to a point as a fir's does (fixed-width sprays padded the top out and blunted the cone)
-        const wide = size * (0.3 + 0.7 * s.len / longest);
+        const wide = size * (0.05 + 0.95 * s.len / longest);    // (0.3 + 0.7 until the sprays grew wider and the tree taller: the cone blunted, top 0.60-0.61 of the bottom's width)
         const side = norm(cross(d, [0, 0, 1])), along = mul(d, (s.len / count) * 0.62), out = add(sub(p, centre), [0, 0, 0.2]);
         card(leaves, p, mul(side, wide), along, A.tile, out, sway, tint);
         if (!far && !mid) card(leaves, add(p, [0, 0, 0.04]), mul(norm(add(mul(side, 0.5), [0, 0, 0.85])), wide * 0.8), along, A.tile, out, sway, tint);
@@ -155,6 +160,7 @@ function grownModel(kind, H0, R, lod) {
   }
   // a conifer's leader: the trunk's tip in needles, so no bare pole stands above the crown
   if (A.sprays) cluster(leaves, R, stems[0].pts[stems[0].pts.length - 1], 0.45, A.tile, add(stems[0].pts[stems[0].pts.length - 1], [0, 0, -1]), 0.1, [1, 1, 1]);
+  reachNow = REACH;
   return { bark, leaves };
 }
 

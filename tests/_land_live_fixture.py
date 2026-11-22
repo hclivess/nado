@@ -160,6 +160,15 @@ async def main():
                                                               {"id": "qd", "kind": "deliver", "giver": "elder", "to": "trader"}]}
         return web.json_response({"ok": True})
 
+    async def clear(req):
+        """GET /fixture/clear?cells=[[face,u,v,h],...]: those cells to air, as edits — a test's setup clearing the litter off
+        a strip (the planet's plants move as it grows new kinds; a woad stand took the pilot walk's strip, #128)."""
+        out = {}
+        for f, u, v, h in json.loads(req.query["cells"]):
+            world._set(int(f), int(u), int(v), int(h), 0, out)
+        await hub.edits(out, OWNER["address"])
+        return web.json_response({"cleared": sum(len(c) for c in out.values())})
+
     async def ripen(req):
         n = 0
         for rec in world.plots.values():
@@ -179,7 +188,7 @@ async def main():
     app.add_routes([web.get("/", page), web.get("/protocol.js", proto), web.get("/exec/assets", assets),
                     web.get("/exec/asset", asset), web.get("/exec/view", view), web.get("/fixture/owner_token", owner_token), web.get("/fixture/agent_token", agent_token), web.get("/fixture/sats", sats),
                     web.get("/fixture/agent_build", agent_build), web.get("/fixture/plot", plot), web.get("/fixture/seed", seed),
-                    web.get("/fixture/ripen", ripen), web.get("/fixture/animal", animal),
+                    web.get("/fixture/ripen", ripen), web.get("/fixture/clear", clear), web.get("/fixture/animal", animal),
                     web.get("/fixture/hurt", hurt), web.get("/fixture/charge", charge), web.get("/fixture/where", where), web.get("/fixture/accept", accept),
                     web.get("/fixture/quests", quests)])
     app.router.add_static("/static", STATIC)

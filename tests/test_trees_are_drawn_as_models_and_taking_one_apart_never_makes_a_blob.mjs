@@ -21,7 +21,7 @@ import { fileURLToPath } from "node:url";
 const ROOT = join(dirname(fileURLToPath(import.meta.url)), "..");
 const Wd = await import(join(ROOT, "static", "land-world.js"));
 const M = await import(join(ROOT, "static", "land-mesher.js"));
-const T = await import(join(ROOT, "static", "land-trees.js"));
+const T = await import(join(ROOT, "static", "land-trees.js")), Sp = await import(join(ROOT, "static", "land-species.js"));
 let fails = 0;
 // one wind phase per tree: count the phases of vertices that sway (a fallen stick on the ground does not)
 const swaying = (p) => { const s = new Set(); for (let i = 0; i < p.wind.length; i += 4) if (p.wind[i] || p.wind[i + 1] || p.wind[i + 2]) s.add(p.wind[i + 3]); return s.size; };
@@ -63,7 +63,8 @@ for (const kind of ["broadleaf", "birch", "conifer", "palm", "bush"]) for (const
     if (u < tu || u > tu + 0.5 || v < tv || v > tv + 0.5) uvBad++;
   }
   ok(m.bark.n + m.leaves.n > 0 && m.leaves.idx.length > 0, `${kind} (lod ${lod}) builds: ${m.bark.idx.length / 3} bark triangles, ${m.leaves.idx.length / 3} leaf triangles`);
-  ok(far <= T.REACH + 1e-9, `${kind} (lod ${lod}) stays within ${T.REACH} m of its axis (${far.toFixed(2)})`);
+  const lim = T.REACH * ((Sp.REACH_SCALE || {})[kind] || 1);   // drawn wider than the cells' footprint by its kind's REACH_SCALE (#210)
+  ok(far <= lim + 1e-9, `${kind} (lod ${lod}) stays within ${lim.toFixed(2)} m of its axis (${far.toFixed(2)})`);
   ok(uvBad === 0, `${kind} (lod ${lod}) leaf cards sample only their atlas tile ${tile}`);
 }
 
