@@ -47,13 +47,18 @@ export function forestTile(face, tu, tv) {
     const r = roots[i], slot = slotOf(r.tree.kind, r.tree.height), cx = slot % cols, cy = Math.floor(slot / cols);
     const p = posOf(face, r.u + 0.5, r.v + 0.5, r.col.height), fr = frameOf(face, r.u + 0.5, r.v + 0.5);
     const turn = treeTurn(r.face, r.wu, r.wv), sc = treeSize(r.face, r.wu, r.wv), shade = 0.86 + 0.24 * hash3(r.wu, r.wv, r.face + 11);
+    // NOT ONE CUT-OUT REPEATED (the Chlorophyll shot, 2026-11-22: a row of far trees read as identical cards — 12 pictures,
+    // each always the same way round, sizes within 10 %): half the trees show their picture mirrored, and each crown is
+    // 0.85-1.15 its picture's width. The CARD's own: treeSize (shared with the near model) and the height are untouched,
+    // so a tree is as tall as a card as it is as a model at the handover.
+    const mir = hash3(r.wv + 5, r.wu, r.face + 19) < 0.5 ? -1 : 1, wid = 0.85 + 0.3 * hash3(r.wu + 9, r.wv + 2, r.face);
     for (let q = 0; q < 2; q++) {
       // card 0 lies along the model's own x (the picture was taken across it), card 1 square to it
       const a = turn + q * Math.PI / 2, ca = Math.cos(a), sa = Math.sin(a);
       const ax = [fr.east[0] * ca + fr.north[0] * sa, fr.east[1] * ca + fr.north[1] * sa, fr.east[2] * ca + fr.north[2] * sa];
       for (let c = 0; c < 4; c++) {
         const s = c & 1 ? 1 : -1, top = c >> 1, k = (i * 8 + q * 4 + c) * 3, k2 = (i * 8 + q * 4 + c) * 2;
-        const side = s * wide / 2 * sc, up = (top ? tall - foot : -foot) * sc;
+        const side = s * wide / 2 * sc * wid, up = (top ? tall - foot : -foot) * sc;
         for (let d = 0; d < 3; d++) {
           pos[k + d] = p[d] - anchor[d];
           off[k + d] = ax[d] * side + fr.up[d] * up;
@@ -62,7 +67,7 @@ export function forestTile(face, tu, tv) {
         // a crown takes the light as a round thing does: its sides face outward, its top the sky
         const nx = ax[0] * s * 0.75 + fr.up[0] * (top ? 0.8 : 0.35), ny = ax[1] * s * 0.75 + fr.up[1] * (top ? 0.8 : 0.35), nz = ax[2] * s * 0.75 + fr.up[2] * (top ? 0.8 : 0.35), nl = Math.hypot(nx, ny, nz);
         nor[k] = nx / nl; nor[k + 1] = ny / nl; nor[k + 2] = nz / nl;
-        uv[k2] = (cx + (s + 1) / 2) / cols; uv[k2 + 1] = (cy + top) / rows;
+        uv[k2] = (cx + (s * mir + 1) / 2) / cols; uv[k2 + 1] = (cy + top) / rows;
         root[k2] = Math.floor(r.u / CHUNK); root[k2 + 1] = Math.floor(r.v / CHUNK);
       }
       const b = i * 8 + q * 4, o = (i * 2 + q) * 12;
