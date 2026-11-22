@@ -1377,7 +1377,9 @@ async function bakeForest() {
   const { cols, rows, wide, tall, foot } = Forest.ATLAS, pw = PHONE ? 768 : 1536, ph = Math.round(pw * rows * tall / (cols * wide));   // (a width whose rows need no padding: 4·pw is a multiple of 256)
   const rt = new THREE.RenderTarget(pw, ph), sc = new THREE.Scene(), cam = new THREE.OrthographicCamera(0, cols * wide, rows * tall, 0, 1, 100);
   cam.position.set(0, 0, 50);
-  sc.add(new THREE.HemisphereLight(0xffffff, 0x8c8c84, 2.6));
+  // (1.5, was 2.6: the far card is lit AGAIN in the scene — the picture is close to the leaves' own colour, not a sunlit
+  // photograph of them; at 2.6 the far forest read pale lime, measured 64, 96, 61 against the reference's 44, 56, 30)
+  sc.add(new THREE.HemisphereLight(0xffffff, 0x8c8c84, 1.5));
   // bark in its texture's own mean colour (measured, linear: bark_col 0.126 0.104 0.063, birch_col 0.056 0.037 0.025) —
   // the scans load after this runs, and a far trunk is a few pixels wide
   const flat = new THREE.MeshStandardNodeMaterial({ roughness: 0.92, metalness: 0 });
@@ -1491,7 +1493,7 @@ function canopyMaterial() {
   const m = new THREE.MeshStandardNodeMaterial({ roughness: 0.9, metalness: 0, alphaTest: 0.5 });
   // a forest's mass from far off: dark leaf green (the reference's far forest measures rgb 44, 56, 30), each crown its own
   // shade (the vertex colour), lit by the sun and shaded by the clouds as the far trees are
-  m.colorNode = shadeByClouds(TSL.vec3(0.035, 0.062, 0.018).mul(TSL.attribute("color", "vec3")));
+  m.colorNode = shadeByClouds(TSL.vec3(0.034, 0.05, 0.016).mul(TSL.attribute("color", "vec3")));   // (0.035, 0.062, 0.018 read too light and green live, 2026-11-22)
   m.opacityNode = TSL.step(canopyIn, TSL.positionWorld.sub(TSL.cameraPosition).length());   // none inside the card trees' reach
   matCanopy = m;
 }
@@ -4708,7 +4710,7 @@ function groundMaterial() {
   // the meadow's own colour, varying over tens of metres — lusher, drier, darker patches — so from above it reads as a
   // living field, not one pale wash ("bland untextured marches", operator 2026-11-06)
   const patch = TSL.mx_noise_float(uvw.xy.mul(0.021)).mul(0.5).add(TSL.mx_noise_float(uvw.xy.mul(0.083)).mul(0.25)).add(0.5).clamp(0, 1);
-  const meadow = TSL.mix(TSL.vec3(0.50, 0.66, 0.28), TSL.vec3(0.70, 0.78, 0.34), patch)   // (#183 → the Chlorophyll shot: was 0.80, 0.86, 0.38 at the dry end — a yellow field)
+  const meadow = TSL.mix(TSL.vec3(0.56, 0.66, 0.28), TSL.vec3(0.78, 0.80, 0.34), patch)   // (#183 → the Chlorophyll shot: was 0.80, 0.86, 0.38 at the dry end — a yellow field)
     .mul(TSL.float(0.82).add(TSL.mx_noise_float(uvw.xy.mul(0.31)).mul(0.12)));
   const color = tri(tex[0]).mul(meadow).mul(w1.x).add(tri(tex[1]).mul(w1.y)).add(rock.mul(w1.z)).add(two(tex[3]).mul(w1.w))
     .add(two(tex[4]).mul(w2.x)).add(two(tex[5]).mul(w2.y));
@@ -4752,9 +4754,12 @@ function grassCardTexture() {
       const xa = x0 + lean * t0 * t0, ya = N - h * t0, xb = x0 + lean * t1 * t1, yb = N - h * t1, wa = w * (1 - t0), wb = w * (1 - t1);
       // second pass, measured: the first read (78, 111, 31) near and (82, 122, 46) mid against the reference's (50, 62, 20)
       // and (86, 100, 38) — still 1.6x bright near, and too pure a green (red 0.70 of the green against its 0.81-0.86)
-      // third pass: (77, 95, 36) near against the reference's (50, 62, 20) — the hue right, still 1.5x bright
-      const L = 0.09 + 0.27 * t1 ** 0.8;                            // dark at the root (0.09) to light at the tip (0.36)
-      g.fillStyle = `rgb(${Math.round(255 * L * 0.9)}, ${Math.round(255 * L)}, ${Math.round(255 * L * 0.34)})`;    // the reference's olive: red 0.9 of the green, blue a third
+      // third pass: (77, 95, 36) near against the reference's (50, 62, 20) — the hue right, still 1.5x bright; fourth, measured
+      // LIVE (2026-11-22): (32, 48, 15) near and (52, 77, 34) mid — overshot dark, and green (red 0.65 of the green against 0.81)
+      const L = 0.11 + 0.32 * t1 ** 0.8;                            // dark at the root (0.11) to light at the tip (0.43)
+      // fifth, sunlit with clouds off (a cloud's shadow made the earlier readings a lottery): (42, 49, 10) — blue a fifth of
+      // the green against the reference's third: the light and the tone map take blue down, so the paint starts higher
+      g.fillStyle = `rgb(${Math.round(255 * L * 0.92)}, ${Math.round(255 * L)}, ${Math.round(255 * L * 0.45)})`;
       g.beginPath(); g.moveTo(xa - wa / 2, ya); g.lineTo(xa + wa / 2, ya); g.lineTo(xb + wb / 2, yb); g.lineTo(xb - wb / 2, yb); g.closePath(); g.fill();
     }
   }
@@ -4897,13 +4902,15 @@ function paintLeaves() {
   // 0: broadleaf — twigs from the middle, then leaves, densest at the heart
   for (let k = 0; k < 7; k++) { const a = R() * 6.28; line(256, 256, 256 + Math.cos(a) * 190, 256 + Math.sin(a) * 190, 4, "#4a3826"); }
   for (let k = 0; k < 120; k++) {
-    const a = R() * 6.28, r = Math.sqrt(R()) * 200, l = 30 + R() * 14;
-    leaf(256 + Math.cos(a) * r, 256 + Math.sin(a) * r, R() * 6.28, 50 + R() * 34, 16 + R() * 10, hsl(95 + R() * 25, 42 + R() * 18, l), hsl(90, 40, l + 12));
+    // DEEPER GREEN (the Chlorophyll shot's forest measures rgb 44, 56, 30; ours read lime under the sun and the light through
+    // the leaf — lightness was 30-44 %, saturation 42-60 %): darker, a touch less saturated, the hue a little bluer
+    const a = R() * 6.28, r = Math.sqrt(R()) * 200, l = 22 + R() * 12;
+    leaf(256 + Math.cos(a) * r, 256 + Math.sin(a) * r, R() * 6.28, 50 + R() * 34, 16 + R() * 10, hsl(100 + R() * 22, 36 + R() * 16, l), hsl(95, 36, l + 10));
   }
   // 1: birch — smaller, rounder, lighter leaves on fine twigs
   for (let k = 0; k < 9; k++) { const a = R() * 6.28; line(768, 256, 768 + Math.cos(a) * 200, 256 + Math.sin(a) * 200, 2, "#5a4a3a"); }
   for (let k = 0; k < 170; k++) {
-    const a = R() * 6.28, r = Math.sqrt(R()) * 210, l = 34 + R() * 14;
+    const a = R() * 6.28, r = Math.sqrt(R()) * 210, l = 28 + R() * 12;        // (was 34-48 %: a birch is lighter than an oak, but not lime)
     leaf(768 + Math.cos(a) * r, 256 + Math.sin(a) * r, R() * 6.28, 30 + R() * 16, 15 + R() * 6, hsl(80 + R() * 20, 50 + R() * 15, l), hsl(75, 45, l + 10));
   }
   // 2: needle spray — a twig down the middle (base at the top: v = 0 is the branch's base), needles toward the tip
@@ -5236,7 +5243,7 @@ function satSky(at, opacity) {
 }
 const TWI_LOW = Math.sin(-12 * Math.PI / 180), TWI_HIGH = Math.sin(2 * Math.PI / 180);   // the sky's light: from nautical twilight's end to 2° up
 const MOON_I = 1.3, NIGHT_FILL = 1.5;                      // a moonlit night: the moon and the sky's fill at full night (were 0.9, 1.1)
-const HAZE_DENSITY = 0.00036;                 // m^-1 of the squared-exponential haze (scene.fog): see where it is set
+const HAZE_DENSITY = 0.00026;                 // m^-1 of the squared-exponential haze (scene.fog): see where it is set
 function sky(fr) {
   const star = Cosmos.sunFrom(Wd.PLANET), sd = new THREE.Vector3(...star.dir), up = new THREE.Vector3(fr.up[0], fr.up[1], fr.up[2]);
   const elev = sd.dot(up);                                  // the sun's height over this player's horizon (-1..1)
@@ -5962,8 +5969,8 @@ async function start() {
   scene = new THREE.Scene();
   // CLEARER AIR (the Chlorophyll bar, operator 2026-11-21): linear fog from the view's edge to 2.9 km was already 32 % thick
   // at 1 km, so the forest band read a pale blue-grey (77, 100, 81) where the reference's distant forest is dark green
-  // (44, 56, 30). Aerial haze grows with distance squared here: ~12 % at 1 km, ~37 % at the far ground's edge (1.7 km),
-  // ~66 % at 2.9 km — the land still melts into the sky at its edge. HAZE_DENSITY is a design choice tuned to that shot.
+  // (44, 56, 30); at 0.00036 still (70, 103, 73), measured live 2026-11-22. Aerial haze grows with distance squared: ~7 % at
+  // 1 km, ~18 % at the far ground's edge (1.7 km), ~43 % at 2.9 km. HAZE_DENSITY is a design choice tuned to that shot.
   scene.fog = new THREE.FogExp2(0xb7d6ef, HAZE_DENSITY);
   camera = new THREE.PerspectiveCamera(SET.fov, innerWidth / innerHeight, 0.08, 4000);
   camera.position.set(0, 0, 0);
