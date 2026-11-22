@@ -1424,7 +1424,9 @@ async function bakeForest() {
   m.positionNode = TSL.positionLocal.add(TSL.attribute("off", "vec3").mul(show));
   // a far tree's picture, warmed toward the forest's olive: under the sky's blue fill the far cards read grey cut-outs
   // (measured with the forest band at 72, 86, 76 against the reference's 44, 56, 30, 2026-11-22)
-  m.colorNode = shadeByClouds(s.rgb.mul(TSL.attribute("color", "vec3")).mul(TSL.vec3(0.95, 1.0, 0.55)));
+  // (then 0.95, 1.0, 0.55: with the bloom's veil gone and the clouds off, two live photos agreeing to within 1 read the
+  // forest (27, 47, 23) against the reference's (43, 54, 28) — too dark and too pure a green: red up ~60 %, green ~15 %)
+  m.colorNode = shadeByClouds(s.rgb.mul(TSL.attribute("color", "vec3")).mul(TSL.vec3(1.45, 1.1, 0.65)));
   m.opacityNode = s.a;
   // A CARD'S SHADOW IS ITS CUT-OUT, NOT ITS RECTANGLE: three's shadow pass takes a material's alpha from its colour node
   // and its map, never from opacityNode, so a card with a three-channel colour cast its whole quad — every far tree a
@@ -1502,7 +1504,8 @@ function canopyMaterial() {
   // shade (the vertex colour), lit by the sun and shaded by the clouds as the far trees are
   // (0.035, 0.062, 0.018 read too light; 0.034, 0.05, 0.016 under the sky's blue fill read grey-green, 72, 86, 76 against
   // the reference's 44, 56, 30 — so the blue is all but gone: a dark olive the sky's light cannot grey)
-  m.colorNode = shadeByClouds(TSL.vec3(0.036, 0.052, 0.006).mul(TSL.attribute("color", "vec3")));
+  // (then 0.036, 0.052, 0.006: read with the cards (27, 47, 23), too dark and too pure a green — red up, as the cards')
+  m.colorNode = shadeByClouds(TSL.vec3(0.055, 0.058, 0.0075).mul(TSL.attribute("color", "vec3")));
   m.opacityNode = TSL.step(canopyIn, TSL.positionWorld.sub(TSL.cameraPosition).length());   // none inside the card trees' reach
   matCanopy = m;
 }
