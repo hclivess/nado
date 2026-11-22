@@ -262,7 +262,7 @@
   .mkt{align-items:center;gap:8px 16px;margin-bottom:6px}
   .mkt .price{font-size:24px}
   .mkt .chg{font-size:12px}
-  .rangebtns{margin:8px 0 8px;justify-content:flex-end}
+  .rangebtns{margin:8px 16px 8px;justify-content:flex-end}   /* (16 px sides, as every card child has — `8px 0` overrode .card>* and the row ran to the card's border, past the chart: operator 2026-11-22, "this align is not so great") */
   .rangebtns button{padding:4px 10px;font-size:11px;border-radius:7px}
   .rangebtns button.on{background:var(--elev2);color:var(--accent2);border-color:var(--accent)}
   .chartwrap{height:240px;border:1px solid var(--border);border-radius:10px;background:#0c1117;padding:8px}
