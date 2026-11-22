@@ -35,8 +35,13 @@ if (m) {
   const clear = [800, 915, 1280].every((W) => { const w = Math.max(min, W - side), a = (W - w) / 2, b = a + w; return a >= 208 && b <= W - 274; });
   ok(clear, `…centred, it clears the left cluster (208 px) and the right one (274 px from the right) at 800, 915 and 1280 px`);
 }
-ok(/@media \(max-width:600px\)\{body\.touch #goal\{position:fixed;left:50%;transform:translateX\(-50%\);bottom:362px;/.test(html) && /body\.touch #tFire,body\.touch #tWard,body\.touch #tLevel\{bottom:294px\}/.test(html),
-  "4. on a portrait phone it rides above the top button row (Fire at 228 + 58 px)");
+// (read as numbers, not one rule's text: the "fewer buttons" layout of 2026-11-22 placed each button by its own rule and
+// put Fire, Wear and Flatten on the top row behind More; a button is 58 px tall)
+{
+  const g = html.match(/@media \(max-width:600px\)\{body\.touch #goal\{position:fixed;left:50%;transform:translateX\(-50%\);bottom:(\d+)px;/);
+  const tops = ["tFire", "tWard", "tLevel"].map((id) => { const r = html.match(new RegExp("#" + id + "\\{[^}]*bottom:(\\d+)px")); return r ? +r[1] + 58 : NaN; });
+  ok(!!g && tops.every((t) => t <= +g[1]), `4. on a portrait phone it rides above the top button row (goal at ${g && g[1]} px, the row's top at ${tops.join(", ")} px)`);
+}
 // 5. …and shrinks with distance beyond PLATE_NEAR (a constant size overlapped Ida's and Maren's tags from 14 m: "IdaMa…")
 {
   const a = page.indexOf("const PLATE_NEAR"), src = page.slice(a, page.indexOf("\nfunction label(", a));
