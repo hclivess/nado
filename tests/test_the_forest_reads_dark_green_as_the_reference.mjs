@@ -18,5 +18,10 @@ const ls = [...pl.matchAll(/l = (\d+) \+ R\(\) \* (\d+)/g)].map((m) => Number(m[
 ok(ls.length >= 2 && ls[0] <= 34 && ls[1] <= 40, `broadleaf leaves at most ${ls[0]} % light, birch at most ${ls[1]} % (were 44 and 48)`);
 const bake = page.slice(page.indexOf("async function bakeForest"), page.indexOf("async function bakeForest") + 1500).match(/HemisphereLight\(0x[0-9a-f]+, 0x[0-9a-f]+, ([\d.]+)\)/);
 ok(bake && Number(bake[1]) < 2, `the far trees' pictures are baked under a light of ${bake && bake[1]} (was 2.6: lit twice, they read pale)`);
+// 3. under the sky's blue fill the far cards and the canopy read grey-green (72, 86, 76): both carry almost no blue
+ok(page.includes("m.colorNode = shadeByClouds(s.rgb.mul(TSL.attribute(\"color\", \"vec3\")).mul(TSL.vec3(0.95, 1.0, 0.55)));"),
+  "the far cards' pictures are warmed toward olive (blue x0.55), so the sky's light does not grey them");
+const cv = page.match(/m\.colorNode = shadeByClouds\(TSL\.vec3\(([\d.]+), ([\d.]+), ([\d.]+)\)\.mul\(TSL\.attribute\("color", "vec3"\)\)\);/);
+ok(cv && Number(cv[3]) < Number(cv[2]) * 0.2 && Number(cv[1]) < Number(cv[2]), `the canopy is a dark olive with almost no blue (${cv && cv.slice(1).join(", ")})`);
 console.log(fails ? `${fails} FAILED` : "all passed");
 process.exit(fails ? 1 : 0);

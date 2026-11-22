@@ -1422,7 +1422,9 @@ async function bakeForest() {
   const m = new THREE.MeshStandardNodeMaterial({ roughness: 0.85, metalness: 0, alphaTest: 0.4 }), s = TSL.texture(tex, TSL.uv());
   const show = seenShow();
   m.positionNode = TSL.positionLocal.add(TSL.attribute("off", "vec3").mul(show));
-  m.colorNode = shadeByClouds(s.rgb.mul(TSL.attribute("color", "vec3")));
+  // a far tree's picture, warmed toward the forest's olive: under the sky's blue fill the far cards read grey cut-outs
+  // (measured with the forest band at 72, 86, 76 against the reference's 44, 56, 30, 2026-11-22)
+  m.colorNode = shadeByClouds(s.rgb.mul(TSL.attribute("color", "vec3")).mul(TSL.vec3(0.95, 1.0, 0.55)));
   m.opacityNode = s.a;
   // A CARD'S SHADOW IS ITS CUT-OUT, NOT ITS RECTANGLE: three's shadow pass takes a material's alpha from its colour node
   // and its map, never from opacityNode, so a card with a three-channel colour cast its whole quad — every far tree a
@@ -1482,18 +1484,25 @@ function updateForest() {
 // fidelity"; its engine streams a far tile's trees out and draws the tile "as one aggregate"). The card trees end at
 // forestRange(); past them, out to the far ground's edge, the hills were bare — the band where the reference's forests
 // stand. A canopy tile (land-forest.js canopyTile, built in the mesher workers) is one heightfield over the forest a tile
-// holds, Forest.CANOPY_TILE (1,024 m) a side: one draw for what as cards would be ~60 000 trees. It is drawn only past
-// the card trees' reach (canopyIn) so the two never stand in one place; on Low that reach is halved and the canopy starts
-// there — the cheaper of the two takes the far half.
+// holds, Forest.CANOPY_TILE (1,024 m) a side: one draw for what as cards would be ~60 000 trees. It is drawn from
+// CANOPY_NEAR out (canopyIn), under the card trees within their reach and alone beyond it.
 const CANOPY_RANGE = PHONE ? 1400 : 1700;      // m — to the far ground's edge (buildFar: 36 cells of 48 m each way)
+// FROM 400 m, UNDER THE CARD TREES (the Chlorophyll bar, measured live 2026-11-22: within the card trees' reach the forest
+// read as scattered trees over a band, where the reference's is one continuous canopy): the planet grows a tree on ~9 %
+// of a forest's columns and none within 2 of a plot edge, so its cards alone leave sky and ground showing between them.
+// The canopy now starts CANOPY_NEAR out (past the meshed chunks, ≤128 m, so it never meets a modelled tree) and the cards
+// stand in and over it — the mass is continuous, the cards give it its single trees. No longer tied to the cards' reach.
+const CANOPY_NEAR = PHONE ? 300 : 400;
 const canopy = new Map();                      // "face:tu:tv" -> { mesh, busy, n }
 let matCanopy = null, canopyIn = null, canopyCells = 0;
 function canopyMaterial() {
-  canopyIn = TSL.uniform(forestRange());
+  canopyIn = TSL.uniform(CANOPY_NEAR);
   const m = new THREE.MeshStandardNodeMaterial({ roughness: 0.9, metalness: 0, alphaTest: 0.5 });
   // a forest's mass from far off: dark leaf green (the reference's far forest measures rgb 44, 56, 30), each crown its own
   // shade (the vertex colour), lit by the sun and shaded by the clouds as the far trees are
-  m.colorNode = shadeByClouds(TSL.vec3(0.034, 0.05, 0.016).mul(TSL.attribute("color", "vec3")));   // (0.035, 0.062, 0.018 read too light and green live, 2026-11-22)
+  // (0.035, 0.062, 0.018 read too light; 0.034, 0.05, 0.016 under the sky's blue fill read grey-green, 72, 86, 76 against
+  // the reference's 44, 56, 30 — so the blue is all but gone: a dark olive the sky's light cannot grey)
+  m.colorNode = shadeByClouds(TSL.vec3(0.036, 0.052, 0.006).mul(TSL.attribute("color", "vec3")));
   m.opacityNode = TSL.step(canopyIn, TSL.positionWorld.sub(TSL.cameraPosition).length());   // none inside the card trees' reach
   matCanopy = m;
 }
@@ -1512,8 +1521,7 @@ function canopyDone(k, m) {
 }
 /** The canopy tiles in the band from the card trees' reach to CANOPY_RANGE, the rest dropped. */
 function updateCanopy() {
-  const T = Forest.CANOPY_TILE, face = P.face, Rin = forestRange(), want = new Set();
-  if (canopyIn) canopyIn.value = Rin;
+  const T = Forest.CANOPY_TILE, face = P.face, Rin = CANOPY_NEAR, want = new Set();
   for (let tv = Math.floor((P.v - CANOPY_RANGE) / T); tv <= Math.floor((P.v + CANOPY_RANGE) / T); tv++)
     for (let tu = Math.floor((P.u - CANOPY_RANGE) / T); tu <= Math.floor((P.u + CANOPY_RANGE) / T); tu++) {
       const du = Math.max(tu * T - P.u, 0, P.u - (tu + 1) * T), dv = Math.max(tv * T - P.v, 0, P.v - (tv + 1) * T);

@@ -8,8 +8,9 @@
  *      edge is a wall down to the meadow; meadow, sea and desert make none; every triangle faces the sky;
  *   2. it is cheap: one tile in a few tens of ms, a few hundred cells — against the tens of thousands of card trees the
  *      same land would be;
- *   3. the page asks the mesher workers for canopy tiles in the band from the card trees' reach to CANOPY_RANGE, draws
- *      none inside that reach (canopyIn), routes the results, places the meshes and drops the tiles it leaves behind.
+ *   3. the page asks the mesher workers for canopy tiles from CANOPY_NEAR (past the meshed chunks) to CANOPY_RANGE, under
+ *      the card trees within their reach (2026-11-22: cards alone read as scattered trees), routes the results, places
+ *      the meshes and drops the tiles it leaves behind.
  * Run: node tests/test_the_forest_beyond_the_far_trees_is_one_canopy_a_tile_out_to_the_far_ground.mjs
  */
 import { readFileSync } from "node:fs";
@@ -58,8 +59,9 @@ ok(mesher.includes("if (m.canopy) {") && mesher.includes("res = canopyTile(m.fac
   "the mesher workers build canopy tiles (asked before the forest's own jobs are read)");
 ok(/const CANOPY_RANGE = PHONE \? \d+ : \d+;/.test(page) && page.includes("const T = Forest.CANOPY_TILE, face = P.face") && page.includes("fu * fu + fv * fv < Rin * Rin) continue;") && page.includes('k: "C:" + k, forest: 1, canopy: 1,'),
   "the page asks for the tiles in the band from the card trees' reach to CANOPY_RANGE (a forest job: never pruned with the chunks)");
-ok(page.includes("m.opacityNode = TSL.step(canopyIn, TSL.positionWorld.sub(TSL.cameraPosition).length());") && page.includes("if (canopyIn) canopyIn.value = Rin;"),
-  "…draws none inside the card trees' reach, which follows the preset");
+ok(page.includes("m.opacityNode = TSL.step(canopyIn, TSL.positionWorld.sub(TSL.cameraPosition).length());") && page.includes("canopyIn = TSL.uniform(CANOPY_NEAR);")
+   && /const CANOPY_NEAR = PHONE \? (\d+) : (\d+);/.test(page) && Number(page.match(/const CANOPY_NEAR = PHONE \? (\d+) : (\d+);/)[1]) > 128,
+  "…drawn from CANOPY_NEAR out, under the card trees (a continuous mass, measured live: cards alone read as scattered trees) — past the meshed chunks (≤128 m), so it never meets a modelled tree");
 ok(page.includes('if (k && k[0] === "C") return canopyDone(k.slice(2), m);') && page.includes("for (const f of canopy.values()) if (f.mesh) {") && page.includes('pt("canopy", updateCanopy);'),
   "…routes the results, places the meshes each frame, and refreshes the tiles four times a second");
 ok(page.includes("if (f.mesh) { scene.remove(f.mesh); f.mesh.geometry.dispose(); canopyCells -= f.n; }"), "…and drops the tiles it leaves behind");
