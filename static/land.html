@@ -162,10 +162,19 @@
   #touchUi button{position:fixed;z-index:5;width:58px;height:58px;border-radius:50%;font:inherit;font-size:12px;font-weight:800;color:var(--txt);
     background:rgba(19,26,35,.7);border:1px solid var(--border);touch-action:none;word-break:keep-all}   /* (keep-all: Japanese チャット broke as チャッ/ト — no spaces, the browser broke anywhere; fitTouchLabels shrinks a whole word instead) */
   #touchUi button.on{border-color:var(--accent2);color:var(--accent2)}   /* a toggle that is on: Fly while flying */
-  #tJump{right:18px;bottom:96px}#tDown{right:84px;bottom:96px}#tFly{right:18px;bottom:162px}
-  #tBreak{right:150px;bottom:96px}#tPlace{right:84px;bottom:162px}#tPal{right:150px;bottom:162px}
+  /* FEWER BUTTONS (operator 2026-11-22, a phone's screenshot: "too many buttons" — thirteen, over half the view): the
+     right cluster is three columns (Jump, Break, Use / Fly, Place, Bag); Down shows only while flying (on the ground it
+     did nothing), above Fly; a guest (not signed in, body.guest) sees none of the gathering and building buttons, which
+     could only say "sign in" — Jump, Fly and More; the left cluster folds behind More (body.more) */
+  #tJump{right:18px;bottom:96px}#tFly{right:18px;bottom:162px}#tDown{right:18px;bottom:228px}
+  #tBreak{right:84px;bottom:96px}#tPlace{right:84px;bottom:162px}#tPal{right:150px;bottom:162px}
   /* Use (Q on a keyboard): a door, a chest, a pilot seat — and leaving a craft. A phone had no way to open a door at all */
-  #tUse{right:216px;bottom:96px}
+  #tUse{right:150px;bottom:96px}
+  body.touch:not(.flying) #tDown,
+  body.touch.guest #tBreak,body.touch.guest #tPlace,body.touch.guest #tPal,body.touch.guest #tUse,
+  body.touch.guest #tTurn,body.touch.guest #tFire,body.touch.guest #tWard,body.touch.guest #tLevel,
+  body.touch:not(.more) #tChat,body.touch:not(.more) #tRun,body.touch:not(.more) #tTurn,
+  body.touch:not(.more) #tFire,body.touch:not(.more) #tWard,body.touch:not(.more) #tLevel{display:none}
   /* the goal line between the two button clusters (playtest 2026-11-15: at 800 px its 60 % ran under Use) — the left cluster
      ends 208 px in, the right one 274 px in, so a centred line keeps clear of both within 100vw − 2 × 280 px */
   body.touch #goal{max-width:max(150px,calc(100vw - 560px));font-size:11px}
@@ -175,12 +184,15 @@
      the third columns met (Turn's right edge 208, Bag's left 204: Bag lay over Turn in every language, measured live
      2026-11-16, and at 360 px by 52 px); the goal line rises with it. Measured after: nothing overlaps at 412, 390, 360. */
   @media (max-width:600px){body.touch #goal{position:fixed;left:50%;transform:translateX(-50%);bottom:362px;max-width:calc(100vw - 32px);margin:0}
-    body.touch #tChat,body.touch #tRun,body.touch #tTurn{bottom:228px}body.touch #tFire,body.touch #tWard,body.touch #tLevel{bottom:294px}}
+  }
   /* the left cluster (#139, playtest 2026-11-11: a phone had no chat or console — so no /tp, /help — no run, no piece
      turn, no fire, no wardrobe): the thumb that walks reaches them beside the stick */
-  #tChat{left:18px;bottom:162px}#tRun{left:84px;bottom:162px}#tTurn{left:150px;bottom:162px}#tFire{left:18px;bottom:228px}#tWard{left:84px;bottom:228px}
+  /* More, and what it opens in two rows above it — off the right cluster's rows (96, 162; Down's 228 is at the right edge,
+     clear of a 360-px phone's left three columns, 208 px), so nothing overlaps at any width */
+  #tMore{left:18px;bottom:162px}
+  #tChat{left:18px;bottom:228px}#tRun{left:84px;bottom:228px}#tTurn{left:150px;bottom:228px}#tFire{left:18px;bottom:294px}#tWard{left:84px;bottom:294px}
   /* Level (L on a keyboard, #139): a phone could level ground only by typing /level in the console */
-  #tLevel{left:150px;bottom:228px}
+  #tLevel{left:150px;bottom:294px}
   body.touch #hotwrap{bottom:8px}
   /* the HUD text took the top third of a 480-px phone (#139): smaller, tighter, and the plot card's explanations
      (the wilderness sentence, the NADO sentence) folded away — the pill and the buttons stay */
@@ -263,6 +275,7 @@
   <button id="tFly" data-i18n="land.tFly">Fly</button><button id="tBreak" data-i18n="land.tBreak">Break</button>
   <button id="tPlace" data-i18n="land.tPlace">Place</button><button id="tPal" data-i18n="land.tBag">Bag</button>
   <button id="tUse" data-i18n="land.tUse">Use</button>
+  <button id="tMore" data-i18n="land.tMore">More</button>
   <button id="tChat" data-i18n="land.tChat">Chat</button><button id="tRun" data-i18n="land.tRun">Run</button><button id="tTurn" data-i18n="land.tTurn">Turn</button>
   <button id="tFire" data-i18n="land.tFire">Fire</button><button id="tWard" data-i18n="land.tWard">Wear</button><button id="tLevel" data-i18n="land.tLevel">Flatten</button>
 </div>

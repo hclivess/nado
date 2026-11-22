@@ -20,10 +20,12 @@ for (const id of ids) {                               // the wide-screen rule: #
   const m = html.match(new RegExp(`#${id}\\{(left|right):(\\d+)px;bottom:(\\d+)px\\}`));
   if (m) pos[id] = { side: m[1], x: +m[2], bottom: +m[3] };
 }
-const narrow = html.slice(html.indexOf("@media (max-width:600px){body.touch #goal"), html.indexOf("\n", html.indexOf("    body.touch #tChat,body.touch #tRun")));
+// the narrow-screen block, to its closing brace (since 2026-11-22 it holds only the goal line: the left cluster sits above
+// the right cluster's rows at every width — land.html "FEWER BUTTONS" — so no button moves when the screen narrows)
+const n0 = html.indexOf("@media (max-width:600px){body.touch #goal"), narrow = html.slice(n0, html.indexOf("\n  }", n0) + 4);
 for (const m of narrow.matchAll(/((?:body\.touch #t[A-Za-z]+,?)+)\{bottom:(\d+)px\}/g)) for (const id of m[1].match(/#t[A-Za-z]+/g)) if (pos[id.slice(1)]) pos[id.slice(1)].bottom = +m[2];
 const goal = Number((narrow.match(/body\.touch #goal\{[^}]*bottom:(\d+)px/) || [])[1]);
-ok(S === 58 && Object.keys(pos).length >= 13 && goal > 0, `${Object.keys(pos).length} round buttons, ${S} px, read from the page; the goal line at ${goal} px on an upright phone`);
+ok(S === 58 && Object.keys(pos).length >= 14 && goal > 0, `${Object.keys(pos).length} round buttons, ${S} px, read from the page; the goal line at ${goal} px on an upright phone`);
 let worst = null, offs = null, under = null;
 for (let W = 360; W <= 600; W++) {
   const box = Object.entries(pos).map(([id, p]) => ({ id, l: p.side === "left" ? p.x : W - p.x - S, b: p.bottom }));

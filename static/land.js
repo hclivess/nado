@@ -1673,6 +1673,44 @@ function buildFar() {
   farMesh.userData.anchor = farSea.userData.anchor = anchor;
   scene.add(farMesh, farSea);
   farAt = { face, u: fu, v: fv };
+  buildOuter(face, fu, fv);
+}
+
+// THE LAND BEYOND THE FAR GROUND (the Chlorophyll shot, 2026-11-22): the far ground ends 1.7 km off, and past it there was
+// only sky, where the reference's horizon is hills and forest in the haze. With the wilderness's rolling hills
+// (land-world.js ROLL) a tenth of the meadow views see hills past 1.7 km (a thirtieth before; measured over 4,400 views,
+// line of sight with the planet's curve and the canopies) — this ring draws them: one vertex every OUTER_STEP metres out
+// to OUTER_R, the ground at its height, a forest at its canopy's (Forest.canopyHeight) in the canopy's olive, the rest in
+// its ground's colour; the haze (scene.fog) greys it with distance. Under the far ground it sinks OUTER_SINK metres, so
+// the two never fight; past OUTER_R it drops out of sight. One mesh, ~3,700 vertices, rebuilt only when the far ground
+// is. (Inside the camera's far plane, 4 km; the dome and the cloud shell are drawn first and write no depth.)
+const OUTER_STEP = 128, OUTER_R = 3800, OUTER_SINK = 14;
+const OUTER_COL = { forest: [0.076, 0.066, 0.009], grass: [0.085, 0.12, 0.032], beach: [0.42, 0.38, 0.26], desert: [0.45, 0.38, 0.24],
+  rock: [0.22, 0.21, 0.19], snow: [0.78, 0.8, 0.84], sea: [0.02, 0.045, 0.07] };
+let outerMesh = null, matOuter = null;
+function outerVertex(face, u, v, du, dv, inner) {                 // the ring's one vertex: a pure function of the place
+  const w = Wd.wrap(face, Math.round(u), Math.round(v)), c = Wd.column(w.face, w.u, w.v), r = Math.hypot(du, dv);
+  const wet = c.top <= Wd.SEA, can = wet ? 0 : Forest.canopyHeight(c);
+  const kind = wet ? "sea" : can > 0 ? "forest" : c.biome in OUTER_COL ? c.biome : "grass";
+  const h = (wet ? Wd.SEA + 0.5 : c.height + can) - (Math.max(Math.abs(du), Math.abs(dv)) < inner ? OUTER_SINK : 0) - (r > OUTER_R ? 400 : 0);
+  return { h, kind };
+}
+function buildOuter(face, fu, fv) {
+  const N = Math.ceil(OUTER_R / OUTER_STEP) * 2, inner = 72 / 2 * 48 - 48;      // (the far ground's half-width, buildFar, less a cell)
+  const anchor = Wd.posOf(face, fu, fv, 0), pos = [], col = [], idx = [];
+  for (let j = 0; j <= N; j++) for (let i = 0; i <= N; i++) {
+    const du = (i - N / 2) * OUTER_STEP, dv = (j - N / 2) * OUTER_STEP, o = outerVertex(face, fu + du, fv + dv, du, dv, inner);
+    const p = Wd.posOf(face, fu + du, fv + dv, o.h);
+    pos.push(p[0] - anchor[0], p[1] - anchor[1], p[2] - anchor[2]); col.push(...OUTER_COL[o.kind]);
+  }
+  for (let j = 0; j < N; j++) for (let i = 0; i < N; i++) { const a = j * (N + 1) + i; idx.push(a, a + 1, a + N + 2, a, a + N + 2, a + N + 1); }
+  const g = new THREE.BufferGeometry();
+  g.setAttribute("position", new THREE.Float32BufferAttribute(pos, 3)); g.setAttribute("color", new THREE.Float32BufferAttribute(col, 3));
+  g.setIndex(idx); g.computeVertexNormals();
+  if (!matOuter) { matOuter = new THREE.MeshStandardNodeMaterial({ roughness: 0.95, metalness: 0 }); matOuter.colorNode = shadeByClouds(TSL.attribute("color", "vec3")); }
+  if (outerMesh) { scene.remove(outerMesh); outerMesh.geometry.dispose(); }
+  outerMesh = new THREE.Mesh(g, matOuter); outerMesh.frustumCulled = false; outerMesh.userData.anchor = anchor;
+  scene.add(outerMesh);
 }
 
 // ---- titles: who holds which plot (the exec node's asset table) -----------------------------------------------------
@@ -4649,6 +4687,8 @@ function wireInput(canvas) {
     // flight in silence, the button the same either way — nothing told the player they were flying); its look follows
     // P.fly every frame (frame), whoever changed it
     fitTouchLabels(); setTimeout(fitTouchLabels, 1500);   // once the labels are in the page's language (i18n.js may run after)
+    // More (land.html "FEWER BUTTONS"): opens and folds the left cluster — chat, run, turn, fire, wear, flatten
+    $("tMore").onclick = () => { const on = document.body.classList.toggle("more"); $("tMore").classList.toggle("on", on); };
     $("tFly").onclick = () => { P.fly = !P.fly; P.vh = 0; notify(P.fly ? T("flyOnTouch", "Flying — Jump to rise, Down to sink; Fly again to walk") : T("flyOff", "Walking"), 2400); };
     $("tBreak").onclick = () => act(false, false);
     $("tPlace").onclick = () => act(true);
@@ -5693,7 +5733,7 @@ function frame(now) {
   camera.lookAt(fw[0], fw[1], fw[2]);
   hemi.position.set(fr.up[0], fr.up[1], fr.up[2]);     // "up" is radial on a planet: three's hemisphere light assumes +Y
   for (const c of chunks.values()) if (c.anchor) for (const me of c.meshes) me.position.set(c.anchor[0] - cam[0], c.anchor[1] - cam[1], c.anchor[2] - cam[2]);
-  for (const m of [farMesh, farSea, borderMesh, farBoxMesh]) if (m) { const a = m.userData.anchor; m.position.set(a[0] - cam[0], a[1] - cam[1], a[2] - cam[2]); }
+  for (const m of [farMesh, farSea, borderMesh, farBoxMesh, outerMesh]) if (m) { const a = m.userData.anchor; m.position.set(a[0] - cam[0], a[1] - cam[1], a[2] - cam[2]); }
   for (const f of forest.values()) if (f.mesh) { const a = f.mesh.userData.anchor; f.mesh.position.set(a[0] - cam[0], a[1] - cam[1], a[2] - cam[2]); }
   for (const f of canopy.values()) if (f.mesh) { const a = f.mesh.userData.anchor; f.mesh.position.set(a[0] - cam[0], a[1] - cam[1], a[2] - cam[2]); }   // (the canopy beyond them)
   for (const [id, c] of crafts) if (c.pose) { craftPlace(c.mesh, c.pose, cam); engineFrame(id, c, cam, now); }
@@ -5712,7 +5752,14 @@ function frame(now) {
     sizePlates(r.mesh);
   }
   platesFrame();                                              // after every tag is sized: crowded ones lifted clear
-  if (touch) { const fb = $("tFly"); if (fb && fb.classList.contains("on") !== !!P.fly) fb.classList.toggle("on", !!P.fly); }   // Fly lit while flying
+  if (touch) {
+    const fb = $("tFly"); if (fb && fb.classList.contains("on") !== !!P.fly) fb.classList.toggle("on", !!P.fly);   // Fly lit while flying
+    // the buttons a phone shows follow what it can do (land.html "FEWER BUTTONS"): Down while flying, the gathering and
+    // building ones once signed in
+    const bc = document.body.classList;
+    if (bc.contains("flying") !== !!P.fly) bc.toggle("flying", !!P.fly);
+    if (bc.contains("guest") !== !net.me) bc.toggle("guest", !net.me);
+  }
   pt("sky", () => { sky(fr); torchTick(now, cam); cloudsFrame(cam, fr); farBuildTick(now); });
   // THE WIND (#113): by the height over the ground and the speed — a craft's airspeed when flying, else the body's
   if (sound.ctx && (!frame.windAt || now - frame.windAt > 100)) {

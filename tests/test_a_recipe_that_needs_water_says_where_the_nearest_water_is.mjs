@@ -4,7 +4,7 @@
  * nearestWater and waterHint, lifted from land.js and run against the planet's generator:
  *   1. a recipe that needs water the player lacks says so — first that it is looking, then how far the nearest water is
  *      and which way; a recipe without water, or a player with enough, says nothing;
- *   2. from the town hall the answer is the sea the plain scan finds (1.8 km, south-west), its bearing clockwise from north;
+ *   2. from the town hall the answer is the water the plain scan finds, at the scan's distance and bearing (clockwise from north);
  *   3. the search runs in slices (a phone never stalls) and redraws the bag when it ends; the answer is kept for the 64 m
  *      square the player stands in, and a move out of it starts a new one;
  *   4. where there is no water within the search, it says a well gives it — and the three lines are in 17 languages.
@@ -43,13 +43,16 @@ ok(/looking for the nearest water/.test(first), "a recipe needing water the play
 ok(await until(() => E.api.job.res !== undefined), "…and the search ends");
 const w = E.api.job.res;
 // the plain scan, cell by cell outward on the same 16 m grid
-let best = null;
+let best = null, bestB = null;
 for (let du = -150; du <= 150; du++) for (let dv = -150; dv <= 150; dv++) {
   const u = 55128 + du * 16, v = 80000 + dv * 16;
-  if (Wd.column(0, u, v).top < Wd.SEA) { const d = Math.hypot(u - 55128.5, v - 80000.5); if (!best || d < best) best = d; }
+  if (Wd.column(0, u, v).top < Wd.SEA) { const d = Math.hypot(u - 55128.5, v - 80000.5); if (!best || d < best) { best = d; bestB = (Math.atan2(u - 55128.5, v - 80000.5) * 180 / Math.PI + 360) % 360; } }
 }
-ok(w && Math.abs(w.d - best) <= 16 * Math.SQRT2, `from the town hall the nearest water is the sea the plain scan finds: ${w && w.d} m (scan ${Math.round(best)} m)`);
-ok(w && w.b > 180 && w.b < 270, `…to the south-west, bearing ${w && w.b}° clockwise from north`);
+ok(w && Math.abs(w.d - best) <= 16 * Math.SQRT2, `from the town hall the nearest water is the water the plain scan finds: ${w && w.d} m (scan ${Math.round(best)} m)`);
+// its bearing, against the scan's own (was pinned to the south-west sea 1.8 km off; the wilderness's rolling hills of
+// 2026-11-22 opened a nearer lake to the south-east — the answer follows the planet, the test follows the scan)
+const db = w && Math.abs(((w.b - bestB + 540) % 360) - 180);
+ok(w && db <= 3, `…bearing ${w && w.b}° clockwise from north, the scan's ${bestB && bestB.toFixed(0)}°`);
 ok(E.redraws >= 1, "…and the bag is redrawn when the answer comes");
 const told = E.api.waterHint(bread);
 ok(told.includes(`${w.d} m away, bearing ${w.b}°`) && /a bucket draws it/.test(told), "the recipe line then says how far and which way: " + told);

@@ -133,13 +133,20 @@ try {
   await getJ("/fixture/seed?who=owner&items=" + encodeURIComponent(JSON.stringify({ steel_plate: 2, thruster: 2, pilot_seat: 1 })) + "&tools=" + encodeURIComponent(JSON.stringify(["pick"])));
   const { token } = await getJ("/fixture/owner_token");
   let site = null;
+  const HEAD = [1, 2, 3, 4];   // the cells from the ground to above the eye
   for (let du = 2; du < 12 && !site; du++) for (let dv = 4; dv < 12 && !site; dv++) {
     const u = q.u0 + du, v = q.v0 + dv, top = Wd.column(q.face, u, v).top;
-    const cols = []; for (let a = 0; a < 4; a++) for (let b = -1; b < 3; b++) cols.push([u + a, v + b]);
-    if (cols.every(([cu, cv]) => Wd.column(q.face, cu, cv).top === top && Wd.terrainBlock(q.face, cu, cv, top + 1) === Wd.B.air && Wd.terrainBlock(q.face, cu, cv, top + 2) === Wd.B.air))
-      site = { du, dv, top };
+    // the craft's 4x4 AND the strip south of it where the player stands to aim at a thruster (b -4..-2): a tree's leaves
+    // there took the aim when the wilderness hills moved the trees, 2026-11-22
+    const cols = []; for (let a = 0; a < 4; a++) for (let b = -4; b < 3; b++) cols.push([u + a, v + b]);
+    // level ground with nothing SOLID on it: the planet's plants and litter (woad, flax, pebbles, twigs — new kinds grow
+    // as the planet does; a woad stand took the pilot walk's strip, #128, and this site, 2026-11-22) are cleared below
+    if (cols.every(([cu, cv]) => Wd.column(q.face, cu, cv).top === top && HEAD.every((k) => { const b = Wd.terrainBlock(q.face, cu, cv, top + k); return b === Wd.B.air || !Wd.BLOCKS[b].solid; })))
+      site = { du, dv, top, cols };
   }
   ok(!!site, "a flat site for the craft");
+  if (site) { const litter = []; for (const [cu, cv] of site.cols) for (const k of HEAD) if (Wd.terrainBlock(q.face, cu, cv, site.top + k) !== Wd.B.air) litter.push([q.face, cu, cv, site.top + k]);
+    if (litter.length) await getJ("/fixture/clear?cells=" + encodeURIComponent(JSON.stringify(litter))); }
   const X = site.du * 100, Z = site.dv * 100, Y = (site.top + 1) * 100;
   const hull = [X, Z, Y, 300, 150, 10, 64], seat = [X + 110, Z + 30, Y + 10, 80, 90, 110, 66];
   const thr1 = [X + 20, Z - 100, Y, 100, 100, 140, 65], thr2 = [X + 180, Z - 100, Y, 100, 100, 140, 65];

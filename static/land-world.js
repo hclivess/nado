@@ -13,6 +13,7 @@
 // the unit sphere, so the terrain is continuous across the faces' seams.
 
 import * as Shapes from "./land-shapes.js";
+import { PROTECTED_PLOTS } from "./land-protected.js";
 
 export const FACE_N = 8192;                 // plots along a face edge (execnode/games/land.py FACE_N)
 export const PLOT = 16;                     // blocks along a plot edge (land.py PLOT)
@@ -134,6 +135,7 @@ function noise3(P, x, y, z) {
     lerp(lerp(grad(P[AA + 1], x, y, z - 1), grad(P[BA + 1], x - 1, y, z - 1), u), lerp(grad(P[AB + 1], x, y - 1, z - 1), grad(P[BB + 1], x - 1, y - 1, z - 1), u), v), w);
 }
 const PERM = [0, 1, 2, 3, 4, 5, 6].map((i) => makePerm(WORLD_SEED + i * 7919));
+const ROLL_PERM = makePerm(WORLD_SEED + 7 * 7919);     // the rolling hills' own field (ROLL), apart from every older layer
 function fbm(P, x, y, z, oct, lac = 2, gain = 0.5) {
   let s = 0, a = 1, f = 1, n = 0;
   for (let i = 0; i < oct; i++) { s += a * noise3(P, x * f, y * f, z * f); n += a; a *= gain; f *= lac; }
@@ -290,6 +292,38 @@ export const ATLAS_TILES = 63;              // tiles 0..62 (0 unused; the farm's
 export const opaque = (id) => BLOCKS[id].solid && !BLOCKS[id].see;
 
 // ---- terrain ---------------------------------------------------------------------------------------------------
+// The wilderness mask: 0 on a protected plot (PROTECTED_PLOTS), 1 from ROLL_BLEND metres off the nearest one, smooth
+// between. Read at the plot grid's corners — a corner is 0 when any plot it touches is protected — and blended across a
+// plot, so a protected plot is exactly 0 over all its columns. Pure: a function of the place and a frozen list.
+export const ROLL = 180, ROLL_BLEND = 128;   // ROLL: the field's scale — its fbm spreads ~0.165, so ~±30 m typical, ±95 m at most
+const PROT = new Set(PROTECTED_PLOTS), PROT_RC = PROTECTED_PLOTS.map((p) => [Math.floor(p / FACE_N / FACE_N), Math.floor(p / FACE_N) % FACE_N, p % FACE_N]);
+const PROT_FACES = new Set(PROT_RC.map((x) => x[0])), cornerMemo = new Map();
+const PROT_BOX = {};
+for (const [f, r, c] of PROT_RC) { const b = PROT_BOX[f] || (PROT_BOX[f] = [r, r, c, c]); b[0] = Math.min(b[0], r); b[1] = Math.max(b[1], r); b[2] = Math.min(b[2], c); b[3] = Math.max(b[3], c); }
+function cornerMask(face, r, c) {                       // the corner between plots (r-1..r, c-1..c)
+  const B = ROLL_BLEND / PLOT, box = PROT_BOX[face];
+  if (!box || r < box[0] - B || r > box[1] + 1 + B || c < box[2] - B || c > box[3] + 1 + B) return 1;
+  const k = (face * (FACE_N + 1) + r) * (FACE_N + 1) + c;
+  let m = cornerMemo.get(k);
+  if (m !== undefined) return m;
+  let d = 1e9;
+  for (const [f, pr, pc] of PROT_RC) {
+    if (f !== face) continue;
+    const dr = r < pr ? pr - r : r > pr + 1 ? r - pr - 1 : 0, dc = c < pc ? pc - c : c > pc + 1 ? c - pc - 1 : 0;
+    d = Math.min(d, Math.hypot(dr, dc));
+  }
+  const t = Math.min(1, d / B);
+  m = t * t * (3 - 2 * t);
+  if (cornerMemo.size > 400000) cornerMemo.clear();
+  cornerMemo.set(k, m);
+  return m;
+}
+export function wildMask(face, u, v) {
+  if (!PROT_FACES.has(face)) return 1;
+  const px = (u + 0.5) / PLOT, py = (v + 0.5) / PLOT, c0 = Math.floor(px), r0 = Math.floor(py), fx = px - c0, fy = py - r0;
+  const a = cornerMask(face, r0, c0), b = cornerMask(face, r0, c0 + 1), c = cornerMask(face, r0 + 1, c0), d = cornerMask(face, r0 + 1, c0 + 1);
+  return (a * (1 - fx) + b * fx) * (1 - fy) + (c * (1 - fx) + d * fx) * fy;
+}
 /** The ground of column (face, u, v): { top (highest solid layer), biome } — the untouched planet. */
 export function column(face, u, v) {
   const d = dirOf(face, u + 0.5, v + 0.5);
@@ -302,7 +336,13 @@ export function column(face, u, v) {
   const detail = at(PERM[2], 45, 2);                             // its grain, ~45 m
   const rid = 1 - Math.abs(at(PERM[3], 2500, 5));                // mountain ridges, ~2.5 km
   const mtn = Math.max(0, at(PERM[4], 9000, 3) * 2.4 - 0.05);    // where the ranges are, ~9 km (more of them)
-  let height = SEA + 5 + cont * 80 + hills * 30 + vales * 8 + detail * 2.5 + rid * rid * rid * mtn * 130;
+  // ROLLING HILLS IN THE WILDERNESS (operator 2026-11-22, beside the Chlorophyll shot: "make it realistic", "wilderness
+  // only", "yes protect"): the land was ±30 m over 900 m, so from a meadow the hills 2-4 km off sank under the planet's
+  // curve behind a 20 m forest (measured: a ring of land drawn out to 3.8 km showed 2 pixels). ~±30 m more over ~2.6 km lifts
+  // them over it — times wildMask, 0 on every plot that held a title or an edit on that day (land-protected.js) and
+  // rising over ROLL_BLEND m around them, so no build is buried or left standing in the air.
+  const roll = at(ROLL_PERM, 2600, 4) * ROLL * wildMask(face, u, v);
+  let height = SEA + 5 + cont * 80 + hills * 30 + vales * 8 + detail * 2.5 + rid * rid * rid * mtn * 130 + roll;
   if (height > SEA + 110) height = SEA + 110 + (height - SEA - 110) * 0.35;   // high peaks compressed, never cut flat
   height = Math.max(8, Math.min(H - 8, height));
   const top = Math.floor(height);
