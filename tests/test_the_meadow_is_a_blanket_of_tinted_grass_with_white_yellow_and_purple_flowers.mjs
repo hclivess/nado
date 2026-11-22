@@ -46,6 +46,10 @@ const paint = page.match(/g\.fillStyle = `rgb\(\$\{Math\.round\(255 \* L(?: \* (
 const red = paint ? Number(paint[1] || 1) : NaN, blue = paint ? Number(paint[2]) : NaN;   // (no factor: red level with the green)
 ok(paint && red >= 0.78 && red <= 1.0 && blue >= 0.3 && blue <= 0.4,   // (a third, the reference's ratio: 0.45 had been set against the bloom's veil)
    `the painted blades are the reference's olive: red ${red} and blue ${blue} of the green`);
+// the blades' lightness, root to tip, measured live against the reference's sunlit meadow (86, 100, 38), 2026-11-22: tips
+// of 0.43 read (48, 70, 23) once the bloom's veil was gone; 0.56 overshot in full sun, the near grass yellow (92, 107, 37)
+{ const lm = page.match(/const L = ([\d.]+) \+ ([\d.]+) \* t1 \*\* 0\.8;/), root = lm && Number(lm[1]), tip = lm && Number(lm[1]) + Number(lm[2]);
+  ok(lm && root >= 0.1 && root <= 0.14 && tip > 0.45 && tip < 0.53, `the blades run from ${root} at the root to ${tip && tip.toFixed(2)} at the tip — between too dark (0.43) and too yellow (0.56)`); }
 ok(page.includes("h = 0.58 + rnd() * 0.22, s = 0.05") && page.includes("h = (flower ? 0.4 : 0.2) + rnd() * 0.3"), "a flower clump's heads stand over the cards' tops on taller stems");
 ok(/const FLOWER_HEADS = \[\[0\.9, 0\.9, 0\.82\], \[0\.95, 0\.72, 0\.1\], \[0\.55, 0\.3, 0\.8\]/.test(page) && page.includes('TSL.mix(TSL.vec3(1), TSL.instanceColor, TSL.attribute("head", "float"))'), "a flower clump's heads take one of white, yellow, purple; its blades stay green");
 ok(page.includes("clumpGeo = cardClump(0.7, 0.55); flowerGeo = bladeClump(4, true);") && page.includes("function grassCardTexture() {") && page.includes("alphaTest: 0.5 });") && page.includes("matGrass.opacityNode = card.a;"), "a grass clump is three crossed cards of a painted blade cluster, alpha-tested; a flower clump keeps its modelled blades and heads");

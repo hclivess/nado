@@ -4764,7 +4764,10 @@ function grassCardTexture() {
       // and (86, 100, 38) — still 1.6x bright near, and too pure a green (red 0.70 of the green against its 0.81-0.86)
       // third pass: (77, 95, 36) near against the reference's (50, 62, 20) — the hue right, still 1.5x bright; fourth, measured
       // LIVE (2026-11-22): (32, 48, 15) near and (52, 77, 34) mid — overshot dark, and green (red 0.65 of the green against 0.81)
-      const L = 0.11 + 0.32 * t1 ** 0.8;                            // dark at the root (0.11) to light at the tip (0.43)
+      // dark at the root (0.12) to light at the tip (0.49): with the bloom's veil gone (BLOOM_THRESHOLD) the live meadow
+      // measured (48, 70, 23) against the reference's sunlit field (86, 100, 38) with tips of 0.43; at 0.56 the near grass
+      // in full sun overshot (92, 107, 37 against 50, 62, 20) and read yellow — between the two
+      const L = 0.12 + 0.37 * t1 ** 0.8;
       // blue a third of the green, as the reference's grass reads (near 50, 62, 20; mid 86, 100, 38). It was raised to 0.45
       // against a reading of (42, 49, 10), then measured blue-grey (68, 83, 36) — the bloom's veil (BLOOM_THRESHOLD) had
       // added the blue, not the paint; with the veil gone the paint is the reference's own ratio
