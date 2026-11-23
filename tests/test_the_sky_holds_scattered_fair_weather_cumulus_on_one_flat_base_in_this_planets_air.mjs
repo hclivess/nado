@@ -154,5 +154,8 @@ ok(dv(0.01) > 1.9 * dv(1.5), `the map spends more rows a degree at the horizon t
   }
 }
 
+// a cumulus has a defined edge, not a soft translucent blob (photographed beside the Chlorophyll shot, 2026-11-23: at a
+// thinning of 0.3 of THICK and sigma 0.045 the heaps read as soft blobs; 0.15 and 0.09 a defined edge and a grey belly)
+ok(C.K.soft <= 0.2 && C.K.sigma >= 0.08, `a heap's edge is defined: it thins over ${C.K.soft} of its height, and dims at ${C.K.sigma} a metre`);
 console.log(fails ? `${fails} FAILED` : "all passed");
 process.exit(fails ? 1 : 0);

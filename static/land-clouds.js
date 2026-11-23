@@ -49,10 +49,12 @@ export const K = {
   thr: 0.52,        // cover above this is cloud: gives 2.5 oktas (measured: 0.495 -> 3.61, 0.52 -> 2.48, 0.54 -> 1.73)
   rise: 0.2,        // cover above thr that makes a heap of full height
   dome: 0.55,       // a heap's top against its cover: < 1 = steep sides under a rounded top
-  soft: 0.3,        // the share of THICK over which a heap thins out toward its top surface
+  soft: 0.15,       // the share of THICK over which a heap thins out toward its top surface (0.3 and sigma 0.045 drew
+                    // soft translucent blobs beside the Chlorophyll shot's crisp cumulus; 0.15 and 0.09 a defined edge and a
+                    // grey belly, photographed 2026-11-23)
   foot: 0.1,        // the share of THICK over which the base thins out (a flat base with a soft underside)
   erode: 0.62,      // how deep the billows eat a heap's edge
-  sigma: 0.045,     // 1/m: how fast a full-density cloud dims what is behind it (a RENDER number, not a measured one)
+  sigma: 0.09,      // 1/m: how fast a full-density cloud dims what is behind it (a RENDER number, not a measured one)
   deep: 1 / AIR,    // sunlight crosses a heap as it crosses the real one it stands for: 1/AIR times the path (a heap here
                     // is the real one scaled into this air, and a scaled heap let the sun through its belly)
   steps: 40,        // march steps through the layer along one ray
