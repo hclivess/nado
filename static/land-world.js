@@ -142,6 +142,7 @@ const ROLL_PERM = makePerm(WORLD_SEED + 7 * 7919);     // the rolling hills' own
 // ridges, and the rivers.
 const CONT_PERM = makePerm(WORLD_SEED + 8 * 7919 + 6 * 101), WARP_PERM = makePerm(WORLD_SEED + 9 * 7919);
 const BELT_PERM = makePerm(WORLD_SEED + 10 * 7919), RIDGE_PERM = makePerm(WORLD_SEED + 11 * 7919), RIVER_PERM = makePerm(WORLD_SEED + 12 * 7919);
+const UPLAND_PERM = makePerm(WORLD_SEED + 13 * 7919);   // the wilderness's wooded uplands (column)
 function fbm(P, x, y, z, oct, lac = 2, gain = 0.5) {
   let s = 0, a = 1, f = 1, n = 0;
   for (let i = 0; i < oct; i++) { s += a * noise3(P, x * f, y * f, z * f); n += a; a *= gain; f *= lac; }
@@ -349,7 +350,8 @@ export function rollAt(face, u, v) {
 //     where the land lies above ~SEA + 70: no gorges through a range), so a river runs inland from the sea;
 //   CLIMATE — cold toward the poles and up high, wet near the coasts and dry deep inland: deserts in warm interiors,
 //     forest along the wetter coasts.
-export const CONT_SEA = -0.103;           // the continent field's value at the coast (40 % of the planet under it)
+export const CONT_SEA = -0.103;
+export const UPLAND_H = 110, UPLAND_ROCK = 50;   // m: a wooded upland's rise over its land, and how much higher the rock line stands outside a range (column)           // the continent field's value at the coast (40 % of the planet under it)
 /** The large-scale world at the point (x, y, z) metres on the sphere: { cont (the continent field less CONT_SEA: < 0 is
  *  ocean), belt, ridge, river (0 on a river's line) }. */
 function largeScale(x, y, z) {
@@ -395,7 +397,7 @@ export function column(face, u, v) {
     temp0 = at(PERM[4], 20000, 3) * 0.6 + at(PERM[0], 7000, 2) * 0.4 - Math.max(0, Math.abs(d[1]) - 0.55) * 1.1 - Math.max(0, top0 - SEA) * 0.0025;
     wet0 = at(PERM[6], 8000, 3) * 0.8 + at(PERM[6], 1500, 2) * 0.3;
   }
-  let temp = temp0, wet = wet0, ls = null;
+  let temp = temp0, wet = wet0, ls = null, rockLine = SEA + 95, uplandLean = 0;   // (owned ground: the rock line and woods as bought)
   if (wild > 0) {
     ls = largeScale(x, y, z);
     const c = ls.cont;
@@ -425,6 +427,15 @@ export function column(face, u, v) {
     // the rock line (SEA + 95) and wear woods — on the +50 m interior a tall hill stood up as a snow-capped knoll 900 m from
     // the town (2.7 % of the land outside the belts was rock; eased, 0.5 %, the belts' share kept at 32 %)
     if (h1 > SEA + 80) h1 = SEA + 80 + (h1 - SEA - 80) * (0.3 + 0.7 * range);
+    // WOODED UPLANDS OVER THE VALES (2026-11-23, beside the Chlorophyll shot, whose meadow vale has a wooded hill rising
+    // ~100 m behind its forest edge): eased under the rock line, the lowland hills stood at most ~30 m over their vales, so
+    // from a meadow the land behind a wood's edge never stood over it. Broad uplands (~3.5 km across) rise up to UPLAND_H
+    // inland, outside the ranges and the river valleys, and they are wooded: the rock line stands UPLAND_ROCK higher
+    // outside a range (rockLine), and the woods field leans onto them (uplandLean). The world's 256 blocks hold them
+    // (SEA + 150 at most, the compression above SEA + 110 as for every peak).
+    const upland = smooth(0.05, 0.4, fbm(UPLAND_PERM, x / 3500, y / 3500, z / 3500, 3)) * smooth(0.04, 0.12, c) * (1 - range) * (1 - cut);
+    h1 += upland * UPLAND_H;
+    rockLine = SEA + 95 + UPLAND_ROCK * wild * (1 - range); uplandLean = upland * wild;
     if (h1 > SEA + 110) h1 = SEA + 110 + (h1 - SEA - 110) * 0.35;   // high peaks compressed, never cut flat
     h1 = Math.max(8, Math.min(H - 8, h1));
     // the climate: latitude, height and a broad wander; the coasts wet, the interiors dry
@@ -444,9 +455,9 @@ export function column(face, u, v) {
   // meadow; ours, with the hills raised, showed bare tan slopes — the forest field knew nothing of the ground's shape:
   // 18 % of hill crests wooded, 24 % of vales). The roll's own height leans the field: +-0.35 at +-60 m, so crests take
   // the forest (0.54) and vales lose it (0.06). The roll is 0 on owned ground (wildMask), so no titled plot's trees move.
-  const woods = at(PERM[5], 1100, 3) + wet * 0.35 + 0.35 * Math.max(-1, Math.min(1, roll / 60));
+  const woods = at(PERM[5], 1100, 3) + wet * 0.35 + 0.35 * Math.max(-1, Math.min(1, roll / 60)) + 0.5 * uplandLean * Math.max(0, Math.min(1, (roll + 20) / 40));   // (uplands wooded, their vales left meadow)
   const biome = top < SEA + 2 && top >= SEA - 3 ? "beach"
-    : top > SEA + 95 ? "rock"
+    : top > rockLine ? "rock"
     : temp < -0.28 ? "snow"
     : temp > 0.0 && wet < -0.04 ? "desert"
     : woods > 0.12 ? "forest" : "grass";

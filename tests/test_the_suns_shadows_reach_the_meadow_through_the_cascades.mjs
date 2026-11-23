@@ -69,8 +69,9 @@ const base = `http://127.0.0.1:${HTTP}`;
 // eye in the layer) — looking nearly straight down (not quite: a look straight along the up vector has no right-hand),
 // the clock held at a moment the sun stands high — the same moment and field the cloud test uses
 // (moved 1.4 km east 2026-11-22: with continents the #183 meadow became a wooded hill; then 660 m west 2026-11-23: the open
-// meadows left that one without a tree in view — this meadow has a wood's edge 40-220 m round it)
-const FACE = 0, U = 55000.5, V = 80640.5, TOP = Wd.column(FACE, Math.floor(U), Math.floor(V)).top + 1, H = TOP + 250, YAW = 0.4, PITCH = -1.45;
+// meadows left that one without a tree in view; then 360 m east the same day: the wooded uplands put a wood all round it,
+// whose shadows fell on the ground sunward of each trunk too — this upland meadow has a wood's edge 40-220 m off)
+const FACE = 0, U = 55360.5, V = 80720.5, TOP = Wd.column(FACE, Math.floor(U), Math.floor(V)).top + 1, H = TOP + 250, YAW = 0.4, PITCH = -1.45;
 if (H + 20 >= Wd.SEA + C.BASE) { console.log("FAIL the eye would hang in the cloud layer"); process.exit(1); }
 const W = 640, HH = 360;
 const up = Wd.frameOf(FACE, U, V).up;

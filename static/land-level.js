@@ -24,13 +24,22 @@ export function levelOps(w, u, v, T, depth = 3, axe = false) {
   // A BUSH AT THE SITE'S LEVEL IS GROUND TO BE: its leaves stand where the site's earth goes (a bush is leaves one layer
   // over its column's top), and left there they were a dip in the drawn ground — the mesh's surface does not rest on
   // leaves (found 2026-11-22 when the new wilderness put a bush on the levelling test's hillside: 1.1 m low)
+  // A TRUNK AT OR UNDER THE SITE'S LEVEL TOO, with an axe (2026-11-23: the wooded uplands put a fir whose root lay a layer
+  // under a hillside site — its trunk stood in the fill at T - 1 and T, the fill stopped at it and the drawn ground dipped
+  // 2 m round it): felled and filled like the leaves; without an axe it stays, as it does above
   const bt = w.block(u, v, T);
-  if ((NATURAL.has(bt) && !w.edited(u, v, T)) || LITTER.has(bt) || TREE_LEAVES.has(bt)) ops.push([u, v, T, B.air], [u, v, T, B.dirt]);
+  if ((NATURAL.has(bt) && !w.edited(u, v, T)) || LITTER.has(bt) || TREE_LEAVES.has(bt) || (axe && TREE_WOOD.has(bt))) ops.push([u, v, T, B.air], [u, v, T, B.dirt]);
   else if (bt === B.air || BLOCKS[bt].liquid) ops.push([u, v, T, B.dirt]);
   for (let h = T - 1; h >= T - depth; h--) {
     const b = w.block(u, v, h);
+    // TURF UNDER THE FILL IS EARTH (2026-11-23): the old surface's grass left a layer under the site's earth, and the
+    // drawn ground opened a sliver along it (1.6 m down along one row of a levelled hillside site) — turned to earth, and
+    // under it the ground is ground
+    if (b === B.grass && !w.edited(u, v, h)) { ops.push([u, v, h, B.air], [u, v, h, B.dirt]); break; }
     if (b === B.air || BLOCKS[b].liquid) ops.push([u, v, h, B.dirt]);
-    else if (TREE_LEAVES.has(b)) ops.push([u, v, h, B.air], [u, v, h, B.dirt]);
+    // (and a pebble, a stick, flax — litter is not ground: a pebble a layer under the same hillside site stopped the fill
+    // and the drawn ground dipped through it)
+    else if (TREE_LEAVES.has(b) || LITTER.has(b) || (axe && TREE_WOOD.has(b))) ops.push([u, v, h, B.air], [u, v, h, B.dirt]);
     else break;
   }
   return ops;

@@ -6,7 +6,9 @@
 //   2. the town stands on its continent, the ocean's coast within 20 km of it;
 //   3. RIVERS: where a river's line runs through the lowlands, the ground is water, its banks dry just beside it — and
 //      there are kilometres of them round the town;
-//   4. RANGES: the ground climbs over SEA + 95 (rock, snow-capped) inside the mountain belts, seldom outside them;
+//   4. RANGES: the ground is bare rock (snow-capped) inside the mountain belts, seldom outside them;
+//   4''. WOODED UPLANDS: from a meadow a wood stands 3° or more over the eye 0.6-4 km off in a sixth of the views (the
+//        Chlorophyll shot's wooded hill over its vale; an eighth before the uplands of 2026-11-23);
 //   5. CLIMATE: snow is toward the pole, not the equator; desert is a few per cent and lies inland, not on a coast;
 //   6. owned ground is the planet it was titled on (the fingerprint: test_the_wilderness_rolls_in_hills_and_owned_ground_never_moves).
 // Run: node tests/test_the_wilderness_is_laid_out_as_continents_ranges_and_rivers.mjs
@@ -51,14 +53,14 @@ const ok = (c, m) => { console.log((c ? "ok   " : "FAIL ") + m); if (!c) fails++
   for (let i = 0; i < 30000; i++) {
     const u = Math.floor(10000 + rnd() * 110000), v = Math.floor(10000 + rnd() * 110000); if (W.wildMask(0, u, v) < 1) continue;
     const ls = W.largeScaleAt(0, u, v); if (ls.cont < 0.12) continue;
-    const high = W.column(0, u, v).top > W.SEA + 95, belt = ls.belt > 0.2;
+    const high = W.column(0, u, v).biome === "rock", belt = ls.belt > 0.2;   // (rock: since the wooded uplands of 2026-11-23 a wood stands over SEA + 95 too)
     if (belt) { inBelt++; if (high) hiIn++; } else { outBelt++; if (high) hiOut++; }
     if (ls.belt < 0.05) { none++; if (high) hiNone++; }   // no range at all (a range rises from belt 0.05)
   }
   // …and outside the belts a hill stays under the rock line: a snow-capped knoll by the town (2.7 % of that land) was a
   // lowland hill, not a range — at most 1 % where no range rises
-  ok(hiNone / none < 0.01, `4'. where no range rises ${(100 * hiNone / none).toFixed(1)} % of the land is rock over SEA + 95 (a hill wears woods)`);
-  ok(hiIn / inBelt > 5 * (hiOut / outBelt) && hiIn / inBelt > 0.05, `4. inland, ${(100 * hiIn / inBelt).toFixed(1)} % of a mountain belt stands over SEA + 95, ${(100 * hiOut / outBelt).toFixed(1)} % outside the belts`); }
+  ok(hiNone / none < 0.01, `4'. where no range rises ${(100 * hiNone / none).toFixed(1)} % of the land is bare rock (a hill wears woods)`);
+  ok(hiIn / inBelt > 5 * (hiOut / outBelt) && hiIn / inBelt > 0.05, `4. inland, ${(100 * hiIn / inBelt).toFixed(1)} % of a mountain belt is bare rock, ${(100 * hiOut / outBelt).toFixed(1)} % outside the belts`); }
 
 // 5. climate: snow toward the pole; desert inland and rare
 { let seed = 13; const rnd = () => (seed = (seed * 16807) % 2147483647) / 2147483647;
@@ -72,5 +74,16 @@ const ok = (c, m) => { console.log((c ? "ok   " : "FAIL ") + m); if (!c) fails++
   ok(snow[1] / all[1] > 4 * (snow[0] / all[0]), `5. snow on ${(100 * snow[1] / all[1]).toFixed(0)} % of the land toward the pole, ${(100 * snow[0] / all[0]).toFixed(1)} % toward the equator`);
   ok(desert / land < 0.06 && desertCoast / Math.max(1, desert) < 0.1, `…desert on ${(100 * desert / land).toFixed(1)} % of the land, ${(100 * desertCoast / Math.max(1, desert)).toFixed(0)} % of it by a coast`); }
 
+// 4''. wooded uplands: the views from the meadows round the town (every 2 km, 8 ways) where a wood 0.6-4 km off stands
+// 3° or more over the eye (as the page draws it: the distant land lifted past 2 km, land.js HORIZON_K)
+{ const Fo = await import("../static/land-forest.js"), R = W.R0 + W.SEA, K = 0.85;
+  let views = 0, hills = 0;
+  for (let u = 40000; u <= 70000; u += 2000) for (let v = 65000; v <= 95000; v += 2000) {
+    const c0 = W.column(0, u, v); if (c0.biome !== "grass" || W.wildMask(0, u, v) < 1) continue; const eye = c0.height + 1.7;
+    for (let a = 0; a < 8; a++) { const yaw = a * Math.PI / 4; let best = -9;
+      for (let d = 600; d <= 4000; d += 50) { const c = W.column(0, Math.round(u + Math.sin(yaw) * d), Math.round(v + Math.cos(yaw) * d)), can = c.top <= W.SEA ? 0 : Fo.canopyHeight(c);
+        if (can > 0) { const s = Math.min(1, Math.max(0, (d - 2000) / 3000)); best = Math.max(best, Math.atan2(c.height + can - d * d / (2 * R) + K * s * s * (3 - 2 * s) * d * d / (2 * R) - eye, d)); } }
+      views++; if (best * 180 / Math.PI >= 3) hills++; } }
+  ok(hills / views > 0.15, `4''. from the meadows a wooded hill stands 3° or more over the eye in ${(100 * hills / views).toFixed(1)} % of ${views} views`); }
 console.log(fails ? `${fails} FAILED` : "all passed");
 process.exit(fails ? 1 : 0);

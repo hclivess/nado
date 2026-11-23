@@ -74,6 +74,24 @@ for (let du = 0; du < 3000 && !hill; du += 13) for (let dv = 0; dv < 3000 && !hi
   const wb = { block: (u, v, h) => cells.get(kk(u, v, h)) ?? (h <= T0 ? Wd.B.dirt : Wd.B.air), edited: () => false, top: () => T0 };
   const ops = levelOps(wb, 0, 0, T0 + 1, 3, true), last = new Map(); for (const [u, v, h, b] of ops) last.set(h, b);
   ok(last.get(T0 + 1) === Wd.B.dirt, "a bush at the site's level is replaced by the site's earth: " + JSON.stringify(ops)); }
+// a trunk at and under the site's level (a fir rooted a layer below a hillside site, 2026-11-23): with an axe it is felled
+// and the site's earth fills its cells — left, the fill stopped at it and the drawn ground dipped 2 m
+{ const T0 = 150, cells = new Map([["0:150", Wd.B.log], ["0:149", Wd.B.log]]), kk = (u, v, h) => u + ":" + h;
+  const wb = { block: (u, v, h) => cells.get(kk(u, v, h)) ?? (h <= T0 - 2 ? Wd.B.dirt : Wd.B.air), edited: () => false, top: () => T0 - 2 };
+  const last = (ops) => { const m = new Map(); for (const [u, v, h, b] of ops) m.set(h, b); return m; };
+  const withAxe = last(levelOps(wb, 0, 0, T0, 3, true)), bare = last(levelOps(wb, 0, 0, T0, 3, false));
+  ok(withAxe.get(T0) === Wd.B.dirt && withAxe.get(T0 - 1) === Wd.B.dirt && bare.get(T0) !== Wd.B.dirt,
+    "a trunk at and under the site's level is felled and filled with an axe, and left without one"); }
+// …and a pebble under the site's level is no ground either: the fill goes through it
+{ const T0 = 150, kk = (u, v, h) => u + ":" + h, cells = new Map([["0:149", Wd.B.pebble]]);
+  const wb = { block: (u, v, h) => cells.get(kk(u, v, h)) ?? (h <= T0 - 2 ? Wd.B.dirt : Wd.B.air), edited: () => false, top: () => T0 - 2 };
+  const m = new Map(); for (const [u, v, h, b] of levelOps(wb, 0, 0, T0, 3, false)) m.set(h, b);
+  ok(m.get(T0 - 1) === Wd.B.dirt && m.get(T0) === Wd.B.dirt, "a pebble under the site's level gives way to its earth: " + JSON.stringify([...m])); }
+// …and the old surface's turf under the fill turns to earth (left as grass, the drawn ground opened a sliver along it)
+{ const T0 = 150, kk = (u, v, h) => u + ":" + h, cells = new Map([["0:149", Wd.B.grass]]);
+  const wb = { block: (u, v, h) => cells.get(kk(u, v, h)) ?? (h <= T0 - 2 ? Wd.B.dirt : Wd.B.air), edited: () => false, top: () => T0 - 1 };
+  const m = new Map(); for (const [u, v, h, b] of levelOps(wb, 0, 0, T0, 3, false)) m.set(h, b);
+  ok(m.get(T0) === Wd.B.dirt && m.get(T0 - 1) === Wd.B.dirt, "the turf under a site's fill turns to earth: " + JSON.stringify([...m])); }
 ok(!!hill, "a hillside rising across the site was found");
 const slope = levelSite(sp.face, hill[0], hill[1], "a hillside (cut and fill)");
 ok(slope.all.some(([, , , b]) => b === Wd.B.air) && slope.all.some(([, , , b]) => b === Wd.B.dirt), "on the hillside it both cuts and fills");
