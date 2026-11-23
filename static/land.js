@@ -34,7 +34,7 @@ import * as Planet from "./land-planet.js";
 import { walk, trunkAt, TRUNK_R, restorePlace } from "./land-walk.js";
 import { snapBox, piecesFor, restOnGround, attachTo } from "./land-snap.js";
 import { levelOps, earthNeeded, trunkIn, siteLayer, topFirst } from "./land-level.js";
-import { groundWeights } from "./land-mesher.js";
+import * as Far from "./land-far.js";
 import * as Forest from "./land-forest.js";
 import * as Clouds from "./land-clouds.js";
 import { treeModel } from "./land-trees.js";
@@ -1222,7 +1222,7 @@ function request(k) {
  *  "0 far trees" on the readout, and the bare horizon the forest was written to end. */
 function jobRank(q, pcu, pcv, face) {
   const d = Math.abs(q.cu - pcu) + Math.abs(q.cv - pcv);
-  return q.forest ? 3 + d / 32 : d + (q.face === face ? 0 : 3);
+  return q.farland ? FAR_RANK : q.forest ? 3 + d / 32 : d + (q.face === face ? 0 : 3);
 }
 function pump() {
   for (const w of workers) {
@@ -1267,6 +1267,7 @@ function applyFinished() {
 }
 function done(m) {
   const k = inflight.get(m.id); inflight.delete(m.id);
+  if (k === "D") return farDone(m);                         // the far ground and the distant land (land-far.js)
   if (k && k[0] === "F") return forestDone(k.slice(2), m);  // a tile of the forest beyond the chunks (#183)
   if (k && k[0] === "C") return canopyDone(k.slice(2), m);  // a tile of the canopy beyond the far trees
   const c = chunks.get(k);
@@ -1348,7 +1349,8 @@ function updateChunks() {
     chunks.delete(k);
   }
   // (a forest tile's job is not a chunk's: updateForest drops it — pruned here, the far forest never arrived, #183)
-  for (let i = queue.length - 1; i >= 0; i--) if (!queue[i].forest && !want.has(queue[i].k)) { const c = chunks.get(queue[i].k); if (c) c.busy = false; queue.splice(i, 1); }
+  // (a far job is no chunk: dropped here it would never land, and farPending would hold every later one back)
+  for (let i = queue.length - 1; i >= 0; i--) if (!queue[i].forest && !queue[i].farland && !want.has(queue[i].k)) { const c = chunks.get(queue[i].k); if (c) c.busy = false; queue.splice(i, 1); }
 }
 
 // ---- THE FOREST BEYOND THE CHUNKS (#183; operator 2026-11-11, beside a concept picture: "compared to this our game looks
@@ -1636,97 +1638,75 @@ function buildFarBoxes() {
   scene.add(farBoxMesh);
 }
 
-// ---- the far land: a coarse ring of the planet beyond the chunks, out to the horizon -------------------------------
-// In the ground's own material ("did you fix the bland untextured marches?", operator 2026-11-06: it was flat vertex
-// colour, a green that read as painted cardboard past the near land): every vertex carries the six texture weights the
-// mesher gives the near ground, from the surface's block and slope, and the sea is the near water's own surface over
-// the seabed instead of a blue tint on the ground. Both are tucked under the near chunks they overlap.
-let farSea = null;
-function buildFar() {
-  const N = 72, STEP = 48, face = P.face;
-  const fu = Math.round(P.u / STEP) * STEP, fv = Math.round(P.v / STEP) * STEP;
-  const anchor = Wd.posOf(face, fu, fv, 0), fr = Wd.frameOf(face, fu, fv);
-  const pos = [], sea = [], uvw = [], suvw = [], w1 = [], w2 = [], col = [], mats = [], idx = [];
-  for (let j = 0; j <= N; j++) for (let i = 0; i <= N; i++) {
-    const u = fu + (i - N / 2) * STEP, v = fv + (j - N / 2) * STEP;
-    const w = Wd.wrap(face, Math.round(u), Math.round(v)), c = Wd.column(w.face, w.u, w.v);
-    const near = Math.abs(i - N / 2) * STEP < viewDist * CHUNK && Math.abs(j - N / 2) * STEP < viewDist * CHUNK;
-    const p = Wd.posOf(face, u, v, c.height - (near ? 6 : 0)), q = Wd.posOf(face, u, v, Wd.SEA + 0.88 - (near ? 6 : 0));
-    pos.push(p[0] - anchor[0], p[1] - anchor[1], p[2] - anchor[2]);
-    sea.push(q[0] - anchor[0], q[1] - anchor[1], q[2] - anchor[2]);
-    uvw.push(((u % 4096) + 4096) % 4096, ((v % 4096) + 4096) % 4096, c.height);
-    suvw.push(((u % 4096) + 4096) % 4096, ((v % 4096) + 4096) % 4096, Wd.SEA + 1);
-    mats.push(Wd.terrainBlock(w.face, w.u, w.v, Math.max(1, c.top)));
-    col.push(1, 1, 1);
-  }
-  for (let j = 0; j < N; j++) for (let i = 0; i < N; i++) { const a = j * (N + 1) + i; idx.push(a, a + 1, a + N + 2, a, a + N + 2, a + N + 1); }
-  const g = new THREE.BufferGeometry();
-  g.setAttribute("position", new THREE.Float32BufferAttribute(pos, 3));
-  g.setIndex(idx); g.computeVertexNormals();
-  // the weights need the slope, and rock's three-way projection a grid-space normal: the world normals in the frame here
-  const nw = g.getAttribute("normal"), gn = [];
-  for (let k = 0; k < nw.count; k++) {
-    const x = nw.getX(k), y = nw.getY(k), z = nw.getZ(k);
-    const ne = x * fr.east[0] + y * fr.east[1] + z * fr.east[2], nn = x * fr.north[0] + y * fr.north[1] + z * fr.north[2], nu = x * fr.up[0] + y * fr.up[1] + z * fr.up[2];
-    gn.push(ne, nn, nu);
-    const wt = groundWeights(mats[k], nu);
-    w1.push(wt[0], wt[1], wt[2], wt[3]); w2.push(wt[4], wt[5]);
-  }
-  g.setAttribute("uvw", new THREE.Float32BufferAttribute(uvw, 3));
-  g.setAttribute("gn", new THREE.Float32BufferAttribute(gn, 3));
-  g.setAttribute("w1", new THREE.Float32BufferAttribute(w1, 4));
-  g.setAttribute("w2", new THREE.Float32BufferAttribute(w2, 2));
-  g.setAttribute("color", new THREE.Float32BufferAttribute(col, 3));
-  const gs = new THREE.BufferGeometry();
-  gs.setAttribute("position", new THREE.Float32BufferAttribute(sea, 3));
-  gs.setAttribute("uvw", new THREE.Float32BufferAttribute(suvw, 3));
-  gs.setIndex(idx); gs.computeVertexNormals();
-  for (const m of [farMesh, farSea]) if (m) { scene.remove(m); m.geometry.dispose(); }
-  farMesh = new THREE.Mesh(g, matGround);
-  farMesh.receiveShadow = true;
-  farSea = new THREE.Mesh(gs, matWater);
-  farSea.renderOrder = 1;
-  farMesh.userData.anchor = farSea.userData.anchor = anchor;
-  scene.add(farMesh, farSea);
-  farAt = { face, u: fu, v: fv };
-  buildOuter(face, fu, fv);
+// ---- the far land: the ground beyond the chunks and the distant land out to 30 km (static/land-far.js) ------------
+// In the ground's own material ("did you fix the bland untextured marches?", operator 2026-11-06): the far ground's every
+// vertex carries the six texture weights the mesher gives the near ground, and the sea is the near water's own surface.
+// Past it, a clipmap of RINGS out to 30 km in the canopy's and the ground's colours (land-far.js says why: "very stupid
+// and short", operator 2026-11-23 — the land ended in a rim 3.8 km out).
+// OFF THE MAIN THREAD: the pieces are built by a mesher worker as one job (rank FAR_RANK) and swapped in together when it
+// lands, so a ring and the ring inside it always share their edge; this page only wraps the buffers it is handed. (Built
+// here they cost ~9,000 column samples, a third of a second of frame, every 400 m.)
+// INVARIANT: one far job at a time (farPending), and a ring is rebuilt with the ring inside it whenever that ring's
+// anchor moves — its hole IS that ring's square. A ring built against an older square would leave a gap or a double.
+let farSea = null, farPending = false, farForce = false, matOuter = null;
+const ringMeshes = Far.RINGS.map(() => null), ringAt = Far.RINGS.map(() => null);
+// a far job's queue rank: FIRST — it is one job (~0.7 s of one worker) and the land to the horizon depends on it; ranked
+// after the chunks beside the player (1.5) it waited behind ~80 of them (16 a column), and a software-rendered page
+// photographed the sky through the ground where the far ground was still queued (the cloud-shadow walk, 2026-11-23)
+const FAR_RANK = -1;
+function buildFar() { farForce = true; updateFar(); }   // the view distance changed: the far ground's sunk square follows it
+function updateFar() {
+  if (farPending || !scene) return;
+  const face = P.face, FAR_HALF = Far.FAR_N / 2 * Far.FAR_STEP;
+  const groundDue = farForce || !farAt || farAt.face !== face || Math.abs(farAt.u - P.u) > 400 || Math.abs(farAt.v - P.v) > 400;
+  const fu = groundDue ? Math.round(P.u / Far.FAR_STEP) * Far.FAR_STEP : farAt.u, fv = groundDue ? Math.round(P.v / Far.FAR_STEP) * Far.FAR_STEP : farAt.v;
+  const want = Far.RINGS.map((_, k) => Far.ringAnchor(k, P.u, P.v)), redo = new Set();
+  want.forEach((a, k) => { const at = ringAt[k]; if (!at || at.face !== face || at.u !== a[0] || at.v !== a[1]) { redo.add(k); if (k + 1 < Far.RINGS.length) redo.add(k + 1); } });
+  if (groundDue) redo.add(0);                                // ring 0 sinks under the far ground's square
+  if (!redo.size) return;
+  const at = (k) => (redo.has(k) ? want[k] : [ringAt[k].u, ringAt[k].v]);
+  const rings = [...redo].sort((x, y) => x - y).map((k) => {
+    const [au, av] = at(k);
+    if (k === 0) {                                           // inside the far ground, less a cell of overlap that sinks under it
+      const r = FAR_HALF - Far.RINGS[0].step;
+      return { k, au, av, hole: [fu - r, fu + r, fv - r, fv + r], sink: [fu, fv, FAR_HALF - Far.FAR_STEP] };
+    }
+    const [pu, pv] = at(k - 1), h = Far.RINGS[k - 1].half;
+    return { k, au, av, hole: [pu - h, pu + h, pv - h, pv + h], sink: null };
+  });
+  farForce = false; farPending = true;
+  queue.push({ id: ++reqId, k: "D", farland: true, face, ground: groundDue ? { fu, fv, nearHalf: viewDist * CHUNK } : null, rings });
+  pump();
 }
-
-// THE LAND BEYOND THE FAR GROUND (the Chlorophyll shot, 2026-11-22): the far ground ends 1.7 km off, and past it there was
-// only sky, where the reference's horizon is hills and forest in the haze. With the wilderness's rolling hills
-// (land-world.js ROLL) a tenth of the meadow views see hills past 1.7 km (a thirtieth before; measured over 4,400 views,
-// line of sight with the planet's curve and the canopies) — this ring draws them: one vertex every OUTER_STEP metres out
-// to OUTER_R, the ground at its height, a forest at its canopy's (Forest.canopyHeight) in the canopy's olive, the rest in
-// its ground's colour; the haze (scene.fog) greys it with distance. Under the far ground it sinks OUTER_SINK metres, so
-// the two never fight; past OUTER_R it drops out of sight. One mesh, ~3,700 vertices, rebuilt only when the far ground
-// is. (Inside the camera's far plane, 4 km; the dome and the cloud shell are drawn first and write no depth.)
-const OUTER_STEP = 128, OUTER_R = 3800, OUTER_SINK = 14;
-const OUTER_COL = { forest: [0.076, 0.066, 0.009], grass: [0.085, 0.12, 0.032], beach: [0.42, 0.38, 0.26], desert: [0.45, 0.38, 0.24],
-  rock: [0.22, 0.21, 0.19], snow: [0.78, 0.8, 0.84], sea: [0.02, 0.045, 0.07] };
-let outerMesh = null, matOuter = null;
-function outerVertex(face, u, v, du, dv, inner) {                 // the ring's one vertex: a pure function of the place
-  const w = Wd.wrap(face, Math.round(u), Math.round(v)), c = Wd.column(w.face, w.u, w.v), r = Math.hypot(du, dv);
-  const wet = c.top <= Wd.SEA, can = wet ? 0 : Forest.canopyHeight(c);
-  const kind = wet ? "sea" : can > 0 ? "forest" : c.biome in OUTER_COL ? c.biome : "grass";
-  const h = (wet ? Wd.SEA + 0.5 : c.height + can) - (Math.max(Math.abs(du), Math.abs(dv)) < inner ? OUTER_SINK : 0) - (r > OUTER_R ? 400 : 0);
-  return { h, kind };
-}
-function buildOuter(face, fu, fv) {
-  const N = Math.ceil(OUTER_R / OUTER_STEP) * 2, inner = 72 / 2 * 48 - 48;      // (the far ground's half-width, buildFar, less a cell)
-  const anchor = Wd.posOf(face, fu, fv, 0), pos = [], col = [], idx = [];
-  for (let j = 0; j <= N; j++) for (let i = 0; i <= N; i++) {
-    const du = (i - N / 2) * OUTER_STEP, dv = (j - N / 2) * OUTER_STEP, o = outerVertex(face, fu + du, fv + dv, du, dv, inner);
-    const p = Wd.posOf(face, fu + du, fv + dv, o.h);
-    pos.push(p[0] - anchor[0], p[1] - anchor[1], p[2] - anchor[2]); col.push(...OUTER_COL[o.kind]);
+function farDone(m) {
+  farPending = false;
+  if (m.error) { console.warn("far land: " + m.error); return; }
+  const anchored = (mesh, anchor) => { mesh.userData.anchor = anchor; scene.add(mesh); return mesh; };
+  if (m.ground) {
+    const r = m.ground, g = new THREE.BufferGeometry();
+    g.setAttribute("position", new THREE.BufferAttribute(r.pos, 3)); g.setAttribute("normal", new THREE.BufferAttribute(r.nor, 3));
+    g.setAttribute("uvw", new THREE.BufferAttribute(r.uvw, 3)); g.setAttribute("gn", new THREE.BufferAttribute(r.gn, 3));
+    g.setAttribute("w1", new THREE.BufferAttribute(r.w1, 4)); g.setAttribute("w2", new THREE.BufferAttribute(r.w2, 2));
+    g.setAttribute("color", new THREE.BufferAttribute(r.col, 3)); g.setIndex(new THREE.BufferAttribute(r.idx, 1)); g.computeBoundingSphere();
+    const gs = new THREE.BufferGeometry();
+    gs.setAttribute("position", new THREE.BufferAttribute(r.sea, 3)); gs.setAttribute("normal", new THREE.BufferAttribute(r.seaNor, 3));
+    gs.setAttribute("uvw", new THREE.BufferAttribute(r.suvw, 3)); gs.setIndex(new THREE.BufferAttribute(r.idx, 1)); gs.computeBoundingSphere();
+    for (const old of [farMesh, farSea]) if (old) { scene.remove(old); old.geometry.dispose(); }
+    farMesh = new THREE.Mesh(g, matGround); farMesh.receiveShadow = true;
+    farSea = new THREE.Mesh(gs, matWater); farSea.renderOrder = 1;
+    anchored(farMesh, r.anchor); anchored(farSea, r.anchor);
+    farAt = { face: r.face, u: r.fu, v: r.fv };
   }
-  for (let j = 0; j < N; j++) for (let i = 0; i < N; i++) { const a = j * (N + 1) + i; idx.push(a, a + 1, a + N + 2, a, a + N + 2, a + N + 1); }
-  const g = new THREE.BufferGeometry();
-  g.setAttribute("position", new THREE.Float32BufferAttribute(pos, 3)); g.setAttribute("color", new THREE.Float32BufferAttribute(col, 3));
-  g.setIndex(idx); g.computeVertexNormals();
-  if (!matOuter) { matOuter = new THREE.MeshStandardNodeMaterial({ roughness: 0.95, metalness: 0 }); matOuter.colorNode = shadeByClouds(TSL.attribute("color", "vec3")); }
-  if (outerMesh) { scene.remove(outerMesh); outerMesh.geometry.dispose(); }
-  outerMesh = new THREE.Mesh(g, matOuter); outerMesh.frustumCulled = false; outerMesh.userData.anchor = anchor;
-  scene.add(outerMesh);
+  if (!matOuter && m.rings.length) { matOuter = new THREE.MeshStandardNodeMaterial({ roughness: 0.95, metalness: 0 }); matOuter.colorNode = shadeByClouds(TSL.attribute("color", "vec3")); }
+  for (const r of m.rings) {
+    const g = new THREE.BufferGeometry();
+    g.setAttribute("position", new THREE.BufferAttribute(r.pos, 3)); g.setAttribute("normal", new THREE.BufferAttribute(r.nor, 3));
+    g.setAttribute("color", new THREE.BufferAttribute(r.col, 3)); g.setIndex(new THREE.BufferAttribute(r.idx, 1));
+    const old = ringMeshes[r.k]; if (old) { scene.remove(old); old.geometry.dispose(); }
+    const mesh = new THREE.Mesh(g, matOuter); mesh.frustumCulled = false;
+    ringMeshes[r.k] = anchored(mesh, r.anchor);
+    ringAt[r.k] = { face: r.face, u: r.au, v: r.av };
+  }
 }
 
 // ---- titles: who holds which plot (the exec node's asset table) -----------------------------------------------------
@@ -5345,7 +5325,20 @@ function satSky(at, opacity) {
 }
 const TWI_LOW = Math.sin(-12 * Math.PI / 180), TWI_HIGH = Math.sin(2 * Math.PI / 180);   // the sky's light: from nautical twilight's end to 2° up
 const MOON_I = 1.3, NIGHT_FILL = 1.5;                      // a moonlit night: the moon and the sky's fill at full night (were 0.9, 1.1)
-const HAZE_DENSITY = 0.00026;                 // m^-1 of the squared-exponential haze (scene.fog): see where it is set
+// THE HAZE (scene.fogNode, set where the scene is made): the air's optical depth along a sight line of d metres is
+// HAZE_K d^2 / (HAZE_D0 + d) — squared near, so the near land stays clear and the forest at 1 km dark green (6.5 %, the
+// measured tune of 2026-11-22: 0.6 % at 300 m, 18 % at 1.7 km under the former squared exponential), and growing only
+// in proportion far out, so the distant land (land-far.js, to 30 km) shows as hills in the haze, not as nothing: 43 %
+// at 5 km, 70 % at 10 km, 92 % at 20 km. A squared exponential tuned to the same 1 km was 98 % at 6 km — the former
+// edge of everything. The air thins with height (HAZE_H) over the lowlands' (HAZE_FLOOR): a pilot sees further.
+const FAR_PLANE = 40000;                     // m: the camera's far plane, past the last ring's 30.7 km
+const HAZE_K = 0.000134, HAZE_D0 = 1000, HAZE_H = 1200, HAZE_FLOOR = 100;   // per m, m, m, m — design choices (the values above)
+const hazeCam = { c: TSL.uniform(new THREE.Vector3()), h: TSL.uniform(0) };   // the planet's centre from the eye, the eye over the sea
+function hazeFactor() {
+  const d = TSL.positionView.length(), hFrag = TSL.positionWorld.sub(hazeCam.c).length().sub(Wd.R0 + Wd.SEA);
+  const thin = hazeCam.h.add(hFrag).mul(0.5).sub(HAZE_FLOOR).max(0).div(HAZE_H).negate().exp();
+  return d.mul(d).div(d.add(HAZE_D0)).mul(HAZE_K).mul(thin).negate().exp().oneMinus();
+}
 function sky(fr) {
   const star = Cosmos.sunFrom(Wd.PLANET), sd = new THREE.Vector3(...star.dir), up = new THREE.Vector3(fr.up[0], fr.up[1], fr.up[2]);
   const elev = sd.dot(up);                                  // the sun's height over this player's horizon (-1..1)
@@ -5771,11 +5764,12 @@ function frame(now) {
   pt("break", () => { breakTick(dt); levelTick(now); });
   const { fw, up: cu } = chaseView(dt), { fr } = look();   // flying an aircraft the camera rolls with it (#191), eased (CHASE_LAG)
   const cam = eyePos();
+  hazeCam.c.value.set(-cam[0], -cam[1], -cam[2]); hazeCam.h.value = Math.hypot(cam[0], cam[1], cam[2]) - Wd.R0 - Wd.SEA;   // (the haze thins with height)
   camera.up.set(cu[0], cu[1], cu[2]);
   camera.lookAt(fw[0], fw[1], fw[2]);
   hemi.position.set(fr.up[0], fr.up[1], fr.up[2]);     // "up" is radial on a planet: three's hemisphere light assumes +Y
   for (const c of chunks.values()) if (c.anchor) for (const me of c.meshes) me.position.set(c.anchor[0] - cam[0], c.anchor[1] - cam[1], c.anchor[2] - cam[2]);
-  for (const m of [farMesh, farSea, borderMesh, farBoxMesh, outerMesh]) if (m) { const a = m.userData.anchor; m.position.set(a[0] - cam[0], a[1] - cam[1], a[2] - cam[2]); }
+  for (const m of [farMesh, farSea, borderMesh, farBoxMesh, ...ringMeshes]) if (m) { const a = m.userData.anchor; m.position.set(a[0] - cam[0], a[1] - cam[1], a[2] - cam[2]); }
   for (const f of forest.values()) if (f.mesh) { const a = f.mesh.userData.anchor; f.mesh.position.set(a[0] - cam[0], a[1] - cam[1], a[2] - cam[2]); }
   for (const f of canopy.values()) if (f.mesh) { const a = f.mesh.userData.anchor; f.mesh.position.set(a[0] - cam[0], a[1] - cam[1], a[2] - cam[2]); }   // (the canopy beyond them)
   for (const [id, c] of crafts) if (c.pose) { craftPlace(c.mesh, c.pose, cam); engineFrame(id, c, cam, now); }
@@ -6006,7 +6000,7 @@ function slow() {
   pt("canopy", updateCanopy);
   pt("borders", updateBorders);
   pt("net", netTick);
-  if (!farAt || farAt.face !== P.face || Math.abs(farAt.u - P.u) > 400 || Math.abs(farAt.v - P.v) > 400) pt("far", buildFar);
+  pt("far", updateFar);                                    // a far job when the far ground or a ring is due (land-far.js)
   pt("hud", hud);                                          // (4 a second; flying, its line too)
   if (++tick % 20 === 0) save();
 }
@@ -6079,9 +6073,11 @@ async function start() {
   // CLEARER AIR (the Chlorophyll bar, operator 2026-11-21): linear fog from the view's edge to 2.9 km was already 32 % thick
   // at 1 km, so the forest band read a pale blue-grey (77, 100, 81) where the reference's distant forest is dark green
   // (44, 56, 30); at 0.00036 still (70, 103, 73), measured live 2026-11-22. Aerial haze grows with distance squared: ~7 % at
-  // 1 km, ~18 % at the far ground's edge (1.7 km), ~43 % at 2.9 km. HAZE_DENSITY is a design choice tuned to that shot.
-  scene.fog = new THREE.FogExp2(0xb7d6ef, HAZE_DENSITY);
-  camera = new THREE.PerspectiveCamera(SET.fov, innerWidth / innerHeight, 0.08, 4000);
+  // 1 km, ~18 % at the far ground's edge (1.7 km). Kept at 1 km, and no longer white by 6 km: HAZE_K (hazeFactor) says how.
+  scene.fog = new THREE.FogExp2(0xb7d6ef, 0);              // its colour is the horizon's (sky); the haze itself is scene.fogNode
+  scene.fogNode = TSL.fog(TSL.reference("color", "color", scene.fog), hazeFactor());
+  // the far plane past the distant land's last ring (land-far.js, 30 km): at 4 km it cut the land off with its rim
+  camera = new THREE.PerspectiveCamera(SET.fov, innerWidth / innerHeight, 0.08, FAR_PLANE);
   camera.position.set(0, 0, 0);
   sun = new THREE.DirectionalLight(0xfff4e0, 3);
   Object.assign(sun.shadow.camera, { near: 1, far: 1200 });   // (the cascades clone it: deep enough for the far cascade plus the light margin)

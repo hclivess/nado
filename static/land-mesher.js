@@ -22,6 +22,7 @@
 import { CHUNK, H, R0, W, B, BLOCKS, ATLAS_TILES, NATURAL, CM, DEEP_MIN, TREE_WOOD, TREE_LEAVES, isTree, opaque, dirOf, frameOf, wrap, column, terrainBlock, fieldOf, treeAt, treeCell, LITTER, shapeOf, isPart, toneBlock, FLOWERS, saplingTree, soilOf, isTurned, rotOf, turnVec, boxAabb } from "./land-world.js";
 import * as Shapes from "./land-shapes.js";
 import { forestTile, canopyTile, hash3, treeTurn, treeSize } from "./land-forest.js";
+import { farJob, farBuffers } from "./land-far.js";
 import { treeModel, leafCellModel, twigModel, flaxModel, saplingModel, flowerModel, wheatModel, berryBushModel, weldModel, woadModel, madderModel, clubmossModel } from "./land-trees.js";
 const DYE_MODEL = new Map([[B.weld, weldModel], [B.woad, woadModel], [B.madder, madderModel], [B.clubmoss, clubmossModel]]);   // (#128)
 
@@ -897,6 +898,10 @@ if (typeof self !== "undefined" && typeof window === "undefined" && typeof self.
     if (m.canopy) {                                         // a tile of the canopy beyond the far trees (land-forest.js canopyTile)
       try { res = canopyTile(m.face, m.tu, m.tv); } catch (err) { res = { n: 0, error: String(err && err.message || err) }; }
       return self.postMessage(Object.assign({ id: m.id }, res), res.n ? [res.pos, res.col, res.idx].map((a) => a.buffer) : []);
+    }
+    if (m.farland) {                                        // the far ground and the distant land's rings (land-far.js)
+      try { res = farJob(m); } catch (err) { return self.postMessage({ id: m.id, far: true, error: String(err && err.message || err), rings: [] }); }
+      return self.postMessage(Object.assign({ id: m.id }, res), farBuffers(res));
     }
     if (m.forest) {                                         // a tile of the forest beyond the chunks (#183, land-forest.js)
       try { res = forestTile(m.face, m.tu, m.tv); } catch (err) { res = { n: 0, error: String(err && err.message || err) }; }

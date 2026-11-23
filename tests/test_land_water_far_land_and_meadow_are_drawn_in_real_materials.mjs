@@ -35,10 +35,11 @@ const wm = land.slice(land.indexOf("function waterMaterial"), land.indexOf("func
 ok(/mx_noise_vec3/.test(wm) && /TSL\.time/.test(wm) && /uniform\(waterSky\)/.test(wm) && /waterSky\.copy\(hor\)/.test(land),
    "water has moving ripples and a fresnel to the sky, whose colour follows the horizon");
 ok(/if \(m\.water\)[^\n]*matWater/.test(land), "the page draws the water part in the water material");
-const far = land.slice(land.indexOf("function buildFar"), land.indexOf("// ---- titles"));
-ok(/new THREE\.Mesh\(g, matGround\)/.test(far) && /groundWeights\(/.test(far) && /"w1"/.test(far) && /"w2"/.test(far) && !/vertexColors: true/.test(far),
+// (the far ground is built in a mesher worker since 2026-11-23, land-far.js farGround; the page wraps its buffers in farDone)
+const far = land.slice(land.indexOf("function farDone"), land.indexOf("// ---- titles")), farSrc = readFileSync(join(ROOT, "static", "land-far.js"), "utf8");
+ok(/farMesh = new THREE\.Mesh\(g, matGround\)/.test(far) && /groundWeights\(mats\[k\], nu\)/.test(farSrc) && /"w1"/.test(far) && /"w2"/.test(far) && !/vertexColors: true/.test(far),
    "the far land is drawn in the ground's material with the six texture weights, not flat vertex colour");
-ok(/new THREE\.Mesh\(gs, matWater\)/.test(far), "and the far sea in the water material");
+ok(/farSea = new THREE\.Mesh\(gs, matWater\)/.test(far), "and the far sea in the water material");
 const gm = land.slice(land.indexOf("function groundMaterial"), land.indexOf("// ---- grass:"));
 ok(/mx_noise_float\(uvw\.xy\.mul\(0\.021\)\)/.test(gm) && /meadow/.test(gm), "the meadow's colour varies over tens of metres");
 // the far meadow is green, not tan (the Chlorophyll shot beside a meadow vale, 2026-11-22: past the blades the scanned

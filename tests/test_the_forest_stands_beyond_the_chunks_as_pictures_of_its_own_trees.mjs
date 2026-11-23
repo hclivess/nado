@@ -126,7 +126,7 @@ ok(/if \(m\.forest\)/.test(mesher) && /forestTile\(m\.face, m\.tu, m\.tv\)/.test
 
 // ---- 5. the page's regression sites --------------------------------------------------------------------------------
 const page = src("land.js");
-ok(/if \(!queue\[i\]\.forest && !want\.has\(queue\[i\]\.k\)\)/.test(page), "the chunk queue's prune leaves forest jobs alone (pruned, the far forest never arrived)");
+ok(/if \(!queue\[i\]\.forest && (!queue\[i\]\.farland && )?!want\.has\(queue\[i\]\.k\)\)/.test(page), "the chunk queue's prune leaves forest jobs alone (pruned, the far forest never arrived)");   // (and the far land's job, land-far.js)
 ok(/c\.busy = false; c\.ready = true;/.test(page), "a chunk says when it has been meshed (far trees hide only where the models stand)");
 ok(/readRenderTargetPixelsAsync/.test(page) && /marker/.test(page), "the atlas is read back and set upright by its marker (the two backends store a render target's rows in opposite orders)");
 ok(/\$\{forestTrees\} far trees/.test(page), "the stats readout counts the far trees");
