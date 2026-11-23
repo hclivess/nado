@@ -35,6 +35,9 @@ const wm = land.slice(land.indexOf("function waterMaterial"), land.indexOf("func
 ok(/mx_noise_vec3/.test(wm) && /TSL\.time/.test(wm) && /uniform\(waterSky\)/.test(wm) && /waterSky\.copy\(hor\)/.test(land),
    "water has moving ripples and a fresnel to the sky, whose colour follows the horizon");
 ok(/if \(m\.water\)[^\n]*matWater/.test(land), "the page draws the water part in the water material");
+// a far lake is smooth: each ripple layer fades out under a few pixels (a lake 1-2 km off read as grey speckle, 2026-11-23)
+ok(/const px = TSL\.positionView\.length\(\)\.mul\(RING_PX\), fade = \(wl\) => TSL\.smoothstep\(px\.mul\(3\), px\.mul\(6\), TSL\.float\(wl\)\)/.test(wm) && /a\.mul\(TSL\.float\(0\.14\)\.mul\(fade\(2\.2\)\)\)/.test(wm) && /b\.mul\(TSL\.float\(0\.07\)\.mul\(fade\(0\.6\)\)\)/.test(wm),
+   "the ripples fade with distance, each layer under a few pixels, so a far lake is no grain");
 // (the far ground is built in a mesher worker since 2026-11-23, land-far.js farGround; the page wraps its buffers in farDone)
 const far = land.slice(land.indexOf("function farDone"), land.indexOf("// ---- titles")), farSrc = readFileSync(join(ROOT, "static", "land-far.js"), "utf8");
 ok(/farMesh = new THREE\.Mesh\(g, matGround\)/.test(far) && /groundWeights\(mats\[k\], nu\)/.test(farSrc) && /"w1"/.test(far) && /"w2"/.test(far) && !/vertexColors: true/.test(far),

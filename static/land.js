@@ -5064,7 +5064,11 @@ function waterMaterial() {
   const uvw = TSL.attribute("uvw", "vec3"), t = TSL.time;
   const a = TSL.mx_noise_vec3(TSL.vec3(uvw.x.mul(0.45).add(t.mul(0.18)), uvw.y.mul(0.45), t.mul(0.21)));
   const b = TSL.mx_noise_vec3(TSL.vec3(uvw.x.mul(1.7), uvw.y.mul(1.7).sub(t.mul(0.31)), t.mul(0.37)));
-  const n = TSL.normalView.add(a.mul(0.14).add(b.mul(0.07))).normalize();
+  // A FAR LAKE IS SMOOTH, NOT GRAIN (2026-11-23, the lake in a vale photographed from a meadow 1-2 km off read as grey
+  // speckle): a ripple 2.2 m or 0.6 m across is under a pixel past ~400 m and ~110 m, where it only aliases — each layer
+  // fades out under ~4 pixels, the way the distant land's grain does (RING_PX)
+  const px = TSL.positionView.length().mul(RING_PX), fade = (wl) => TSL.smoothstep(px.mul(3), px.mul(6), TSL.float(wl));
+  const n = TSL.normalView.add(a.mul(TSL.float(0.14).mul(fade(2.2))).add(b.mul(TSL.float(0.07).mul(fade(0.6))))).normalize();
   const view = TSL.positionView.normalize().negate();
   const fres = TSL.float(1).sub(n.dot(view).clamp(0, 1)).pow(4).mul(0.85).add(0.06);
   const m = new THREE.MeshStandardNodeMaterial({ roughness: 0.05, metalness: 0, transparent: true, depthWrite: false });
