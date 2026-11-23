@@ -67,7 +67,9 @@ if (!HTTP) { console.log("FAIL the fixture did not start:\n" + fxOut.slice(-2000
 const base = `http://127.0.0.1:${HTTP}`;
 
 // the place: the #183 meadow, looking up into the sky, the clock held at a moment the sun stands high
-const FACE = 0, U = 54260.5, V = 80600.5, H = Wd.column(FACE, Math.floor(U), Math.floor(V)).top + 1, YAW = 0.4, PITCH = 0.75;
+// (moved 1.4 km east 2026-11-23: with the wilderness's hills the #183 meadow became a wooded hill whose trees hid the sky;
+// this meadow is open — the cloud-shadow walk's)
+const FACE = 0, U = 55660.5, V = 80600.5, H = Wd.column(FACE, Math.floor(U), Math.floor(V)).top + 1, YAW = 0.4, PITCH = 0.75;
 const W = 640, HH = 360;
 const up = Wd.frameOf(FACE, U, V).up;
 let T0 = Date.now() / 1000;

@@ -30,6 +30,9 @@ export const RINGS = [
   { step: 512, half: 15360, snap: 1024 },
   { step: 1024, half: 30720, snap: 2048 },
 ];
+// a ring vertex's place on the planet for the shader's detail (land.js ringMaterial): u, v modulo RING_UV (the noise
+// lines up again only past 32 km, where nothing is drawn) and the height
+export const RING_UV = 32768;
 export const RING_SINK = 14;                            // m: ring 0 under the far ground it overlaps (a cell of overlap)
 export const RING_COL = { forest: [0.076, 0.066, 0.009], grass: [0.085, 0.12, 0.032], beach: [0.42, 0.38, 0.26], desert: [0.45, 0.38, 0.24],
   rock: [0.22, 0.21, 0.19], snow: [0.78, 0.8, 0.84], sea: [0.02, 0.045, 0.07] };
@@ -100,7 +103,7 @@ export function farGround(face, fu, fv, nearHalf) {
 }
 
 /**
- * Ring k of the distant land, anchored at (au, av): { anchor, pos, nor, col, idx }.
+ * Ring k of the distant land, anchored at (au, av): { anchor, pos, nor, col, uvw, idx }.
  *   hole: [u0, u1, v0, v1] — the ring inside it (its anchor +- its half): cells wholly inside are not drawn;
  *   sink: [cu, cv, inner] — ring 0 only: vertices within `inner` of the far ground's centre sink RING_SINK under it;
  *   last: the outermost ring — its corners past its half drop away, so its rim is a circle under the horizon.
@@ -114,7 +117,7 @@ export function farRing(k, face, au, av, hole, sink, last) {
   const keep = (i, j) => !hole || !(cellU(i) >= hole[0] && cellU(i + 1) <= hole[1] && cellV(j) >= hole[2] && cellV(j + 1) <= hole[3]);
   const used = new Uint8Array(V);
   for (let j = 0; j < N; j++) for (let i = 0; i < N; i++) if (keep(i, j)) for (const [di, dj] of [[0, 0], [1, 0], [0, 1], [1, 1]]) used[(j + dj) * M + i + di] = 1;
-  const pos = new Float32Array(V * 3), col = new Float32Array(V * 3), hs = new Float32Array(V);
+  const pos = new Float32Array(V * 3), col = new Float32Array(V * 3), hs = new Float32Array(V), uvw = new Float32Array(V * 3);
   for (let j = 0; j <= N; j++) for (let i = 0; i <= N; i++) {
     const q = j * M + i;
     if (!used[q]) continue;
@@ -128,13 +131,14 @@ export function farRing(k, face, au, av, hole, sink, last) {
     hs[q] = h;
     const p = posOf(face, u, v, h);
     for (let d = 0; d < 3; d++) { pos[q * 3 + d] = p[d] - anchor[d]; col[q * 3 + d] = RING_COL[kind][d]; }
+    uvw[q * 3] = ((u % RING_UV) + RING_UV) % RING_UV; uvw[q * 3 + 1] = ((v % RING_UV) + RING_UV) % RING_UV; uvw[q * 3 + 2] = h;
   }
   const nor = gridNormals(pos, N, used);
   const idx = gridIndex(N, keep);
   // the skirt round the outer edge: each edge vertex again, half a step lower
   const edge = [];
   for (let i = 0; i < N; i++) edge.push([i, 0, i + 1, 0], [N, i, N, i + 1], [i + 1, N, i, N], [0, i + 1, 0, i]);
-  const extra = [], xcol = [], xnor = [];
+  const extra = [], xcol = [], xnor = [], xuvw = [];
   let next = V;
   const low = new Map();
   const lowOf = (i, j) => {
@@ -142,7 +146,7 @@ export function farRing(k, face, au, av, hole, sink, last) {
     if (low.has(q)) return low.get(q);
     const p = posOf(face, cellU(i), cellV(j), hs[q] - step / 2);
     extra.push(p[0] - anchor[0], p[1] - anchor[1], p[2] - anchor[2]);
-    xcol.push(col[q * 3], col[q * 3 + 1], col[q * 3 + 2]); xnor.push(nor[q * 3], nor[q * 3 + 1], nor[q * 3 + 2]);
+    xcol.push(col[q * 3], col[q * 3 + 1], col[q * 3 + 2]); xnor.push(nor[q * 3], nor[q * 3 + 1], nor[q * 3 + 2]); xuvw.push(uvw[q * 3], uvw[q * 3 + 1], uvw[q * 3 + 2]);
     low.set(q, next); return next++;
   };
   for (const [i0, j0, i1, j1] of edge) {
@@ -150,7 +154,7 @@ export function farRing(k, face, au, av, hole, sink, last) {
     idx.push(a, b, lb, a, lb, la, a, lb, b, a, la, lb);
   }
   const all = (base, more) => { const out = new Float32Array(base.length + more.length); out.set(base); out.set(more, base.length); return out; };
-  return { k, face, au, av, anchor, pos: all(pos, extra), nor: all(nor, xnor), col: all(col, xcol), idx: new Uint32Array(idx) };
+  return { k, face, au, av, anchor, pos: all(pos, extra), nor: all(nor, xnor), col: all(col, xcol), uvw: all(uvw, xuvw), idx: new Uint32Array(idx) };
 }
 
 /** The work of one far job (a mesher message): the far ground and/or the rings named, all for one place, swapped together. */
@@ -164,6 +168,6 @@ export function farJob(m) {
 export function farBuffers(res) {
   const tr = [];
   if (res.ground) for (const a of ["pos", "nor", "sea", "seaNor", "uvw", "suvw", "gn", "w1", "w2", "col", "idx"]) tr.push(res.ground[a].buffer);
-  for (const r of res.rings) for (const a of ["pos", "nor", "col", "idx"]) tr.push(r[a].buffer);
+  for (const r of res.rings) for (const a of ["pos", "nor", "col", "uvw", "idx"]) tr.push(r[a].buffer);
   return tr;
 }

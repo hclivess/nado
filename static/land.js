@@ -1373,6 +1373,7 @@ const FOREST_RANGE = PHONE ? 640 : 1152;       // m of far trees around the play
  *  half of it, on the preset meant for weak devices (#150). updateForest prunes the tiles outside the reach. */
 const forestRange = () => (SET.view <= 3 ? FOREST_RANGE / 2 : FOREST_RANGE);
 const SEEN = 64;                               // the meshed-chunk map's edge, in chunks (the view disc is 17 across at most)
+const UNDER_SHADE = 0.35, UNDER_FROM = 3, UNDER_TO = 9, UNDER_COL = [0.012, 0.022, 0.007];   // a far tree's foot in the canopy's shade: half its own colour x0.35, half the understorey's green, up to 3 m; full light by 9 m (a crown starts ~6-9 m up)
 let matForest = null, forestNear = null, forestSeen = null, forestSeenTex = null, forestTrees = 0;
 /** The map of meshed chunk columns the far trees and the far boxes (#193) read: allocated once, by whichever asks first. */
 function ensureSeen() {
@@ -1444,7 +1445,17 @@ async function bakeForest() {
   // (measured with the forest band at 72, 86, 76 against the reference's 44, 56, 30, 2026-11-22)
   // (then 0.95, 1.0, 0.55: with the bloom's veil gone and the clouds off, two live photos agreeing to within 1 read the
   // forest (27, 47, 23) against the reference's (43, 54, 28) — too dark and too pure a green: red up ~60 %, green ~15 %)
-  m.colorNode = shadeByClouds(s.rgb.mul(TSL.attribute("color", "vec3")).mul(TSL.vec3(2.0, 1.25, 0.75)));   // (1.45, 1.1, 0.65 measured 31, 48, 24 at one held moment, clouds off: still dark, short of red)
+  // UNDER THE CANOPY IS SHADE (2026-11-23, from a meadow beside the Chlorophyll shot: a wood's edge 300 m off read as a
+  // lit brown stripe of trunks under its crowns, where under a real canopy the trunks and the shrubs stand in its shade):
+  // a card's lower metres — its height over its root (its vertex's offset along the up there) — darken to UNDER_SHADE
+  const up = TSL.positionWorld.sub(hazeCam.c).normalize(), overRoot = TSL.varying(TSL.dot(TSL.attribute("off", "vec3"), up));
+  // (darkened alone it still read as a stripe of separate brown trunks: the shade there is leaves and shrubs, so the foot
+  // turns toward UNDER_COL, the dark green of a wood's understorey in its own shade)
+  const lit = s.rgb.mul(TSL.attribute("color", "vec3")).mul(TSL.vec3(2.0, 1.25, 0.75));
+  // (TSL.mix(a, b, t) written out: the chained x.mix(a, b) is mix(a, b, x) — x the factor — and read as mix(x, a, b) it
+  // painted every card with its own colour as the factor)
+  const underShade = TSL.mix(TSL.mix(TSL.vec3(...UNDER_COL), lit.mul(UNDER_SHADE), 0.5), lit, TSL.smoothstep(UNDER_FROM, UNDER_TO, overRoot));
+  m.colorNode = shadeByClouds(underShade);   // (1.45, 1.1, 0.65 measured 31, 48, 24 at one held moment, clouds off: still dark, short of red)
   m.opacityNode = s.a;
   // A CARD'S SHADOW IS ITS CUT-OUT, NOT ITS RECTANGLE: three's shadow pass takes a material's alpha from its colour node
   // and its map, never from opacityNode, so a card with a three-channel colour cast its whole quad — every far tree a
@@ -1678,6 +1689,24 @@ function updateFar() {
   queue.push({ id: ++reqId, k: "D", farland: true, face, ground: groundDue ? { fu, fv, nearHalf: viewDist * CHUNK } : null, rings });
   pump();
 }
+// THE DISTANT LAND'S GRAIN ("the photos show the far land as smooth colour patches", 2026-11-23): a ring's vertex is
+// 128-1024 m from the next, so its colour alone is one flat olive per forest and one green per field. Noise on the
+// vertex's own planet place (uvw, stable as the eye moves) breaks it up: crowns and the gaps between them (25 m), groves
+// (120 m) and the lie of the land (500 m) in a forest, patches of lusher and drier grass in a field (50 m, 300 m) — each
+// faded out where it would be under ~4 pixels across (RING_PX metres a pixel a metre away), where it could only shimmer.
+// The sea keeps its colour.
+const RING_PX = 0.0009;                        // m a pixel per m of distance at a 72° view across ~1,400 px (a design choice)
+function ringMaterial() {
+  const m = new THREE.MeshStandardNodeMaterial({ roughness: 0.95, metalness: 0 });
+  const col = TSL.attribute("color", "vec3"), uvw = TSL.attribute("uvw", "vec3"), px = TSL.positionView.length().mul(RING_PX);
+  const layer = (wl, amp) => TSL.mx_noise_float(uvw.xy.div(wl)).mul(amp).mul(TSL.smoothstep(px.mul(3), px.mul(6), TSL.float(wl)));
+  const forest = TSL.step(col.g, TSL.float(0.07)).mul(TSL.step(col.b, TSL.float(0.02)));      // the canopy's olive (RING_COL.forest)
+  const sea = TSL.step(col.g, col.b);                                                          // blue over green: the sea
+  const grain = TSL.mix(TSL.float(1).add(layer(50, 0.22)).add(layer(300, 0.16)),               // a field
+    TSL.float(1).add(layer(25, 0.45)).add(layer(120, 0.3)).add(layer(500, 0.15)), forest);    // a forest
+  m.colorNode = shadeByClouds(col.mul(TSL.mix(grain.max(0.3), TSL.float(1), sea)));
+  return m;
+}
 function farDone(m) {
   farPending = false;
   if (m.error) { console.warn("far land: " + m.error); return; }
@@ -1697,11 +1726,11 @@ function farDone(m) {
     anchored(farMesh, r.anchor); anchored(farSea, r.anchor);
     farAt = { face: r.face, u: r.fu, v: r.fv };
   }
-  if (!matOuter && m.rings.length) { matOuter = new THREE.MeshStandardNodeMaterial({ roughness: 0.95, metalness: 0 }); matOuter.colorNode = shadeByClouds(TSL.attribute("color", "vec3")); }
+  if (!matOuter && m.rings.length) matOuter = ringMaterial();
   for (const r of m.rings) {
     const g = new THREE.BufferGeometry();
     g.setAttribute("position", new THREE.BufferAttribute(r.pos, 3)); g.setAttribute("normal", new THREE.BufferAttribute(r.nor, 3));
-    g.setAttribute("color", new THREE.BufferAttribute(r.col, 3)); g.setIndex(new THREE.BufferAttribute(r.idx, 1));
+    g.setAttribute("color", new THREE.BufferAttribute(r.col, 3)); g.setAttribute("uvw", new THREE.BufferAttribute(r.uvw, 3)); g.setIndex(new THREE.BufferAttribute(r.idx, 1));
     const old = ringMeshes[r.k]; if (old) { scene.remove(old); old.geometry.dispose(); }
     const mesh = new THREE.Mesh(g, matOuter); mesh.frustumCulled = false;
     ringMeshes[r.k] = anchored(mesh, r.anchor);

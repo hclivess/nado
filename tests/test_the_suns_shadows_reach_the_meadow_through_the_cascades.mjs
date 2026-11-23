@@ -68,15 +68,18 @@ const base = `http://127.0.0.1:${HTTP}`;
 // the place: 250 m over the #183 meadow — well under the cloud base, 419 m over the sea (a first try at 400 m hung the
 // eye in the layer) — looking nearly straight down (not quite: a look straight along the up vector has no right-hand),
 // the clock held at a moment the sun stands high — the same moment and field the cloud test uses
-// (moved 1.4 km east 2026-11-22: with continents the #183 meadow became a wooded hill; this meadow lies 39 m over the sea)
-const FACE = 0, U = 55660.5, V = 80600.5, TOP = Wd.column(FACE, Math.floor(U), Math.floor(V)).top + 1, H = TOP + 250, YAW = 0.4, PITCH = -1.45;
+// (moved 1.4 km east 2026-11-22: with continents the #183 meadow became a wooded hill; then 660 m west 2026-11-23: the open
+// meadows left that one without a tree in view — this meadow has a wood's edge 40-220 m round it)
+const FACE = 0, U = 55000.5, V = 80640.5, TOP = Wd.column(FACE, Math.floor(U), Math.floor(V)).top + 1, H = TOP + 250, YAW = 0.4, PITCH = -1.45;
 if (H + 20 >= Wd.SEA + C.BASE) { console.log("FAIL the eye would hang in the cloud layer"); process.exit(1); }
 const W = 640, HH = 360;
 const up = Wd.frameOf(FACE, U, V).up;
 let T0 = Date.now() / 1000;
-for (let k = 0; k < 4000; k++) {                 // the next moment the sun is 40°+ up here (a day is 40 minutes)
-  const t = Date.now() / 1000 + k * 2, s = Cosmos.sunFrom(Wd.PLANET, t - Cosmos.EPOCH).dir;
-  if (s[0] * up[0] + s[1] * up[1] + s[2] * up[2] > Math.sin(0.7)) { T0 = t; break; }
+// the next moment the sun is 40-48° up here (a day is 40 minutes): run at noon, "40°+" was the noon sun itself, 63-80° up,
+// and a trunk's shadow under 2 m had no point along it to sample (0 points, 2026-11-23)
+for (let k = 0; k < 4000; k++) {
+  const t = Date.now() / 1000 + k * 2, s = Cosmos.sunFrom(Wd.PLANET, t - Cosmos.EPOCH).dir, e = s[0] * up[0] + s[1] * up[1] + s[2] * up[2];
+  if (e > Math.sin(0.7) && e < Math.sin(0.84)) { T0 = t; break; }
 }
 const HOLD = Math.round(T0 * 1000);
 

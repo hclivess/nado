@@ -72,5 +72,29 @@ const OWNED_GROUND = "323c3df53839a150526c104cdfe80263caffa624bb7280cdf78209786e
     const g = r > 30 ? crest : r < -30 ? vale : null; if (g) { g[0]++; if (c.biome === "forest") g[1]++; }
   }
   ok(crest[1] / crest[0] > 0.5 && vale[1] / vale[0] < 0.15, `the crests are wooded (${(100 * crest[1] / crest[0]).toFixed(0)} % forest) and the vales meadow (${(100 * vale[1] / vale[0]).toFixed(0)} %)`); }
+// 7. OPEN MEADOWS (2026-11-23, beside the Chlorophyll shot: a tree every ~16 m of meadow read as parkland): in the
+// wilderness a meadow's lone trees grow toward the woods and none out in the open, its bushes thinner in the open — and an
+// owned plot's trees are the trees it was bought with (the fingerprint was taken with the generator before the change)
+{ const OWNED_TREES = "614b6a5742551bbf86d0709158a30600de9a1f15c31f4b7ba099165d3b7217fd";
+  const h = createHash("sha256");
+  for (const p of PROTECTED_PLOTS) { const r = Math.floor(p / FN) % FN, c = p % FN; for (let i = 0; i < 16; i++) for (let j = 0; j < 16; j++) { const u = c * 16 + i, v = r * 16 + j, t = Wd.treeAt(0, u, v, Wd.column(0, u, v)); h.update(t ? `${t.kind}${t.height};` : "-;"); } }
+  ok(h.digest("hex") === OWNED_TREES, "the owned plots' trees are the trees they were bought with (fingerprint)");
+  let open = 0, openTrees = 0, fringe = 0, fringeTrees = 0, openBush = 0, fringeBush = 0;
+  for (let u = 40002; u < 70000; u += 7) for (let v = 65003; v < 95000; v += 131) {
+    const c = Wd.column(0, u, v); if (c.biome !== "grass" || c.wild < 1) continue;
+    const t = Wd.treeAt(0, u, v, c), tree = t && t.kind !== "bush", bush = t && t.kind === "bush";
+    if (c.woods < 0) { open++; if (tree) openTrees++; if (bush) openBush++; } else if (c.woods > 0.08) { fringe++; if (tree) fringeTrees++; if (bush) fringeBush++; }
+  }
+  ok(open > 5000 && openTrees === 0 && fringe > 1000 && fringeTrees / fringe > 0.001,   // (0.4 % at most, in the 56 % of a plot clear of its edge)
+    `7. an open meadow grows no lone tree (${openTrees} in ${open} columns), its fringe by the woods does (${(100 * fringeTrees / fringe).toFixed(2)} %)`);
+  ok(openBush / open < 0.6 * (fringeBush / fringe) && openBush > 0, `…and its bushes thin out in the open (${(100 * openBush / open).toFixed(1)} % against ${(100 * fringeBush / fringe).toFixed(1)} % by the woods)`); }
+// …and a wilderness wood is as thick at its edge as inside (the edge read as a row of bare trunks at 0.035 a column)
+{ let edge = 0, edgeT = 0, inner = 0, innerT = 0;
+  for (let u = 50000; u < 60000; u += 7) for (let v = 75000; v < 85000; v += 53) {
+    const c = Wd.column(0, u, v); if (c.biome !== "forest" || c.wild < 1) continue;
+    const inside = (c.woods - 0.12) / 0.25, t = Wd.treeAt(0, u, v, c), tr = !!t && t.kind !== "bush";
+    if (inside < 0.3) { edge++; if (tr) edgeT++; } else if (inside >= 1) { inner++; if (tr) innerT++; } }
+  ok(edge > 1000 && inner > 1000 && edgeT / edge > 0.9 * (innerT / inner),
+    `a wood is as thick at its edge (${(100 * edgeT / edge).toFixed(1)} % of columns) as inside (${(100 * innerT / inner).toFixed(1)} %)`); }
 console.log(fails ? `${fails} FAILED` : "all passed");
 process.exit(fails ? 1 : 0);

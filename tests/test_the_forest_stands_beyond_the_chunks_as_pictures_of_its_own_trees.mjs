@@ -126,6 +126,10 @@ ok(/if \(m\.forest\)/.test(mesher) && /forestTile\(m\.face, m\.tu, m\.tv\)/.test
 
 // ---- 5. the page's regression sites --------------------------------------------------------------------------------
 const page = src("land.js");
+// under the canopy is shade: a far tree's lower metres darken (a wood's edge read as a lit stripe of trunks, 2026-11-23)
+{ const m = page.match(/const UNDER_SHADE = ([\d.]+), UNDER_FROM = ([\d.]+), UNDER_TO = ([\d.]+), UNDER_COL = \[/);
+  ok(!!m && +m[1] < 0.6 && +m[2] < +m[3] && +m[3] <= 9 && /overRoot = TSL\.varying\(TSL\.dot\(TSL\.attribute\("off", "vec3"\), up\)\)/.test(page) && /TSL\.vec3\(\.\.\.UNDER_COL\)/.test(page) && /m\.colorNode = shadeByClouds\(underShade\);/.test(page),
+    `a far tree's foot stands in its canopy's shade (x${m && m[1]} up to ${m && m[2]} m, full light by ${m && m[3]} m)`); }
 ok(/if \(!queue\[i\]\.forest && (!queue\[i\]\.farland && )?!want\.has\(queue\[i\]\.k\)\)/.test(page), "the chunk queue's prune leaves forest jobs alone (pruned, the far forest never arrived)");   // (and the far land's job, land-far.js)
 ok(/c\.busy = false; c\.ready = true;/.test(page), "a chunk says when it has been meshed (far trees hide only where the models stand)");
 ok(/readRenderTargetPixelsAsync/.test(page) && /marker/.test(page), "the atlas is read back and set upright by its marker (the two backends store a render target's rows in opposite orders)");

@@ -453,7 +453,7 @@ export function column(face, u, v) {
   // the soil's depth before rock, varying over ~60 m — measured 5 to 8 layers ("there is barely any digging depth",
   // operator 2026-11-06: it was 3 everywhere, so a spade met rock almost at once)
   const soil = 4 + Math.min(5, Math.max(0, Math.floor((at(PERM[3], 60, 2) * 0.5 + 0.5) * 6)));
-  return { top, height, biome, soil, temp, wet, woods };
+  return { top, height, biome, soil, temp, wet, woods, wild };   // (wild: treeAt keeps an owned plot's trees as they were)
 }
 
 // ---- SOILS (#154, "farmland, farming, soil types, etc", operator 2026-11-09): the ground under the turf is not one
@@ -500,6 +500,7 @@ export function saplingTree(face, u, v, col) {
 // treeRoots skips every other column without building it; raise a tree's odds past TREE_ROLL_MAX here and the forest
 // beyond the chunks silently loses those trees (tests/test_the_forest_stands_beyond_the_chunks_as_pictures_of_its_own_trees.mjs
 // asks treeAt of every biome at its densest and fails on a tree treeChance rules out).
+export const WOOD_DENSITY = 0.075;               // a wilderness wood's trees a column, its edge as its inside (treeAt)
 export const TREE_ROLL_MAX = 0.09;
 /** Whether column (face, u, v)'s hash leaves a TREE possible at all (whatever its biome turns out to be). */
 export function treeChance(face, u, v) { const hh = hash32(face, u, v); return (hh % 100003) / 100003 < TREE_ROLL_MAX || hh % 60 === 0; }
@@ -514,16 +515,30 @@ export function treeAt(face, u, v, col) {
     : (r < 18 ? { kind: "birch", height: 6 + (size >> 1) } : { kind: "broadleaf", height: 4 + (size >> 1) });
   switch (col.biome) {
     case "forest": {
-      // dense inside, thinning toward its edge (the forest field), an understorey of bushes
-      const inside = Math.min(1, Math.max(0, (col.woods - 0.12) / 0.25));
-      if (roll < 0.035 + 0.055 * inside) return species();
+      // an understorey of bushes; on an owned plot dense inside, thinning toward its edge (the forest field), as bought
+      const inside = Math.min(1, Math.max(0, (col.woods - 0.12) / 0.25)), w = col.wild === undefined ? 0 : col.wild;
+      // A WOOD'S EDGE AS THICK AS ITS INSIDE (2026-11-23, beside the Chlorophyll shot: from a meadow the edge 300 m off read as a
+      // row of bare trunks with the lit ground through them — it was the wood's sparsest part, 0.035 a column against 0.09
+      // inside — where the reference's edge is leaves to the ground). In the wilderness a wood is WOOD_DENSITY throughout:
+      // measured over 10 km round the town, its edge 2.6 % -> 4.2 % of columns, its inside 5.1 % -> 4.2 %, the trees in all
+      // +2 % (the meadows' lone trees gone toward the woods, -83 %) — the same draw cost. Times col.wild, so an owned plot
+      // keeps the trees it was bought with.
+      if (roll < (0.035 + 0.055 * inside) * (1 - w) + WOOD_DENSITY * w) return species();
       if (roll > 0.97) return { kind: "bush", height: 1 };
       return null;
     }
-    case "grass":
-      if (roll < 0.004) return species();                     // a lone tree in the meadow
-      if (roll > 0.975) return { kind: "bush", height: 1 };
+    case "grass": {
+      // OPEN MEADOWS (2026-11-23, beside the Chlorophyll shot): a lone tree in 250 m² of every meadow (0.4 %), drawn 2-3x
+      // its cell, stood a tree every ~16 m — parkland, where the reference's meadow is open grass dotted with bush clumps
+      // and its trees stand as a wood at the edge. In the wilderness a meadow's trees grow toward the woods (the woods field
+      // rising to the forest's 0.12: a grove at the edge, none out in the open) and its bushes thin out in the open; times
+      // col.wild, so an owned plot keeps the trees it was bought with (wildMask: 0 there).
+      const edge = smooth(0, 0.12, col.woods), w = col.wild === undefined ? 0 : col.wild;
+      const lone = 0.004 * (1 - w) + 0.004 * edge * w, bush = 0.025 * (1 - w) + 0.025 * (0.3 + 0.7 * smooth(-0.15, 0.12, col.woods)) * w;
+      if (roll < lone) return species();
+      if (roll > 1 - bush) return { kind: "bush", height: 1 };
       return null;
+    }
     case "snow":
       if (roll < (col.wet > 0 ? 0.03 : 0.006)) return { kind: "conifer", height: 6 + size };   // taiga where it is wet
       return null;

@@ -36,14 +36,16 @@ const tb = (u, v, h) => W.terrainBlock(f, u, v, h);
 let meadow = null, forest = null;
 // (litter may lie on it: stones do not burn, sticks and flax burn with the grass)
 for (let pr = 0; pr < 80 && !meadow; pr++) for (let pc = 0; pc < 12 && !meadow; pc++) {
-  const q = W.plotCoords(W.plotId(0, W.SPAWN_PLOT_ROW + pr, W.SPAWN_PLOT_COL + 7 + pc)); let ok = true;
+  // open wilderness, it and its neighbour (wildMask 1): at the protected ground's blend edge the open meadows of 2026-11-23
+  // picked a plot whose fire burnt 18 cells and whose fixed spot for a hand's beat was taken
+  const q = W.plotCoords(W.plotId(0, W.SPAWN_PLOT_ROW + pr, W.SPAWN_PLOT_COL + 7 + pc)); if (W.wildMask(f, q.u0, q.v0) < 1 || W.wildMask(f, q.u0 + 31, q.v0 + 15) < 1) continue; let ok = true;
   for (let du = 0; du < 18 && ok; du++) for (let dv = 0; dv < 16 && ok; dv++) { const c = W.column(f, q.u0 + du, q.v0 + dv);
     if (tb(q.u0 + du, q.v0 + dv, c.top) !== B.grass || W.treeAt(f, q.u0 + du, q.v0 + dv, c)) ok = false; }
   if (ok) meadow = { u0: q.u0, v0: q.v0 };
 }
 // a broadleaf tree's trunk foot
 for (let r = 0; r < 3000 && !forest; r++) { const u = 55040 + (r %% 60), v = 79900 + Math.floor(r / 60); const c = W.column(f, u, v), t = W.treeAt(f, u, v, c);
-  if (t && t.kind === "broadleaf") forest = { u, v, top: c.top, height: t.height }; }
+  if (t && t.kind === "broadleaf" && c.wild === 0) forest = { u, v, top: c.top, height: t.height }; }   // (on the town's protected ground: the trees round it never change with the wilderness)
 const col = (u, v) => W.column(f, u, v).top;
 console.log(JSON.stringify({ meadow, forest, tops: meadow ? Array.from({ length: 20 }, (_, i) => Array.from({ length: 16 }, (_, j) => col(meadow.u0 + i, meadow.v0 + j))) : null,
   burns: [...W.BURNS.entries()], pieces: [...W.PIECE_BURNS], B: { grass: B.grass, dirt: B.dirt, log: B.log, leaves: B.leaves, fire: B.fire, planks: B.planks, stonebrick: B.stonebrick } }));
@@ -137,8 +139,11 @@ async def main():
         c = (0, u0 + 3, v0 + 13, top(3, 13) + 1); _, err = await w.ignite(WHO, list(c))
     _, ref, _ = await w.apply(WHO, [list(c) + [B["dirt"]]])
     check("earth put on a fire smothers it", not ref and c not in w.fires, (err, ref))
-    c2 = (0, u0 + 5, v0 + 14, top(5, 14) + 1)
-    _, err2 = await w.ignite(WHO, list(c2))
+    for (i_, j_) in ((5, 14), (6, 14), (5, 13), (7, 12), (4, 15)):   # (a spot may hold litter or have burnt: the next one along)
+        c2 = (0, u0 + i_, v0 + j_, top(i_, j_) + 1)
+        _, err2 = await w.ignite(WHO, list(c2))
+        if not err2:
+            break
     if not err2:
         _, ref, _ = await w.apply(WHO, [list(c2) + [0]])
         check("a hand beats a fire out", not ref and c2 not in w.fires, ref)

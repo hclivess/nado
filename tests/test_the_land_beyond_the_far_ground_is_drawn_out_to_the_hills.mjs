@@ -37,7 +37,13 @@ ok(high > 2000 && highOk === high, `past the far ground every vertex stands at i
 const canopyCol = (page.match(/m\.colorNode = shadeByClouds\(TSL\.vec3\(([\d., ]+)\)\.mul\(TSL\.attribute\("color", "vec3"\)\)\);/) || [])[1];
 ok(canopyCol && canopyCol.split(",").map(Number).every((x, d) => x === Far.RING_COL.forest[d]) && forest > 50 && forestOk === forest,
   `a forest is the canopy's olive (${Far.RING_COL.forest}; ${forestOk} of ${forest} forest vertices)`);
-ok(/\[farMesh, farSea, borderMesh, farBoxMesh, \.\.\.ringMeshes\]/.test(page) && /matOuter\.colorNode = shadeByClouds\(/.test(page),
+const rm = page.slice(page.indexOf("function ringMaterial()"), page.indexOf("function farDone("));
+ok(/\[farMesh, farSea, borderMesh, farBoxMesh, \.\.\.ringMeshes\]/.test(page) && /matOuter = ringMaterial\(\)/.test(page) && /m\.colorNode = shadeByClouds\(/.test(rm),
   "the page places the rings with the far ground every frame, and the clouds shade them");
+// the grain: noise on the vertex's planet place (stable as the eye moves), each layer faded under a few pixels, the sea plain
+{ const uvOk = ring.uvw && ring.uvw.length === ring.pos.length && [...used].slice(0, 200).every((q) => Math.abs(ring.uvw[q * 3] - (((au - R0.half + (q % M) * R0.step) % Far.RING_UV) + Far.RING_UV) % Far.RING_UV) < 1e-3);
+  ok(uvOk && /TSL\.attribute\("uvw", "vec3"\)/.test(rm) && /TSL\.mx_noise_float\(uvw\.xy\.div\(wl\)\)/.test(rm) && /TSL\.smoothstep\(px\.mul\(3\), px\.mul\(6\), TSL\.float\(wl\)\)/.test(rm)
+    && /TSL\.mix\(grain\.max\(0\.3\), TSL\.float\(1\), sea\)/.test(rm),
+    "a ring is grained by noise on its own planet place (crowns, groves, fields), faded under a few pixels, the sea left plain"); }
 console.log(fails ? `${fails} FAILED` : "all passed");
 process.exit(fails ? 1 : 0);
