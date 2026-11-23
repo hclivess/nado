@@ -32,11 +32,19 @@ _report = _harness.Report()
 check = _report.check
 
 OWNER = generate_keydict()
-PA = (0 * L.FACE_N + 4925) * L.FACE_N + 4663
+# a wilderness plot with bare ground under the structure: the next one east of it holds trees and bushes in the new
+# wilderness (2026-11-22), whose wood and leaves refused five cells
+PA = (0 * L.FACE_N + 4925) * L.FACE_N + 4662
 invited = set()
 AGENT = os.path.join(os.environ["HOME"], "agent.json")
 HOUSE = os.path.join(os.environ["HOME"], "house.json")
-CELLS = [[x, z, y, 11] for x in (4, 5, 6) for z in (4, 5, 6) for y in (130, 131)] + [[5, 5, 132, 13]]
+# the structure stands on the plot's own ground (land-world.js column(), as the server's oracle reads it): at the fixed
+# 130-132 of before, the wilderness's continents (2026-11-22) put the ground at 147 and every cell was "already there"
+_fr, _fc = (PA // L.FACE_N) % L.FACE_N, PA % L.FACE_N
+G = int(subprocess.run(["node", "--input-type=module", "-e",
+    "const W = await import(%s); let t = 0; for (let x = 4; x <= 6; x++) for (let z = 4; z <= 6; z++) t = Math.max(t, W.column(0, %d + x, %d + z).top); console.log(t + 1);"
+    % (json.dumps(os.path.join(ROOT, "static", "land-world.js")), _fc * 16, _fr * 16)], capture_output=True, text=True, check=True).stdout)
+CELLS = [[x, z, y, 11] for x in (4, 5, 6) for z in (4, 5, 6) for y in (G, G + 1)] + [[5, 5, G + 2, 13]]
 
 
 def fake_exec():
@@ -85,7 +93,7 @@ async def main():
     r = json.loads(out or "{}")
     check("an agent that never said where it stands is told to", rc == 0 and r.get("applied") == 0 and "/land/api/move" in r["refused"][0][1], (rc, out[:300], err))
     fr0, fc0 = (PA // L.FACE_N) % L.FACE_N, PA % L.FACE_N
-    rc, out, err = await run("--keys", AGENT, "move", "--to", "0,%d,%d,131,0" % (fc0 * 16 + 5, fr0 * 16 + 5))
+    rc, out, err = await run("--keys", AGENT, "move", "--to", "0,%d,%d,%d,0" % (fc0 * 16 + 5, fr0 * 16 + 5, G + 1))
     check("…it says where it stands, on the plot", rc == 0 and json.loads(out or "{}").get("ok") is True, (rc, out[:300], err))
     rc, out, err = await run("--keys", AGENT, "build", "--plot", str(PA), "--file", HOUSE)
     r = json.loads(out or "{}")
@@ -103,7 +111,7 @@ async def main():
     got = sorted(map(tuple, pj.get("edits", [])))
     check("reading the plot back gives exactly the structure, in plot coordinates", got == sorted(map(tuple, CELLS)) and pj.get("may_build") is True, (got[:4], pj.get("may_build")))
     fr, fc = (PA // L.FACE_N) % L.FACE_N, PA % L.FACE_N
-    check("…at the planet columns the in-plot cells name", world.plots[PA]["edits"].get((4, 4, 130)) == 11 and S.plot_of(0, fc * 16 + 4, fr * 16 + 4) == PA)
+    check("…at the planet columns the in-plot cells name", world.plots[PA]["edits"].get((4, 4, G)) == 11 and S.plot_of(0, fc * 16 + 4, fr * 16 + 4) == PA)
 
     world.player(addr)["items"]["planks"] = 1
     rc, out, err = await run("--keys", AGENT, "pieces", "--plot", str(PA), "--add", json.dumps([[400, 400, 13300, 150, 4, 90, 9], [0, 0, 13300, 1, 1, 1, 9]]))
