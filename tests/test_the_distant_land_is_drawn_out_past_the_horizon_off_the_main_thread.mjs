@@ -57,6 +57,26 @@ ok(/if \(farPending \|\| !scene\) return;/.test(upd) && /farForce = false; farPe
 ok(/redo\.add\(k\); if \(k \+ 1 < Far\.RINGS\.length\) redo\.add\(k \+ 1\);/.test(upd) && /if \(groundDue\) redo\.add\(0\);/.test(upd),
   "a ring is rebuilt with the ring inside it, and ring 0 with the far ground it sinks under");
 ok(!/Wd\.column\(/.test(page.slice(page.indexOf("function slow()"), page.indexOf("function slow()") + 800)), "the 4-a-second tick samples nothing for it either");
+// 5. from the ground: the planet falls away too fast (R0 ~83 km, the land under ~150 m over the sea) for any range to stand
+// over the near land — the rings past HORIZON_FROM are lifted by HORIZON_K of that fall, the near land untouched, the lift
+// fading as the eye climbs; then from a meadow by the town the distant land stands over the near skyline
+{ const m = page.match(/const HORIZON_K = ([\d.]+), HORIZON_FROM = (\d+), HORIZON_TO = (\d+), HORIZON_EYE = \[(\d+), (\d+)\];/);
+  const [K, FROM, TO, E0, E1] = m ? m.slice(1).map(Number) : [];
+  ok(!!m && K >= 0.8 && K < 1 && FROM >= Far.FAR_N / 2 * Far.FAR_STEP && TO <= 6000 && E0 < E1 && /m\.positionNode = TSL\.positionLocal\.add\(upv\.mul\(lift\)\)/.test(page),
+    `past ${FROM} m the distant land reads as on a planet ${m ? (1 / (1 - K)).toFixed(1) : "?"}x the size (the far ground, to ${Far.FAR_N / 2 * Far.FAR_STEP} m, untouched); lifted less from ${E0} m up, not at all from ${E1} m`);
+  // meadow views round the town (every 2 km, 8 ways): how many see the land past 2 km over the near skyline (to 2 km)
+  const Fo = await import(join(ROOT, "static", "land-forest.js")), RR = Wd.R0 + Wd.SEA;
+  const share = (k) => { let views = 0, wins = 0;
+    for (let u = 40000; u <= 70000; u += 2000) for (let v = 65000; v <= 95000; v += 2000) {
+      const c0 = Wd.column(0, u, v); if (c0.biome !== "grass" || c0.wild < 1) continue; const eye = c0.height + 1.7;
+      for (let a = 0; a < 8; a++) { const yaw = a * Math.PI / 4; let near = -9, far = -9;
+        for (let d = 60; d <= 25000; d += d < 2000 ? 30 : 200) { const c = Wd.column(0, Math.round(u + Math.sin(yaw) * d), Math.round(v + Math.cos(yaw) * d)), can = c.top <= Wd.SEA ? 0 : Fo.canopyHeight(c);
+          const s = Math.min(1, Math.max(0, (d - FROM) / (TO - FROM))), ang = Math.atan2(c.height + can - d * d / (2 * RR) + k * s * s * (3 - 2 * s) * d * d / (2 * RR) - eye, d);
+          if (d < 2000) near = Math.max(near, ang); else far = Math.max(far, ang); }
+        views++; if (far > near) wins++; } }
+    return wins / views; };
+  const s0 = share(0), s1 = share(K);
+  ok(s1 > s0 * 1.4, `from the meadows round the town the distant land stands over the near skyline in ${(100 * s1).toFixed(0)} % of views (${(100 * s0).toFixed(0)} % unlifted)`); }
 // 4. the cost
 { const u = 55660, v = 80600, t0 = performance.now(), fu = Math.round(u / Far.FAR_STEP) * Far.FAR_STEP, fv = Math.round(v / Far.FAR_STEP) * Far.FAR_STEP;
   const res = Far.farJob({ face: 0, ground: { fu, fv, nearHalf: 96 }, rings: Far.RINGS.map((_, k) => {

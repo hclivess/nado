@@ -1705,8 +1705,19 @@ function ringMaterial() {
   const grain = TSL.mix(TSL.float(1).add(layer(50, 0.22)).add(layer(300, 0.16)),               // a field
     TSL.float(1).add(layer(25, 0.45)).add(layer(120, 0.3)).add(layer(500, 0.15)), forest);    // a forest
   m.colorNode = shadeByClouds(col.mul(TSL.mix(grain.max(0.3), TSL.float(1), sea)));
+  // A LARGER PLANET'S HORIZON FROM THE GROUND (2026-11-23): on this planet (R0 ~83 km, the land at most ~150 m over the sea
+  // in a world 256 blocks high) the ground 5 km off lies 150 m under the horizon, so from a meadow no range anywhere stood
+  // over the land in front of it (a search of the face: none 0.6° over, three 0.1°) — the distant land's rings drew what
+  // no eye on the ground could see. Past HORIZON_FROM the rings are lifted by HORIZON_K of the planet's fall away (d²/2R),
+  // reaching it by HORIZON_TO: the distant land reads as on a planet 1/(1 - K) times the size; the near land and the far
+  // ground (to 1.7 km) are untouched. Lifted less as the eye climbs (HORIZON_EYE): from the air the planet is round.
+  const wp = TSL.modelWorldMatrix.mul(TSL.vec4(TSL.positionLocal, 1)).xyz, d = wp.length(), upv = wp.sub(hazeCam.c).normalize();
+  const lift = d.mul(d).div(2 * (Wd.R0 + Wd.SEA)).mul(HORIZON_K).mul(TSL.smoothstep(HORIZON_FROM, HORIZON_TO, d))
+    .mul(TSL.float(1).sub(TSL.smoothstep(HORIZON_EYE[0], HORIZON_EYE[1], hazeCam.h)));
+  m.positionNode = TSL.positionLocal.add(upv.mul(lift));
   return m;
 }
+const HORIZON_K = 0.85, HORIZON_FROM = 2000, HORIZON_TO = 5000, HORIZON_EYE = [300, 2000];   // a design choice: see ringMaterial
 function farDone(m) {
   farPending = false;
   if (m.error) { console.warn("far land: " + m.error); return; }
