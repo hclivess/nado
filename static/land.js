@@ -71,6 +71,23 @@ function trace(kind, data) {
   TRACE.pending.push(e); if (TRACE.pending.length > 200) TRACE.pending.shift();
   return e;
 }
+// FRAME RATE FROM REAL PLAYERS (2026-11-23, "smooth user experience": the server renders in software — its frame times
+// say nothing of a player's GPU, and every claim about smoothness was a guess): once a minute a playing page traces its
+// frame rate as the player saw it — the mean, the 95th-percentile frame and the worst, with the renderer, the view
+// preset, the resolution scale and the screen — so it is read from trace/<address>.jsonl, not guessed. A gap over a
+// second (a hidden tab, a breakpoint) is no frame.
+const PERF = { last: 0, at: 0, dts: [] }, PERF_EVERY = 60000, PERF_GAP = 1000;
+function perfSample(now) {
+  if (PERF.last && now - PERF.last < PERF_GAP) PERF.dts.push(now - PERF.last);
+  PERF.last = now;
+  if (!PERF.at) PERF.at = now;
+  if (now - PERF.at < PERF_EVERY || PERF.dts.length < 30) return null;
+  const d = PERF.dts.slice().sort((x, y) => x - y), mean = d.reduce((x, y) => x + y, 0) / d.length;
+  PERF.at = now; PERF.dts = [];
+  const gpu = (typeof document !== "undefined" && document.getElementById("hudGpu") || {}).textContent || "";
+  return trace("perf", { fps: +(1000 / mean).toFixed(1), p95: +d[Math.floor(d.length * 0.95)].toFixed(1), worst: +d[d.length - 1].toFixed(1), n: d.length,
+    gpu, view: SET.view, res: SET.res, px: [innerWidth, innerHeight, +devicePixelRatio.toFixed(2)] });
+}
 const tracePose = (p) => (p ? p.slice(0, 7).map((x, i) => (i ? +Number(x).toFixed(2) : x)) : null);
 window.addEventListener("error", (e) => trace("error", { msg: String(e.message || e).slice(0, 300), src: String(e.filename || "").slice(-60), line: e.lineno }));
 window.addEventListener("unhandledrejection", (e) => trace("error", { msg: String(e.reason && e.reason.message || e.reason).slice(0, 300) }));
@@ -5791,6 +5808,7 @@ function profToggle(on = !PROF.on) {
 }
 function frame(now) {
   if (shotTick(now)) return;
+  perfSample(now);                                          // (the frame rate a player sees, traced once a minute)
   // REAL TIME, IN STEPS: a frame's time used to be cut to 0.05 s, so below 20 fps the whole game ran in slow motion — a
   // phone at 8 fps walked, fell and broke blocks at 40 % speed ("very laggy on a phone", 2026-11-08; found playing the
   // live page in a software-rendered browser at 2 fps, where nine seconds of walking moved a metre). The body now moves
