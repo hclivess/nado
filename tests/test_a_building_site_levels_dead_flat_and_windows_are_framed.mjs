@@ -68,6 +68,12 @@ for (let du = 0; du < 3000 && !hill; du += 13) for (let dv = 0; dv < 3000 && !hi
   for (let a = -2; a <= 2; a++) for (let c = -2; c <= 2; c++) { const t = Wd.column(sp.face, u + a, v + c).top; lo = Math.min(lo, t); hi = Math.max(hi, t); }
   if (hi - lo >= 2 && hi - lo <= 3) hill = [u, v];
 }
+// a bush on the site (leaves one layer over its column's top, at the site's level): levelled, its leaves give way to the
+// site's earth — left, they were a dip in the drawn ground (found 2026-11-22: 1.1 m low on the new wilderness's hillside)
+{ const T0 = 150, cells = new Map([["0:151", Wd.B.leaves]]), kk = (u, v, h) => u + ":" + h;
+  const wb = { block: (u, v, h) => cells.get(kk(u, v, h)) ?? (h <= T0 ? Wd.B.dirt : Wd.B.air), edited: () => false, top: () => T0 };
+  const ops = levelOps(wb, 0, 0, T0 + 1, 3, true), last = new Map(); for (const [u, v, h, b] of ops) last.set(h, b);
+  ok(last.get(T0 + 1) === Wd.B.dirt, "a bush at the site's level is replaced by the site's earth: " + JSON.stringify(ops)); }
 ok(!!hill, "a hillside rising across the site was found");
 const slope = levelSite(sp.face, hill[0], hill[1], "a hillside (cut and fill)");
 ok(slope.all.some(([, , , b]) => b === Wd.B.air) && slope.all.some(([, , , b]) => b === Wd.B.dirt), "on the hillside it both cuts and fills");

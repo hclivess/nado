@@ -62,5 +62,15 @@ const OWNED_GROUND = "323c3df53839a150526c104cdfe80263caffa624bb7280cdf78209786e
     }
   }
   ok(see / views > 0.07, `from ${(100 * see / views).toFixed(0)} % of ${views} meadow views hills stand over the forest past 1.7 km (3 % before)`); }
+// 6. wooded crests over meadow vales (the Chlorophyll shot, 2026-11-22: its hills are forest, its vales meadow; ours, with
+//    the hills raised, showed bare tan slopes — 18 % of crests wooded, 24 % of vales). The forest field leans with the roll.
+{ let seed = 11; const rnd = () => (seed = (seed * 16807) % 2147483647) / 2147483647;
+  const crest = [0, 0], vale = [0, 0];
+  for (let i = 0; i < 20000; i++) {
+    const u = Math.floor(50000 + rnd() * 14000), v = Math.floor(72000 + rnd() * 14000), c = Wd.column(0, u, v), r = Wd.rollAt(0, u, v);
+    if (c.top <= Wd.SEA || (c.biome !== "forest" && c.biome !== "grass")) continue;
+    const g = r > 30 ? crest : r < -30 ? vale : null; if (g) { g[0]++; if (c.biome === "forest") g[1]++; }
+  }
+  ok(crest[1] / crest[0] > 0.5 && vale[1] / vale[0] < 0.15, `the crests are wooded (${(100 * crest[1] / crest[0]).toFixed(0)} % forest) and the vales meadow (${(100 * vale[1] / vale[0]).toFixed(0)} %)`); }
 console.log(fails ? `${fails} FAILED` : "all passed");
 process.exit(fails ? 1 : 0);

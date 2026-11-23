@@ -41,6 +41,10 @@ ok(/new THREE\.Mesh\(g, matGround\)/.test(far) && /groundWeights\(/.test(far) &&
 ok(/new THREE\.Mesh\(gs, matWater\)/.test(far), "and the far sea in the water material");
 const gm = land.slice(land.indexOf("function groundMaterial"), land.indexOf("// ---- grass:"));
 ok(/mx_noise_float\(uvw\.xy\.mul\(0\.021\)\)/.test(gm) && /meadow/.test(gm), "the meadow's colour varies over tens of metres");
+// the far meadow is green, not tan (the Chlorophyll shot beside a meadow vale, 2026-11-22: past the blades the scanned
+// grass alone read (80, 82, 38) against the reference's (98, 118, 38)): past the near chunks the grass layer turns green
+{ const fg = gm.match(/TSL\.vec3\(1, 1, 1\), TSL\.vec3\(([\d.]+), ([\d.]+), ([\d.]+)\), TSL\.smoothstep\((\d+), (\d+), TSL\.positionWorld\.sub\(TSL\.cameraPosition\)\.length\(\)\)/);
+  ok(!!fg && +fg[2] > 1.5 * +fg[1] && +fg[3] < 1 && +fg[4] >= 64, "past the blades the meadow turns green: " + (fg ? fg.slice(1).join(", ") : "no far tint")); }
 const act = land.slice(land.indexOf("function act("), land.indexOf("function wireInput"));
 // never into the player: a block in their own space goes only at their feet, with room above, and lifts them onto it — no
 // longer refused with a message ("only hinders", 2026-11-08); walked in test_a_block_goes_where_you_look…mjs

@@ -136,6 +136,12 @@ function noise3(P, x, y, z) {
 }
 const PERM = [0, 1, 2, 3, 4, 5, 6].map((i) => makePerm(WORLD_SEED + i * 7919));
 const ROLL_PERM = makePerm(WORLD_SEED + 7 * 7919);     // the rolling hills' own field (ROLL), apart from every older layer
+// THE LARGE-SCALE WORLD (operator 2026-11-22: "take a look at large scale world design because it feels lackluster",
+// then "just build it"): its own fields, apart from every older layer — the continents (CONT_PERM: seed 6 of 24 tried puts
+// the town 0.22 above the coast's line, the nearest ocean ~14 km off), their coastlines' warp, the mountain belts and
+// ridges, and the rivers.
+const CONT_PERM = makePerm(WORLD_SEED + 8 * 7919 + 6 * 101), WARP_PERM = makePerm(WORLD_SEED + 9 * 7919);
+const BELT_PERM = makePerm(WORLD_SEED + 10 * 7919), RIDGE_PERM = makePerm(WORLD_SEED + 11 * 7919), RIVER_PERM = makePerm(WORLD_SEED + 12 * 7919);
 function fbm(P, x, y, z, oct, lac = 2, gain = 0.5) {
   let s = 0, a = 1, f = 1, n = 0;
   for (let i = 0; i < oct; i++) { s += a * noise3(P, x * f, y * f, z * f); n += a; a *= gain; f *= lac; }
@@ -324,34 +330,121 @@ export function wildMask(face, u, v) {
   const a = cornerMask(face, r0, c0), b = cornerMask(face, r0, c0 + 1), c = cornerMask(face, r0 + 1, c0), d = cornerMask(face, r0 + 1, c0 + 1);
   return (a * (1 - fx) + b * fx) * (1 - fy) + (c * (1 - fx) + d * fx) * fy;
 }
+/** The wilderness hills' own height at column (face, u, v), metres (0 on owned ground): column() adds it to the ground and
+ *  leans the forest field by it (wooded crests, meadow vales). */
+export function rollAt(face, u, v) {
+  const d = dirOf(face, u + 0.5, v + 0.5);
+  return fbm(ROLL_PERM, d[0] * R0 / 2600, d[1] * R0 / 2600, d[2] * R0 / 2600, 4) * ROLL * wildMask(face, u, v);
+}
+// THE LARGE-SCALE WORLD, MEASURED (operator 2026-11-22: "it feels lackluster"): a map of 160 km round the town showed one
+// even texture — a salt-and-pepper archipelago of thousands of islands and puddle seas, a third water everywhere, rock and
+// snow in blotches, desert beside snow, no river anywhere: the largest layer was 30 km across on a planet ~524 km round,
+// and the climate was noise. The wilderness (wildMask; owned ground keeps the planet it was titled on, exactly) is now
+// laid out as land is:
+//   CONTINENTS — a field ~90 km across, its coastlines warped by ~12 km, the sea on the lowest CONT_SEA of it: oceans
+//     that are oceans, land that holds together, the 30 km layer kept small for the coast's bays and capes;
+//   MOUNTAIN RANGES — ridged noise ~14 km across only inside belts (~60 km) well inland: long crests in chains, not
+//     blotches, the summits rock under snow (terrainBlock's caps over SEA + 95);
+//   RIVERS — broad valleys along one field's zero line, cut to the sea's level through the lowlands (they fade out
+//     where the land lies above ~SEA + 70: no gorges through a range), so a river runs inland from the sea;
+//   CLIMATE — cold toward the poles and up high, wet near the coasts and dry deep inland: deserts in warm interiors,
+//     forest along the wetter coasts.
+export const CONT_SEA = -0.103;           // the continent field's value at the coast (40 % of the planet under it)
+/** The large-scale world at the point (x, y, z) metres on the sphere: { cont (the continent field less CONT_SEA: < 0 is
+ *  ocean), belt, ridge, river (0 on a river's line) }. */
+function largeScale(x, y, z) {
+  const w = (o) => fbm(WARP_PERM, x / 25000 + o, y / 25000, z / 25000, 2) * 12000;
+  const wx = w(0), wy = fbm(WARP_PERM, y / 25000 + 31, z / 25000, x / 25000, 2) * 12000, wz = fbm(WARP_PERM, z / 25000, x / 25000 + 57, y / 25000, 2) * 12000;
+  const cont = fbm(CONT_PERM, (x + wx) / 90000, (y + wy) / 90000, (z + wz) / 90000, 4) - CONT_SEA;
+  const belt = fbm(BELT_PERM, x / 60000, y / 60000, z / 60000, 2);
+  const ridge = 1 - Math.abs(fbm(RIDGE_PERM, (x + wx * 0.4) / 14000, (y + wy * 0.4) / 14000, (z + wz * 0.4) / 14000, 2));   // (4 octaves broke the crests into outcrops)
+  const river = Math.abs(fbm(RIVER_PERM, (x + wy * 0.3) / 16000, (y + wz * 0.3) / 16000, (z + wx * 0.3) / 16000, 3));
+  return { cont, belt, ridge, river };
+}
+/** largeScale at column (face, u, v): the continents, belts, ridges and rivers there (tests read them). */
+export function largeScaleAt(face, u, v) { const d = dirOf(face, u + 0.5, v + 0.5); return largeScale(d[0] * R0, d[1] * R0, d[2] * R0); }
+const smooth = (a, b, t) => { const k = Math.max(0, Math.min(1, (t - a) / (b - a))); return k * k * (3 - 2 * k); };
 /** The ground of column (face, u, v): { top (highest solid layer), biome } — the untouched planet. */
 export function column(face, u, v) {
   const d = dirOf(face, u + 0.5, v + 0.5);
   const x = d[0] * R0, y = d[1] * R0, z = d[2] * R0;            // noise is sampled in METRES on the sphere
   const at = (P, len, oct) => fbm(P, x / len, y / len, z / len, oct);
+  const wild = wildMask(face, u, v);
   // RELIEF ("the land is basically flat", operator 2026-11-06: hills were ±14 m over 400 m, so a walk saw a plain).
-  const cont = at(PERM[0], 30000, 5);                            // continents and seas, ~30 km
   const hills = at(PERM[1], 900, 4);                             // hills and dales, ~900 m, ±30 m
   const vales = at(PERM[5], 220, 3);                             // the ground's folds, ~220 m
   const detail = at(PERM[2], 45, 2);                             // its grain, ~45 m
-  const rid = 1 - Math.abs(at(PERM[3], 2500, 5));                // mountain ridges, ~2.5 km
-  const mtn = Math.max(0, at(PERM[4], 9000, 3) * 2.4 - 0.05);    // where the ranges are, ~9 km (more of them)
   // ROLLING HILLS IN THE WILDERNESS (operator 2026-11-22, beside the Chlorophyll shot: "make it realistic", "wilderness
   // only", "yes protect"): the land was ±30 m over 900 m, so from a meadow the hills 2-4 km off sank under the planet's
   // curve behind a 20 m forest (measured: a ring of land drawn out to 3.8 km showed 2 pixels). ~±30 m more over ~2.6 km lifts
   // them over it — times wildMask, 0 on every plot that held a title or an edit on that day (land-protected.js) and
   // rising over ROLL_BLEND m around them, so no build is buried or left standing in the air.
-  const roll = at(ROLL_PERM, 2600, 4) * ROLL * wildMask(face, u, v);
-  let height = SEA + 5 + cont * 80 + hills * 30 + vales * 8 + detail * 2.5 + rid * rid * rid * mtn * 130 + roll;
-  if (height > SEA + 110) height = SEA + 110 + (height - SEA - 110) * 0.35;   // high peaks compressed, never cut flat
-  height = Math.max(8, Math.min(H - 8, height));
+  const roll = rollAt(face, u, v);
+  const local = hills * 30 + vales * 8 + detail * 2.5 + roll;
+  // THE PLANET AS TITLED (owned ground, and the blend round it): its layers exactly as they were
+  let height = 0, temp0 = 0, wet0 = 0;
+  if (wild < 1) {
+    const cont = at(PERM[0], 30000, 5);                          // continents and seas, ~30 km
+    const rid = 1 - Math.abs(at(PERM[3], 2500, 5));              // mountain ridges, ~2.5 km
+    const mtn = Math.max(0, at(PERM[4], 9000, 3) * 2.4 - 0.05);  // where the ranges are, ~9 km (more of them)
+    let h0 = SEA + 5 + cont * 80 + hills * 30 + vales * 8 + detail * 2.5 + rid * rid * rid * mtn * 130 + roll;   // (this order, to the bit)
+    if (h0 > SEA + 110) h0 = SEA + 110 + (h0 - SEA - 110) * 0.35;   // high peaks compressed, never cut flat
+    height = Math.max(8, Math.min(H - 8, h0));
+    const top0 = Math.floor(height);
+    // CLIMATE: temperature (latitude, altitude, broad noise) and moisture; the biome follows both ("there are no biomes")
+    temp0 = at(PERM[4], 20000, 3) * 0.6 + at(PERM[0], 7000, 2) * 0.4 - Math.max(0, Math.abs(d[1]) - 0.55) * 1.1 - Math.max(0, top0 - SEA) * 0.0025;
+    wet0 = at(PERM[6], 8000, 3) * 0.8 + at(PERM[6], 1500, 2) * 0.3;
+  }
+  let temp = temp0, wet = wet0, ls = null;
+  if (wild > 0) {
+    ls = largeScale(x, y, z);
+    const c = ls.cont;
+    // the continent's floor: past the coast the ocean drops away (-70 m by 0.15 out), inland the land stands up (+50 m by
+    // 0.25 in) — steep enough that the hills and dales (±60 m) make lakes and bays, not an archipelago (a profile of +13 m
+    // 0.1 in measured as one: islands and puddles all over the map), low enough that only a range climbs over SEA + 95,
+    // where the ground turns to rock under snow (at +62 every tall hill of the interior wore a cap)
+    let h1 = SEA + 1 + 10 * Math.max(-1, Math.min(1, c / 0.02)) + (c > 0 ? 39 * smooth(0, 0.25, c) : -60 * smooth(0, 0.15, -c));
+    // a range: the ridges inside a belt, well inland
+    const range = smooth(0.05, 0.25, ls.belt) * smooth(0.03, 0.12, c);
+    // crests and valleys: only the ridge field's top (over 0.8; its median is 0.84) stands up, squared — a raised power of
+    // the whole field stood most of a belt over SEA + 95 (80 %, then 66 %: a rock plateau, not a range)
+    h1 += Math.max(0, (ls.ridge - 0.8) / 0.2) ** 2 * range * 175;
+    const base = h1;                                             // the land's lie before its hills: what a river runs through
+    // the coast's bays and capes, the hills and dales — fading out past the coast (the open ocean held an archipelago of
+    // hilltops until they did), so a coast has its islands and the ocean is open water
+    h1 += (at(PERM[0], 30000, 3) * 12 + local) * (1 - smooth(0.02, 0.1, -c));
+    // a river: a broad valley cut to the sea's level along the river field's zero line (the water ~0.0018 of the field
+    // wide, its banks rising out to 0.06: at 0.0045 a river by the town was 500 m of water) — a flood meadow either side — through the lowlands (the land's lie under ~SEA + 70, whatever its hills: a
+    // river is not cut into puddles by them) and fading out into a range, never out at sea. Water stands at the sea's
+    // level only (terrainBlock, the meshes), so a river is a sea-level valley running inland from a coast.
+    // The valley has a FLOOR: water inside the channel, a bank a block over it just outside, rising to the land — pulled
+    // straight to the water everywhere, the valley's own slope drowned it (95 % of the way down 0.01 out: 400 m of water)
+    const cut = (1 - smooth(0.0018, 0.06, ls.river)) * (1 - smooth(SEA + 60, SEA + 90, base)) * smooth(0.0, 0.03, c);
+    h1 += ((ls.river < 0.0018 ? SEA - 2.5 : SEA + 2.4) - h1) * cut;   // (a bank at SEA + 1.2 is beach: 100 m of sand each side)
+    // outside a range a hill's top is eased: over SEA + 80 it climbs at 0.3 of its slope, so the lowland hills stay under
+    // the rock line (SEA + 95) and wear woods — on the +50 m interior a tall hill stood up as a snow-capped knoll 900 m from
+    // the town (2.7 % of the land outside the belts was rock; eased, 0.5 %, the belts' share kept at 32 %)
+    if (h1 > SEA + 80) h1 = SEA + 80 + (h1 - SEA - 80) * (0.3 + 0.7 * range);
+    if (h1 > SEA + 110) h1 = SEA + 110 + (h1 - SEA - 110) * 0.35;   // high peaks compressed, never cut flat
+    h1 = Math.max(8, Math.min(H - 8, h1));
+    // the climate: latitude, height and a broad wander; the coasts wet, the interiors dry
+    const top1 = Math.floor(h1);
+    const temp1 = 0.3 - Math.abs(d[1]) * 0.85 + at(PERM[4], 20000, 3) * 0.3 - Math.max(0, top1 - SEA) * 0.002;
+    // (a river's valley is wet; the interior dry, but desert only where it is really dry: at 0.3 - c * 1.6 a desert
+    // stood beside the town's river and its forest)
+    const wet1 = 0.4 - c * 1.4 + at(PERM[6], 8000, 3) * 0.45 + cut * 0.6;
+    height = wild === 1 ? h1 : height + (h1 - height) * wild;
+    temp = wild === 1 ? temp1 : temp + (temp1 - temp) * wild;
+    wet = wild === 1 ? wet1 : wet + (wet1 - wet) * wild;
+  }
   const top = Math.floor(height);
-  // CLIMATE: temperature (latitude, altitude, broad noise) and moisture; the biome follows both ("there are no biomes")
-  const temp = at(PERM[4], 20000, 3) * 0.6 + at(PERM[0], 7000, 2) * 0.4 - Math.max(0, Math.abs(d[1]) - 0.55) * 1.1 - Math.max(0, top - SEA) * 0.0025;
-  const wet = at(PERM[6], 8000, 3) * 0.8 + at(PERM[6], 1500, 2) * 0.3;
   // FORESTS GROW IN PATCHES ("trees should generate the way normal trees generate? in patches called forests"): a forest
   // field over ~1 km, wetter ground more wooded
-  const woods = at(PERM[5], 1100, 3) + wet * 0.35;
+  // WOODED HILLS OVER MEADOW VALES (the Chlorophyll shot, 2026-11-22: its slopes and crests are forest, its vales open
+  // meadow; ours, with the hills raised, showed bare tan slopes — the forest field knew nothing of the ground's shape:
+  // 18 % of hill crests wooded, 24 % of vales). The roll's own height leans the field: +-0.35 at +-60 m, so crests take
+  // the forest (0.54) and vales lose it (0.06). The roll is 0 on owned ground (wildMask), so no titled plot's trees move.
+  const woods = at(PERM[5], 1100, 3) + wet * 0.35 + 0.35 * Math.max(-1, Math.min(1, roll / 60));
   const biome = top < SEA + 2 && top >= SEA - 3 ? "beach"
     : top > SEA + 95 ? "rock"
     : temp < -0.28 ? "snow"

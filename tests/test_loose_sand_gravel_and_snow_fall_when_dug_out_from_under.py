@@ -36,7 +36,10 @@ const B = W.B, sp = W.plotCoords(W.plotId(0, W.SPAWN_PLOT_ROW, W.SPAWN_PLOT_COL)
 const find = (pred, step = 1) => { for (let r = 0; r < 6000; r += step) for (let d = -r; d <= r; d += Math.max(1, r)) for (const [u, v] of [[sp.u0 + r, sp.v0 + d], [sp.u0 + d, sp.v0 + r], [sp.u0 - r, sp.v0 + d], [sp.u0 + d, sp.v0 - r]]) {
   const c = W.column(f, u, v), x = pred(u, v, c); if (x) return x; } return null; };
 const tb = (u, v, h) => W.terrainBlock(f, u, v, h);
-const dune = find((u, v, c) => c.top > W.SEA + 1 && [0, 1, 2, 3].every((k) => tb(u, v, c.top - k) === B.sand) && tb(u, v, c.top + 1) === B.air ? [f, u, v, c.top] : null, 3);
+const isDune = (u, v, c) => c.top > W.SEA + 1 && [0, 1, 2, 3].every((k) => tb(u, v, c.top - k) === B.sand) && tb(u, v, c.top + 1) === B.air ? [f, u, v, c.top] : null;
+// deserts lie inland in the dry belts since the wilderness has continents (2026-11-22): none within reach of the landing,
+// so when the near search finds none, a coarse sweep of the whole face as for the snow
+const dune = find(isDune, 3) || (() => { for (let u = 0; u < W.W; u += 389) for (let v = 0; v < W.W; v += 389) { const x = isDune(u, v, W.column(f, u, v)); if (x) return x; } return null; })();
 // snow lies on the high ground and in the cold — far from the landing: a coarse sweep of the whole face
 const snowy = (() => { for (let u = 0; u < W.W; u += 389) for (let v = 0; v < W.W; v += 389) { const c = W.column(f, u, v);
   if (tb(u, v, c.top) === B.snow && tb(u, v, c.top - 1) !== B.snow && tb(u, v, c.top - 1) !== B.air && tb(u, v, c.top + 1) === B.air) return [f, u, v, c.top]; } return null; })();

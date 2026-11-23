@@ -150,7 +150,11 @@ function grownModel(kind, H0, R, lod) {
         // narrows to a point as a fir's does (fixed-width sprays padded the top out and blunted the cone)
         const wide = size * (0.05 + 0.95 * s.len / longest);    // (0.3 + 0.7 until the sprays grew wider and the tree taller: the cone blunted, top 0.60-0.61 of the bottom's width)
         const side = norm(cross(d, [0, 0, 1])), along = mul(d, (s.len / count) * 0.62), out = add(sub(p, centre), [0, 0, 0.2]);
-        card(leaves, p, mul(side, wide), along, A.tile, out, sway, tint);
+        // ONE CARD AWAY, TILTED UP (the conifer up close, 2026-11-22: every conifer read as a pole with a few sprays): the
+        // middle and far models' one spray a shoot lay flat along its branch, edge on to anyone standing: the horizontal
+        // part of its normal 0.48 on average, only the branches' droop turning it. Turned up about the branch as the near
+        // model's second spray is, 0.86 — the upper crown, where the branches droop least, no longer a bare pole
+        card(leaves, p, far || mid ? mul(norm(add(mul(side, 0.55), [0, 0, 0.85])), wide) : mul(side, wide), along, A.tile, out, sway, tint);
         if (!far && !mid) card(leaves, add(p, [0, 0, 0.04]), mul(norm(add(mul(side, 0.5), [0, 0, 0.85])), wide * 0.8), along, A.tile, out, sway, tint);
       } else {
         const hang = kind === "birch" ? [0, 0, -0.12 - R() * 0.2] : [0, 0, 0];   // a birch's leaves hang from its twigs

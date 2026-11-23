@@ -363,7 +363,7 @@ try {
   ok(errors.length === 0, "no page errors" + (errors.length ? ": " + errors.join(" | ") : ""));
   // the pilot sees their craft: flying, the camera hangs behind and above it (from the seat it was never in view)
   const page = (await import("node:fs")).readFileSync(join(ROOT, "static", "land.js"), "utf8");
-  ok(/if \(!flying\) return e;[\s\S]{0,300}up = craftUp \|\| fr\.up;[\s\S]{0,200}e\[i\] - fw\[i\] \* CHASE_BACK \+ up\[i\] \* CHASE_UP/.test(page), "flying, the view is a chase view behind and above the craft");
+  ok(/if \(!flying\) return e;[\s\S]{0,300}const \{ fw, up \} = chase \|\| chaseView\(0\);[\s\S]{0,200}e\[i\] - fw\[i\] \* CHASE_BACK \+ up\[i\] \* CHASE_UP/.test(page), "flying, the view is a chase view behind and above the craft");
 } catch (e) {
   ok(false, "harness: " + (e && e.message || e) + "\n" + fxOut.slice(-1500));
 } finally { cleanup(); }

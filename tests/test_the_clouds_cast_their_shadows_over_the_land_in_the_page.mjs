@@ -69,7 +69,9 @@ const base = `http://127.0.0.1:${HTTP}`;
 // the place: 250 m over the #183 meadow — well under the cloud base, 419 m over the sea (a first try at 400 m hung the
 // eye in the layer) — looking nearly straight down (not quite: a look straight along the up vector has no right-hand),
 // the clock held at a moment the sun stands high — the same moment and field the cloud test uses
-const FACE = 0, U = 54260.5, V = 80600.5, TOP = Wd.column(FACE, Math.floor(U), Math.floor(V)).top + 1, H = TOP + 250, YAW = 0.4, PITCH = -1.45;
+// (moved 1.4 km east 2026-11-22: with the wilderness's ranges the #183 meadow rose to a rocky knoll 110 m over the sea,
+// and an eye 250 m over it hung close under the cloud base — this meadow lies 39 m over the sea, open 60 m all round)
+const FACE = 0, U = 55660.5, V = 80600.5, TOP = Wd.column(FACE, Math.floor(U), Math.floor(V)).top + 1, H = TOP + 250, YAW = 0.4, PITCH = -1.45;
 if (H + 20 >= Wd.SEA + C.BASE) { console.log("FAIL the eye would hang in the cloud layer"); process.exit(1); }
 const W = 640, HH = 360;
 const up = Wd.frameOf(FACE, U, V).up;

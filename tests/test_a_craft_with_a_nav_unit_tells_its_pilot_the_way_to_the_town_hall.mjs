@@ -186,10 +186,16 @@ try {
   await sleep(2000);
   const C = await import(join(ROOT, "static", "land-cosmos.js"));
   const cp2 = (await getJ(`/land/api/crafts?face=${q.face}&u=${su}&v=${sv}`)).crafts[0].pose;
-  const view = C.satsInView(24, Wd.posOf(cp2[0], cp2[1], cp2[2], cp2[3]), Date.now() / 1000 - C.EPOCH).length;
+  // the orbits are counted on both sides of the HUD read: a satellite crossing the horizon between the two reads
+  // (seen 2026-11-22 under a loaded host: the HUD said 5, the count a moment later 4) is the orbits moving, not a wrong HUD
+  const inView = () => C.satsInView(24, Wd.posOf(cp2[0], cp2[1], cp2[2], cp2[3]), Date.now() / 1000 - C.EPOCH).length;
+  const before = inView();
   const hud2 = await evl(B, "document.getElementById('hudPos').textContent");
-  ok(view >= 4 ? new RegExp(`satellite fix \\(${view} in view\\)`).test(hud2) : new RegExp(`dead reckoning \\(${view} of 4`).test(hud2),
-    `with 24 satellites up, the nav unit says what the orbits give here and now (${view} in view): ` + hud2.split("\n")[1]);
+  const after = inView();
+  const says = (view) => view >= 4 ? new RegExp(`satellite fix \\(${view} in view\\)`).test(hud2) : new RegExp(`dead reckoning \\(${view} of 4`).test(hud2);
+  const view = says(before) ? before : after;
+  ok(says(before) || says(after),
+    `with 24 satellites up, the nav unit says what the orbits give here and now (${before}/${after} in view): ` + hud2.split("\n")[1]);
   await evl(B, "document.getElementById('mapBtn').click(), true");
   if (view >= 4) {
     ok(await until(B, "/The whole planet/.test(document.getElementById('mapLegend').textContent)", 15000), "…with a fix the Map shows the whole planet");

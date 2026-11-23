@@ -221,10 +221,16 @@ export function growPlant(kind, H0, R, lod) {
     const want = gen.reduce((n, pi) => n + Math.max(1, Math.round(stems[pi].len * span * lv.perMetre)), 0);
     const keep = Math.min(1, caps[depth] / want);
     const next = [];
+    let seen = 0;
     for (const pi of gen) {
       const parent = stems[pi], count = Math.max(1, Math.round(parent.len * span * lv.perMetre));
       for (const [t, spin] of shoots(R, lv, count)) {
-        if (R() >= keep) continue;
+        // WHORLS ARE THINNED EVENLY, not at random (the conifer up close, 2026-11-22): a random half of a fir's whorl
+        // branches left whole metres of its far and middle models bare — a pole between tufts, photographed side on —
+        // where the kept share spread evenly leaves every whorl two or three branches. The draw is still taken, so every
+        // other stem grows as before.
+        const draw = R(), n0 = seen++;
+        if (lv.whorl > 0 ? Math.floor((n0 + 1) * keep) === Math.floor(n0 * keep) : draw >= keep) continue;
         const { p, d, r } = at(parent, t), side = perpendicular(d, spin);
         const along = Math.min(1, Math.max(0, (t - lv.span[0]) / Math.max(span, 1e-6)));
         const angle = ((lv.angle[0] + (lv.angle[1] - lv.angle[0]) * along + (R() * 2 - 1) * 10) * Math.PI) / 180;

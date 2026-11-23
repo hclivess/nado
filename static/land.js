@@ -387,10 +387,26 @@ function eyePos() {
   if (!flying) return e;
   // THE CHASE VIEW: flying, the camera hangs behind and above the craft, looking where the pilot looks — from the seat
   // the craft was under the camera and never seen (the first flight, 2026-11-09)
-  const { fr, fw } = look(), up = craftUp || fr.up;
+  const { fw, up } = chase || chaseView(0);
   return [0, 1, 2].map((i) => e[i] - fw[i] * CHASE_BACK + up[i] * CHASE_UP);
 }
 const CHASE_BACK = 9, CHASE_UP = 2.5;
+// A SPRUNG CHASE VIEW (operator 2026-11-22: the X fighter is "shaky" in flight): the camera hung rigidly off the craft's
+// nose and roll, 9 m back, so every twitch of the attitude — the stick's deflections, the physics' own small swings —
+// moved the whole view, 9 m of lever magnifying it. The view's direction and up now follow the craft's with a lag of
+// CHASE_LAG s (an exponential ease, the frame's dt): a turn is followed within a fraction of a second, a twitch is not.
+const CHASE_LAG = 0.15;
+let chase = null;                       // { fw, up } the eased view while flying; null on foot (the walker's view is its own)
+const unit = (a) => { const m = Math.hypot(a[0], a[1], a[2]) || 1; return [a[0] / m, a[1] / m, a[2] / m]; };
+/** The view's forward and up this frame: the look's own on foot; flying, eased toward the craft's by dt seconds. */
+function chaseView(dt) {
+  const { fr, fw } = look(), up = craftUp || fr.up;
+  if (!flying) { chase = null; return { fw, up }; }
+  if (!chase || !(dt > 0)) { chase = chase || { fw: fw.slice(), up: up.slice() }; return chase; }
+  const k = 1 - Math.exp(-dt / CHASE_LAG);
+  chase = { fw: unit(chase.fw.map((x, i) => x + (fw[i] - x) * k)), up: unit(chase.up.map((x, i) => x + (up[i] - x) * k)) };
+  return chase;
+}
 const LITTER_H = 0.45, LITTER_R = 0.42;                // m: how high and how far round its middle litter catches the look                    // m behind (along the look) and above the pilot's eye
 
 // ---- movement (grid space: u ~ east, v ~ north, h ~ up, ~1 m per unit) ------------------------------------------------
@@ -3538,18 +3554,22 @@ function nearestWater() {
   if (waterNear.key === key) return waterNear.res;
   const job = waterNear = { key, res: undefined }, f = P.face, u0 = Math.floor(P.u), v0 = Math.floor(P.v);
   let r = 1, k = 0;                                        // ring r holds 8r cells: 2r a side, k = 0 .. 8r - 1
+  // a ring is a square, so the first water on ring r can be a corner √2 r out while an edge of a later ring is nearer
+  // (2026-11-22: 815 m given where water lay 785 m off) — the search goes on to ring √2 r and keeps the nearest
+  let best = null, until = Infinity;
+  const done = (res) => { job.res = res; if (bagOpen()) renderBag(); };
   const step = () => {
     if (waterNear !== job) return;                         // the player moved on: a newer search owns the answer
     for (let n = 0; n < WATER_SLICE; n++) {
-      if (k === 8 * r) { r++; k = 0; if (r > WATER_RINGS) { job.res = null; if (bagOpen()) renderBag(); return; } }
+      if (k === 8 * r) { r++; k = 0; if (r > until) return done(best); if (r > WATER_RINGS) return done(best); }
       const j = (k % (2 * r)) - r, [du, dv] = [[j, -r], [r, j], [-j, r], [-r, -j]][Math.floor(k / (2 * r))];
       k++;
       const u = u0 + du * 16, v = v0 + dv * 16;      // (the search keeps to this face)
       if (u < 0 || v < 0 || u >= Wd.W || v >= Wd.W) continue;
       if (Wd.column(f, u, v).top < Wd.SEA) {
-        job.res = { d: Math.round(Math.hypot(u - P.u, v - P.v)), b: (Math.round(Math.atan2(u - P.u, v - P.v) * 180 / Math.PI) + 360) % 360 };
-        if (bagOpen()) renderBag();
-        return;
+        const d = Math.hypot(u - P.u, v - P.v);
+        if (!best || d < best.dd) best = { dd: d, d: Math.round(d), b: (Math.round(Math.atan2(u - P.u, v - P.v) * 180 / Math.PI) + 360) % 360 };
+        if (until === Infinity) until = Math.ceil(r * Math.SQRT2);
       }
     }
     setTimeout(step, 0);
@@ -4762,7 +4782,12 @@ function groundMaterial() {
   // living field, not one pale wash ("bland untextured marches", operator 2026-11-06)
   const patch = TSL.mx_noise_float(uvw.xy.mul(0.021)).mul(0.5).add(TSL.mx_noise_float(uvw.xy.mul(0.083)).mul(0.25)).add(0.5).clamp(0, 1);
   const meadow = TSL.mix(TSL.vec3(0.56, 0.66, 0.28), TSL.vec3(0.78, 0.80, 0.34), patch)   // (#183 → the Chlorophyll shot: was 0.80, 0.86, 0.38 at the dry end — a yellow field)
-    .mul(TSL.float(0.82).add(TSL.mx_noise_float(uvw.xy.mul(0.31)).mul(0.12)));
+    .mul(TSL.float(0.82).add(TSL.mx_noise_float(uvw.xy.mul(0.31)).mul(0.12)))
+    // GREEN FROM AFAR (the Chlorophyll shot beside a meadow vale, 2026-11-22): past the blades (the near chunks) the meadow
+    // is this ground alone, and the scanned grass is brown — the far field measured (80, 82, 38), red as strong as green,
+    // so open slopes read tan, where the reference's far meadow is (98, 118, 38). Beyond the blades it turns to their green.
+    // (x 1.15, 1.38, 0.95 measured (86, 93, 38): the haze takes most of a far surface's change; x 1.1, 1.8, 0.9 (86, 104, 39))
+    .mul(TSL.mix(TSL.vec3(1, 1, 1), TSL.vec3(1.1, 1.8, 0.9), TSL.smoothstep(80, 500, TSL.positionWorld.sub(TSL.cameraPosition).length())));
   const color = tri(tex[0]).mul(meadow).mul(w1.x).add(tri(tex[1]).mul(w1.y)).add(rock.mul(w1.z)).add(two(tex[3]).mul(w1.w))
     .add(two(tex[4]).mul(w2.x)).add(two(tex[5]).mul(w2.y));
   const m = new THREE.MeshStandardNodeMaterial({ metalness: 0 });
@@ -4968,15 +4993,32 @@ function paintLeaves() {
     const a = R() * 6.28, r = Math.sqrt(R()) * 210, l = 28 + R() * 12;        // (was 34-48 %: a birch is lighter than an oak, but not lime)
     leaf(768 + Math.cos(a) * r, 256 + Math.sin(a) * r, R() * 6.28, 30 + R() * 16, 15 + R() * 6, hsl(80 + R() * 20, 50 + R() * 15, l), hsl(75, 45, l + 10));
   }
-  // 2: needle spray — a twig down the middle (base at the top: v = 0 is the branch's base), needles toward the tip
-  line(256, 520, 256, 1010, 7, "#4a3626");
-  for (let y = 525; y < 1010; y += 3) {
-    const f = (y - 520) / 490, env = Math.pow(Math.sin(Math.PI * Math.min(1, f * 1.1 + 0.08)), 0.5);
+  // 2: needle spray — a twig down the middle (base at the top: v = 0 is the branch's base), side shoots swept toward the
+  // tip, each furred in needles, as a spruce spray grows. A FULL SPRAY (the conifer up close, 2026-11-22: in the operator's
+  // phone shot and beside the Chlorophyll shot every conifer read as a pole with a few sprays): the spray was needles on
+  // the middle twig alone and covered 0.13-0.15 of its card at every mip level (over the leaves' alpha cut; measured by
+  // tests/test_a_conifer_reads_as_a_dense_cone_not_a_pole_with_sprays.mjs, which paints this code), so a crown of cards
+  // whose outline closes the cone still showed the sky through most of it. Side shoots fill it to 0.45-0.47 — the needles
+  // near the twig a little longer, the inner ones darker (shade inside the spray) — and the same cards make a dark cone
+  // (inside its own tile: the longest side shoots' needles reach past x = 512, onto the palm's)
+  for (const g of [col, msk]) { g.save(); g.beginPath(); g.rect(6, 518, 500, 500); g.clip(); }
+  line(256, 520, 256, 1012, 7, "#4a3626");
+  for (let y = 530; y < 1004; y += 14) {
+    const f = (y - 520) / 492, env = Math.pow(Math.sin(Math.PI * Math.min(1, f * 1.05 + 0.06)), 0.6);
     for (const sg of [-1, 1]) {
-      const a = (0.75 + R() * 0.3) * sg, ln = (55 + R() * 55) * env, l = 14 + R() * 12;
-      line(256, y, 256 + Math.sin(a) * ln, y + Math.cos(a) * ln * 0.75, 2.6, hsl(140 + R() * 25, 32 + R() * 16, l));
+      const a = (0.8 + R() * 0.35) * sg, ln = 225 * env * (0.75 + R() * 0.3), dx = Math.sin(a), dy = Math.cos(a) * 0.8;
+      line(256, y, 256 + dx * ln, y + dy * ln, 3, "#3e3222");
+      for (let s = 3; s < ln; s += 4.5) {
+        const px = 256 + dx * s, py = y + dy * s, tl = 20 * (1 + R() * 0.6) * (1 - 0.45 * s / ln) * (1 + 0.6 * Math.max(0, 1 - s / 90));
+        const l = 11 + 13 * (s / ln) + R() * 6;
+        for (const sd of [-1, 1]) {
+          const b = a + sd * (0.6 + R() * 0.3);
+          line(px, py, px + Math.sin(b) * tl, py + Math.cos(b) * tl, 2.6, hsl(140 + R() * 25, 32 + R() * 16, l));
+        }
+      }
     }
   }
+  for (const g of [col, msk]) g.restore();
   // 3: palm frond — the rachis down the middle, long tapering leaflets swept toward the tip
   line(768, 512, 768, 1024, 7, "#8a8a4a");
   for (let y = 520; y < 1020; y += 8) {
@@ -5727,8 +5769,8 @@ function frame(now) {
   pt("mesh", applyFinished);                               // finished chunks and forest tiles, within the mesh budget (#150)
   pt("step", () => { for (let left = dt; left > 1e-6; left -= STEP_DT) step(Math.min(STEP_DT, left)); });
   pt("break", () => { breakTick(dt); levelTick(now); });
-  const cam = eyePos(), { fr, fw } = look();
-  const cu = craftUp || fr.up;                              // flying an aircraft the camera rolls with it (#191)
+  const { fw, up: cu } = chaseView(dt), { fr } = look();   // flying an aircraft the camera rolls with it (#191), eased (CHASE_LAG)
+  const cam = eyePos();
   camera.up.set(cu[0], cu[1], cu[2]);
   camera.lookAt(fw[0], fw[1], fw[2]);
   hemi.position.set(fr.up[0], fr.up[1], fr.up[2]);     // "up" is radial on a planet: three's hemisphere light assumes +Y

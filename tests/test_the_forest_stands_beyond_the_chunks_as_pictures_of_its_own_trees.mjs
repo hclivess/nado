@@ -36,7 +36,9 @@ const brute = (face, u0, v0, size) => {
 };
 const named = (rs) => rs.map((r) => `${r.u}:${r.v}:${r.face}:${r.wu}:${r.wv}:${r.tree.kind}:${r.tree.height}`);
 let total = 0;
-for (const [face, u0, v0, size, what] of [[0, 54260 - 48, 80600, 96, "a wood by the town"], [0, EDGE - 48, 80000, 96, "across a face edge"],
+// the sites are woods of the wilderness, which follows the planet: with continents (2026-11-22) the old square by the
+// town lay in a meadow and the old edge crossing (v 80000) in the sea — the wood 250 m east and the edge at v 4000 are wooded
+for (const [face, u0, v0, size, what] of [[0, 54462, 80600, 96, "a wood by the town"], [0, EDGE - 48, 4000, 96, "across a face edge"],
   [2, 30000, 41000, 96, "another face"], [0, 54992, 79968, 64, "the build plot and its neighbours"]]) {
   const a = named(W.treeRoots(face, u0, v0, size)), b = brute(face, u0, v0, size);
   total += b.length;
@@ -105,7 +107,7 @@ ok(T.idx.length === T.n * 24 && Math.max(...T.idx) === T.n * 8 - 1, "four triang
 }
 {
   // a tile wholly past the face's edge: the neighbouring face's trees, in this face's frame (the player sees over the edge)
-  const eu = EDGE / F.TILE, ev = Math.floor(80000 / F.TILE), E = F.forestTile(0, eu, ev), over = W.treeRoots(0, eu * F.TILE, ev * F.TILE, F.TILE);
+  const eu = EDGE / F.TILE, ev = Math.floor(4000 / F.TILE), E = F.forestTile(0, eu, ev), over = W.treeRoots(0, eu * F.TILE, ev * F.TILE, F.TILE);
   ok(E.n > 0 && E.n === over.length && over.every((r) => r.face !== 0 && r.u >= EDGE), `a tile past the face's edge carries the neighbouring face's trees (${E.n})`);
 }
 {

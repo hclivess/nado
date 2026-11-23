@@ -102,6 +102,10 @@ ok(/const at = flying \? flying\.pose : \[P\.face, P\.u, P\.v, P\.h\], spd = fly
   ok(e.engG.gain.value === 0, "the sound setting off silences it");
 }
 ok(/sound\.engine\(flying && flying\.engine \? flying\.engine\.throttle : 0\);/.test(readFileSync(join(ROOT, "static", "land.js"), "utf8")), "the page drives it from the flown craft's throttle, silent off the controls");
+// 2c'. quieter and rounder in flight (operator 2026-11-22: "the x fighter is very noisy"): the gale a rush, not a hiss
+//      (its filter at most 1.5 kHz, its level at most 0.15), the engines a hum (filtered under 3x their pitch, level <= 0.08)
+ok(Snd.WIND.hz1 <= 1500 && Snd.WIND.gain <= 0.15 && Snd.ENGINE.gain <= 0.08 && Snd.ENGINE.cut < 3,
+  `in flight the wind tops out at ${Snd.WIND.hz1} Hz, level ${Snd.WIND.gain}; the engines at ${Snd.ENGINE.cut}x their pitch, level ${Snd.ENGINE.gain}`);
 // 2d. THE VOLUME (#113: "a volume, not only on and off"): the level scales every cue, the wind and the engines; 0 is silence
 {
   let lv = 0.5; const v = new Snd.Sound(() => lv, FakeCtx); v.enable();

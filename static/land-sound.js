@@ -41,8 +41,13 @@ export function play(ctx, name, vol = 1, at = null) {
 // low-pass filter, looped, always there once the context opens — a breath on the ground, more in the open high up, a
 // roar at a craft's speed. windLevel gives its level 0..1 from the height over the ground (m) and the speed (m/s); the
 // filter opens with it (a gale is bright, a breeze dull). Synthesised: no sound file to choose.
-export const WIND = { base: 0.04, high: 0.12, highAt: 80, fast: 0.84, fastAt: 150, gain: 0.22, hz0: 250, hz1: 3000 };
-export const ENGINE = { hz0: 48, hz1: 130, gain: 0.14 };   // the drone's pitch idle and at full throttle (Hz), its level at full
+// QUIETER AND ROUNDER IN FLIGHT (operator 2026-11-22: "the x fighter is very noisy" — the sound): at a fighter's speed
+// the wind sat at its full level with the filter open to 3 kHz, a hiss over everything, and the engines' two saws went
+// through a filter at four times their pitch, a buzz. The gale now tops out at 1.2 kHz and about half the level (a rush,
+// not a hiss), and the engines are filtered at 2.5 times their pitch at half the level (a hum): still heard, never the
+// loudest thing on the screen for minutes on end. (The breeze's filter 250 -> 200 Hz: a gale stays three times brighter.)
+export const WIND = { base: 0.04, high: 0.12, highAt: 80, fast: 0.84, fastAt: 150, gain: 0.12, hz0: 200, hz1: 1200 };
+export const ENGINE = { hz0: 48, hz1: 130, gain: 0.07, cut: 2.5 };   // the drone's pitch idle and at full throttle (Hz), its level at full, its filter (times the pitch)
 export function windLevel(above, speed) {
   const h = Math.min(1, Math.max(0, above) / WIND.highAt), v = Math.min(1, Math.max(0, speed) / WIND.fastAt);
   return Math.min(1, WIND.base + WIND.high * h + WIND.fast * v ** 1.5);
@@ -87,14 +92,14 @@ export class Sound {
     if (!this.ctx || !this.ctx.createBiquadFilter) return false;
     const c = this.ctx, vol = this.level(), th = vol ? Math.max(0, Math.min(1, throttle)) : 0;
     if (!this.engG) {
-      this.engF = c.createBiquadFilter(); this.engF.type = "lowpass"; this.engF.frequency.value = ENGINE.hz0 * 4;
+      this.engF = c.createBiquadFilter(); this.engF.type = "lowpass"; this.engF.frequency.value = ENGINE.hz0 * ENGINE.cut;
       this.engG = c.createGain(); this.engG.gain.value = 0;
       this.engO = [0, 1].map((k) => { const o = c.createOscillator(); o.type = "sawtooth"; o.frequency.value = ENGINE.hz0 * (1 + k * 0.012); o.connect(this.engF); o.start(); return o; });
       this.engF.connect(this.engG); this.engG.connect(c.destination);
     }
     const hz = ENGINE.hz0 + (ENGINE.hz1 - ENGINE.hz0) * th;
     this.engO.forEach((o, k) => o.frequency.setTargetAtTime(hz * (1 + k * 0.012), c.currentTime, 0.1));
-    this.engF.frequency.setTargetAtTime(hz * 4, c.currentTime, 0.1);
+    this.engF.frequency.setTargetAtTime(hz * ENGINE.cut, c.currentTime, 0.1);
     this.engG.gain.setTargetAtTime(ENGINE.gain * th * vol, c.currentTime, 0.1);
     return true;
   }

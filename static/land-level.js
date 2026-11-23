@@ -21,12 +21,17 @@ export function levelOps(w, u, v, T, depth = 3, axe = false) {
     if (NATURAL.has(b) || LITTER.has(b) || TREE_LEAVES.has(b) || (axe && TREE_WOOD.has(b))) ops.push([u, v, h, B.air]);
     else if (b === B.air && !w.edited(u, v, h) && h === T + 1) ops.push([u, v, h, B.dirt], [u, v, h, B.air]);
   }
+  // A BUSH AT THE SITE'S LEVEL IS GROUND TO BE: its leaves stand where the site's earth goes (a bush is leaves one layer
+  // over its column's top), and left there they were a dip in the drawn ground — the mesh's surface does not rest on
+  // leaves (found 2026-11-22 when the new wilderness put a bush on the levelling test's hillside: 1.1 m low)
   const bt = w.block(u, v, T);
-  if ((NATURAL.has(bt) && !w.edited(u, v, T)) || LITTER.has(bt)) ops.push([u, v, T, B.air], [u, v, T, B.dirt]);
+  if ((NATURAL.has(bt) && !w.edited(u, v, T)) || LITTER.has(bt) || TREE_LEAVES.has(bt)) ops.push([u, v, T, B.air], [u, v, T, B.dirt]);
   else if (bt === B.air || BLOCKS[bt].liquid) ops.push([u, v, T, B.dirt]);
   for (let h = T - 1; h >= T - depth; h--) {
     const b = w.block(u, v, h);
-    if (b === B.air || BLOCKS[b].liquid) ops.push([u, v, h, B.dirt]); else break;
+    if (b === B.air || BLOCKS[b].liquid) ops.push([u, v, h, B.dirt]);
+    else if (TREE_LEAVES.has(b)) ops.push([u, v, h, B.air], [u, v, h, B.dirt]);
+    else break;
   }
   return ops;
 }

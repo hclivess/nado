@@ -20,7 +20,8 @@ let fails = 0;
 const ok = (c, m) => { console.log((c ? "ok   " : "FAIL ") + m); if (!c) fails++; };
 
 // a chunk of the #183 meadow (plot 0·5037·3391's column), meshed with its grass at the near level of detail
-const U = 54260, V = 80600, cu = Math.floor(U / Wd.CHUNK), cv = Math.floor(V / Wd.CHUNK), top = Wd.column(0, U, V).top, ch = Math.floor(top / Wd.CHUNK);
+// (moved 1.4 km east 2026-11-22: with continents the #183 meadow became a wooded hill; this meadow lies 39 m over the sea)
+const U = 55660, V = 80600, cu = Math.floor(U / Wd.CHUNK), cv = Math.floor(V / Wd.CHUNK), top = Wd.column(0, U, V).top, ch = Math.floor(top / Wd.CHUNK);
 let flowers = 0, clumps = 0, chunks = 0;
 for (let dx = -2; dx <= 2; dx++) for (let dy = -2; dy <= 2; dy++) {
   const r = M.meshChunk(0, cu + dx, cv + dy, ch, null, null, 0, true);
