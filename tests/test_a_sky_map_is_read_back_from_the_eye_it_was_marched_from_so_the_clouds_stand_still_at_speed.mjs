@@ -96,7 +96,9 @@ ok(worst < 1e-4, `reproject(d, shift, t) returns the latched direction for shift
 const page = readFileSync(join(ROOT, "static", "land.js"), "utf8");
 const reader = page.slice(page.indexOf("const uvOf = (u) =>"), page.indexOf("cloudSky = new THREE.Mesh"));
 ok(/reproject = \(dist\) => d\.mul\(max\(dist, 1\)\)\.add\(cloudO\.shift\)\.normalize\(\)/.test(reader), "the dome's reader reprojects as Clouds.reproject does: d·dist + shift, normalised (a distance under a metre read as one: never NaN)");
-ok(/u1 = reproject\(read\(1, d\)\.r\), u2 = reproject\(read\(1, u1\)\.r\), u3 = reproject\(read\(1, u2\)\.r\), lit = read\(0, u3\)/.test(reader), "…three times over, the light read at the result");
+// (the light at the result is four taps round it since 2026-11-24 — each a texture node swapped with the map: the sky test's check 10)
+ok(/u1 = reproject\(read\(1, d\)\.r\), u2 = reproject\(read\(1, u1\)\.r\), u3 = reproject\(read\(1, u2\)\.r\);/.test(reader) && /const uv3 = uvOf\(u3\)/.test(reader) && /const lit = tap\(/.test(reader),
+  "…three times over, the light read at the result");
 ok(/count: 2, type: THREE\.HalfFloatType/.test(page) && /cloudMRT = TSL\.mrt\(\{ output: texel\.get\("color"\), dist: vec4\(texel\.get\("dist"\)/.test(page), "the map has two targets and the march writes its colour to the first EXPLICITLY (TSL.output is never assigned under a fragmentNode) and the distance to the second");
 ok(/rt\.textures\[0\]\.name = "output"; rt\.textures\[1\]\.name = "dist";/.test(page), "the two targets are NAMED output and dist — the MRT node finds a target by its texture's name, and an unnamed one is never written");
 ok(/tm\.outputNode = texel\.get\("color"\);/.test(page) && !/tm\.fragmentNode/.test(page), "the tile's colour is the material's outputNode, not a fragmentNode — three applies a renderer MRT only on that path (a fragmentNode wrote neither target)");
