@@ -5637,7 +5637,11 @@ function buildClouds() {
   // a texel's map uv is three's own screenUV in the target, NOT the tile's position: three samples a render target's
   // texture flipped on one backend and not the other, and screenUV is the coordinate its own passes write and read by —
   // marched at the tile's world y, the map was read upside down on WebGL2 and the sky stayed clear (2026-11-11)
-  const texel = march(dirOf(TSL.screenUV, U), TSL.interleavedGradientNoise(TSL.screenCoordinate.xy));
+  // THE MARCH'S JITTER IS A HASH, NOT INTERLEAVED GRADIENT NOISE (2026-11-24): IGN's lines run diagonally across the map,
+  // and once the heaps grew 200 m tall every cloud's edge wore them as a woven hatch ("////", photographed from the live
+  // vale); 56 steps for 40 and a softer top left it as it was — the hatch was the jitter's own pattern. A hash of the
+  // texel has none: the same edge reads as a random, fluffy fringe.
+  const texel = march(dirOf(TSL.screenUV, U), TSL.hash(TSL.screenCoordinate.x.add(TSL.screenCoordinate.y.mul(4099))));
   // the tile writes BOTH targets, by name: the light and the distance. The colour is the material's outputNode, NOT its
   // fragmentNode: three's NodeMaterial applies a renderer MRT only on its lit path (setup: the `fragmentNode === null`
   // branch), so with a fragmentNode the second target was never written and the first held nothing either — the sky lost

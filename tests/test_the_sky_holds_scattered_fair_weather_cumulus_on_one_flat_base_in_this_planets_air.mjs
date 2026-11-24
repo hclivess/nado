@@ -17,7 +17,8 @@
  *      the clear sky meets nothing, a heap's sunlit top is brighter than its shaded belly (Jakarta: a grey belly, never
  *      black), and the far clouds pale toward the horizon's colour;
  *   7. the sky map's bent rows come back to the elevation they were made from;
- *   8. a heap's top is lumpy, heaved by the billows (K.lump) — a cauliflower, not a lens — the same in the GPU march.
+ *   8. a heap's top is lumpy, heaved by the billows (K.lump) — a cauliflower, not a lens — the same in the GPU march;
+ *   9. the page's march is jittered by a hash of the texel — a patterned noise wove a hatch into every heap's edge.
  * Run: node tests/test_the_sky_holds_scattered_fair_weather_cumulus_on_one_flat_base_in_this_planets_air.mjs
  */
 import { readFileSync } from "node:fs";
@@ -186,6 +187,10 @@ ok(C.K.soft <= 0.2 && C.K.sigma >= 0.08, `a heap's edge is defined: it thins ove
   ok(C.K.lump > 0 && lumpy.n > 200 && lumpy.b > 1.3 * smooth.b, `a heap's top is lumpy: its top bends ${lumpy.b.toFixed(1)} m a step across ${lumpy.n} steps, against ${smooth.b.toFixed(1)} m without the lumps`);
   ok(/const body = \(p, lift = 0\) => \{[^\n]*heapTop\(p\)\.mul\(float\(1\)\.add\(lift\)\)/.test(page) && /body\(p, bill\.sub\(0\.5\)\.mul\(K\.lump\)\.mul\(fine\)\)/.test(page),
     "…and the page's GPU march heaves the top the same way (one definition, two readers)");
+  // 9. the march's jitter has no pattern of its own (2026-11-24: interleaved gradient noise wove a diagonal hatch into
+  // every edge of the 200 m heaps; more steps and a softer top did not touch it)
+  ok(/const texel = march\(dirOf\(TSL\.screenUV, U\), TSL\.hash\(/.test(page) && !/interleavedGradientNoise/.test(page.slice(page.indexOf("function buildClouds()"), page.indexOf("function buildClouds()") + 20000)),
+    "9. the sky map's march is jittered by a hash of the texel, not a patterned noise (no woven hatch on the heaps' edges)");
 }
 console.log(fails ? `${fails} FAILED` : "all passed");
 process.exit(fails ? 1 : 0);
