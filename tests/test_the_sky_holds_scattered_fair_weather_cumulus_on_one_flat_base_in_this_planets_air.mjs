@@ -9,7 +9,8 @@
  *      overcast — and no hemisphere is bare (the field is not one heap the size of a continent);
  *   3. every heap stands on the one flat base and under the layer's top: no cloud below the base or above the top, and
  *      every cloudy column's cloud begins within the base's soft underside;
- *   4. heaps are wider than they are tall (Cumulus humilis l.15), measured from above as a photograph would see them;
+ *   4. heaps are wider than they are tall (Cumulus humilis l.15), measured from above as a photograph would see them —
+ *      but not lenses: at most 2.6 to 1 (a design choice; 3.4 to 1 read as flat lenses from the ground, 2026-11-24);
  *   5. the field drifts at the cited breeze, from the wall clock alone (every player sees one sky), and a stamp in
  *      seconds since the epoch gives the same turn on every machine;
  *   6. the march sees what the photographs show: a ray up under a heap is hidden by it, a ray into the ground or into
@@ -84,6 +85,9 @@ for (let line = 0; line < 40; line++) {
 const med = (a) => a.slice().sort((x, y) => x - y)[a.length >> 1];
 ok(widths.length > 100 && med(widths) > 1.3 * med(tops), `heaps are wider than they are tall: ${widths.length} heaps, median ${med(widths)} m across, ${med(tops).toFixed(0)} m tall`);
 ok(med(widths) >= 100 && med(widths) <= 600, `…and a heap is a few fields wide, as the Brittany photograph shows (median ${med(widths)} m)`);
+// …but not a lens (2026-11-24: 240 m across and 70 m tall, 3.4 to 1, read from the ground as flat lenses beside the
+// Chlorophyll shot's cumulus) — at most 2.6 to 1, a DESIGN CHOICE tuned on the photographs
+ok(med(widths) <= 2.6 * med(tops), `…but not a lens: ${(med(widths) / med(tops)).toFixed(1)} to 1 (at most 2.6)`);
 
 // 5. the drift
 const t0 = 3600, d0 = C.drift(t0), ang = Math.atan2(d0[1], d0[0]);                   // (an hour: less than one turn)

@@ -38,7 +38,9 @@ export const REAL = {
 export const BASE = REAL.base * AIR;             // 418.6 m above the sea: the flat base every heap stands on
 export const WIND = REAL.wind * AIR;             // 1.74 m/s along the latitudes, with the planet's turn
 // DESIGN CHOICES (no source gives them; they are bounded by "wider than it is tall" and by the photographs):
-export const THICK = 130;                        // m: the tallest heap, base to top
+export const THICK = 200;                        // m: the tallest heap, base to top (was 130: the heaps a median 240 m across
+                                                 // and 70 m tall, 3.4 to 1, read from the ground as lenses beside the
+                                                 // Chlorophyll shot's cumulus, 2026-11-24 — now 108 m tall, 2.2 to 1)
 export const HEAP = 1500;                        // m: the heap noise's period — heaps 150–350 m wide, gaps about as wide
 export const FIELD = 5300;                       // m: the period of the fields the heaps gather in (cloud streets, l.42)
 export const BILLOW = 160;                       // m: the period of the billows that eat the heaps' edges
@@ -128,7 +130,9 @@ export function noiseVolume() {
     const x = (i + 0.5) / S, y = (j + 0.5) / S, z = (k + 0.5) / S;
     const grad = (g4(x * 4, y * 4, z * 4) + 0.5 * g8(x * 8, y * 8, z * 8) + 0.25 * g16(x * 16, y * 16, z * 16)) / 1.2;   // about −1..1
     const heap = 1 - (0.75 * w4(x * 4, y * 4, z * 4) + 0.25 * w8(x * 8, y * 8, z * 8));          // 1 at a heap's middle
-    out[o] = byte(0.62 * heap + 0.38 * (0.5 + 0.5 * grad));
+    // the heaps' cells 0.8 of the cover, the smooth noise 0.2 (was 0.62 and 0.38: the smooth part ran neighbouring cells
+    // together into long bands, beside the reference's separate heaps, 2026-11-24; the cover stayed 2.67 oktas at thr)
+    out[o] = byte(0.8 * heap + 0.2 * (0.5 + 0.5 * grad));
     out[o + 1] = byte(1 - (0.6 * b6(x * 6, y * 6, z * 6) + 0.28 * b12(x * 12, y * 12, z * 12) + 0.12 * b24(x * 24, y * 24, z * 24)));
   }
   return (VOL = out);
