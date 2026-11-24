@@ -174,9 +174,15 @@ try {
   // the planet's trees 40–250 m from the eye's column: past the old 64 m box, past the meshed chunks (view 2: 32 m)
   let trees = 0, shadeN = 0, shadeD = 0, ctrlN = 0, ctrlD = 0;
   const R = 260, u0 = Math.floor(U), v0 = Math.floor(V);
-  for (const r of Wd.treeRoots(f, u0 - R, v0 - R, 2 * R + 1)) {
+  // A TREE STANDING ALONE (2026-11-24): since the woods grew thick to their edge (264492db) most trees here stand in a
+  // wood, where the ground sunward of a trunk lies in its neighbour's shadow — shadow and control alike were shade, and
+  // the walk read 4.5 against 5.6 on any material. Measured on the trees with no other within ALONE m: 13.6 against 2.4.
+  const ALONE = 10, roots = [...Wd.treeRoots(f, u0 - R - ALONE, v0 - R - ALONE, 2 * (R + ALONE) + 1)], cell = new Map();
+  for (const r of roots) { const k = Math.floor(r.wu / ALONE) + ":" + Math.floor(r.wv / ALONE); if (!cell.has(k)) cell.set(k, []); cell.get(k).push(r); }
+  const alone = (r) => { for (let a = -1; a <= 1; a++) for (let b = -1; b <= 1; b++) for (const o of cell.get((Math.floor(r.wu / ALONE) + a) + ":" + (Math.floor(r.wv / ALONE) + b)) || []) if (o !== r && Math.hypot(o.wu - r.wu, o.wv - r.wv) < ALONE) return false; return true; };
+  for (const r of roots) {
     const du = r.wu + 0.5 - U, dv = r.wv + 0.5 - V, dist = Math.hypot(du, dv);
-    if (dist < 40 || dist > 250 || r.tree.kind === "bush") continue;
+    if (dist < 40 || dist > 250 || r.tree.kind === "bush" || !alone(r)) continue;
     trees++;
     const top = r.col.top + 1, len = r.tree.height / Math.tan(Math.asin(sUp));        // the shadow of a trunk of its height
     for (let k = 1.5; k < len - 0.5; k += 1) {                                      // along the shadow, on the ground at the tree's foot

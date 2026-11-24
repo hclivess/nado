@@ -1481,7 +1481,12 @@ async function bakeForest() {
   const tex = new THREE.DataTexture(px, pw, ph, THREE.RGBAFormat, THREE.UnsignedByteType);
   tex.colorSpace = THREE.NoColorSpace; tex.magFilter = THREE.LinearFilter; tex.minFilter = THREE.LinearMipmapLinearFilter; tex.generateMipmaps = true; tex.needsUpdate = true;
   ensureSeen();
-  const m = new THREE.MeshStandardNodeMaterial({ roughness: 0.85, metalness: 0, alphaTest: 0.4 }), s = TSL.texture(tex, TSL.uv());
+  // A FAR CROWN IS MATTE (2026-11-24, the live vale beside the Chlorophyll shot): with a standard material's specular the
+  // whole wood wore a white veil — looking toward the sun the far forest was a pale grey wall, and even front-lit it
+  // measured (65, 79, 56), saturation 16, the blue the veil's, against the reference's (46, 58, 36), 24. Diffuse only
+  // (Lambert), the same picture measured (47, 64, 36), saturation 28, at the same held moment. (Not the Fresnel of
+  // edge-on cards: the eye meets the crown normals at a median |N·V| of 0.53 — a sheen of 6 % against 4 % face on.)
+  const m = new THREE.MeshLambertNodeMaterial({ alphaTest: 0.4 }), s = TSL.texture(tex, TSL.uv());
   const show = seenShow();
   m.positionNode = TSL.positionLocal.add(TSL.attribute("off", "vec3").mul(show));
   // a far tree's picture, warmed toward the forest's olive: under the sky's blue fill the far cards read grey cut-outs
