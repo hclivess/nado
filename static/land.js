@@ -4357,7 +4357,7 @@ function conShow(open, prefill) {
 }
 function applySetting(k) {
   if (k === "fov" && camera) { camera.fov = SET.fov; camera.updateProjectionMatrix(); if (csm) csm.updateFrustums(); }
-  if (k === "grass") for (const key of chunks.keys()) request(key);           // re-mesh with or without the blades
+  if (k === "grass") { grassShade.value = SET.grass ? 1 : 0; for (const key of chunks.keys()) request(key); }   // re-mesh with or without the blades
   if (!renderer) return;                                                       // before start(): start() applies them all
   if (k === "res") { renderer.setPixelRatio(basePR() * SET.res / 100); if (stars) stars.material.size = starPx(1.6); if (satPts) satPts.material.size = starPx(3.2); }
   if (k === "shadows") shadowQuality();
@@ -4831,6 +4831,8 @@ function wireInput(canvas) {
 // gives every ground vertex. Each is sampled at two scales and the two mixed, which hides the repetition a single tiling
 // shows from any height; rock is projected from three sides by the ground's normal, so a cliff is not a smear.
 const GROUND = ["grass", "dirt", "rock", "sand", "snow", "gravel"];
+const UNDER_BLADES = 0.55;                    // the meadow ground's light under the blades (groundMaterial): a design choice, by the reference's dark-to-the-ground grass
+const grassShade = TSL.uniform(1);            // 1 with the blades drawn, 0 without (applySetting "grass", start)
 const GROUND_ROUGH = [0.96, 0.95, 0.85, 0.9, 0.55, 0.9];
 function loadTex(name) {
   // userData.ready: settles when the image is in (or failed) — a material must not sample a texture before then: three
@@ -4878,7 +4880,12 @@ function groundMaterial() {
     // (x 1.15, 1.38, 0.95 measured (86, 93, 38): the haze takes most of a far surface's change; x 1.1, 1.8, 0.9 (86, 104, 39))
     // (red x0.98, was 1.1, 2026-11-24: the far slope read red 0.90 of its green against the reference's 0.85 — after, 0.83)
     .mul(TSL.mix(TSL.vec3(1, 1, 1), TSL.vec3(0.98, 1.8, 0.9), TSL.smoothstep(80, 500, TSL.positionWorld.sub(TSL.cameraPosition).length())));
-  const color = tri(tex[0]).mul(meadow).mul(w1.x).add(tri(tex[1]).mul(w1.y)).add(rock.mul(w1.z)).add(two(tex[3]).mul(w1.w))
+  // THE GROUND UNDER THE BLADES IS IN THEIR SHADE (2026-11-24): between the grass clumps the meadow ground was lit as
+  // open ground, and read as tan patches through the blanket where the reference's grass is dark to the ground. Within
+  // the blades' reach (chunkLod: all of them to 2 chunks, a third to 3) the meadow's ground takes UNDER_BLADES of the
+  // light, back to full by 56 m — with the grass on (grassShade, applySetting); a page without blades keeps it lit.
+  const underBlades = TSL.mix(TSL.float(1), TSL.mix(TSL.float(UNDER_BLADES), TSL.float(1), TSL.smoothstep(30, 56, TSL.positionWorld.sub(TSL.cameraPosition).length())), grassShade);
+  const color = tri(tex[0]).mul(meadow).mul(underBlades).mul(w1.x).add(tri(tex[1]).mul(w1.y)).add(rock.mul(w1.z)).add(two(tex[3]).mul(w1.w))
     .add(two(tex[4]).mul(w2.x)).add(two(tex[5]).mul(w2.y));
   const m = new THREE.MeshStandardNodeMaterial({ metalness: 0 });
   m.colorNode = shadeByClouds(color.mul(TSL.attribute("color", "vec3")));
@@ -4925,7 +4932,10 @@ function grassCardTexture() {
       // dark at the root (0.12) to light at the tip (0.49): with the bloom's veil gone (BLOOM_THRESHOLD) the live meadow
       // measured (48, 70, 23) against the reference's sunlit field (86, 100, 38) with tips of 0.43; at 0.56 the near grass
       // in full sun overshot (92, 107, 37 against 50, 62, 20) and read yellow — between the two
-      const L = 0.12 + 0.37 * t1 ** 0.8;
+      // (0.10 + 0.30, was 0.12 + 0.37, 2026-11-24: in one picture the reference's grass underfoot is 0.56 as light as its
+      // middle meadow, ours read 0.81 — the blades lit as tips alone; after, 0.65 and the near grass (62, 78, 25) against
+      // the reference's (56, 68, 23). A ratio in one picture holds whatever the sun's height; a lone colour does not.)
+      const L = 0.10 + 0.30 * t1 ** 0.8;
       // blue a third of the green, as the reference's grass reads (near 50, 62, 20; mid 86, 100, 38). It was raised to 0.45
       // against a reading of (42, 49, 10), then measured blue-grey (68, 83, 36) — the bloom's veil (BLOOM_THRESHOLD) had
       // added the blue, not the paint; with the veil gone the paint is the reference's own ratio
@@ -6221,6 +6231,7 @@ async function start() {
   atlasTex.generateMipmaps = false;
   matSolid = new THREE.MeshStandardMaterial({ map: atlasTex, vertexColors: true, alphaTest: 0.5, roughness: 0.85, metalness: 0 });
   matClear = new THREE.MeshStandardMaterial({ map: atlasTex, vertexColors: true, transparent: true, depthWrite: false, roughness: 0.15, metalness: 0 });
+  grassShade.value = SET.grass ? 1 : 0;                      // (the ground under the blades is shaded only where blades are drawn)
   matGround = groundMaterial();
   matTrees = new THREE.MeshStandardMaterial({ vertexColors: true, roughness: 0.9, metalness: 0 });
   [matBark, matLeaves] = treeMaterials();

@@ -106,7 +106,7 @@ ok(/#hudPlot\{display:flex;flex-wrap:wrap;align-items:center;gap:/.test(html), "
 // ones weighted by the face's turn from the sky, so a steep slope is not a texture stretched along it
 const gmTri = land.slice(land.indexOf("function groundMaterial()"), land.indexOf("\nfunction ", land.indexOf("function groundMaterial()") + 10));   // (the whole function: a fixed 3,000 characters lost its last line to a comment, 2026-11-24)
 ok(/const tri = \(t\) => TSL\.mix\(TSL\.texture\(t, near\)\.rgb\.mul\(tw\.z\)\.add\(TSL\.texture\(t, TSL\.vec2\(uvw\.y, uvw\.z\)\.div\(3\.2\)\)\.rgb\.mul\(tw\.x\)\)\.add\(TSL\.texture\(t, TSL\.vec2\(uvw\.x, uvw\.z\)\.div\(3\.2\)\)\.rgb\.mul\(tw\.y\)\)\.div\(tws\)/.test(gmTri)
-   && /const color = tri\(tex\[0\]\)\.mul\(meadow\)\.mul\(w1\.x\)\.add\(tri\(tex\[1\]\)\.mul\(w1\.y\)\)/.test(gmTri), "grass and earth are blended from three projections by the ground normal, as the rock is");
+   && /const color = tri\(tex\[0\]\)\.mul\(meadow\)\.mul\(underBlades\)\.mul\(w1\.x\)\.add\(tri\(tex\[1\]\)\.mul\(w1\.y\)\)/.test(gmTri), "grass and earth are blended from three projections by the ground normal, as the rock is");
 
 // STARS ARE POINTS AT EVERY RESOLUTION (#181 item 9): a star's point size grows as the render resolution drops so it is
 // never under two buffer pixels (the upscale split a sub-pixel star into a pair of dots), and the size follows the setting

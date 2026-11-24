@@ -5,7 +5,8 @@
  * every distance: khaki, not a living green. After, at the same held moment: 0.80, 0.90, 0.83. From the page's own paints:
  *   1. a grass blade's paint (grassCardTexture) holds red at most 0.86 of its green;
  *   2. the meadow ground's two ends (lush, dry) hold red at most 0.86 of their green — the dry end is no yellow;
- *   3. the far meadow's tint (GREEN FROM AFAR) adds no red over the near: a far slope stays as green as the near one.
+ *   3. the far meadow's tint (GREEN FROM AFAR) adds no red over the near: a far slope stays as green as the near one;
+ *   4. the grass is dark to the ground: blades no lighter than 0.10-0.40, the ground under them in their shade.
  * Run: node tests/test_the_meadow_is_a_living_green_not_khaki_as_the_reference.mjs
  */
 import { readFileSync } from "node:fs";
@@ -26,5 +27,16 @@ ok(ends && lush <= MAX && dry <= MAX, `the meadow ground's ends hold red ${lush 
 // 3
 const far = /TSL\.mix\(TSL\.vec3\(1, 1, 1\), TSL\.vec3\(([\d.]+), ([\d.]+), ([\d.]+)\), TSL\.smoothstep\(80, 500,/.exec(page);
 ok(far && Number(far[1]) <= 1 && Number(far[2]) >= Number(far[1]), `the far meadow's tint adds no red (red x${far && far[1]}, green x${far && far[2]})`);
+// 4. DARK TO THE GROUND (2026-11-24): in one picture the reference's grass underfoot is 0.56 as light as its middle meadow,
+// ours read 0.81 (0.62 after) — a ratio in one picture holds whatever the sun's height. The blades' paint is no lighter
+// than 0.10 at the root and 0.40 at the tip, and the meadow ground under them is in their shade (UNDER_BLADES) where the
+// blades are drawn (grassShade, 0 with the grass off: a page without blades keeps its ground lit)
+const paint = /const L = ([\d.]+) \+ ([\d.]+) \* t1 \*\* 0\.8;/.exec(page);
+ok(paint && Number(paint[1]) <= 0.1 && Number(paint[1]) + Number(paint[2]) <= 0.4, `4. a blade runs from ${paint && paint[1]} at the root to ${paint && (Number(paint[1]) + Number(paint[2])).toFixed(2)} at the tip`);
+const ub = /const UNDER_BLADES = ([\d.]+);/.exec(page);
+ok(ub && Number(ub[1]) < 0.8 && /const underBlades = TSL\.mix\(TSL\.float\(1\), TSL\.mix\(TSL\.float\(UNDER_BLADES\), TSL\.float\(1\), TSL\.smoothstep\(30, 56, [^)]*\)\.length\(\)\)\), grassShade\);/.test(page)
+  && /const color = tri\(tex\[0\]\)\.mul\(meadow\)\.mul\(underBlades\)/.test(page), `…the meadow ground under the blades takes ${ub && ub[1]} of the light, back to full past their reach`);
+ok(/grassShade\.value = SET\.grass \? 1 : 0;\s+\/\/[^\n]*\n\s+matGround = groundMaterial\(\);/.test(page) && /if \(k === "grass"\) \{ grassShade\.value = SET\.grass \? 1 : 0;/.test(page),
+  "…only where blades are drawn: set at start and with the grass setting");
 console.log(fails ? `${fails} FAILED` : "all passed");
 process.exit(fails ? 1 : 0);
