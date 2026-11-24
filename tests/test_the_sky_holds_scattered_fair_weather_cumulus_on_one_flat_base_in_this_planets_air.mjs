@@ -15,9 +15,11 @@
  *   6. the march sees what the photographs show: a ray up under a heap is hidden by it, a ray into the ground or into
  *      the clear sky meets nothing, a heap's sunlit top is brighter than its shaded belly (Jakarta: a grey belly, never
  *      black), and the far clouds pale toward the horizon's colour;
- *   7. the sky map's bent rows come back to the elevation they were made from.
+ *   7. the sky map's bent rows come back to the elevation they were made from;
+ *   8. a heap's top is lumpy, heaved by the billows (K.lump) — a cauliflower, not a lens — the same in the GPU march.
  * Run: node tests/test_the_sky_holds_scattered_fair_weather_cumulus_on_one_flat_base_in_this_planets_air.mjs
  */
+import { readFileSync } from "node:fs";
 import { join, dirname } from "node:path";
 import { fileURLToPath } from "node:url";
 
@@ -157,5 +159,29 @@ ok(dv(0.01) > 1.9 * dv(1.5), `the map spends more rows a degree at the horizon t
 // a cumulus has a defined edge, not a soft translucent blob (photographed beside the Chlorophyll shot, 2026-11-23: at a
 // thinning of 0.3 of THICK and sigma 0.045 the heaps read as soft blobs; 0.15 and 0.09 a defined edge and a grey belly)
 ok(C.K.soft <= 0.2 && C.K.sigma >= 0.08, `a heap's edge is defined: it thins over ${C.K.soft} of its height, and dims at ${C.K.sigma} a metre`);
+// 8. a cumulus's top is lumpy — a cauliflower, not a lens (2026-11-24: the top was the heap field's smooth surface alone,
+// and from the ground every heap read as a flat lens or a stack of plates): the billows heave the top (K.lump), measured
+// as the mean bend of the cloud's top along lines across the field, against the same field with the lumps taken out
+{
+  const page = readFileSync(join(ROOT, "static", "land.js"), "utf8");
+  const bend = () => {
+    let sum = 0, n = 0;
+    for (let line = 0; line < 12; line++) {
+      const hs = [];
+      for (let e = -3000; e <= 3000; e += 20) {
+        const nn = (line - 6) * 700, base = [0, 1, 2].map((i) => fr.up[i] * C.RB + fr.east[i] * e + fr.north[i] * nn);
+        let top = -1;
+        for (let h = C.THICK - 2; h > 2; h -= 4) { const q = base.map((x, i) => x + fr.up[i] * h); if (C.density(vol, q) > 0.05) { top = h; break; } }
+        hs.push(top);
+      }
+      for (let i = 1; i + 1 < hs.length; i++) if (hs[i - 1] > 0 && hs[i] > 0 && hs[i + 1] > 0) { sum += Math.abs(hs[i - 1] - 2 * hs[i] + hs[i + 1]); n++; }
+    }
+    return { b: sum / Math.max(1, n), n };
+  };
+  const lumpy = bend(), keep = C.K.lump; C.K.lump = 0; const smooth = bend(); C.K.lump = keep;
+  ok(C.K.lump > 0 && lumpy.n > 200 && lumpy.b > 1.3 * smooth.b, `a heap's top is lumpy: its top bends ${lumpy.b.toFixed(1)} m a step across ${lumpy.n} steps, against ${smooth.b.toFixed(1)} m without the lumps`);
+  ok(/const body = \(p, lift = 0\) => \{[^\n]*heapTop\(p\)\.mul\(float\(1\)\.add\(lift\)\)/.test(page) && /body\(p, bill\.sub\(0\.5\)\.mul\(K\.lump\)\.mul\(fine\)\)/.test(page),
+    "…and the page's GPU march heaves the top the same way (one definition, two readers)");
+}
 console.log(fails ? `${fails} FAILED` : "all passed");
 process.exit(fails ? 1 : 0);

@@ -41,7 +41,7 @@ export const WIND = REAL.wind * AIR;             // 1.74 m/s along the latitudes
 export const THICK = 130;                        // m: the tallest heap, base to top
 export const HEAP = 1500;                        // m: the heap noise's period — heaps 150–350 m wide, gaps about as wide
 export const FIELD = 5300;                       // m: the period of the fields the heaps gather in (cloud streets, l.42)
-export const BILLOW = 240;                       // m: the period of the billows that eat the heaps' edges
+export const BILLOW = 160;                       // m: the period of the billows that eat the heaps' edges
 export const RB = R0 + SEA + BASE, RT = RB + THICK, RG = R0 + SEA;   // radii (m): base, top, the sea (the ground a ray stops at)
 // the density's shape — DESIGN CHOICES, tuned against the photographs (THR is set by the cover: see the test)
 export const K = {
@@ -54,6 +54,9 @@ export const K = {
                     // grey belly, photographed 2026-11-23)
   foot: 0.1,        // the share of THICK over which the base thins out (a flat base with a soft underside)
   erode: 0.62,      // how deep the billows eat a heap's edge
+  lump: 0.9,        // how far the billows heave a heap's top, a share of its height: a cumulus's cauliflower top (the
+                    // Chlorophyll shot's heaps, 2026-11-24 — the top was the heap field's smooth surface alone, and every
+                    // heap read as a flat lens or a stack of plates)
   sigma: 0.09,      // 1/m: how fast a full-density cloud dims what is behind it (a RENDER number, not a measured one)
   deep: 1 / AIR,    // sunlight crosses a heap as it crosses the real one it stands for: 1/AIR times the path (a heap here
                     // is the real one scaled into this air, and a scaled heap let the sun through its belly)
@@ -169,19 +172,21 @@ export function heapTop(vol, p) {
   const over = (a * K.heapW + b * (1 - K.heapW) - K.thr) / K.rise;
   return over <= 0 ? 0 : Math.pow(Math.min(1, over), K.dome);
 }
-/** The heap's body at undrifted p, 0..1, before the billows: nothing below the base or above the top. */
-export function body(vol, p) {
+/** The heap's body at undrifted p, 0..1, before the billows: nothing below the base or above the top. `lift` raises
+ *  (or lowers) the top by that share of its own height — the billows' lumps (density); the sun's path takes none. */
+export function body(vol, p, lift = 0) {
   const hN = (Math.hypot(p[0], p[1], p[2]) - RB) / THICK;
   if (hN <= 0 || hN >= 1) return 0;
-  const top = heapTop(vol, p);
+  const top = heapTop(vol, p) * (1 + lift);
   return top <= hN ? 0 : clamp01((top - hN) / K.soft) * smooth(0, K.foot, hN);
 }
 /** The cloud's density at undrifted p, 0..1: the body with the billows eating its edges (`fine` 0..1: how much of them
  *  — the march fades them out with distance, where they are smaller than a pixel of the sky map). */
 export function density(vol, p, fine = 1) {
-  const d = body(vol, p);
+  const bill = sample(vol, 1, p[0] / BILLOW, p[1] / BILLOW, p[2] / BILLOW);
+  const d = body(vol, p, (bill - 0.5) * K.lump * fine);    // the billows heave the top into lumps (K.lump)
   if (d <= 0) return 0;
-  const e = (1 - sample(vol, 1, p[0] / BILLOW, p[1] / BILLOW, p[2] / BILLOW)) * K.erode * fine;
+  const e = (1 - bill) * K.erode * fine;
   return clamp01((d - e) / (1 - e));
 }
 

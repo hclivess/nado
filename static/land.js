@@ -5576,10 +5576,10 @@ function buildClouds() {
     const a = vol3(rot(Clouds.M1, x, Clouds.HEAP)).r, b = vol3(rot(Clouds.M2, x, Clouds.FIELD)).r;
     return pow(clamp(a.mul(K.heapW).add(b.mul(1 - K.heapW)).sub(K.thr).div(K.rise), 0, 1), K.dome);
   };
-  const body = (p) => { const hN = p.length().sub(Clouds.RB).div(Clouds.THICK); return clamp(heapTop(p).sub(hN).div(K.soft), 0, 1).mul(smoothstep(0, K.foot, hN)); };
+  const body = (p, lift = 0) => { const hN = p.length().sub(Clouds.RB).div(Clouds.THICK); return clamp(heapTop(p).mul(float(1).add(lift)).sub(hN).div(K.soft), 0, 1).mul(smoothstep(0, K.foot, hN)); };
   const density = (p, fine) => {
-    const e = float(1).sub(vol3(p.div(Clouds.BILLOW)).g).mul(K.erode * 1).mul(fine);
-    return clamp(body(p).sub(e).div(float(1).sub(e)), 0, 1);
+    const bill = vol3(p.div(Clouds.BILLOW)).g, e = float(1).sub(bill).mul(K.erode * 1).mul(fine);
+    return clamp(body(p, bill.sub(0.5).mul(K.lump).mul(fine)).sub(e).div(float(1).sub(e)), 0, 1);   // (K.lump: the billows heave the top)
   };
   const CloudTexel = TSL.struct({ color: "vec4", dist: "float" }, "CloudTexel");
   const march = Fn(([dir, jit]) => {
