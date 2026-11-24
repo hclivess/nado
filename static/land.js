@@ -4868,13 +4868,16 @@ function groundMaterial() {
   // the meadow's own colour, varying over tens of metres — lusher, drier, darker patches — so from above it reads as a
   // living field, not one pale wash ("bland untextured marches", operator 2026-11-06)
   const patch = TSL.mx_noise_float(uvw.xy.mul(0.021)).mul(0.5).add(TSL.mx_noise_float(uvw.xy.mul(0.083)).mul(0.25)).add(0.5).clamp(0, 1);
-  const meadow = TSL.mix(TSL.vec3(0.56, 0.66, 0.28), TSL.vec3(0.78, 0.80, 0.34), patch)   // (#183 → the Chlorophyll shot: was 0.80, 0.86, 0.38 at the dry end — a yellow field)
+  // (the dry end 0.68, 0.80, 0.30, was 0.78, 0.80, 0.34 — red as strong as green, the patches yellow: 2026-11-24, the red
+  // 0.82 of the green the reference's meadow holds at every distance, with the blades' paint and the far tint below)
+  const meadow = TSL.mix(TSL.vec3(0.56, 0.66, 0.28), TSL.vec3(0.68, 0.80, 0.30), patch)   // (#183 → the Chlorophyll shot: was 0.80, 0.86, 0.38 at the dry end — a yellow field)
     .mul(TSL.float(0.82).add(TSL.mx_noise_float(uvw.xy.mul(0.31)).mul(0.12)))
     // GREEN FROM AFAR (the Chlorophyll shot beside a meadow vale, 2026-11-22): past the blades (the near chunks) the meadow
     // is this ground alone, and the scanned grass is brown — the far field measured (80, 82, 38), red as strong as green,
     // so open slopes read tan, where the reference's far meadow is (98, 118, 38). Beyond the blades it turns to their green.
     // (x 1.15, 1.38, 0.95 measured (86, 93, 38): the haze takes most of a far surface's change; x 1.1, 1.8, 0.9 (86, 104, 39))
-    .mul(TSL.mix(TSL.vec3(1, 1, 1), TSL.vec3(1.1, 1.8, 0.9), TSL.smoothstep(80, 500, TSL.positionWorld.sub(TSL.cameraPosition).length())));
+    // (red x0.98, was 1.1, 2026-11-24: the far slope read red 0.90 of its green against the reference's 0.85 — after, 0.83)
+    .mul(TSL.mix(TSL.vec3(1, 1, 1), TSL.vec3(0.98, 1.8, 0.9), TSL.smoothstep(80, 500, TSL.positionWorld.sub(TSL.cameraPosition).length())));
   const color = tri(tex[0]).mul(meadow).mul(w1.x).add(tri(tex[1]).mul(w1.y)).add(rock.mul(w1.z)).add(two(tex[3]).mul(w1.w))
     .add(two(tex[4]).mul(w2.x)).add(two(tex[5]).mul(w2.y));
   const m = new THREE.MeshStandardNodeMaterial({ metalness: 0 });
@@ -4926,7 +4929,10 @@ function grassCardTexture() {
       // blue a third of the green, as the reference's grass reads (near 50, 62, 20; mid 86, 100, 38). It was raised to 0.45
       // against a reading of (42, 49, 10), then measured blue-grey (68, 83, 36) — the bloom's veil (BLOOM_THRESHOLD) had
       // added the blue, not the paint; with the veil gone the paint is the reference's own ratio
-      g.fillStyle = `rgb(${Math.round(255 * L * 0.92)}, ${Math.round(255 * L)}, ${Math.round(255 * L * 0.34)})`;
+      // red 0.82 of the green, was 0.92 (2026-11-24, the live vale beside the reference: every band of our meadow read red
+      // 0.90-0.94 of its green, hue 66-70°, against the reference's 0.82-0.84, 74-76° — khaki, not a living green;
+      // measured after: near grass 0.80, hue 77°)
+      g.fillStyle = `rgb(${Math.round(255 * L * 0.82)}, ${Math.round(255 * L)}, ${Math.round(255 * L * 0.34)})`;
       g.beginPath(); g.moveTo(xa - wa / 2, ya); g.lineTo(xa + wa / 2, ya); g.lineTo(xb + wb / 2, yb); g.lineTo(xb - wb / 2, yb); g.closePath(); g.fill();
     }
   }
