@@ -18,7 +18,8 @@
  *      black), and the far clouds pale toward the horizon's colour;
  *   7. the sky map's bent rows come back to the elevation they were made from;
  *   8. a heap's top is lumpy, heaved by the billows (K.lump) — a cauliflower, not a lens — the same in the GPU march;
- *   9. the page's march is jittered by a hash of the texel — a patterned noise wove a hatch into every heap's edge.
+ *   9. the page's march is jittered by a hash of the texel — a patterned noise wove a hatch into every heap's edge;
+ *  10. the dome reads the light as an average of four taps — read alone, each texel's jitter was a fur round every heap.
  * Run: node tests/test_the_sky_holds_scattered_fair_weather_cumulus_on_one_flat_base_in_this_planets_air.mjs
  */
 import { readFileSync } from "node:fs";
@@ -191,6 +192,11 @@ ok(C.K.soft <= 0.2 && C.K.sigma >= 0.08, `a heap's edge is defined: it thins ove
   // every edge of the 200 m heaps; more steps and a softer top did not touch it)
   ok(/const texel = march\(dirOf\(TSL\.screenUV, U\), TSL\.hash\(/.test(page) && !/interleavedGradientNoise/.test(page.slice(page.indexOf("function buildClouds()"), page.indexOf("function buildClouds()") + 20000)),
     "9. the sky map's march is jittered by a hash of the texel, not a patterned noise (no woven hatch on the heaps' edges)");
+  // 10. the dome reads the light as an average of four taps (2026-11-24: read alone, each texel's own jitter made a fur of
+  // single texels round every heap; four bilinear taps ±0.75 texel took the edge's fine detail down 18 %, photographed)
+  ok(/const tap = \(dx, dy\) => \{ const n = TSL\.texture\(cloudRT\[0\]\.textures\[0\], uv3\.add\(vec2\(dx \* tx, dy \* ty\)\)\); cloudTex\.push\(\[0, n\]\); return n; \};/.test(page)
+    && /const lit = tap\(-1, -1\)\.add\(tap\(1, -1\)\)\.add\(tap\(-1, 1\)\)\.add\(tap\(1, 1\)\)\.mul\(0\.25\);/.test(page) && /tx = 0\.75 \/ CLOUD_MAP\[0\], ty = 0\.75 \/ CLOUD_MAP\[1\]/.test(page),
+    "10. the dome reads a heap's light as the average of four taps round the direction, each swapped with the map (no fur of single texels)");
 }
 console.log(fails ? `${fails} FAILED` : "all passed");
 process.exit(fails ? 1 : 0);

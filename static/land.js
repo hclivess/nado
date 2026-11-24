@@ -5706,7 +5706,15 @@ function buildClouds() {
   };
   const read = (i, u) => { const n = TSL.texture(cloudRT[0].textures[i], uvOf(u)); cloudTex.push([i, n]); return n; };   // (every node's value is swapped with the map)
   const d = TSL.positionWorld.normalize(), reproject = (dist) => d.mul(max(dist, 1)).add(cloudO.shift).normalize();   // (a distance of 0 would be NaN)
-  const u1 = reproject(read(1, d).r), u2 = reproject(read(1, u1).r), u3 = reproject(read(1, u2).r), lit = read(0, u3);
+  const u1 = reproject(read(1, d).r), u2 = reproject(read(1, u1).r), u3 = reproject(read(1, u2).r);
+  // THE LIGHT IS READ AS AN AVERAGE OF FOUR TAPS (2026-11-24): each texel is marched once, at its own random jitter, and
+  // read alone the heaps' edges were a grain of single texels — a fringe of fur round every heap (photographed from the
+  // live vale; more steps, a softer top, a gentler erosion and a patternless jitter each left it as it was). Four
+  // bilinear taps ±0.75 texel apart average the jitter of the texels round the direction (about a 3 × 3 box); the colour
+  // is premultiplied by the cover, so the two average together. The distance (the reprojection) stays one read.
+  const uv3 = uvOf(u3), tx = 0.75 / CLOUD_MAP[0], ty = 0.75 / CLOUD_MAP[1];
+  const tap = (dx, dy) => { const n = TSL.texture(cloudRT[0].textures[0], uv3.add(vec2(dx * tx, dy * ty))); cloudTex.push([0, n]); return n; };
+  const lit = tap(-1, -1).add(tap(1, -1)).add(tap(-1, 1)).add(tap(1, 1)).mul(0.25);
   om.colorNode = lit.rgb.div(max(lit.a, 1e-4)); om.opacityNode = lit.a;
   cloudSky = new THREE.Mesh(new THREE.SphereGeometry(1, 48, 24), om); cloudSky.frustumCulled = false; cloudSky.visible = false;
   scene.add(cloudSky);
