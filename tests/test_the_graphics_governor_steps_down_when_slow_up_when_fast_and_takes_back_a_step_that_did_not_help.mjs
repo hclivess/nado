@@ -8,7 +8,10 @@
  *   4. a step down that does not make frames faster is taken back, and no step down is tried again for a minute;
  *   5. a step up that comes out slow is taken back, and no step up is tried for two minutes (no hunting);
  *   6. a 1 fps device is governed too (a frame of a second is not a stall), a 6 s gap is ignored;
- *   7. the page walks this ladder only on a preset, on by default with an opt-out, and not in headless browsers.
+ *   7. the page walks this ladder only on a preset, on by default with an opt-out, and not in headless browsers;
+ *   8. a futile step waits twice as long each time in a row (2026-11-24: a real player's trace held a High ↔ Medium step
+ *      retried every minute for twenty, each one a stall of its own) — and still tries again, and a step that stands
+ *      starts the count over.
  *
  * Run: node tests/test_the_graphics_governor_steps_down_when_slow_up_when_fast_and_takes_back_a_step_that_did_not_help.mjs
  */
@@ -77,6 +80,24 @@ r = play("medium", (p) => ({ low: 400, medium: 1200 }[p] || 2000), 60, 30);
 ok(r.changes.some((c) => c.to === "low"), "a 1 fps device is governed too (a 1.2 s frame is slow, not a stall)");
 const g = G.governor(60);
 ok(G.govStep(g, 6000, 6000, 2) === 2 && g.ms.length === 0, "a 6 s gap (a pause, a tab coming back) is not counted");
+
+// 8. futile steps back off
+{
+  const tries = (r) => r.changes.filter((c) => c.to === "medium").map((c) => c.t);
+  r = play("high", () => 45, 600);
+  const d = tries(r);
+  ok(d.length >= 3 && d.length <= 5, `ten minutes slow for something else: ${d.length} tries down, not ten (at ${d.map((x) => Math.round(x / 1000))} s)`);
+  const waits = d.slice(1).map((x, i) => x - d[i]);
+  ok(waits.every((w, i) => i === 0 || w > waits[i - 1] * 1.7), `…each wait about twice the last: ${waits.map((w) => Math.round(w / 1000))} s`);
+  r = play("high", () => 45, 3 * 3600);
+  const late = tries(r), gaps = late.slice(1).map((x, i) => x - late[i]);
+  ok(Math.max(...gaps) <= (G.GOV.noDownS * 2 ** G.GOV.futileMax + 30) * 1000 && late.length >= 12,
+    `…up to ${G.GOV.noDownS * 2 ** G.GOV.futileMax / 60} min at most, and it keeps trying (${late.length} tries in three hours, longest wait ${Math.round(Math.max(...gaps) / 60000)} min)`);
+  const g2 = G.governor(60); g2.futileDown = 3;
+  let i = at("high"), t = 0;
+  while (t < 20000) { const dt = i === at("high") ? 45 : 16; t += dt; i = G.govStep(g2, dt, t, i); }
+  ok(L[i] === "medium" && g2.futileDown === 0, "a step down that helped starts the count over");
+}
 
 // 7. the page
 const page = readFileSync(join(ROOT, "static", "land.js"), "utf8");

@@ -76,17 +76,31 @@ function trace(kind, data) {
 // frame rate as the player saw it — the mean, the 95th-percentile frame and the worst, with the renderer, the view
 // preset, the resolution scale and the screen — so it is read from trace/<address>.jsonl, not guessed. A gap over a
 // second (a hidden tab, a breakpoint) is no frame.
-const PERF = { last: 0, at: 0, dts: [] }, PERF_EVERY = 60000, PERF_GAP = 1000;
+// WHERE A LONG FRAME WENT (2026-11-24): the first traces held minutes at a p95 of 300 ms on a GPU that drew Ultra at 90 fps
+// the hour before — not the graphics, and nothing said what. Every part the profiler times (pt) is timed always, a few
+// clock reads a frame; a frame over PERF_LONG ms adds what ran since the one before it, part by part, and "rest" what no
+// part holds (the GPU, a garbage collection, the browser), and the minute's trace carries the count and the top parts.
+const PERF = { last: 0, at: 0, dts: [], cur: {}, long: 0, in: {} }, PERF_EVERY = 60000, PERF_GAP = 1000, PERF_LONG = 100;
 function perfSample(now) {
-  if (PERF.last && now - PERF.last < PERF_GAP) PERF.dts.push(now - PERF.last);
+  const gap = PERF.last ? now - PERF.last : 0;
+  if (PERF.last && gap < PERF_GAP) PERF.dts.push(gap);
+  if (gap >= PERF_LONG && gap < PERF_GAP) {
+    PERF.long++;
+    let timed = 0;
+    for (const [k, v] of Object.entries(PERF.cur)) { PERF.in[k] = (PERF.in[k] || 0) + v; timed += v; }
+    PERF.in.rest = (PERF.in.rest || 0) + Math.max(0, gap - timed);
+  }
+  PERF.cur = {};
   PERF.last = now;
   if (!PERF.at) PERF.at = now;
   if (now - PERF.at < PERF_EVERY || PERF.dts.length < 30) return null;
   const d = PERF.dts.slice().sort((x, y) => x - y), mean = d.reduce((x, y) => x + y, 0) / d.length;
-  PERF.at = now; PERF.dts = [];
+  const top = Object.fromEntries(Object.entries(PERF.in).sort((a, b) => b[1] - a[1]).slice(0, 6).map(([k, v]) => [k, Math.round(v)]));
+  const long = PERF.long;
+  PERF.at = now; PERF.dts = []; PERF.long = 0; PERF.in = {};
   const gpu = (typeof document !== "undefined" && document.getElementById("hudGpu") || {}).textContent || "";
   return trace("perf", { fps: +(1000 / mean).toFixed(1), p95: +d[Math.floor(d.length * 0.95)].toFixed(1), worst: +d[d.length - 1].toFixed(1), n: d.length,
-    gpu, view: SET.view, res: SET.res, px: [innerWidth, innerHeight, +devicePixelRatio.toFixed(2)] });
+    gpu, view: SET.view, res: SET.res, px: [innerWidth, innerHeight, +devicePixelRatio.toFixed(2)], long, in: top });
 }
 const tracePose = (p) => (p ? p.slice(0, 7).map((x, i) => (i ? +Number(x).toFixed(2) : x)) : null);
 window.addEventListener("error", (e) => trace("error", { msg: String(e.message || e).slice(0, 300), src: String(e.filename || "").slice(-60), line: e.lineno }));
@@ -97,6 +111,7 @@ const GRAV = 26, JUMP = 8.4, WALK = 4.6, RUN = 7.5, FLY = 14, FLY_FAST = 60;   /
 const P = { face: Wd.SPAWN_FACE, u: 0, v: 0, h: 0, yaw: 0, pitch: -0.15, vu: 0, vv: 0, vh: 0, fly: false, ground: false };
 const edits = new Map();              // "face:u:v:h" -> block id: every known edit (mine and, with the server, everyone's)
 const plotEdit = new Map();           // plot -> Map(local key "x:z:y" -> block)
+const plotList = new Map();           // plot -> [[key, block], …] for the mesher's jobs (editsFor: made once a plot)
 const titles = new Map();             // plot -> { aid, holder } for every issued title
 const mine = new Set();               // plots whose title the signed-in address holds
 const builds = new Set();             // plots the world server says the signed-in address was invited to build on
@@ -1050,7 +1065,7 @@ function putCell(face, u, v, h, b) {
   const plot = Wd.plotOf(face, u, v), k = key(face, u, v, h);
   const pc = Wd.plotCoords(plot), lk = (u - pc.u0) + ":" + (v - pc.v0) + ":" + h;
   let pe = plotEdit.get(plot); if (!pe) { pe = new Map(); plotEdit.set(plot, pe); }
-  edits.set(k, b); pe.set(lk, b); topSeq++;
+  edits.set(k, b); pe.set(lk, b); plotList.delete(plot); topSeq++;
   remeshAround(face, u, v, h);
 }
 /** A cell back to the untouched planet (the wilderness regrew it). */
@@ -1058,6 +1073,7 @@ function dropCell(face, u, v, h) {
   const plot = Wd.plotOf(face, u, v), pc = Wd.plotCoords(plot), pe = plotEdit.get(plot);
   edits.delete(key(face, u, v, h));
   if (pe) pe.delete((u - pc.u0) + ":" + (v - pc.v0) + ":" + h);
+  plotList.delete(plot);
   remeshAround(face, u, v, h);
 }
 /** Change one cell through the world server, which decides: breaking (b = air) gathers — anywhere in the wilderness,
@@ -1202,18 +1218,28 @@ function startWorkers() {
     workers.push(w);
   }
 }
+// A PLOT'S EDITS AS THE MESHER TAKES THEM, MADE ONCE (2026-11-24): every chunk's job carried the edits of the nine plots
+// around it, each one's key built afresh — by the town hall ~5,000 a job, for every chunk of every column, and a flight
+// past the town asks for dozens of jobs a tick (the 100-500 ms updateChunks a profiled flight measured). Each plot's list
+// is made once and kept until that plot's edits change: putCell, dropCell, applyPlot and the first hello drop it (plotList).
 function editsFor(face, cu, cv) {
   // the chunk's columns and their one-block border: the plots around it (border cells across a seam are rare and
   // carried by their own face's key; wrap() resolves them in the worker the same way)
-  const out = [];
+  let out = [];
   const pc0 = Math.floor(cu * CHUNK / PLOT), pr0 = Math.floor(cv * CHUNK / PLOT);
   for (let dr = -1; dr <= 1; dr++) for (let dc = -1; dc <= 1; dc++) {
     const pr = pr0 + dr, pc = pc0 + dc;
     if (pr < 0 || pc < 0 || pr >= Wd.FACE_N || pc >= Wd.FACE_N) continue;
     const plot = Wd.plotId(face, pr, pc), pe = plotEdit.get(plot);
-    if (!pe) continue;
-    const q = Wd.plotCoords(plot);
-    for (const [lk, b] of pe) { const [x, z, y] = lk.split(":").map(Number); out.push([key(face, q.u0 + x, q.v0 + z, y), b]); }
+    if (!pe || !pe.size) continue;
+    let list = plotList.get(plot);
+    if (!list) {
+      const q = Wd.plotCoords(plot);
+      list = [];
+      for (const [lk, b] of pe) { const [x, z, y] = lk.split(":").map(Number); list.push([key(face, q.u0 + x, q.v0 + z, y), b]); }
+      plotList.set(plot, list);
+    }
+    out = out.length ? out.concat(list) : list.slice();
   }
   return out;
 }
@@ -1945,6 +1971,7 @@ const net = { ws: null, online: false, me: null, req: 0, pending: new Map(), mad
     return false;
   } };
 const others = new Map();             // player id -> { mesh, p: [face, u, v, h, yaw], who }
+const NET_GRACE = 8000;               // ms the world's figures wait through a dropped socket (ws.onclose)
 function connect() {
   let ws;
   try { ws = new WebSocket((location.protocol === "https:" ? "wss://" : "ws://") + location.host + "/land/ws"); } catch (e) { return; }
@@ -1963,9 +1990,15 @@ function connect() {
       // stayed in the air, out of reach — "on respawn i fell out of the x and cannot reenter it", 2026-11-10)
       if (m.flying && !flying) board({ craft: m.flying });
       invSeen = false;                                       // a (re)connect re-sends the whole bag: not a pickup
-      // the server is the record now: drop the plots this browser cached, the server sends each watched one back
-      for (const [plot, pe] of plotEdit) { const q = Wd.plotCoords(plot); for (const lk of pe.keys()) { const [x, z, y] = lk.split(":").map(Number); edits.delete(key(q.face, q.u0 + x, q.v0 + z, y)); } }
-      plotEdit.clear();
+      // the server is the record now: drop the plots this browser cached, the server sends each watched one back — on the
+      // page's FIRST hello only. A reconnect keeps them, the server's own from a moment ago, and applyPlot puts in what
+      // changed meanwhile: dropping them re-meshed the whole town on every reconnect, and one player's trace held 179
+      // reconnects in an evening (their network, 2026-11-24)
+      if (!net.helloed) {
+        net.helloed = true;
+        for (const [plot, pe] of plotEdit) { const q = Wd.plotCoords(plot); for (const lk of pe.keys()) { const [x, z, y] = lk.split(":").map(Number); edits.delete(key(q.face, q.u0 + x, q.v0 + z, y)); } }
+        plotEdit.clear(); plotList.clear();
+      }
       // the world server's answer decides who this page is signed in as: an address left over from a plain wallet connect
       // (no signature) would show "connected" while every build is refused — the operator's "already signed in"
       if (net.me !== dapp.me) {
@@ -2180,16 +2213,24 @@ function connect() {
       }
     }
   };
+  const wsIn = ws.onmessage; ws.onmessage = (ev) => pt("ws", () => wsIn(ev));   // (timed: a long frame's trace names it, PERF)
   ws.onclose = () => {
     trace("net_close", { at: tracePose([P.face, P.u, P.v, P.h, P.yaw]) });
     const was = net.online;
     net.online = false; net.ws = null;
-    for (const r of others.values()) scene.remove(r.mesh);
-    others.clear();
-    for (const r of animals.values()) scene.remove(r.mesh);
-    animals.clear();
-    for (const r of npcs.values()) scene.remove(r.mesh);
-    npcs.clear();
+    // THROUGH A RECONNECT THE WORLD STAYS (2026-11-24): the people, the animals and the townsfolk wait NET_GRACE ms for
+    // the socket to come back — the first "players" after it drops whoever left meanwhile — instead of every figure
+    // vanishing for the second a reconnect takes (one player's evening: 179 of them). Still away by then, they go.
+    clearTimeout(net.graceT);
+    net.graceT = setTimeout(() => {
+      if (net.online) return;
+      for (const r of others.values()) scene.remove(r.mesh);
+      others.clear();
+      for (const r of animals.values()) scene.remove(r.mesh);
+      animals.clear();
+      for (const r of npcs.values()) scene.remove(r.mesh);
+      npcs.clear();
+    }, NET_GRACE);
     if (was) hud();
     setTimeout(connect, Math.min(30000, 1000 * 2 ** Math.min(5, net.tries++)));   // back off; a page without a server stays local
   };
@@ -2198,10 +2239,14 @@ function connect() {
 const plotsApplied = new Set();          // plots whose edits this page holds (the nearest-source hint asks before it names one)
 function applyPlot(plot, list) {
   plotsApplied.add(plot);
-  const q = Wd.plotCoords(plot), old = plotEdit.get(plot);
-  if (old) for (const lk of old.keys()) { const [x, z, y] = lk.split(":").map(Number); edits.delete(key(q.face, q.u0 + x, q.v0 + z, y)); }
-  plotEdit.delete(plot);
-  for (const [x, z, y, b] of list) putCell(q.face, q.u0 + x, q.v0 + z, y, b);
+  // ONLY WHAT CHANGED (2026-11-24): a plot's list is put in as a difference — a cell gone is dropped, a new or changed
+  // one put, each re-meshing only around itself — not every cell dropped and put back, which re-meshed every chunk of
+  // the plot for a list identical to the one held (each reconnect, each resync, the whole town at once)
+  const q = Wd.plotCoords(plot), old = plotEdit.get(plot) || new Map(), now = new Map();
+  for (const [x, z, y, b] of list) now.set(x + ":" + z + ":" + y, b);
+  for (const lk of old.keys()) if (!now.has(lk)) { const [x, z, y] = lk.split(":").map(Number); dropCell(q.face, q.u0 + x, q.v0 + z, y); }
+  for (const [lk, b] of now) if (old.get(lk) !== b) { const [x, z, y] = lk.split(":").map(Number); putCell(q.face, q.u0 + x, q.v0 + z, y, b); }
+  if (!now.size) { plotEdit.delete(plot); plotList.delete(plot); }
   if (pendingPlace && Wd.plotOf(pendingPlace[0], Math.floor(pendingPlace[1]), Math.floor(pendingPlace[2])) === plot) {
     const [f, u, v, h, yaw, pitch] = pendingPlace, pf = P.face;
     pendingPlace = null;
@@ -2209,7 +2254,6 @@ function applyPlot(plot, list) {
     if (!collides(u, v, h)) { [P.u, P.v, P.h, P.yaw, P.pitch] = [u, v, h, yaw, Number.isFinite(pitch) ? pitch : P.pitch]; P.vh = 0; }
     else P.face = pf;
   }
-  if (old) for (let ch = Wd.DEEP_MIN / CHUNK; ch < H / CHUNK; ch++) { const k = q.face + ":" + q.u0 / CHUNK + ":" + q.v0 / CHUNK + ":" + ch; if (chunks.has(k)) request(k); }
 }
 /** The town's plots — the hall's and the ring around it — asked for at once, each on its own (one slow answer holds
  *  no other back); the first frame is not waited on them, they just usually win the race. */
@@ -4418,6 +4462,7 @@ function govTick(now, gap) {
   if (!gov || gov.target !== target) gov = Object.assign(governor(target), { target });
   const to = govStep(gov, gap, now, at);
   if (to === at) return;
+  trace("gov", { from: LADDER[at], to: LADDER[to], gap: Math.round(gap) });   // (each step, so a trace shows the governor's walk)
   for (const [k, v] of Object.entries(GFX_PRESETS[LADDER[to]])) setSetting(k, v);
   saveSet();
   notify(to < at ? T("govDown", "Graphics lowered to {p} to keep it smooth", { p: presetName(LADDER[to]) })
@@ -5763,13 +5808,14 @@ function statsTick(now) {
 // 2026-11-09 — True Wind's js/profiler.js, "measure performance; don't guess"): where the frame's time goes, live — the
 // frame rate over the last 2 s, the frame's work (mean and p99), the ms a frame of every timed part (the frame's own
 // parts, the 4-a-second tick's, and the meshes the workers hand back), the rest as "other", and the last frame over
-// PROF_LONG ms with its breakdown and how long ago. Closed, it costs nothing: pt() just calls through.
+// PROF_LONG ms with its breakdown and how long ago. Closed, pt() still times its part for the frame-rate trace (PERF.cur,
+// a few clock reads a frame) and shows nothing.
 const PROF = { on: false, cur: {}, ring: [], last: null, shown: 0, wall: 0 };
 const PROF_WINDOW = 2000, PROF_LONG = 250, PROF_EVERY = 250;
 function pt(label, fn) {
-  if (!PROF.on) return fn();
-  const t0 = performance.now(), r = fn();
-  PROF.cur[label] = (PROF.cur[label] || 0) + performance.now() - t0;
+  const t0 = performance.now(), r = fn(), ms = performance.now() - t0;
+  PERF.cur[label] = (PERF.cur[label] || 0) + ms;
+  if (PROF.on) PROF.cur[label] = (PROF.cur[label] || 0) + ms;
   return r;
 }
 function profFrame(now, workMs) {
@@ -6233,7 +6279,7 @@ async function start() {
   wireWallet(dapp, () => { renderWallet(dapp); refreshTitles(); });
   renderWallet(dapp);
   refreshTitles();
-  setInterval(refreshTitles, 30000);
+  setInterval(() => pt("titles", refreshTitles), 30000);
 }
 dapp.onReturn((pend, ok, err, err2) => {
   dapp.showReturn(pend, ok, err, { anchor: T("anchorSent", "Anchoring — confirming…"), allow: T("inviteSent", "Invitation sent — confirming…"),

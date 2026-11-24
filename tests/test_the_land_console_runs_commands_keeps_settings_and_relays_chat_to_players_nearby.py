@@ -131,11 +131,12 @@ check("/ opens the console with a command, Enter with chat (not over the bag), E
       and 'else if (e.key === "Escape") { e.preventDefault(); conShow(false); }' in js and 'id="conIn"' in html)
 cmds = js[js.index("const CMDS = {"):js.index("function conRun(")]
 # THE PROFILER ("work on performance, take a hint from true wind", operator 2026-11-09): /prof, ` and ?prof=1 open it; it
-# times the frame's parts, the 4-a-second tick and the workers' meshes; closed, pt() only calls through
+# times the frame's parts, the 4-a-second tick and the workers' meshes; closed, pt() still times each part for the frame-rate
+# trace (PERF.cur, 2026-11-24) and adds to the profiler's own only while it is open
 prof = js[js.index("const PROF = {"):js.index("function frame(now)")]
 check("the profiler opens with /prof, ` or ?prof=1, and times the frame, the tick and the meshes",
       re.search(r"\n  prof: ", cmds) and 'if (e.code === "Backquote") profToggle();' in js and 'get("prof") === "1") profToggle(true)' in js
-      and "if (!PROF.on) return fn();" in prof and all(f'pt("{k}"' in js for k in ("step", "aim", "sky", "render", "chunks", "hud", "mesh"))
+      and "if (PROF.on) PROF.cur[label] = (PROF.cur[label] || 0) + ms;" in prof and all(f'pt("{k}"' in js for k in ("step", "aim", "sky", "render", "chunks", "hud", "mesh"))
       and "profFrame(now, performance.now() - work0);" in js and 'id="prof"' in html)
 check("the commands exist: help, pos, tp, fly, settings, set, clear",
       all(re.search(r"\n  %s: " % k, cmds) for k in ("help", "pos", "tp", "fly", "settings", "set", "clear")))

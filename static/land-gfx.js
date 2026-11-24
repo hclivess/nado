@@ -50,12 +50,17 @@ export function pickPreset(measured, target) {
 // hold: 4, gain: 0.9, futile: 60 } at its 60 fps target — 26 and 15.5 ms are 1.56 and 0.93 of a 16.7 ms frame, which slowK
 // and fastK carry as shares of this device's own budget; downS, upS, holdS, helpK and noDownS are its down, up, hold, gain
 // and futile. win and noUpS are this game's rules.
-export const GOV = { win: 30, slowK: 1.55, fastK: 0.93, downS: 3, upS: 12, holdS: 4, helpK: 0.9, noDownS: 60, noUpS: 120 };
+// A FUTILE STEP WAITS TWICE AS LONG EACH TIME (2026-11-24, a real player's perf trace): a page slow for something other
+// than graphics stepped High → Medium, was taken back, and tried again every minute for twenty minutes — and every step
+// rebuilds the shadows, the post pipeline and the chunks, so each futile try was itself a stall of the frames it was
+// meant to speed up. The wait after a step taken back doubles with each one in a row (noDownS, noUpS × 2, 4, … up to
+// 2^futileMax), and a step that stands starts the count again. futileMax is this game's rule.
+export const GOV = { win: 30, slowK: 1.55, fastK: 0.93, downS: 3, upS: 12, holdS: 4, helpK: 0.9, noDownS: 60, noUpS: 120, futileMax: 4 };
 /** The ladder the governor walks, lightest first. */
 export const LADDER = BENCH_ORDER.slice().reverse();
 const median = (a) => { const s = a.slice().sort((x, y) => x - y); return s[s.length >> 1]; };
 export function governor(target) {
-  return { budget: 1000 / target, ms: [], slowSince: null, fastSince: null, holdUntil: 0, tried: null, noDownUntil: 0, noUpUntil: 0 };
+  return { budget: 1000 / target, ms: [], slowSince: null, fastSince: null, holdUntil: 0, tried: null, noDownUntil: 0, noUpUntil: 0, futileDown: 0, futileUp: 0 };
 }
 /** One frame: `dt` its interval (ms), `now` the time (ms), `at` the preset's index in LADDER. Returns the index to be at
  *  (the same one when nothing changes). */
@@ -70,8 +75,14 @@ export function govStep(g, dt, now, at) {
   };
   if (g.tried) {                                            // the hold is over: did the last step do what it was for?
     const t = g.tried; g.tried = null;
-    if (t.dir < 0 && med > t.before * GOV.helpK) { g.noDownUntil = now + GOV.noDownS * 1000; g.ms = []; return t.from; }
-    if (t.dir > 0 && med > g.budget * GOV.slowK) { g.noUpUntil = now + GOV.noUpS * 1000; g.ms = []; return t.from; }
+    // (a futile step's wait doubles each time in a row: each try is itself a stall — GOV.futileMax)
+    if (t.dir < 0 && med > t.before * GOV.helpK) {
+      g.noDownUntil = now + GOV.noDownS * 1000 * 2 ** Math.min(GOV.futileMax, g.futileDown++); g.ms = []; return t.from;
+    }
+    if (t.dir > 0 && med > g.budget * GOV.slowK) {
+      g.noUpUntil = now + GOV.noUpS * 1000 * 2 ** Math.min(GOV.futileMax, g.futileUp++); g.ms = []; return t.from;
+    }
+    if (t.dir < 0) g.futileDown = 0; else g.futileUp = 0;     // the step stood: the next futile one waits the base time
   }
   if (med > g.budget * GOV.slowK) {
     g.fastSince = null; if (g.slowSince === null) g.slowSince = now;
