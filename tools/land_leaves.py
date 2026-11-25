@@ -22,7 +22,7 @@ import os
 import random
 import sys
 
-from PIL import Image, ImageDraw, ImageEnhance, ImageFilter
+from PIL import Image, ImageDraw, ImageEnhance
 
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 OUT = os.path.join(ROOT, "static", "vendor", "leaves")
@@ -125,7 +125,6 @@ def match_mean(tile, target):
     flat on a scanner, lighter and yellower than a crown's; the page's crown light (LEAF_LIT, the far cards' bake) was set
     against the painted clusters' colour, so the scans take that mean and keep their own detail."""
     rgb, a = tile.convert("RGB"), tile.getchannel("A")
-    import statistics
     px, al = list(rgb.getdata()), list(a.getdata())
     w = sum(al) or 1
     mean = [sum(p[i] * q for p, q in zip(px, al)) / w for i in range(3)]

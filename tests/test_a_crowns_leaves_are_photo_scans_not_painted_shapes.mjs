@@ -15,7 +15,7 @@ import { readFileSync } from "node:fs";
 import { createHash } from "node:crypto";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
-import { execFileSync } from "node:child_process";
+import { inflateSync } from "node:zlib";
 
 const ROOT = join(dirname(fileURLToPath(import.meta.url)), "..");
 let fails = 0;
@@ -27,30 +27,46 @@ const png = readFileSync(join(dir, "leaves.png")), sha = createHash("sha256").up
 ok(/CC0 1\.0 Universal \(public domain\)/.test(src) && /ambientcg\.com/.test(src) && /LeafSet009/.test(src), "SOURCE.txt names the CC0 scans (ambientCG LeafSet009)");
 ok(new RegExp(`^leaves\\.png ${sha}$`, "m").test(src), `the PNG's bytes are the recorded ones (sha256 ${sha.slice(0, 12)}…)`);
 
-// 2. the atlas row: size, coverage, a scan's detail (python + Pillow read the PNG; the suite's machines have both)
-const stats = JSON.parse(execFileSync("python3", ["-I", "-c", `
-import json,sys
-from PIL import Image
-a=Image.open(sys.argv[1]); print(json.dumps({"size":a.size,"mode":a.mode}) if a.mode!="RGBA" else "", end="")
-w,h=a.size; px=a.load(); out={"size":[w,h],"mode":a.mode,"tiles":[]}
-for t in range(2):
-  cov=0; n=0; diffs=[]
-  for y in range(0,h,2):
-    for x in range(t*512,(t+1)*512-2,2):
-      r,g,b,al=px[x,y]; n+=1
-      if al>200:
-        cov+=1; r2,g2,b2,a2=px[x+2,y]
-        if a2>200: diffs.append(abs(g-g2))
-  diffs.sort(); out["tiles"].append({"coverage":cov/n,"grain":sum(diffs)/max(1,len(diffs))})
-print(json.dumps(out))`, join(dir, "leaves.png")], { encoding: "utf8" }).trim().split("\n").pop());
-ok(stats.size[0] === 1024 && stats.size[1] === 512 && stats.mode === "RGBA", `the PNG is the atlas's top row, 1024 x 512 RGBA (${stats.size.join(" x ")} ${stats.mode})`);
-for (const [i, name] of [[0, "broadleaf"], [1, "birch"]]) {
-  const t = stats.tiles[i];
+// 2. the atlas row: size, coverage, a scan's grain — decoded here, in Node (CI's machines have no Pillow: the first version read
+// the PNG through python3 -c "from PIL …" and died there, exit 1 with nothing checked, 2026-11-25)
+function decodePng(buf) {
+  let p = 8, w = 0, h = 0, ct = 0, bd = 0;
+  const idat = [];
+  while (p < buf.length) {
+    const len = buf.readUInt32BE(p), type = buf.toString("ascii", p + 4, p + 8), data = buf.subarray(p + 8, p + 8 + len);
+    if (type === "IHDR") { w = data.readUInt32BE(0); h = data.readUInt32BE(4); bd = data[8]; ct = data[9]; }
+    else if (type === "IDAT") idat.push(data);
+    else if (type === "IEND") break;
+    p += 12 + len;
+  }
+  if (bd !== 8 || ct !== 6) return { w, h, mode: `bit depth ${bd}, colour type ${ct}` };
+  const raw = inflateSync(Buffer.concat(idat)), bpp = 4, stride = w * bpp, px = Buffer.alloc(h * stride);
+  for (let y = 0; y < h; y++) {
+    const f = raw[y * (stride + 1)], src = raw.subarray(y * (stride + 1) + 1, (y + 1) * (stride + 1)), o = y * stride;
+    for (let x = 0; x < stride; x++) {
+      const a = x >= bpp ? px[o + x - bpp] : 0, b = y ? px[o - stride + x] : 0, c = x >= bpp && y ? px[o - stride + x - bpp] : 0;
+      let v = src[x];
+      if (f === 1) v += a; else if (f === 2) v += b; else if (f === 3) v += (a + b) >> 1;
+      else if (f === 4) { const q = a + b - c, pa = Math.abs(q - a), pb = Math.abs(q - b), pc = Math.abs(q - c); v += pa <= pb && pa <= pc ? a : pb <= pc ? b : c; }
+      px[o + x] = v & 255;
+    }
+  }
+  return { w, h, mode: "RGBA", px };
+}
+const img = decodePng(png);
+ok(img.w === 1024 && img.h === 512 && img.mode === "RGBA", `the PNG is the atlas's top row, 1024 x 512 RGBA (${img.w} x ${img.h} ${img.mode})`);
+for (const [t, name] of [[0, "broadleaf"], [1, "birch"]]) {
+  let cov = 0, n = 0, dsum = 0, dn = 0;
+  if (img.px) for (let y = 0; y < img.h; y += 2) for (let x = t * 512; x < (t + 1) * 512 - 2; x += 2) {
+    const i = (y * img.w + x) * 4; n++;
+    if (img.px[i + 3] > 200) { cov++; const j = i + 8; if (img.px[j + 3] > 200) { dsum += Math.abs(img.px[i + 1] - img.px[j + 1]); dn++; } }
+  }
+  const coverage = n ? cov / n : 0, grain = dn ? dsum / dn : 0;
   // (a cluster is BRANCH SPRAYS with sky between them, not a disc — 2026-11-25: discs read as a crown of rosettes at 60 m — so a
   // quarter of the tile is leaves; the crown's many overlapping cards fill it, as the vale photographs check)
-  ok(t.coverage > 0.25, `the ${name} tile is full of leaves (${(t.coverage * 100).toFixed(0)} % covered)`);
+  ok(coverage > 0.25, `the ${name} tile is full of leaves (${(coverage * 100).toFixed(0)} % covered)`);
   // a painted shape is one flat fill: neighbouring covered pixels differ by ~0 except at its edges; a scan's veins and blemishes
-  ok(t.grain > 2.5, `…and has a scan's grain, the colour varying inside a leaf (mean step ${t.grain.toFixed(1)} of 255)`);
+  ok(grain > 2.5, `…and has a scan's grain, the colour varying inside a leaf (mean step ${grain.toFixed(1)} of 255)`);
 }
 
 // 3. the page's use
