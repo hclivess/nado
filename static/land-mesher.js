@@ -19,7 +19,7 @@
 // Cells are generated with a one-cell border (wrapped across face seams by land-world.wrap). A surface edge is drawn by
 // the chunk that holds its LOWER cell, so every edge of the world belongs to exactly one chunk (no gaps, no doubles).
 // Positions are metres RELATIVE TO THE CHUNK'S ANCHOR; the page places each mesh at anchor - camera in doubles.
-import { CHUNK, H, R0, W, B, BLOCKS, ATLAS_TILES, NATURAL, CM, DEEP_MIN, TREE_WOOD, TREE_LEAVES, isTree, opaque, dirOf, frameOf, wrap, column, terrainBlock, fieldOf, treeAt, treeCell, LITTER, shapeOf, isPart, toneBlock, FLOWERS, saplingTree, soilOf, isTurned, rotOf, turnVec, boxAabb } from "./land-world.js";
+import { CHUNK, H, R0, W, B, BLOCKS, ATLAS_TILES, NATURAL, CM, DEEP_MIN, TREE_WOOD, TREE_LEAVES, isTree, opaque, dirOf, frameOf, wrap, column, terrainBlock, fieldOf, treeAt, treeCell, LITTER, shapeOf, isPart, toneBlock, FLOWERS, saplingTree, soilOf, wildMask, isTurned, rotOf, turnVec, boxAabb } from "./land-world.js";
 import * as Shapes from "./land-shapes.js";
 import { forestTile, canopyTile, hash3, treeTurn, treeSize } from "./land-forest.js";
 import { farJob, farBuffers } from "./land-far.js";
@@ -809,7 +809,7 @@ function placeTree(t, face, gu, gv, ground, lod, place, bark, foliage, gone) {
   if (!m) { m = treeModel(t.kind, t.height, (variant + 1) * 7919 + t.height * 131 + t.kind.length, far); models.set(key, m); }
   // INVARIANT (#183): the turn and size are land-forest's treeTurn / treeSize — the far tree's card is cut to them, and a
   // tree that turned or grew differently here would jump as the player walks up to it.
-  placeModel(m, face, gu + 0.5, gv + 0.5, ground, treeTurn(face, gu, gv), treeSize(face, gu, gv),
+  placeModel(m, face, gu + 0.5, gv + 0.5, ground, treeTurn(face, gu, gv), treeSize(face, gu, gv, t.kind, wildMask(face, gu, gv)),
              hash3(gu, gv + 5, face) * 6.283, place, bark, foliage, gone);
 }
 /** Place model `m` (local x along u, y along v, z up) at grid (cu, cv, base), turned by `rot` and scaled by `sc`, in GRID

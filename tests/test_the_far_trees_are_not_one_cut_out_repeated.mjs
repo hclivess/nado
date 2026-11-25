@@ -3,6 +3,7 @@
 //   1. about half the trees show their picture mirrored (the card's u runs the other way across its atlas slot);
 //   2. the crowns' widths spread over 0.85-1.15 of the picture's (times the tree's own size);
 //   3. a tree's HEIGHT as a card is still the near model's: only the width and the mirror are the card's own.
+import { readFileSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 const ROOT = join(dirname(fileURLToPath(import.meta.url)), "..");
@@ -32,6 +33,18 @@ ok(Math.min(...hsc) >= 0.899 && Math.max(...hsc) <= 1.001, `a card's height is t
   const T = await import(join(ROOT, "static", "land-trees.js")), Sp = await import(join(ROOT, "static", "land-species.js"));
   const widest = 2 * T.REACH * Math.max(...Object.values(Sp.REACH_SCALE));
   ok(F.ATLAS.wide >= widest, `an atlas cell (${F.ATLAS.wide} m) is as wide as the widest crown a tree is drawn with (${widest.toFixed(1)} m)`);
+}
+// WILD BROADLEAVES DRAWN BIGGER (operator 2026-11-25, wilderness only): x(1 + WILD_BIG x wildMask) for a broadleaf — 1.5x deep in
+// the wild, exactly the old size where the mask is 0 (every owned plot), and no other species touched; the near model and the
+// far card read the same treeSize, so a tree never jumps at the handover
+{
+  const base = F.treeSize(0, 1234, 5678), wildB = F.treeSize(0, 1234, 5678, "broadleaf", 1), ownedB = F.treeSize(0, 1234, 5678, "broadleaf", 0);
+  ok(Math.abs(wildB / base - (1 + F.WILD_BIG)) < 1e-9 && F.WILD_BIG >= 0.4 && F.WILD_BIG <= 0.6, `a broadleaf deep in the wild is drawn ${(wildB / base).toFixed(2)}x`);
+  ok(ownedB === base && F.treeSize(0, 1234, 5678, "conifer", 1) === base && F.treeSize(0, 1234, 5678, "birch", 1) === base,
+    "on owned ground (mask 0) a broadleaf keeps its size, and no other species is drawn bigger");
+  const mesher = readFileSync(join(ROOT, "static", "land-mesher.js"), "utf8"), forest = readFileSync(join(ROOT, "static", "land-forest.js"), "utf8");
+  ok(/treeSize\(face, gu, gv, t\.kind, wildMask\(face, gu, gv\)\)/.test(mesher) && /treeSize\(r\.face, r\.wu, r\.wv, r\.tree\.kind, r\.col\.wild === undefined \? 0 : r\.col\.wild\)/.test(forest),
+    "the near model and the far card scale a tree by the same kind and wilderness mask");
 }
 console.log(fails ? `${fails} FAILED` : "all passed");
 process.exit(fails ? 1 : 0);

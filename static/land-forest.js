@@ -32,7 +32,13 @@ export const slotOf = (kind, height) => SLOTS.findIndex((s) => s[0] === kind && 
 export function hash3(a, b, c) { let h = Math.imul(a, 374761393) ^ Math.imul(b, 668265263) ^ Math.imul(c, 2147483647); h = Math.imul(h ^ (h >>> 13), 1274126177); return ((h ^ (h >>> 16)) >>> 0) / 4294967296; }
 /** A tree's turn (radians) and size, as land-mesher placeTree gives them to its model. */
 export const treeTurn = (face, wu, wv) => hash3(wv, face, wu) * Math.PI * 2;
-export const treeSize = (face, wu, wv) => 0.9 + 0.1 * hash3(wu + 3, wv, face);
+// WILD BROADLEAVES ARE DRAWN BIGGER (operator 2026-11-25, "bigger wild broadleaves", wilderness only): the Chlorophyll shot's
+// woods are 25-35 m trees whose rounded crowns read as masses; ours, drawn 17-20 m and packed ~5 m apart, read as a wall of
+// spiky tops. A broadleaf is drawn WILD_BIG x larger in the wild — times wildMask, 1 deep in the wild and fading to 1x toward
+// any owned plot, so owned ground looks as it did. Drawing only: the tree's cells (treeCell) are unchanged.
+// INVARIANT (#183): the near model (land-mesher placeTree) and the far card both read this, with the same kind and mask.
+export const WILD_BIG = 0.5;
+export const treeSize = (face, wu, wv, kind = "", wild = 0) => (0.9 + 0.1 * hash3(wu + 3, wv, face)) * (kind === "broadleaf" ? 1 + WILD_BIG * wild : 1);
 
 /** The far trees of tile (tu, tv) of `face` (columns tu*TILE .. in that face's own frame, past its edge the neighbour's):
  *  { n trees, anchor (world metres), pos (each vertex's ROOT, from the anchor), off (the vertex from its root), nor,
@@ -49,7 +55,7 @@ export function forestTile(face, tu, tv) {
   for (let i = 0; i < n; i++) {
     const r = roots[i], slot = slotOf(r.tree.kind, r.tree.height), cx = slot % cols, cy = Math.floor(slot / cols);
     const p = posOf(face, r.u + 0.5, r.v + 0.5, r.col.height), fr = frameOf(face, r.u + 0.5, r.v + 0.5);
-    const turn = treeTurn(r.face, r.wu, r.wv), sc = treeSize(r.face, r.wu, r.wv), shade = 0.86 + 0.24 * hash3(r.wu, r.wv, r.face + 11);
+    const turn = treeTurn(r.face, r.wu, r.wv), sc = treeSize(r.face, r.wu, r.wv, r.tree.kind, r.col.wild === undefined ? 0 : r.col.wild), shade = 0.86 + 0.24 * hash3(r.wu, r.wv, r.face + 11);
     // NOT ONE CUT-OUT REPEATED (the Chlorophyll shot, 2026-11-22: a row of far trees read as identical cards — 12 pictures,
     // each always the same way round, sizes within 10 %): half the trees show their picture mirrored, and each crown is
     // 0.85-1.15 its picture's width. The CARD's own: treeSize (shared with the near model) and the height are untouched,
