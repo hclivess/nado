@@ -331,7 +331,10 @@ function plotTop(plot) {
 // shadows move over the land as the clouds drift, and a field a kilometre off is sunlit while the player stands in shade.
 // NOT in it: the sun's cast shadows (the shadow map's box) do not fade under a cloud; the map is flat over its span (the
 // planet drops 54 m across 6 km: a shadow's edge is placed to a few metres, finer than a heap's 150 m).
-const CLOUD_SHADOW_N = 256, CLOUD_SHADOW_SPAN = 6000, CLOUD_SHADOW_MS = 1500;   // texels a side; m a side; ms between renders
+// 512 a side (2026-11-25, was 256): 12 m a texel. The heaps went from a median 250 m across to 140 m, and at 23 m a texel
+// a heap's dark core was a few texels the filter smeared into the sun round it (the shadow walk read 1.121 where it should
+// darken). 512² texels × 8 samples every 1.5 s is still a small pass.
+const CLOUD_SHADOW_N = 512, CLOUD_SHADOW_SPAN = 6000, CLOUD_SHADOW_MS = 1500;   // texels a side; m a side; ms between renders
 const shadowBlank = new THREE.DataTexture(new Uint8Array([255, 255, 255, 255]), 1, 1); shadowBlank.needsUpdate = true;   // until the first map: full sun
 const shadowO = { share: TSL.uniform(0), shift: TSL.uniform(new THREE.Vector3()), east: TSL.uniform(new THREE.Vector3(1, 0, 0)), north: TSL.uniform(new THREE.Vector3(0, 0, 1)) };
 const shadowTex = [];                                        // every material's texture node of the map (its value is swapped in once the map exists)

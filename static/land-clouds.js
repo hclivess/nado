@@ -33,22 +33,27 @@ export const REAL = {
   wind: 5,          // m/s — a gentle breeze, Beaufort force 3: 3.4–5.4 m/s (Beaufort scale l.64); a DESIGN CHOICE inside it
   // eighths of the sky covered — 2-3 oktas, between "few" (1-2) and "scattered" (3-4) (Okta l.19): the Chlorophyll shot's sky
   // (operator 2026-11-22), small cumulus on deep blue — at 3-4 the sky read as a pale layer beside it. Was [3, 4] (#183).
-  oktas: [2, 3],
+  // 2026-11-25, MEASURED against the shot: its sky above the tree line is 20.7 % white cloud in 32 separate heaps; ours at
+  // 2.48 oktas rendered 31.4 % in 15 heaps (the same pose and crop, white = max > 205, saturation < 0.13). The shot's
+  // cover is under 2 oktas as this sky renders it, so the band is "few" to the foot of "scattered". Was [2, 3].
+  oktas: [1.5, 2.5],
 };
 export const BASE = REAL.base * AIR;             // 418.6 m above the sea: the flat base every heap stands on
 export const WIND = REAL.wind * AIR;             // 1.74 m/s along the latitudes, with the planet's turn
 // DESIGN CHOICES (no source gives them; they are bounded by "wider than it is tall" and by the photographs):
-export const THICK = 200;                        // m: the tallest heap, base to top (was 130: the heaps a median 240 m across
-                                                 // and 70 m tall, 3.4 to 1, read from the ground as lenses beside the
-                                                 // Chlorophyll shot's cumulus, 2026-11-24 — now 108 m tall, 2.2 to 1)
-export const HEAP = 1500;                        // m: the heap noise's period — heaps 150–350 m wide, gaps about as wide
+export const THICK = 160;                        // m: the tallest heap, base to top (130 read as lenses, 2026-11-24; 200 with
+                                                 // HEAP 1500 as tiered towers over half the sky, 2026-11-25 — now heaps a
+                                                 // median 140 m across and 82 m tall, 1.7 to 1)
+export const HEAP = 1000;                        // m: the heap noise's period (was 1500). The shot's cumulus are ~5° wide at 20°
+                                                 // up: at its 1,200 m base that is ~110 m here (× AIR), and ours were 250 m —
+                                                 // the vale photographed 15 heaps where the shot has 32; at 1000, 27
 export const FIELD = 5300;                       // m: the period of the fields the heaps gather in (cloud streets, l.42)
 export const BILLOW = 160;                       // m: the period of the billows that eat the heaps' edges
 export const RB = R0 + SEA + BASE, RT = RB + THICK, RG = R0 + SEA;   // radii (m): base, top, the sea (the ground a ray stops at)
 // the density's shape — DESIGN CHOICES, tuned against the photographs (THR is set by the cover: see the test)
 export const K = {
   heapW: 0.7,       // the heap noise's share of a column's cover (the rest is the field's)
-  thr: 0.52,        // cover above this is cloud: gives 2.5 oktas (measured: 0.495 -> 3.61, 0.52 -> 2.48, 0.54 -> 1.73)
+  thr: 0.545,       // cover above this is cloud: 1.85 oktas at HEAP 1000 (at 1500: 0.495 -> 3.61, 0.52 -> 2.48, 0.54 -> 1.73)
   rise: 0.2,        // cover above thr that makes a heap of full height
   dome: 0.55,       // a heap's top against its cover: < 1 = steep sides under a rounded top
   soft: 0.15,       // the share of THICK over which a heap thins out toward its top surface (0.3 and sigma 0.045 drew

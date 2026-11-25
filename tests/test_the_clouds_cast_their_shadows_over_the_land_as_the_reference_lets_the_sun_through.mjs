@@ -85,6 +85,7 @@ ok(/const D = sun\.intensity \* Math\.max\(0\.05, elev\), S = hemi\.intensity; s
 ok(/performance\.now\(\) - shadowAt > CLOUD_SHADOW_MS \|\| Math\.hypot\(cam\[0\] - shadowCentre\[0\], cam\[1\] - shadowCentre\[1\], cam\[2\] - shadowCentre\[2\]\) > CLOUD_SHADOW_SPAN \/ 8/.test(page) && /shadowU\.sunDir\.value\.copy\(cloudLit\.sd\); shadowU\.dr\.value\.set\(dr\[0\], dr\[1\]\);/.test(page),
   "the map is rendered every CLOUD_SHADOW_MS or an eighth of its span moved, at the frame's sun and drift");
 ok(/shadowO\.shift\.value\.set\(cam\[0\] - shadowCentre\[0\]/.test(page) && /\$\{shadowMaps\} shadow maps/.test(page), "the shift is set every frame from the map's centre, and the stats line counts the maps");
-ok(/const CLOUD_SHADOW_N = 256, CLOUD_SHADOW_SPAN = 6000, CLOUD_SHADOW_MS = 1500;/.test(page), "256 texels over 6 km (23 m a texel, under a heap's 150 m), a map every 1.5 s");
+// 512, not 256 (2026-11-25): with heaps a median 140 m across a 23 m texel smeared a heap's dark core into the sun round it
+ok(/const CLOUD_SHADOW_N = 512, CLOUD_SHADOW_SPAN = 6000, CLOUD_SHADOW_MS = 1500;/.test(page), "512 texels over 6 km (12 m a texel, a tenth of a heap's 140 m), a map every 1.5 s");
 console.log(fails ? `${fails} FAILED` : "all passed");
 process.exit(fails ? 1 : 0);
