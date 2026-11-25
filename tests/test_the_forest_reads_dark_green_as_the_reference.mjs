@@ -25,5 +25,10 @@ ok(page.includes("const lit = s.rgb.mul(TSL.attribute(\"color\", \"vec3\")).mul(
   "the far cards' pictures are lit toward the shot's wood (red x2.6, green x1.75, blue x1.1), measured against the reference with the clouds off");
 const cv = page.match(/m\.colorNode = shadeByClouds\(TSL\.vec3\(([\d.]+), ([\d.]+), ([\d.]+)\)\.mul\(TSL\.attribute\("color", "vec3"\)\)\);/);
 ok(cv && Number(cv[3]) < Number(cv[2]) * 0.2 && Number(cv[1]) <= Number(cv[2]) * 1.2, `the canopy is a dark olive with almost no blue (${cv && cv.slice(1).join(", ")})`);
+// the near crowns' leaves lit LEAF_LIT x their painted colour (2026-11-25: the vale's wood of near models measured (30, 57, 21)
+// against the shot's near wood (50, 63, 37), clouds and shadows off alike; at 1.35, (36, 69, 22) — greener, no paler)
+{ const m = /const LEAF_LIT = ([\d.]+);/.exec(page);
+  ok(!!m && +m[1] >= 1.2 && +m[1] <= 1.5 && page.includes('leaves.colorNode = shadeByClouds(s.rgb.mul(TSL.attribute("color", "vec3")).mul(LEAF_LIT));'),
+    `a near crown's leaves are lit ${m ? m[1] : "?"}x their painted colour (1.2-1.5: the shot's wood, not a pale lime)`); }
 console.log(fails ? `${fails} FAILED` : "all passed");
 process.exit(fails ? 1 : 0);

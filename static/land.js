@@ -5180,6 +5180,7 @@ function waterMaterial() {
   m.opacityNode = TSL.float(0.78).add(fres.mul(0.2));
   return m;
 }
+const LEAF_LIT = 1.35;                         // a crown's leaves against their painted colour (see treeMaterials)
 function treeMaterials() {
   const wind = TSL.attribute("wind", "vec4"), t = TSL.time, ph = wind.w;
   // a slow sway with a gusting second rhythm, biased downwind; each tree on its own phase
@@ -5193,7 +5194,10 @@ function treeMaterials() {
   bark.positionNode = sway;
   const leafTex = paintLeaves(), s = TSL.texture(leafTex, uv);
   const leaves = new THREE.MeshStandardNodeMaterial({ roughness: 0.7, metalness: 0, side: THREE.DoubleSide, alphaTest: 0.42 });
-  leaves.colorNode = shadeByClouds(s.rgb.mul(TSL.attribute("color", "vec3")));
+  // x LEAF_LIT (2026-11-25): beside the Chlorophyll shot's near wood (50, 63, 37) the vale's wood of near models measured
+  // (30, 57, 21) and (27, 47, 10) — its own colour, with clouds and sun shadows off alike; at 1.35, (36, 69, 22) / (32, 55, 11),
+  // greener and no paler, the near bushes (another material) unchanged
+  leaves.colorNode = shadeByClouds(s.rgb.mul(TSL.attribute("color", "vec3")).mul(LEAF_LIT));
   leaves.opacityNode = s.a;
   leaves.maskShadowNode = s.a.greaterThan(0.42);             // the shadow of the leaves, not of their cards (see matForest)
   // lit through (LEAF_THROUGH): the sun's light through the card, DIFFUSELY — a leaf scatters what it lets through, so a
