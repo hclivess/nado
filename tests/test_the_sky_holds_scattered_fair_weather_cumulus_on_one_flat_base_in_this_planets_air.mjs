@@ -212,5 +212,8 @@ ok(C.K.soft <= 0.2 && C.K.sigma >= 0.08, `a heap's edge is defined: it thins ove
     && /const moved = cloudLatch && cloudMaps > 0 \?/.test(page),
     "11. each sky map takes a new jitter and averages into the last while the eye stands, and drops it as the eye moves (the fringe converges; flight never smears)");
 }
+// 12. distant heaps pale into the horizon's haze within ~1.5 km (2026-11-25: at 3.6 km they stayed white to the horizon and the
+// vale's sky held 30.9 % white cloud against the shot's 20.7 %; at 1.4 km its upper third holds 15.7 % against the shot's 16.0 %)
+ok(C.K.haze >= 1000 && C.K.haze <= 1600, `12. a heap pales into the horizon's colour over ${C.K.haze} m (1.0–1.6 km: the shot's distant heaps are hazy, not white)`);
 console.log(fails ? `${fails} FAILED` : "all passed");
 process.exit(fails ? 1 : 0);

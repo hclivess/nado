@@ -70,7 +70,8 @@ export const K = {
   steps: 40,        // march steps through the layer along one ray
   path: 4500,       // m: the longest stretch of layer a ray is marched through
   sun: [18, 48, 110],   // m: where a sample looks toward the sun for the cloud in its light's way
-  haze: 3600,       // m: the distance over which a cloud pales into the horizon's colour (distant ones "pale into the haze")
+  haze: 1400,       // m: the distance over which a cloud pales into the horizon's colour (distant ones "pale into the haze");
+                    // was 3600 — at 1400 the vale's upper sky holds 15.7 % white cloud against the shot's 16.0 % (2026-11-25)
   silver: 0.9,      // how much brighter a cloud is toward the sun (light scattered forward: the bright rim)
 };
 /** How the sky map spends its rows: elevation = 90° · s · (BEND + (1 − BEND)·|s|) for s in −1..1 — twice the rows a
