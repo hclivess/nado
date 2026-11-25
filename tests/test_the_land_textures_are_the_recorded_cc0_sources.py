@@ -49,7 +49,9 @@ check("the tool's materials are exactly the folder's (and the phone set)", sorte
       sorted(set(files) ^ set([f"{k}_{t}.jpg" for k in TL.MATERIALS for t in ("col", "nor")] + TL.phone_files())))
 # THE PHONE SET (#139/#150): the ground at 512 px for a phone, made from the 1024 px outputs; a quarter of the bytes
 ground = [k for k, (_, px) in TL.MATERIALS.items() if px > TL.PHONE_PX]
-check("a 512 px copy of every map of the ground's six, for phones", sorted(ground) == sorted(["grass", "dirt", "rock", "sand", "snow", "gravel"])
+# (seven since 2026-11-25: "forest", a wood's floor of leaf litter, under the canopy — the trees were "2002 garbage" over a
+# floor of the meadow's grass tinted green)
+check("a 512 px copy of every map of the ground's seven, for phones", sorted(ground) == sorted(["grass", "dirt", "rock", "sand", "snow", "gravel", "forest"])
       and TL.phone_files() == sorted(f"{k}_{t}_512.jpg" for k in ground for t in ("col", "nor")))
 def _px(f):  # a baseline/progressive JPEG's size from its SOF marker, without Pillow
     b = open(os.path.join(D, f), "rb").read(); i = 2

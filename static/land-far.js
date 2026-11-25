@@ -90,13 +90,13 @@ export function farGround(face, fu, fv, nearHalf) {
   }
   const nor = gridNormals(pos, N), seaNor = gridNormals(sea, N);
   // the weights need the slope, and rock's three-way projection a grid-space normal: the world normals in the frame here
-  const gn = new Float32Array(V * 3), w1 = new Float32Array(V * 4), w2 = new Float32Array(V * 2), col = new Float32Array(V * 3).fill(1);
+  const gn = new Float32Array(V * 3), w1 = new Float32Array(V * 4), w2 = new Float32Array(V * 3), col = new Float32Array(V * 3).fill(1);
   for (let k = 0; k < V; k++) {
     const x = nor[k * 3], y = nor[k * 3 + 1], z = nor[k * 3 + 2];
     const ne = x * fr.east[0] + y * fr.east[1] + z * fr.east[2], nn = x * fr.north[0] + y * fr.north[1] + z * fr.north[2], nu = x * fr.up[0] + y * fr.up[1] + z * fr.up[2];
     gn[k * 3] = ne; gn[k * 3 + 1] = nn; gn[k * 3 + 2] = nu;
     const wt = groundWeights(mats[k], nu);
-    w1.set(wt.slice(0, 4), k * 4); w2.set(wt.slice(4), k * 2);
+    w1.set(wt.slice(0, 4), k * 4); w2.set(wt.slice(4), k * 3);   // (snow, gravel, forest floor — 0 out here: a far wood hides its floor)
   }
   const idx = new Uint32Array(gridIndex(N));
   return { face, fu, fv, anchor, pos, nor, sea, seaNor, uvw, suvw, gn, w1, w2, col, idx };

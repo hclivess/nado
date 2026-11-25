@@ -1297,7 +1297,7 @@ function geom(part) {
   if (part.uvw) g.setAttribute("uvw", new THREE.BufferAttribute(part.uvw, 3));
   if (part.gn) g.setAttribute("gn", new THREE.BufferAttribute(part.gn, 3));
   if (part.w1) g.setAttribute("w1", new THREE.BufferAttribute(part.w1, 4));
-  if (part.w2) g.setAttribute("w2", new THREE.BufferAttribute(part.w2, 2));
+  if (part.w2) g.setAttribute("w2", new THREE.BufferAttribute(part.w2, 3));   // snow, gravel, forest floor
   if (part.wind) g.setAttribute("wind", new THREE.BufferAttribute(part.wind, 4));
   g.setIndex(new THREE.BufferAttribute(part.idx, 1));
   g.computeBoundingSphere();
@@ -1789,7 +1789,7 @@ function farDone(m) {
     const r = m.ground, g = new THREE.BufferGeometry();
     g.setAttribute("position", new THREE.BufferAttribute(r.pos, 3)); g.setAttribute("normal", new THREE.BufferAttribute(r.nor, 3));
     g.setAttribute("uvw", new THREE.BufferAttribute(r.uvw, 3)); g.setAttribute("gn", new THREE.BufferAttribute(r.gn, 3));
-    g.setAttribute("w1", new THREE.BufferAttribute(r.w1, 4)); g.setAttribute("w2", new THREE.BufferAttribute(r.w2, 2));
+    g.setAttribute("w1", new THREE.BufferAttribute(r.w1, 4)); g.setAttribute("w2", new THREE.BufferAttribute(r.w2, 3));
     g.setAttribute("color", new THREE.BufferAttribute(r.col, 3)); g.setIndex(new THREE.BufferAttribute(r.idx, 1)); g.computeBoundingSphere();
     const gs = new THREE.BufferGeometry();
     gs.setAttribute("position", new THREE.BufferAttribute(r.sea, 3)); gs.setAttribute("normal", new THREE.BufferAttribute(r.seaNor, 3));
@@ -4849,10 +4849,10 @@ function wireInput(canvas) {
 // ---- the ground's material: six real textures (static/vendor/textures, CC0 Poly Haven) mixed by the weights the mesher
 // gives every ground vertex. Each is sampled at two scales and the two mixed, which hides the repetition a single tiling
 // shows from any height; rock is projected from three sides by the ground's normal, so a cliff is not a smear.
-const GROUND = ["grass", "dirt", "rock", "sand", "snow", "gravel"];
+const GROUND = ["grass", "dirt", "rock", "sand", "snow", "gravel", "forest"];   // ("forest": a wood's floor, 2026-11-25)
 const UNDER_BLADES = 0.55;                    // the meadow ground's light under the blades (groundMaterial): a design choice, by the reference's dark-to-the-ground grass
 const grassShade = TSL.uniform(1);            // 1 with the blades drawn, 0 without (applySetting "grass", start)
-const GROUND_ROUGH = [0.96, 0.95, 0.85, 0.9, 0.55, 0.9];
+const GROUND_ROUGH = [0.96, 0.95, 0.85, 0.9, 0.55, 0.9, 0.95];
 function loadTex(name) {
   // userData.ready: settles when the image is in (or failed) — a material must not sample a texture before then: three
   // binds an empty one meanwhile, and an empty NORMAL map turns every surface away from every light (pieces drew pure
@@ -4870,7 +4870,7 @@ function loadTex(name) {
 }
 function groundMaterial() {
   const uvw = TSL.attribute("uvw", "vec3"), gn = TSL.attribute("gn", "vec3").abs();
-  const w1 = TSL.attribute("w1", "vec4"), w2 = TSL.attribute("w2", "vec2");
+  const w1 = TSL.attribute("w1", "vec4"), w2 = TSL.attribute("w2", "vec3");
   const near = uvw.xy.div(3.2), far = uvw.xy.div(23.0);                // metres per repeat, close up and from afar
   const two = (t) => TSL.mix(TSL.texture(t, near).rgb, TSL.texture(t, far).rgb, 0.35);
   const tex = GROUND.map((k) => loadTex(k + "_col"));
@@ -4908,11 +4908,11 @@ function groundMaterial() {
   // light, back to full by 56 m — with the grass on (grassShade, applySetting); a page without blades keeps it lit.
   const underBlades = TSL.mix(TSL.float(1), TSL.mix(TSL.float(UNDER_BLADES), TSL.float(1), TSL.smoothstep(30, 56, TSL.positionWorld.sub(TSL.cameraPosition).length())), grassShade);
   const color = tri(tex[0]).mul(meadow).mul(underBlades).mul(w1.x).add(tri(tex[1]).mul(w1.y)).add(rock.mul(w1.z)).add(two(tex[3]).mul(w1.w))
-    .add(two(tex[4]).mul(w2.x)).add(two(tex[5]).mul(w2.y));
+    .add(two(tex[4]).mul(w2.x)).add(two(tex[5]).mul(w2.y)).add(tri(tex[6]).mul(underBlades).mul(w2.z));   // a wood's floor (forestFloor), in the canopy's shade
   const m = new THREE.MeshStandardNodeMaterial({ metalness: 0 });
   m.colorNode = shadeByClouds(color.mul(TSL.attribute("color", "vec3")));
   m.roughnessNode = w1.x.mul(GROUND_ROUGH[0]).add(w1.y.mul(GROUND_ROUGH[1])).add(w1.z.mul(GROUND_ROUGH[2])).add(w1.w.mul(GROUND_ROUGH[3]))
-    .add(w2.x.mul(GROUND_ROUGH[4])).add(w2.y.mul(GROUND_ROUGH[5]));
+    .add(w2.x.mul(GROUND_ROUGH[4])).add(w2.y.mul(GROUND_ROUGH[5])).add(w2.z.mul(GROUND_ROUGH[6]));
   return m;
 }
 

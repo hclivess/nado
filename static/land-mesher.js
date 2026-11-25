@@ -53,16 +53,17 @@ for (const k in C) C[k] = C[k].map((x) => Math.pow(x, 2.2));
 // the flat gives way to earth and then rock as it steepens, snow slides off cliffs — and static/land.js's ground node
 // material mixes them. The vertex colour is only a faint per-place grain on top.
 const smoothstep = (a, b, x) => { const t = Math.max(0, Math.min(1, (x - a) / (b - a))); return t * t * (3 - 2 * t); };
-export function groundWeights(b, up) {          // (static/land.js weighs the far land by it too)
-  const w = [0, 0, 0, 0, 0, 0];                          // grass, dirt, rock, sand, snow, gravel
+// forest (0..1): how far the ground lies under a wood's canopy (forestFloor) — there grass gives way to the wood's floor
+export function groundWeights(b, up, forest = 0) {          // (static/land.js weighs the far land by it too)
+  const w = [0, 0, 0, 0, 0, 0, 0];                       // grass, dirt, rock, sand, snow, gravel, forest floor
   const steep = smoothstep(0.62, 0.38, up);              // 1 on a cliff, 0 on the flat
-  if (b === B.grass) { const g = smoothstep(0.62, 0.85, up); w[0] = g; w[1] = 1 - g; }
+  if (b === B.grass) { const g = smoothstep(0.62, 0.85, up); w[0] = g * (1 - forest); w[6] = g * forest; w[1] = 1 - g; }
   else if (b === B.dirt || b === B.clay || b === B.farmland) w[1] = 1;    // clay, a field: earth's texture, their own tint (groundGrain)
   else if (b === B.sand) w[3] = 1;
   else if (b === B.snow) w[4] = 1;
   else if (b === B.gravel) w[5] = 1;
   else w[2] = 1;                                         // stone, basalt, bedrock
-  for (let i = 0; i < 6; i++) if (i !== 2) w[i] *= 1 - steep;
+  for (let i = 0; i < 7; i++) if (i !== 2) w[i] *= 1 - steep;
   w[2] += steep * (b === B.sand ? 0.5 : 1);
   const n = w.reduce((a, x) => a + x, 0) || 1;
   return w.map((x) => x / n);
@@ -350,11 +351,25 @@ export function meshChunk(face, cu, cv, ch, edits, boxes, lod, grassOn = true) {
   // the ground: texture coordinates continuous across chunks (grid metres, folded every 4096 m — a whole number of
   // texture repeats, so the fold is seamless and float32 keeps centimetres), its grid-space normal for the rock's
   // three-way projection, and the material weights
+  // A WOOD'S FLOOR (2026-11-25, operator: trees "2002 garbage" — under the canopy the ground was the meadow's grass tinted green,
+  // a flat olive): in a forest column the grass gives way to leaf litter (the "forest" ground texture), fully where the woods
+  // field is a wood's inside, fading out across its edge. Read per column, cached for the chunk.
+  const floorMemo = new Map();
+  const forestFloor = (gu, gv) => {
+    const u = Math.floor(gu), v = Math.floor(gv), k = u * 131072 + v;
+    let f = floorMemo.get(k);
+    if (f === undefined) {
+      const w = wrap(face, u, v), c = column(w.face, w.u, w.v);
+      f = c.biome === "forest" ? smoothstep(0.12, 0.3, c.woods) : 0;
+      floorMemo.set(k, f);
+    }
+    return f;
+  };
   nets(fld, groundGrain, smooth, undefined, (o, mat, nu, nv, nh, gu, gv, gh) => {
     o.uvw.push(((gu % 4096) + 4096) % 4096, ((gv % 4096) + 4096) % 4096, gh);
     o.gn.push(nu, nv, nh);
-    const w = groundWeights(mat, nh);
-    o.w1.push(w[0], w[1], w[2], w[3]); o.w2.push(w[4], w[5]);
+    const w = groundWeights(mat, nh, mat === B.grass ? forestFloor(gu, gv) : 0);
+    o.w1.push(w[0], w[1], w[2], w[3]); o.w2.push(w[4], w[5], w[6]);
   });
   // ---- the forest: every tree is its model, less the parts whose cells were taken --------------------------------------
   // ("taking apart bushes creates blobs", operator 2026-11-06: a cut tree used to fall back to a smooth surface over its

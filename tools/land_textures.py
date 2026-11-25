@@ -25,6 +25,9 @@ MATERIALS = {
     "planks": ("brown_planks_07", 512), "darkwood": ("dark_wooden_planks", 512), "brick": ("red_brick", 512),
     "plaster": ("painted_plaster_wall", 512), "tiles": ("clay_roof_tiles", 512), "cobble": ("cobblestone_01", 512),
     "stonebrick": ("castle_brick_07", 512), "bark": ("bark_brown_02", 512), "birch": ("bark_willow", 512),
+    # a wood's floor (2026-11-25, operator: trees "2002 garbage" — under the canopy the ground was the meadow's grass tinted
+    # green, a flat olive): leaf litter, twigs and moss, at the ground's 1024 px
+    "forest": ("forest_floor", 1024),
 }
 QUALITY = 82
 # A PHONE GETS THE GROUND AT 512 px (#139/#150, measured 2026-11-16: a fresh phone load is 7 MB, 2.2 MB of it these

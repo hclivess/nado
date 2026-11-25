@@ -32,6 +32,8 @@ https://dl.polyhaven.org/file/ph-assets/Textures/jpg/1k/castle_brick_07/castle_b
 https://dl.polyhaven.org/file/ph-assets/Textures/jpg/1k/castle_brick_07/castle_brick_07_nor_gl_1k.jpg 1b981aa5cf91b15a29d4b93e892c9513
 https://dl.polyhaven.org/file/ph-assets/Textures/jpg/1k/clay_roof_tiles/clay_roof_tiles_diff_1k.jpg d862ac9932b09b0918b5971ddb77099c
 https://dl.polyhaven.org/file/ph-assets/Textures/jpg/1k/clay_roof_tiles/clay_roof_tiles_nor_gl_1k.jpg d861a708c94c824befc8aac668052776
+https://dl.polyhaven.org/file/ph-assets/Textures/jpg/1k/forest_floor/forest_floor_diff_1k.jpg d67f308e4b8be6a65989e8dc76ec40fe
+https://dl.polyhaven.org/file/ph-assets/Textures/jpg/1k/forest_floor/forest_floor_nor_gl_1k.jpg 7cb480d082527766acdf3b6c8cba50f4
 
 # outputs (sha256  file)
 0546f2e7b803a5366415c9f1273017606fb5e0bbe265492ea120df78f1654d92  bark_col.jpg
@@ -64,6 +66,8 @@ d190ae2ddfd4852e7ba5282b48792eaccd71ffbfcf6dace55edfc1ac23c87407  stonebrick_col
 a083ba0658e8411cb6b675e7f24ce402c59536f85d79cce4b6011fb8e93bd891  stonebrick_nor.jpg
 032acd21d92f8b8766fac4313fc7a915647ddd17573354b82b262135251f4ec2  tiles_col.jpg
 4fadeffeb569923d0ad36ad50e42c662bbcbf63fc1c31dd487b74e5e4489db5c  tiles_nor.jpg
+fa09a2172fc74ad12b5f212751f04490f9814bdd4506f114922a184965738d3c  forest_col.jpg
+3ce063e4d908994c4665e743f5105dfe4a6c259acda1ba2e086f283f2cc73619  forest_nor.jpg
 
 # phone (512 px, made from the outputs above; sha256  file)
 b8a61d78110a6c422a21eb950181b7ab2f6f4ae7b6f745f8a80e03ce839bc34c  dirt_col_512.jpg
@@ -78,3 +82,5 @@ f6147e4869cfa4976ec5ac2e533498ce5b49d4f7e22fdbdde35168ac96efad34  gravel_nor_512
 be12f86b7ecf53131c523657c5e0c6a3cbbca40edb313a6b7b896fedd6f0a524  sand_nor_512.jpg
 8eb1756d547d3dd23255e5785ec460f151b40cb2d445daffafc04cc7aa2b34b3  snow_col_512.jpg
 b9716eedef57752a31bda049c9034fc09c78d7ef47bb7b96206a89e86c59a337  snow_nor_512.jpg
+3e6d67b8978975bfe020e944a79d448bad7c0c3f016cf64b85727db899b5bc2d  forest_col_512.jpg
+ab58eb68bbb2babc4e95cf55d2f2633d720715d2b1da7ae7f45a522895fc6b6e  forest_nor_512.jpg
