@@ -19,7 +19,9 @@
  *   7. the sky map's bent rows come back to the elevation they were made from;
  *   8. a heap's top is lumpy, heaved by the billows (K.lump) — a cauliflower, not a lens — the same in the GPU march;
  *   9. the page's march is jittered by a hash of the texel — a patterned noise wove a hatch into every heap's edge;
- *  10. the dome reads the light as an average of four taps — read alone, each texel's jitter was a fur round every heap.
+ *  10. the dome reads the light as an average of four taps — read alone, each texel's jitter was a fur round every heap;
+ *  11. each map rotates the jitter by the golden ratio and averages into the map before it while the eye stands, and
+ *      drops that history as the eye moves — one march a texel left a random fringe however the jitter was laid out.
  * Run: node tests/test_the_sky_holds_scattered_fair_weather_cumulus_on_one_flat_base_in_this_planets_air.mjs
  */
 import { readFileSync } from "node:fs";
@@ -197,6 +199,18 @@ ok(C.K.soft <= 0.2 && C.K.sigma >= 0.08, `a heap's edge is defined: it thins ove
   ok(/const tap = \(dx, dy\) => \{ const n = TSL\.texture\(cloudRT\[0\]\.textures\[0\], uv3\.add\(vec2\(dx \* tx, dy \* ty\)\)\); cloudTex\.push\(\[0, n\]\); return n; \};/.test(page)
     && /const lit = tap\(-1, -1\)\.add\(tap\(1, -1\)\)\.add\(tap\(-1, 1\)\)\.add\(tap\(1, 1\)\)\.mul\(0\.25\);/.test(page) && /tx = 0\.75 \/ CLOUD_MAP\[0\], ty = 0\.75 \/ CLOUD_MAP\[1\]/.test(page),
     "10. the dome reads a heap's light as the average of four taps round the direction, each swapped with the map (no fur of single texels)");
+  // 11. the fringe is averaged over maps (2026-11-25): a new jitter each map (golden-ratio rotation), blended into the map
+  // on the dome by U.keep, which is CLOUD_KEEP while the eye stands and 0 once it has moved CLOUD_KEEP_M[1] — from another
+  // point the old map's directions show other cloud, so flight never smears
+  const keepM = /const CLOUD_KEEP = ([\d.]+), CLOUD_KEEP_M = \[(\d+), (\d+)\]/.exec(page);
+  ok(/TSL\.hash\([^\n]*\)\.add\(U\.seed\)\.fract\(\)\)/.test(page) && /U\.seed\.value = \(cloudMaps \* 0\.6180339887\) % 1/.test(page)
+    && /const prevMap = TSL\.texture\(cloudRT\[0\]\.textures\[0\], TSL\.screenUV\); cloudTex\.push\(\[0, prevMap\]\)/.test(page)
+    && /const litMap = TSL\.mix\(texel\.get\("color"\), prevMap, U\.keep\)/.test(page) && /tm\.outputNode = litMap/.test(page)
+    && /cloudMRT = TSL\.mrt\(\{ output: litMap,/.test(page)
+    && keepM && +keepM[1] > 0.5 && +keepM[1] < 0.9 && +keepM[3] <= 50
+    && /U\.keep\.value = CLOUD_KEEP \* Math\.max\(0, Math\.min\(1, \(CLOUD_KEEP_M\[1\] - moved\)/.test(page)
+    && /const moved = cloudLatch && cloudMaps > 0 \?/.test(page),
+    "11. each sky map takes a new jitter and averages into the last while the eye stands, and drops it as the eye moves (the fringe converges; flight never smears)");
 }
 console.log(fails ? `${fails} FAILED` : "all passed");
 process.exit(fails ? 1 : 0);

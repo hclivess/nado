@@ -99,9 +99,10 @@ ok(/reproject = \(dist\) => d\.mul\(max\(dist, 1\)\)\.add\(cloudO\.shift\)\.norm
 // (the light at the result is four taps round it since 2026-11-24 — each a texture node swapped with the map: the sky test's check 10)
 ok(/u1 = reproject\(read\(1, d\)\.r\), u2 = reproject\(read\(1, u1\)\.r\), u3 = reproject\(read\(1, u2\)\.r\);/.test(reader) && /const uv3 = uvOf\(u3\)/.test(reader) && /const lit = tap\(/.test(reader),
   "…three times over, the light read at the result");
-ok(/count: 2, type: THREE\.HalfFloatType/.test(page) && /cloudMRT = TSL\.mrt\(\{ output: texel\.get\("color"\), dist: vec4\(texel\.get\("dist"\)/.test(page), "the map has two targets and the march writes its colour to the first EXPLICITLY (TSL.output is never assigned under a fragmentNode) and the distance to the second");
+ok(/count: 2, type: THREE\.HalfFloatType/.test(page) && /cloudMRT = TSL\.mrt\(\{ output: litMap, dist: vec4\(texel\.get\("dist"\)/.test(page)
+  && /const litMap = TSL\.mix\(texel\.get\("color"\), prevMap, U\.keep\)/.test(page), "the map has two targets and the march writes its colour to the first EXPLICITLY (TSL.output is never assigned under a fragmentNode) and the distance to the second");
 ok(/rt\.textures\[0\]\.name = "output"; rt\.textures\[1\]\.name = "dist";/.test(page), "the two targets are NAMED output and dist — the MRT node finds a target by its texture's name, and an unnamed one is never written");
-ok(/tm\.outputNode = texel\.get\("color"\);/.test(page) && !/tm\.fragmentNode/.test(page), "the tile's colour is the material's outputNode, not a fragmentNode — three applies a renderer MRT only on that path (a fragmentNode wrote neither target)");
+ok(/tm\.outputNode = litMap;/.test(page) && !/tm\.fragmentNode/.test(page), "the tile's colour is the material's outputNode, not a fragmentNode — three applies a renderer MRT only on that path (a fragmentNode wrote neither target)");
 ok(/renderer\.setMRT\(cloudMRT\)/.test(page) && /cloudO\.shift\.value\.set\(cam\[0\] - cloudEye\[0\]/.test(page), "the tiles are marched into both, and the shift is set every frame from the eye the front map was marched from");
 ok(/D\.addAssign\(t\.mul\(a\)\.mul\(T\)\)/.test(page) && /dist\.assign\(min\(float\(Clouds\.FAR\), select\(al\.greaterThan\(0\.001\), D\.div\(max\(al, 1e-6\)\), t0\.add\(t1\)\.mul\(0\.5\)\)\)\)/.test(page), "the GPU march sums the distance as the reference does and carries the middle of the stretch where no cloud is");
 console.log(fails ? `${fails} FAILED` : "all passed");

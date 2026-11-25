@@ -5572,6 +5572,7 @@ function sky(fr) {
 //    line for line, twice over), so the clouds stand still as the eye moves and a swap shows them where they already were.
 //    The shift is the difference of two planet-frame eyes taken in doubles here; only the metres go to the GPU.
 const CLOUD_MAP = PHONE ? [1024, 512] : [2048, 1024], CLOUD_TILES = [8, 4];   // texels (a design choice), tiles a cycle
+const CLOUD_KEEP = 0.75, CLOUD_KEEP_M = [5, 30];           // the sky map's history weight (~4 maps) and the eye travel that drops it
 let cloudSky = null, cloudRT = [], cloudFront = 0, cloudTileI = 0, cloudTile = null, cloudScene = null, cloudCam = null;
 let cloudU = null, cloudO = null, cloudTex = [], cloudLit = null, cloudMaps = 0, cloudLatch = null, cloudMRT = null, cloudEye = null;
 function buildClouds() {
@@ -5588,7 +5589,8 @@ function buildClouds() {
   const v3u = () => uniform(new THREE.Vector3());
   // the march's uniforms (latched at a cycle's first tile) and the overlay's (copied from them at the swap)
   cloudU = { eye: v3u(), eyeN: v3u(), r: uniform(0), c: v3u(), kase: uniform(0), up: v3u(), east: v3u(), north: v3u(),
-    dr: uniform(new THREE.Vector2(1, 0)), sunU: v3u(), sunDir: v3u(), sun: v3u(), hi: v3u(), lo: v3u(), haze: v3u() };
+    dr: uniform(new THREE.Vector2(1, 0)), sunU: v3u(), sunDir: v3u(), sun: v3u(), hi: v3u(), lo: v3u(), haze: v3u(),
+    seed: uniform(0), keep: uniform(0) };                    // the map's jitter rotation and its history weight (below)
   cloudO = { up: v3u(), east: v3u(), north: v3u(), shift: v3u() };
   const U = cloudU, row = (m, i) => vec3(m[i * 3], m[i * 3 + 1], m[i * 3 + 2]);
   const rot = (m, x, per) => vec3(dot(row(m, 0), x), dot(row(m, 1), x), dot(row(m, 2), x)).div(per);
@@ -5654,15 +5656,22 @@ function buildClouds() {
   // and once the heaps grew 200 m tall every cloud's edge wore them as a woven hatch ("////", photographed from the live
   // vale); 56 steps for 40 and a softer top left it as it was — the hatch was the jitter's own pattern. A hash of the
   // texel has none: the same edge reads as a random, fluffy fringe.
-  const texel = march(dirOf(TSL.screenUV, U), TSL.hash(TSL.screenCoordinate.x.add(TSL.screenCoordinate.y.mul(4099))));
+  // THE FRINGE IS AVERAGED OVER MAPS (2026-11-25): one march a texel leaves every heap's edge a random fringe however the
+  // jitter is laid out, and the four-tap read only spread it. Each map now rotates every texel's jitter by the golden
+  // ratio (U.seed — Cranley-Patterson: successive maps sample the step interval evenly) and blends into the map before it
+  // (U.keep, an exponential average of ~4 maps), so a standing eye sees the edge converge to its mean. The history is
+  // dropped as the eye moves (keep -> 0 by CLOUD_KEEP_M): from another point the old map's directions show other cloud.
+  const texel = march(dirOf(TSL.screenUV, U), TSL.hash(TSL.screenCoordinate.x.add(TSL.screenCoordinate.y.mul(4099))).add(U.seed).fract());
+  const prevMap = TSL.texture(cloudRT[0].textures[0], TSL.screenUV); cloudTex.push([0, prevMap]);   // the map on the dome now
+  const litMap = TSL.mix(texel.get("color"), prevMap, U.keep);
   // the tile writes BOTH targets, by name: the light and the distance. The colour is the material's outputNode, NOT its
   // fragmentNode: three's NodeMaterial applies a renderer MRT only on its lit path (setup: the `fragmentNode === null`
   // branch), so with a fragmentNode the second target was never written and the first held nothing either — the sky lost
   // every cloud ("mean change 9.7 of 255" against a baseline of 44, the page cloud test, 2026-11-13; measured on a tiny
   // page reading the targets back: outputNode writes both, fragmentNode neither). The colour goes into the MRT explicitly
   // too: `TSL.output` is assigned on that path only after the MRT is read.
-  tm.outputNode = texel.get("color");
-  cloudMRT = TSL.mrt({ output: texel.get("color"), dist: vec4(texel.get("dist"), 0, 0, 1) });
+  tm.outputNode = litMap;
+  cloudMRT = TSL.mrt({ output: litMap, dist: vec4(texel.get("dist"), 0, 0, 1) });
   cloudTile = new THREE.Mesh(new THREE.PlaneGeometry(1 / CLOUD_TILES[0], 1 / CLOUD_TILES[1]), tm); cloudTile.frustumCulled = false;
   cloudScene = new THREE.Scene(); cloudScene.add(cloudTile);
   cloudCam = new THREE.OrthographicCamera(0, 1, 1, 0, -1, 1);
@@ -5732,6 +5741,10 @@ function cloudsFrame(cam, fr) {
     U.up.value.set(...fr.up); U.east.value.set(...fr.east); U.north.value.set(...fr.north);
     U.dr.value.set(dr[0], dr[1]); U.sunU.value.set(...Clouds.undrift(L.sunDir, dr)); U.sunDir.value.set(...L.sunDir);
     U.sun.value.set(...L.sun); U.hi.value.set(...L.hi); U.lo.value.set(...L.lo); U.haze.value.set(...L.haze);
+    // the history weight: full while the eye stands (within CLOUD_KEEP_M[0] of the last map's), none past CLOUD_KEEP_M[1]
+    const moved = cloudLatch && cloudMaps > 0 ? Math.hypot(cam[0] - cloudLatch.eye[0], cam[1] - cloudLatch.eye[1], cam[2] - cloudLatch.eye[2]) : Infinity;
+    U.keep.value = CLOUD_KEEP * Math.max(0, Math.min(1, (CLOUD_KEEP_M[1] - moved) / (CLOUD_KEEP_M[1] - CLOUD_KEEP_M[0])));
+    U.seed.value = (cloudMaps * 0.6180339887) % 1;
     cloudLatch = { up: fr.up.slice(), east: fr.east.slice(), north: fr.north.slice(), eye: [cam[0], cam[1], cam[2]] };
   }
   // CLOUD SHADOWS: the map over the ground, every CLOUD_SHADOW_MS or once the eye has moved an eighth of its span
