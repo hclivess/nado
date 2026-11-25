@@ -6,4 +6,4 @@ LeafSet009_1K-JPG_Color.jpg c3826e2e9ce3b796c7ec98cc26e0c16f
 LeafSet009_1K-JPG_Opacity.jpg f4400911df2f5f9c1a1cb23fe75c888f
 
 # outputs (file sha256)
-leaves.png 8bd7336920484010dda67c209bb1d01e0daeeec627aab6315a2d06c79f3cfc6f
+leaves.png ff21e889b9ac115cb50c8c94c1f76c6a315c79954f9a00ed046cd0fc598bb2d7

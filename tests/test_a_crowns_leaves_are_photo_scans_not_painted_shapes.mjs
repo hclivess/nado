@@ -46,7 +46,9 @@ print(json.dumps(out))`, join(dir, "leaves.png")], { encoding: "utf8" }).trim().
 ok(stats.size[0] === 1024 && stats.size[1] === 512 && stats.mode === "RGBA", `the PNG is the atlas's top row, 1024 x 512 RGBA (${stats.size.join(" x ")} ${stats.mode})`);
 for (const [i, name] of [[0, "broadleaf"], [1, "birch"]]) {
   const t = stats.tiles[i];
-  ok(t.coverage > 0.3, `the ${name} tile is full of leaves (${(t.coverage * 100).toFixed(0)} % covered)`);
+  // (a cluster is BRANCH SPRAYS with sky between them, not a disc — 2026-11-25: discs read as a crown of rosettes at 60 m — so a
+  // quarter of the tile is leaves; the crown's many overlapping cards fill it, as the vale photographs check)
+  ok(t.coverage > 0.25, `the ${name} tile is full of leaves (${(t.coverage * 100).toFixed(0)} % covered)`);
   // a painted shape is one flat fill: neighbouring covered pixels differ by ~0 except at its edges; a scan's veins and blemishes
   ok(t.grain > 2.5, `…and has a scan's grain, the colour varying inside a leaf (mean step ${t.grain.toFixed(1)} of 255)`);
 }
