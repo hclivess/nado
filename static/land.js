@@ -1446,6 +1446,8 @@ function seenShow() {
 /** The far trees' pictures: every (species, height) of land-forest SLOTS, its own land-trees model seen from the side
  *  under an even sky, drawn once into a render target and read back into the atlas texture. */
 async function bakeForest() {
+  // the scanned leaves first (paintLeaves), so the far cards are pictures of the crowns a player walks up to — at most 8 s
+  if (matLeaves && matLeaves.userData.ready) await Promise.race([matLeaves.userData.ready, new Promise((r) => setTimeout(r, 8000))]);
   const { cols, rows, wide, tall, foot } = Forest.ATLAS, pw = PHONE ? 768 : 1536, ph = Math.round(pw * rows * tall / (cols * wide));   // (a width whose rows need no padding: 4·pw is a multiple of 256)
   const rt = new THREE.RenderTarget(pw, ph), sc = new THREE.Scene(), cam = new THREE.OrthographicCamera(0, cols * wide, rows * tall, 0, 1, 100);
   cam.position.set(0, 0, 50);
@@ -5157,6 +5159,29 @@ function paintLeaves() {
   tex.colorSpace = THREE.SRGBColorSpace; tex.generateMipmaps = true;
   tex.minFilter = THREE.LinearMipmapLinearFilter; tex.magFilter = THREE.LinearFilter; tex.anisotropy = 4;
   tex.needsUpdate = true;
+  // PHOTO-SCANNED LEAVES, NOT PAINTED SHAPES (operator 2026-11-25: "trees liok like 2002 garbage", "yours looks like some
+  // fucking Nintendo ripoff. the reference looks real"): the broadleaf and birch tiles (the atlas's top row) are replaced by
+  // clusters of scanned leaves — ambientCG LeafSet009, CC0, built by tools/land_leaves.py into static/vendor/leaves/ —
+  // when they load; until then (or if they fail) the painted ones above stand. userData.ready settles either way, and the
+  // far forest's bake (bakeForest) waits on it, so the far cards are pictures of the scanned crowns too.
+  tex.userData.ready = new Promise((done) => {
+    const img = new Image();
+    img.onload = () => {
+      try {
+        const cv = document.createElement("canvas"); cv.width = img.width; cv.height = img.height;
+        const g = cv.getContext("2d"); g.drawImage(img, 0, 0);
+        const d = g.getImageData(0, 0, Math.min(S, img.width), Math.min(T, img.height)).data, w = Math.min(S, img.width);
+        for (let y = 0; y < Math.min(T, img.height); y++) for (let x = 0; x < w; x++) {
+          const i = (y * S + x) * 4, j = (y * w + x) * 4;
+          out[i] = d[j]; out[i + 1] = d[j + 1]; out[i + 2] = d[j + 2]; out[i + 3] = d[j + 3];
+        }
+        tex.needsUpdate = true;
+        done(true);
+      } catch (e) { done(false); }
+    };
+    img.onerror = () => done(false);
+    img.src = "/static/vendor/leaves/leaves.png";
+  });
   return tex;
 }
 // WATER: lakes and the sea ("bland untextured marches", operator 2026-11-06 — they were a flat 16-px atlas tile). Ripples
@@ -5194,6 +5219,7 @@ function treeMaterials() {
   bark.positionNode = sway;
   const leafTex = paintLeaves(), s = TSL.texture(leafTex, uv);
   const leaves = new THREE.MeshStandardNodeMaterial({ roughness: 0.7, metalness: 0, side: THREE.DoubleSide, alphaTest: 0.42 });
+  leaves.userData.ready = leafTex.userData.ready;           // the scanned clusters in (or failed): bakeForest waits on it
   // x LEAF_LIT (2026-11-25): beside the Chlorophyll shot's near wood (50, 63, 37) the vale's wood of near models measured
   // (30, 57, 21) and (27, 47, 10) — its own colour, with clouds and sun shadows off alike; at 1.35, (36, 69, 22) / (32, 55, 11),
   // greener and no paler, the near bushes (another material) unchanged

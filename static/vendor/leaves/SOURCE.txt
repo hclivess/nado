@@ -1,0 +1,9 @@
+Land's leaf clusters: ambientCG (https://ambientcg.com), CC0 1.0 Universal (public domain).
+Built by tools/land_leaves.py from LeafSet009 (https://ambientcg.com/get?file=LeafSet009_1K-JPG.zip): its leaves cut out by their opacity and laid into clusters.
+
+# originals (file md5)
+LeafSet009_1K-JPG_Color.jpg c3826e2e9ce3b796c7ec98cc26e0c16f
+LeafSet009_1K-JPG_Opacity.jpg f4400911df2f5f9c1a1cb23fe75c888f
+
+# outputs (file sha256)
+leaves.png 8bd7336920484010dda67c209bb1d01e0daeeec627aab6315a2d06c79f3cfc6f
