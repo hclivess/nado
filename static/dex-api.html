@@ -1,0 +1,121 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>NADO DEX API & MCP</title>
+<meta name="description" content="Trade every NADO market — cross-chain swaps, limit orders, pools and launches — from a bot or an AI agent. Free, no sign-up, no API key: every trade is signed by your own key.">
+<link rel="canonical" href="https://dex.nadochain.com/static/dex-api.html">
+<meta name="theme-color" content="#0b0f14">
+<script src="/static/i18n.js"></script>
+<style>
+  /* the DEX page's palette (static/dex.html), so the docs read as part of the exchange */
+  :root{--bg:#0b0f14;--elev:#131a23;--elev2:#1a232e;--border:#243140;--txt:#e6edf3;--dim:#93a1b0;--faint:#5d6b7a;
+    --accent:#00ad93;--accent2:#00c9a7;--warn:#e3b341;--mono:ui-monospace,SFMono-Regular,Menlo,Consolas,monospace}
+  *{box-sizing:border-box}
+  body{margin:0;background:var(--bg);color:var(--txt);font:15px/1.55 system-ui,-apple-system,"Segoe UI",Roboto,sans-serif}
+  .wrap{max-width:860px;margin:0 auto;padding:18px 16px 40px}
+  header{display:flex;align-items:center;gap:10px;flex-wrap:wrap}
+  header h1{font-size:22px;margin:0;flex:1 1 auto}
+  header h1 .a{color:var(--accent2)}
+  a{color:var(--accent2)}
+  .hub{font-size:13px;text-decoration:none;border:1px solid var(--border);border-radius:8px;padding:5px 10px;color:var(--dim)}
+  .hub:hover{border-color:var(--accent);color:var(--txt)}
+  .lead{color:var(--dim);font-size:16px;margin:10px 0 18px}
+  .card{background:var(--elev);border:1px solid var(--border);border-radius:12px;padding:16px;margin:14px 0}
+  h2{font-size:17px;margin:0 0 8px}
+  p{margin:6px 0}
+  .dim{color:var(--dim)}
+  .pill{display:inline-block;font-size:12px;border:1px solid var(--accent);color:var(--accent2);border-radius:999px;padding:2px 9px;margin:0 6px 6px 0}
+  pre{background:var(--elev2);border:1px solid var(--border);border-radius:8px;padding:10px 12px;overflow-x:auto;
+    font:12.5px/1.5 var(--mono);color:var(--txt);margin:8px 0}
+  code{font-family:var(--mono);font-size:12.5px;background:var(--elev2);border-radius:4px;padding:1px 5px}
+  pre code{background:none;padding:0}
+  .grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(180px,1fr));gap:10px;margin-top:8px}
+  .mkt{background:var(--elev2);border:1px solid var(--border);border-radius:10px;padding:10px 12px}
+  .mkt b{display:block;margin-bottom:3px}
+  .mkt code{font-size:11.5px;word-break:break-all}
+  .warn{border-color:var(--warn)}
+  .warn h2{color:var(--warn)}
+  /* on its own row above the code — floated, it sat on top of the code on a phone */
+  .copy{display:block;margin:0 0 6px auto;font-size:12px;background:none;border:1px solid var(--border);color:var(--dim);border-radius:6px;padding:2px 8px;cursor:pointer}
+  .copy:hover{color:var(--txt);border-color:var(--accent)}
+  footer{color:var(--faint);font-size:12px;text-align:center;margin-top:22px}
+  [dir=rtl] .copy{margin:0 auto 6px 0}
+</style>
+</head>
+<body>
+<div class="wrap">
+  <header>
+    <h1>NADO <span class="a">DEX</span> <span data-i18n="dex.apiPTitle">API & MCP</span></h1>
+    <a class="hub" href="https://dex.nadochain.com/" data-i18n="dex.apiPBack">Back to the DEX</a>
+  </header>
+  <p class="lead" data-i18n="dex.apiPLead">Trade every NADO market — cross-chain swaps, limit orders, pools and launches — from a bot or an AI agent. Free, no sign-up, no API key.</p>
+  <span class="pill" data-i18n="dex.apiPFree">Free</span><span class="pill" data-i18n="dex.apiPNoKey">No API key</span><span class="pill">REST</span><span class="pill">SDK</span><span class="pill">MCP</span>
+
+  <div class="card">
+    <h2 data-i18n="dex.apiPSecH">How it is secured</h2>
+    <p data-i18n="dex.apiPSec1">There is no API key to steal. Every trade is a transaction your program signs with its own key on your machine, and every node checks the signature.</p>
+    <p data-i18n="dex.apiPSec2">No endpoint ever takes a key. Give your bot its own key, fund it with only what it may trade, and never use your wallet's key.</p>
+  </div>
+
+  <div class="card">
+    <h2 data-i18n="dex.apiPReadH">Read the markets</h2>
+    <p class="dim" data-i18n="dex.apiPReadB">Public endpoints, 120 requests a minute per IP. Prices are exact decimal strings.</p>
+    <div class="grid">
+      <div class="mkt"><b data-i18n="dex.apiPMktX">Cross-chain swaps</b><code>/exec/otc/markets</code><br><code>/exec/otc/book?market=ETH</code><br><code>/exec/otc/trades</code></div>
+      <div class="mkt"><b data-i18n="dex.apiPMktL">Limit orders</b><code>/exec/otc/intra</code></div>
+      <div class="mkt"><b data-i18n="dex.apiPMktP">Pools and liquidity</b><code>/exec/amm/pools</code><br><code>/exec/amm/quote?pool=&amp;side=buy&amp;amount=10</code><br><code>/exec/dex_candles?pid=</code></div>
+      <div class="mkt"><b data-i18n="dex.apiPMktLa">Launchpad</b><code>/exec/amm/pools</code> <span class="dim">(kind = curve)</span></div>
+      <div class="mkt"><b data-i18n="dex.apiPMktB">Exchange balance</b><code>/exec/amm/balance?address=</code></div>
+    </div>
+    <pre><button class="copy" data-copy data-i18n="dex.apiPCopy">Copy</button><code id="exIdx">curl https://dex.nadochain.com/exec/dexapi</code></pre>
+  </div>
+
+  <div class="card">
+    <h2 data-i18n="dex.apiPSdkH">Trade from code</h2>
+    <p class="dim" data-i18n="dex.apiPSdkB">Download the SDK, make a trading key, fund its address, then trade.</p>
+    <pre><button class="copy" data-copy data-i18n="dex.apiPCopy">Copy</button><code>mkdir -p nado-dex/vendor &amp;&amp; cd nado-dex
+for f in nadodex.mjs nadodex-mcp.mjs nadotx.js blake2s.js vendor/nado-crypto.js; do
+  curl -fsS --create-dirs -o "$f" "https://dex.nadochain.com/static/$f"; done
+node nadodex.mjs keygen</code></pre>
+    <pre><button class="copy" data-copy data-i18n="dex.apiPCopy">Copy</button><code>import { NadoDex } from "./nadodex.mjs";
+const dex = new NadoDex({ key: process.env.NADO_BOT_SEED });
+
+await dex.deposit("100");                                   // L1 -> exchange
+const q = await dex.quote(pool, "buy", "10");               // exact
+const s = await dex.swap({ pool, side: "buy", amount: "10", slippageBps: 100 });
+await dex.claimSwap(s.orderId);
+await dex.postLimit({ give: { asset: "0", amount: "5" }, want: { asset: tokenId, amount: "120" } });
+const book = await dex.book("ETH");                         // cross-chain</code></pre>
+  </div>
+
+  <div class="card">
+    <h2 data-i18n="dex.apiPMcpH">Connect an AI agent (MCP)</h2>
+    <p data-i18n="dex.apiPMcpRemote">Read-only, nothing to install — add this URL as an MCP server:</p>
+    <pre><button class="copy" data-copy data-i18n="dex.apiPCopy">Copy</button><code>claude mcp add --transport http nado-dex https://dex.nadochain.com/exec/otc/mcp</code></pre>
+    <p data-i18n="dex.apiPMcpLocal">To let an agent trade, run the local server with the bot's own key. The key never leaves your machine:</p>
+    <pre><button class="copy" data-copy data-i18n="dex.apiPCopy">Copy</button><code>claude mcp add nado-dex -e NADO_BOT_SEED=&lt;seed&gt; -- node ./nado-dex/nadodex-mcp.mjs</code></pre>
+  </div>
+
+  <div class="card warn">
+    <h2 data-i18n="dex.apiPSecretH">Keep the swap secret</h2>
+    <p data-i18n="dex.apiPSecretB">A cross-chain order makes a secret that opens both chains. Store it before the order can be taken — without it the swap can only expire. The MCP server writes it to disk for you.</p>
+  </div>
+
+  <div class="card">
+    <h2 data-i18n="dex.apiPRefH">Full reference</h2>
+    <p><span data-i18n="dex.apiPRefB">Every endpoint, every method and every field:</span>
+      <a href="https://github.com/hclivess/nado/blob/main/doc/dex-api.md">doc/dex-api.md</a></p>
+  </div>
+  <footer><a href="https://dex.nadochain.com/" data-i18n="dex.apiPBack">Back to the DEX</a></footer>
+</div>
+<script>
+  // copy buttons: the code block beside each, as text (never the button's own label)
+  document.querySelectorAll("[data-copy]").forEach((b) => b.addEventListener("click", () => {
+    const code = b.parentElement.querySelector("code");
+    if (code && navigator.clipboard) navigator.clipboard.writeText(code.textContent).then(() => { b.textContent = "✓"; setTimeout(() => { b.textContent = (window.t ? window.t("dex.apiPCopy", "Copy") : "Copy"); }, 1200); }).catch(() => {});
+  }));
+</script>
+</body>
+</html>

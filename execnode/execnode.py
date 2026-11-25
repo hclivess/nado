@@ -36,6 +36,8 @@ from protocol import EPOCH_LENGTH as _EPOCH_LENGTH
 from aiohttp import web
 
 from execnode.state import ExecState
+from execnode import otc_api                                    # the free, read-only DEX API: cross-chain + limit orders
+from execnode import amm_api                                    # … and the pools + launchpad
 
 L1 = os.environ.get("NADO_L1_URL", "http://127.0.0.1:9173").rstrip("/")
 STATE_PATH = os.environ.get("NADO_EXEC_STATE", "exec_state.json")
@@ -3219,6 +3221,312 @@ async def tail_loop():
 _NS404 = lambda: web.json_response({"error": "namespace not served by this node"}, status=404)
 
 
+# ---- the cross-chain DEX trading API (execnode/otc_api.py) ------------------------------------------------
+# FREE + READ-ONLY by design: writes are signed transactions to the L1 /submit_transaction, so nothing here takes a
+# key, a session or an API token (CLAUDE.md §8). The decode is cached per (state, cursor) — a bot polling once a second
+# costs one dict walk a block, not one a request — and each IP gets otc_api.READ_LIMIT calls a minute per endpoint.
+_otc_cache = {}
+
+
+def _otc_ip(request):
+    """The caller's IP for the read limit: nginx's X-Real-IP only when the socket peer is the local proxy (a header from
+    anyone else is attacker-chosen and would hand out fresh buckets)."""
+    peer = request.remote or "unknown"
+    if peer in ("127.0.0.1", "::1"):
+        return request.headers.get("X-Real-IP", peer)
+    return peer
+
+
+def _otc_rows(request):
+    """(rows, cursor, error-response) for the otc contract in the request's state, after the per-IP read limit."""
+    from ops.ratelimit import allow
+    if not allow(f"otc|{_otc_ip(request)}|{request.path}", otc_api.READ_LIMIT, 60):
+        return None, None, web.json_response({"error": "rate limited — slow down"}, status=429)
+    return _otc_rows_nolimit(request)
+
+
+def _otc_rows_nolimit(request, fresh=False):
+    """fresh: read the provisional (pre-finality, ~one block behind) state even without ?provisional=1 — what an MCP
+    client, which cannot add query flags to its tool calls, should see; falls back to finalized like _state_for."""
+    st = _state_for(request)
+    if fresh and prov_states is not None and request.query.get("ns", "default") in prov_states:
+        st = prov_states[request.query.get("ns", "default")]
+    if st is None:
+        return None, None, _NS404()
+    cid = request.query.get("cid", otc_api.OTC_CID)
+    c = st.contracts.get(cid)
+    if not c:
+        return None, None, web.json_response({"error": "order book contract not on this chain"}, status=404)
+    cur = int(getattr(st, "cursor", 0) or 0)
+    key = (id(st), cid)
+    hit = _otc_cache.get(key)
+    if not hit or hit[0] != cur:
+        hit = (cur, otc_api.orders(st.decode_view(c), cur))
+        _otc_cache[key] = hit
+        if len(_otc_cache) > 16:                    # one per (namespace, provisional) state — never grows past a few
+            _otc_cache.pop(next(iter(_otc_cache)))
+    return hit[1], cur, None
+
+
+async def h_otc_index(request):
+    """GET /exec/otc — the API describes itself (endpoints, auth model, limits, SDK)."""
+    return web.json_response(otc_api.index())
+
+
+async def h_otc_markets(request):
+    rows, cur, err = _otc_rows(request)
+    if err is not None:
+        return err
+    return web.json_response({"cursor": cur, "markets": otc_api.markets(rows)})
+
+
+async def h_otc_book(request):
+    rows, cur, err = _otc_rows(request)
+    if err is not None:
+        return err
+    mk = otc_api.resolve_market(request.query.get("market", ""))
+    if mk is None:
+        return web.json_response({"error": "unknown market — try ETH, BTC, eth|0x<token> (see /exec/otc/markets)"}, status=400)
+    return web.json_response(dict(otc_api.book(rows, mk), cursor=cur))
+
+
+async def h_otc_order(request):
+    rows, cur, err = _otc_rows(request)
+    if err is not None:
+        return err
+    try:
+        oid = int(request.query.get("id", ""))
+    except ValueError:
+        return web.json_response({"error": "?id= must be an order id"}, status=400)
+    row = next((r for r in rows if r["id"] == oid), None)
+    if row is None:
+        return web.json_response({"error": "no such order"}, status=404)
+    return web.json_response({"cursor": cur, "order": row})
+
+
+async def h_otc_orders(request):
+    rows, cur, err = _otc_rows(request)
+    if err is not None:
+        return err
+    maker, status = request.query.get("maker", ""), request.query.get("status", "")
+    if not maker:
+        return web.json_response({"error": "?maker=<address> is required"}, status=400)
+    got = [r for r in rows if (r["maker"] == maker or r.get("taker") == maker) and (not status or r["status"] == status)]
+    return web.json_response({"cursor": cur, "orders": got})
+
+
+async def h_otc_mcp(request):
+    """POST /exec/otc/mcp — the remote, READ-ONLY MCP server (Streamable HTTP, JSON replies, no session): one JSON-RPC
+    message or a batch in, the answers out; a notification-only post gets 202. Its tools are the reads above, nothing
+    that signs (otc_api.mcp_handle). Rate-limited like every otc read; the book is decoded only by a tool call."""
+    if request.method == "GET":                         # no server-initiated stream is offered
+        return web.json_response({"error": "POST JSON-RPC here (MCP Streamable HTTP)", "api": "/exec/otc"}, status=405,
+                                 headers={"Allow": "POST"})
+    from ops.ratelimit import allow
+    if not allow(f"otc|{_otc_ip(request)}|{request.path}", otc_api.READ_LIMIT, 60):
+        return web.json_response({"jsonrpc": "2.0", "id": None, "error": {"code": -32000, "message": "rate limited"}}, status=429)
+    try:
+        body = await request.json()
+    except Exception:
+        return web.json_response({"jsonrpc": "2.0", "id": None, "error": {"code": -32700, "message": "parse error"}}, status=400)
+    box = {}
+
+    def rows_fn():
+        if "rows" not in box:
+            rows, cur, err = _otc_rows_nolimit(request, fresh=True)
+            if err is not None:
+                raise ValueError("the order book is not served by this node")
+            box["rows"] = (rows, cur)
+        return box["rows"]
+
+    def fresh_state():
+        ns = request.query.get("ns", "default")
+        return prov_states[ns] if prov_states is not None and ns in prov_states else states.get(ns)
+
+    def dexc():
+        st = fresh_state()
+        c = st.contracts.get(amm_api.DEX_CID) if st else None
+        if c is None:
+            raise ValueError("the pool contract is not served by this node")
+        return st, c
+
+    def t_quote(a):
+        st, c = dexc()
+        pools = _amm_pools(st, c)
+        row = next((p for p in pools if p["id"] == int(a.get("pool", -1))), None)
+        if row is None:
+            raise ValueError("no such pool")
+        side = a.get("side")
+        in_dec, out_dec = (10, row["decimals"]) if side == "buy" else (row["decimals"], 10)
+        units = amm_api.to_units(a.get("amount", ""), in_dec)
+        r = amm_api.quote(st.decode_view(c), row["id"], side, units)
+        return {"pool": row["id"], "side": side, "in": amm_api.units_str(units, in_dec), "in_units": units,
+                "out": amm_api.units_str(r["out_units"], out_dec), "out_units": r["out_units"], "fee_units": r["fee_units"]}
+
+    def t_one(fn, what):
+        def run(a):
+            st, c = dexc()
+            row = fn(st, c, int(a.get("id", -1)))
+            if row is None:
+                raise ValueError("no such " + what)
+            return {"cursor": st.cursor, what: row}
+        return run
+
+    def t_balance(a):
+        st = fresh_state()
+        addr = str(a.get("address") or "")
+        bst = prov_states["default"] if prov_states is not None and "default" in prov_states else state
+        return {"address": addr, "nado_raw": str(int(bst.bridge.get(addr, 0))),
+                "tokens_raw": {str(k): str(int(h[addr])) for k, h in sorted(st.abal.items()) if h.get(addr)}}
+    ctx = {"rows": rows_fn, "extra": {
+        "dex_pools": lambda a: (lambda st_c: {"cursor": st_c[0].cursor, "pools": _amm_pools(*st_c)})(dexc()),
+        "dex_quote": t_quote,
+        "dex_swap_order": t_one(lambda st, c, i: amm_api.order(c, i, st.cursor, st.decode_view(c)), "order"),
+        "dex_position": t_one(lambda st, c, i: amm_api.position(c, st.decode_view(c), i), "position"),
+        "dex_balance": t_balance,
+        "dex_limit_orders": lambda a: {"orders": otc_api.intra(rows_fn()[0], fresh_state().assets, a.get("give"), a.get("want"))},
+    }}
+    msgs = body if isinstance(body, list) else [body]
+    out = [r for r in (otc_api.mcp_handle(m, ctx) for m in msgs[:20]) if r is not None]
+    if not out:
+        return web.Response(status=202)
+    return web.json_response(out if isinstance(body, list) else out[0])
+
+
+async def h_otc_intra(request):
+    rows, cur, err = _otc_rows(request)
+    if err is not None:
+        return err
+    st = _state_for(request)
+    give, want = request.query.get("give"), request.query.get("want")
+    return web.json_response({"cursor": cur, "orders": otc_api.intra(rows, st.assets if st else {}, give, want)})
+
+
+# ---- the pools + launchpad half of the DEX API (execnode/amm_api.py) — the same free, read-only, rate-limited rules --
+def _amm(request):
+    """(state, contract, error-response) for the dex contract in the request's state, after the per-IP read limit."""
+    from ops.ratelimit import allow
+    if not allow(f"otc|{_otc_ip(request)}|{request.path}", otc_api.READ_LIMIT, 60):
+        return None, None, web.json_response({"error": "rate limited — slow down"}, status=429)
+    st = _state_for(request)
+    if st is None:
+        return None, None, _NS404()
+    c = st.contracts.get(request.query.get("cid", amm_api.DEX_CID))
+    if not c:
+        return st, None, web.json_response({"error": "pool contract not on this chain"}, status=404)
+    return st, c, None
+
+
+def _amm_pools(st, c):
+    return amm_api.pools(st.decode_view(c), st.assets, int(getattr(st, "cursor", 0) or 0))
+
+
+async def h_amm_pools(request):
+    st, c, err = _amm(request)
+    if err is not None:
+        return err
+    return web.json_response({"cursor": st.cursor, "pools": _amm_pools(st, c)})
+
+
+async def h_amm_pool(request):
+    st, c, err = _amm(request)
+    if err is not None:
+        return err
+    try:
+        pid = int(request.query.get("id", ""))
+    except ValueError:
+        return web.json_response({"error": "?id= must be a pool id"}, status=400)
+    row = next((p for p in _amm_pools(st, c) if p["id"] == pid), None)
+    if row is None:
+        who = amm_api.reserved(c, pid)
+        if who:                                         # a prelaunched id: reserved, its supply not sent yet
+            return web.json_response({"cursor": st.cursor, "pool": None, "reserved": True, "creator_digest": who})
+        return web.json_response({"error": "no such pool"}, status=404)
+    return web.json_response({"cursor": st.cursor, "pool": row})
+
+
+async def h_amm_quote(request):
+    """?pool=&side=buy|sell&amount=<decimal> (NADO for a buy, the coin for a sell) or &units=<pool units>: what one
+    order alone in its batch receives, in units and decimals — the contract's exact formula (amm_api.quote)."""
+    st, c, err = _amm(request)
+    if err is not None:
+        return err
+    q = request.query
+    try:
+        pid, side = int(q.get("pool", "")), q.get("side", "")
+        row = next((p for p in _amm_pools(st, c) if p["id"] == pid), None)
+        if row is None:
+            raise ValueError("no such pool")
+        in_dec, out_dec = (10, row["decimals"]) if side == "buy" else (row["decimals"], 10)
+        units = int(q["units"]) if q.get("units") else amm_api.to_units(q.get("amount", ""), in_dec)
+        r = amm_api.quote(st.decode_view(c), pid, side, units)
+    except (ValueError, KeyError) as e:
+        return web.json_response({"error": str(e) or "pool, side and amount are required"}, status=400)
+    return web.json_response({"cursor": st.cursor, "pool": pid, "side": side, "in_units": units,
+                              "in": amm_api.units_str(units, in_dec), "out_units": r["out_units"],
+                              "out": amm_api.units_str(r["out_units"], out_dec), "fee_units": r["fee_units"],
+                              "method": ("buy" if side == "buy" else "sell") if row["kind"] == "curve"
+                              else ("obuy" if side == "buy" else "osell")})
+
+
+async def h_amm_order(request):
+    st, c, err = _amm(request)
+    if err is not None:
+        return err
+    try:
+        row = amm_api.order(c, int(request.query.get("id", "")), st.cursor, st.decode_view(c))
+    except ValueError:
+        return web.json_response({"error": "?id= must be an order id"}, status=400)
+    if row is None:
+        return web.json_response({"error": "no such order"}, status=404)
+    return web.json_response({"cursor": st.cursor, "order": row})
+
+
+async def h_amm_position(request):
+    st, c, err = _amm(request)
+    if err is not None:
+        return err
+    try:
+        row = amm_api.position(c, st.decode_view(c), int(request.query.get("id", "")))
+    except ValueError:
+        return web.json_response({"error": "?id= must be a position id"}, status=400)
+    if row is None:
+        return web.json_response({"error": "no such position"}, status=404)
+    return web.json_response({"cursor": st.cursor, "position": row})
+
+
+async def h_amm_balance(request):
+    """?address= -> its EXCHANGE balances: NADO (the bridge balance every trade draws on) and each token, raw."""
+    st, c, err = _amm(request)
+    if st is None:
+        return err
+    addr = request.query.get("address", "")
+    if not addr:
+        return web.json_response({"error": "?address= is required"}, status=400)
+    bst = state
+    if request.query.get("provisional") in ("1", "true", "yes") and prov_states is not None and "default" in prov_states:
+        bst = prov_states["default"]                    # bridge balances live on the default layer (h_bridge)
+    toks = {str(aid): str(int(h[addr])) for aid, h in sorted(st.abal.items()) if h.get(addr)}
+    return web.json_response({"address": addr, "nado_raw": str(int(bst.bridge.get(addr, 0))), "tokens_raw": toks,
+                              "cursor": st.cursor})
+
+
+async def h_otc_trades(request):
+    rows, cur, err = _otc_rows(request)
+    if err is not None:
+        return err
+    mk = None
+    if request.query.get("market"):
+        mk = otc_api.resolve_market(request.query["market"])
+        if mk is None:
+            return web.json_response({"error": "unknown market"}, status=400)
+    try:
+        limit = int(request.query.get("limit", "100"))
+    except ValueError:
+        limit = 100
+    return web.json_response({"cursor": cur, "trades": otc_api.trades(rows, mk, limit)})
+
+
 # ---- DA serving: publish / fetch erasure-coded objects by commitment -----------------------------
 def _bad_commitment(c) -> bool:
     """The commitment shape check at the EDGE of every /da READ handler (announce spells the same expression
@@ -4414,6 +4722,22 @@ async def main():
                     web.get("/exec/dex_trades", h_dex_trades),
                     web.get("/exec/dex_candles", h_dex_candles),
                     web.get("/exec/dex_stats", h_dex_stats),
+                    web.get("/exec/otc", h_otc_index),            # the cross-chain DEX API — free, read-only
+                    web.get("/exec/otc/markets", h_otc_markets),  # (writes are signed txs to the L1; otc_api.py)
+                    web.get("/exec/otc/book", h_otc_book),
+                    web.get("/exec/otc/order", h_otc_order),
+                    web.get("/exec/otc/orders", h_otc_orders),
+                    web.get("/exec/otc/trades", h_otc_trades),
+                    web.get("/exec/otc/intra", h_otc_intra),
+                    web.get("/exec/dexapi", h_otc_index),         # the whole DEX API's index (= /exec/otc)
+                    web.get("/exec/amm/pools", h_amm_pools),      # pools + launch curves (amm_api.py)
+                    web.get("/exec/amm/pool", h_amm_pool),
+                    web.get("/exec/amm/quote", h_amm_quote),
+                    web.get("/exec/amm/order", h_amm_order),
+                    web.get("/exec/amm/position", h_amm_position),
+                    web.get("/exec/amm/balance", h_amm_balance),
+                    web.post("/exec/otc/mcp", h_otc_mcp),         # remote MCP server, read-only
+                    web.get("/exec/otc/mcp", h_otc_mcp),
                     web.get("/exec/allowances", h_allowances),
                     web.get("/exec/withdrawal_proof", h_withdrawal_proof),
                     web.get("/exec/withdrawals", h_withdrawals),

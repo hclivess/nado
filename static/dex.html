@@ -149,6 +149,12 @@
   .kv{display:flex;justify-content:space-between;gap:10px;font-size:13px;padding:4px 0}.kv .k{color:var(--dim)}
   a{color:var(--accent2)}
   footer{color:var(--faint);font-size:11.5px;text-align:center;margin-top:22px}
+  footer a{color:var(--dim)}
+  /* the DEX API cue (operator 2026-11-25: "on the page itself there should be cues that these things exist") */
+  header .hub.apihub{margin-left:6px;color:var(--accent2);border-color:var(--accent)}
+  .apicue{font-size:12px;margin:8px 0 0}
+  .apicue a{color:var(--accent2);text-decoration:none}
+  .apicue a:hover{text-decoration:underline}
   /* loan rows — distinct from .row (the input flex container) so a loan never inherits equal-width columns */
   .loan{display:flex;gap:12px;align-items:flex-start;padding:11px 0;border-bottom:1px solid var(--border)}
   .loan:last-child{border-bottom:0}
@@ -352,6 +358,7 @@
       <path d="M40 30H18l6 6-4 4L7 27 20 14l4 4-6 6h22z" fill="#00ad93" opacity=".75"/></svg></span>
     <h1>NADO <span class="a">DEX</span></h1>
     <a class="hub" href="https://nadochain.com/apps" data-i18n="dex.hAllApps">All apps</a>
+    <a class="hub apihub" href="/static/dex-api.html" data-i18n="dex.apiHdr">API · MCP</a>
   </header>
   <p class="sub" data-i18n-html="dex.hSub">Swap NADO for tokens, or for <b>real BTC, ETH and SOL</b> — no middleman, no listing, no
   admin key. The 0.3% fee goes to the people who supply the liquidity.</p>
@@ -460,6 +467,7 @@
   <div class="card hidden" id="marketsCard">
     <h2 data-i18n="dex.mtsTitle">Markets</h2>
     <p class="small dim lead" data-i18n="dex.mtsLead">Every pair on the on-chain AMM and the cross-chain book. Tap a column to sort, a row to trade.</p>
+    <p class="apicue"><a href="/static/dex-api.html" data-i18n="dex.apiCue">Trade this from a bot or an AI agent — free API and MCP server →</a></p>
     <div class="row mt"><input id="mtSearch" placeholder="Search markets" data-i18n-ph="dex.mtSearch" aria-label="Search markets" autocomplete="off" style="max-width:260px"></div>
     <div class="mtwrap"><table class="mt-table" aria-label="Markets"><thead id="mtHead"></thead><tbody id="mtBody"></tbody></table></div>
     <div class="small dim mt" id="mtNote"></div>
@@ -469,6 +477,7 @@
   <div class="card" id="poolsCard">
     <h2 data-i18n="dex.plTitle">Pools</h2>
     <p class="small dim lead" data-i18n="dex.plLead">Tap a market to trade it or supply liquidity.</p>
+    <p class="apicue"><a href="/static/dex-api.html" data-i18n="dex.apiCue">Trade this from a bot or an AI agent — free API and MCP server →</a></p>
     <div class="mkthead mt"><span data-i18n="dex.plMarket">Market</span><span style="text-align:right" data-i18n="dex.plPrice">Price (in NADO)</span><span style="text-align:right">24h</span></div>
     <div id="pools"></div>
   </div>
@@ -518,6 +527,7 @@
   <div class="card hidden" id="lpFeedCard">
     <h2 data-i18n="dex.lpFeedTitle">Launches</h2>
     <p class="small dim" data-i18n="dex.lpFeedHint">Every order in a coin's opening batch, and then in each block, gets one price — no sniping, no front-running. No platform or creator fee: 1 % of each trade is sealed or burned. A coin that sells 80 % of its supply graduates into a pool whose liquidity nobody can pull.</p>
+    <p class="apicue"><a href="/static/dex-api.html" data-i18n="dex.apiCue">Trade this from a bot or an AI agent — free API and MCP server →</a></p>
     <div id="lpFeed" class="mt"></div>
   </div>
   <div class="card hidden" id="lpCoinCard">
@@ -546,6 +556,7 @@
     as the other chain's lock, so one revealed secret opens both and neither party can take one leg without
     giving up the other. Each row verifies the counterparty's lock for you before you commit yours, and
     tells you the next step. This book only coordinates — it never holds your coins.</p></details>
+    <p class="apicue"><a href="/static/dex-api.html" data-i18n="dex.apiCue">Trade this from a bot or an AI agent — free API and MCP server →</a></p>
     <div id="otcBook" class="mt"></div>
   </div>
 
@@ -603,6 +614,7 @@
     <p class="small dim lead" data-i18n="dex.limLead">Name your own price; the first taker swaps both sides in one go.</p>
     <details class="more"><summary data-i18n="dex.howWorks">How this works</summary><p class="small dim" data-i18n="dex.limHowText">No partial fills. Cancel any
     time before someone takes it; after it expires anyone can return it to you.</p></details>
+    <p class="apicue"><a href="/static/dex-api.html" data-i18n="dex.apiCue">Trade this from a bot or an AI agent — free API and MCP server →</a></p>
     <div id="otcLimits" class="mt"></div>
     <div class="row mt">
       <select class="searchable" id="limGiveAsset" aria-label="Asset you give"></select>
@@ -622,6 +634,7 @@
   <footer>
     <span data-i18n="dex.ftNote">Everything here is public and verifiable on-chain. Supplying liquidity carries risk: if the price
     moves, you withdraw a different mix than you put in. Not investment advice.</span>
+    <br><a href="/static/dex-api.html" data-i18n="dex.apiFoot">API · SDK · MCP for developers</a>
   </footer>
 </div>
 <script type="module" src="/static/dex.js"></script>

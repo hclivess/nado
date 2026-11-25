@@ -83,6 +83,13 @@ Signing is ML-DSA-44 over `create_txid(body)` (blake2b of the canonical body min
 | GET | `/peers` · `/announce_peer` · `/whats_my_ip` | — | peer set |
 | GET | `/relays` | — | wallet-usable relays on this chain: self + every status_pool peer with its live height, the operator-published TLS `url` (or null) and the bare `api` address — the web wallet's failover pool ([relays.md](relays.md)) |
 
+### DEX trading API (free; every market; SDK + MCP)
+
+The exchange's own trading API — cross-chain swaps, limit orders, pools, the launchpad and the exchange balance — is
+documented in **[dex-api.md](dex-api.md)**: free reads under `/exec/otc/*` and `/exec/amm/*` (index: `GET /exec/dexapi`),
+writes as transactions signed locally (`static/nadodex.mjs`), a remote read-only MCP endpoint (`POST /exec/otc/mcp`) and
+a local trading MCP server (`static/nadodex-mcp.mjs`).
+
 ### HTLC (atomic swaps)
 | Method | Path | Params | Returns |
 |---|---|---|---|
