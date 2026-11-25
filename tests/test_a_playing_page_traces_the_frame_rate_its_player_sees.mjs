@@ -64,5 +64,20 @@ ok(page.includes('ws.onmessage = (ev) => pt("ws", () => wsIn(ev));') && page.inc
   "…the socket's messages and the titles' refresh among them");
 // 6
 ok(/if \(to === at\) return;\n  trace\("gov", \{ from: LADDER\[at\], to: LADDER\[to\]/.test(page), "each step the graphics governor takes is traced");
+// 7. the first-run benchmark's frames are its own (2026-11-25: the first real trace's first minute held 18 long frames, worst
+// 842 ms, 5.4 s "rest", while the benchmark cycled presets) — counted as "bench", never "rest"; and it traces what it chose
+{
+  const traced2 = [];
+  const run2 = new Function("trace", "SET", "innerWidth", "innerHeight", "devicePixelRatio", "benching", src + "\nreturn [perfSample, PERF];");
+  const [ps2] = run2((k, d) => { const e = { t: 0, k, ...d }; traced2.push(e); return e; }, { view: 6, res: 100 }, 1920, 1080, 1, true);
+  let t = 1000;
+  for (let i = 0; i < 40; i++) { t += i % 10 === 0 ? 300 : 17; ps2(t); }
+  for (let i = 0; i < 4000 && !traced2.length; i++) { t += 17; ps2(t); }
+  const b = traced2[0];
+  ok(b && b.in && b.in.bench > 0 && !(b.in.rest > 0), `long frames while the benchmark runs are counted as "bench", not "rest" (${b ? JSON.stringify(b.in) : "no trace"})`);
+}
+ok(/trace\("bench", \{ preset: chosen, fps, tried: Object\.keys\(measured\) \}\)/.test(page), "the benchmark traces the preset it chose and its frame rate");
+// 8. no compileAsync warm-up: with cascaded shadows it throws outside a frame (CSMShadowNode has no camera there)
+ok(!/renderer\.compileAsync\(/.test(page), "no shader warm-up through compileAsync (it threw in CSMShadowNode._getBreaks on every page with shadows)");
 console.log(fails ? `${fails} FAILED` : "all passed");
 process.exit(fails ? 1 : 0);

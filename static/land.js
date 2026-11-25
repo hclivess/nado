@@ -86,6 +86,10 @@ function perfSample(now) {
   if (PERF.last && gap < PERF_GAP) PERF.dts.push(gap);
   if (gap >= PERF_LONG && gap < PERF_GAP) {
     PERF.long++;
+    // THE BENCHMARK'S OWN FRAMES (2026-11-25): the first real trace's first minute held 18 long frames, worst 842 ms, 5.4 s of it
+    // "rest" — while the first-run benchmark (bench, 15 s in) cycles presets and each switch compiles new shaders. Its frames are
+    // counted as "bench", so a trace tells a one-time measurement from a stutter a player keeps meeting.
+    if (typeof benching !== "undefined" && benching) { PERF.in.bench = (PERF.in.bench || 0) + gap; PERF.cur = {}; PERF.last = now; if (!PERF.at) PERF.at = now; return null; }
     let timed = 0;
     for (const [k, v] of Object.entries(PERF.cur)) { PERF.in[k] = (PERF.in[k] || 0) + v; timed += v; }
     PERF.in.rest = (PERF.in.rest || 0) + Math.max(0, gap - timed);
@@ -4405,6 +4409,9 @@ function setSetting(k, v) {
   if (!(k in SET_DEF) || !(Number.isFinite(v) && v >= SET_RANGE[k][0] && v <= SET_RANGE[k][1]) || SET[k] === v) return;
   SET[k] = v; saveSet(); applySetting(k);
 }
+// NO SHADER WARM-UP (2026-11-25, tried and dropped): the renderer's compileAsync builds a scene with cascaded shadows
+// outside a frame, where CSMShadowNode has no camera yet — it threw "Uncaught" in _getBreaks on every page with shadows on
+// (tests/test_the_hud_stands_under_the_header_on_a_narrow_phone.mjs). The benchmark's frames are labelled instead (perfSample).
 function renderSettings() {
   const box = $("setGrid");
   if (!box) return;
@@ -4500,6 +4507,7 @@ async function bench() {
     const chosen = pickPreset(measured, target), st = frameStats(measured[chosen]), fps = st ? Math.round(st.fps) : 0;
     for (const [k, v] of Object.entries(GFX_PRESETS[chosen])) setSetting(k, v);
     try { localStorage.setItem(LS_BENCH, JSON.stringify({ at: Date.now(), preset: chosen, fps })); } catch (e) {}
+    trace("bench", { preset: chosen, fps, tried: Object.keys(measured) });   // (so a trace says the benchmark ran, and what it chose)
     notify(T("benchDone", "Graphics: {p} — {f} fps. Change it in Settings.", { p: presetName(chosen), f: fps }), 6000);
   } finally {
     SET.fps = cap; saveSet(); benching = false;
