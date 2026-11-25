@@ -36,7 +36,9 @@ export const REAL = {
   // 2026-11-25, MEASURED against the shot: its sky above the tree line is 20.7 % white cloud in 32 separate heaps; ours at
   // 2.48 oktas rendered 31.4 % in 15 heaps (the same pose and crop, white = max > 205, saturation < 0.13). The shot's
   // cover is under 2 oktas as this sky renders it, so the band is "few" to the foot of "scattered". Was [2, 3].
-  oktas: [1.5, 2.5],
+  // and again (2026-11-25, evening): at 1.85 oktas the vale held 25.0 % white in 33 heaps; at 1.2, 18.6 % in 32 — the shot's
+  // 20.7 % in 32. Was [1.5, 2.5].
+  oktas: [1.0, 2.0],
 };
 export const BASE = REAL.base * AIR;             // 418.6 m above the sea: the flat base every heap stands on
 export const WIND = REAL.wind * AIR;             // 1.74 m/s along the latitudes, with the planet's turn
@@ -53,7 +55,7 @@ export const RB = R0 + SEA + BASE, RT = RB + THICK, RG = R0 + SEA;   // radii (m
 // the density's shape — DESIGN CHOICES, tuned against the photographs (THR is set by the cover: see the test)
 export const K = {
   heapW: 0.7,       // the heap noise's share of a column's cover (the rest is the field's)
-  thr: 0.545,       // cover above this is cloud: 1.85 oktas at HEAP 1000 (at 1500: 0.495 -> 3.61, 0.52 -> 2.48, 0.54 -> 1.73)
+  thr: 0.57,        // cover above this is cloud: 1.2 oktas at HEAP 1000 (0.545 -> 1.85, 0.56 -> 1.43, 0.575 -> 1.09, 0.59 -> 0.79)
   rise: 0.2,        // cover above thr that makes a heap of full height
   dome: 0.55,       // a heap's top against its cover: < 1 = steep sides under a rounded top
   soft: 0.15,       // the share of THICK over which a heap thins out toward its top surface (0.3 and sigma 0.045 drew

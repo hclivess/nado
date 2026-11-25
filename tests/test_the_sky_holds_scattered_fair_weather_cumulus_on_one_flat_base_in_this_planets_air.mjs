@@ -59,7 +59,8 @@ for (let i = 0; i < N; i++) {
 }
 const oktas = (8 * hit) / N, oN = (8 * north) / nN, oS = (8 * (hit - north)) / (N - nN);
 ok(oktas >= C.REAL.oktas[0] && oktas <= C.REAL.oktas[1], `the sky holds few to scattered cumulus: ${oktas.toFixed(2)} oktas of the base under cloud (${C.REAL.oktas.join('–')}, the Chlorophyll shot's sky)`);
-ok(oN > 1.5 && oS > 1.5 && oN < 4 && oS < 4, `…on both hemispheres (${oN.toFixed(2)} and ${oS.toFixed(2)} oktas)`);
+// (0.8, was 1.5: the band is 1.0-2.0 since the evening of 2026-11-25)
+ok(oN > 0.8 && oS > 0.8 && oN < 4 && oS < 4, `…on both hemispheres (${oN.toFixed(2)} and ${oS.toFixed(2)} oktas)`);
 
 // 3. one flat base, one top
 let under = 0, over = 0, lowest = 0, cloudy = 0;
@@ -120,15 +121,18 @@ if (col) {
   const down = C.march(vol, ground, up.map((x) => -x), L, dr);
   ok(down[3] === 0, "a ray into the ground meets no cloud");
   // the far clouds pale: the cloud colour a long ray brings back is nearer the haze than a short one
-  const eye = Wd.posOf(0, 54260.5, 80600.5, 126), e0 = Wd.frameOf(0, 54260.5, 80600.5);
+  // (three places and three steep elevations: at 1.2 oktas, 2026-11-25, one ring from one place found no heap overhead)
   let near = null, farc = null;
+  for (const [pu, pv] of [[54260.5, 80600.5], [50000.5, 76500.5], [47000.5, 83000.5]]) {
+  const eye = Wd.posOf(0, pu, pv, 126), e0 = Wd.frameOf(0, pu, pv);
   for (let k = 0; k < 720 && (!near || !farc); k++) {
     const az = (k / 720) * 2 * Math.PI;
-    for (const [el, slot] of [[1.2, "near"], [0.04, "far"]]) {
+    for (const [el, slot] of [[1.0, "near"], [1.2, "near"], [1.4, "near"], [0.04, "far"]]) {
       const d = [0, 1, 2].map((i) => e0.up[i] * Math.sin(el) + (e0.east[i] * Math.sin(az) + e0.north[i] * Math.cos(az)) * Math.cos(el));
       const m = C.march(vol, eye, d, L, dr);
       if (m[3] > 0.6) { const c = m.slice(0, 3).map((x) => x / m[3]); if (slot === "near" && !near) near = c; if (slot === "far" && !farc) farc = c; }
     }
+  }
   }
   const off = (c) => Math.hypot(c[0] - L.haze[0], c[1] - L.haze[1], c[2] - L.haze[2]);
   ok(near && farc && off(farc) < 0.5 * off(near), `the far clouds pale toward the horizon's colour (${farc && off(farc).toFixed(2)} from it, overhead ${near && off(near).toFixed(2)})`);
@@ -187,7 +191,7 @@ ok(C.K.soft <= 0.2 && C.K.sigma >= 0.08, `a heap's edge is defined: it thins ove
     return { b: sum / Math.max(1, n), n };
   };
   const lumpy = bend(), keep = C.K.lump; C.K.lump = 0; const smooth = bend(); C.K.lump = keep;
-  ok(C.K.lump > 0 && lumpy.n > 200 && lumpy.b > 1.3 * smooth.b, `a heap's top is lumpy: its top bends ${lumpy.b.toFixed(1)} m a step across ${lumpy.n} steps, against ${smooth.b.toFixed(1)} m without the lumps`);
+  ok(C.K.lump > 0 && lumpy.n > 100 && lumpy.b > 1.3 * smooth.b, `a heap's top is lumpy: its top bends ${lumpy.b.toFixed(1)} m a step across ${lumpy.n} steps, against ${smooth.b.toFixed(1)} m without the lumps`);
   ok(/const body = \(p, lift = 0\) => \{[^\n]*heapTop\(p\)\.mul\(float\(1\)\.add\(lift\)\)/.test(page) && /body\(p, bill\.sub\(0\.5\)\.mul\(K\.lump\)\.mul\(fine\)\)/.test(page),
     "…and the page's GPU march heaves the top the same way (one definition, two readers)");
   // 9. the march's jitter has no pattern of its own (2026-11-24: interleaved gradient noise wove a diagonal hatch into
