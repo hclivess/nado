@@ -80,7 +80,10 @@ const up = Wd.frameOf(FACE, U, V).up;
 // sun alone could hold no shadow in view at all — the walk then failed at some hours of the day on any code ("0 sampled
 // pixels in a heap's shadow", 2026-11-18 01:00, on the code that had passed at 16:00)
 const VOL0 = C.noiseVolume(), GROUND = [];
-for (let du = -150; du <= 150; du += 15) for (let dv = -150; dv <= 150; dv += 15) GROUND.push(Wd.posOf(FACE, U + du, V + dv, TOP));
+// ±45 m, was ±150 (2026-11-25): the eye hangs ~145 m over the meadow looking down, so the frame shows ~135 m ahead, ~80 m
+// behind and ~190 m to each side, and the sampled rows stop short of the frame's foot — a moment whose shade lay in the grid's outer ring (measured: every shaded point at -150 m)
+// had none in the frame, and the walk failed by the hour it ran ("0 sampled pixels in a heap's shadow", on the live build)
+for (let du = -45; du <= 45; du += 4.5) for (let dv = -45; dv <= 45; dv += 4.5) GROUND.push(Wd.posOf(FACE, U + du, V + dv, TOP));
 let T0 = Date.now() / 1000;
 for (let k = 0; k < 4000; k++) {
   const t = Date.now() / 1000 + k * 2, s = Cosmos.sunFrom(Wd.PLANET, t - Cosmos.EPOCH).dir;
