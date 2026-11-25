@@ -19,8 +19,10 @@ ok(ls.length >= 2 && ls[0] <= 34 && ls[1] <= 40, `broadleaf leaves at most ${ls[
 const bake = page.slice(page.indexOf("async function bakeForest"), page.indexOf("async function bakeForest") + 1500).match(/HemisphereLight\(0x[0-9a-f]+, 0x[0-9a-f]+, ([\d.]+)\)/);
 ok(bake && Number(bake[1]) < 2, `the far trees' pictures are baked under a light of ${bake && bake[1]} (was 2.6: lit twice, they read pale)`);
 // 3. under the sky's blue fill the far cards and the canopy read grey-green (72, 86, 76): both carry almost no blue
-ok(page.includes("const lit = s.rgb.mul(TSL.attribute(\"color\", \"vec3\")).mul(TSL.vec3(2.0, 1.25, 0.75));") && page.includes("m.colorNode = shadeByClouds(underShade);"),   // (lit, then its foot in the canopy's shade, 2026-11-23)
-  "the far cards' pictures are warmed toward olive (red x2.0, blue x0.75), measured against the reference with the clouds off");
+// (2.6, 1.75, 1.1, was 2.0, 1.25, 0.75 — 2026-11-25: like for like against the shot's near wood (50, 63, 37) the vale's wood
+// measured (17, 27, 8) / (27, 47, 17), clouds and sun shadows off alike; now (26, 43, 14) / (31, 58, 20))
+ok(page.includes("const lit = s.rgb.mul(TSL.attribute(\"color\", \"vec3\")).mul(TSL.vec3(2.6, 1.75, 1.1));") && page.includes("m.colorNode = shadeByClouds(underShade);"),   // (lit, then its foot in the canopy's shade, 2026-11-23)
+  "the far cards' pictures are lit toward the shot's wood (red x2.6, green x1.75, blue x1.1), measured against the reference with the clouds off");
 const cv = page.match(/m\.colorNode = shadeByClouds\(TSL\.vec3\(([\d.]+), ([\d.]+), ([\d.]+)\)\.mul\(TSL\.attribute\("color", "vec3"\)\)\);/);
 ok(cv && Number(cv[3]) < Number(cv[2]) * 0.2 && Number(cv[1]) <= Number(cv[2]) * 1.2, `the canopy is a dark olive with almost no blue (${cv && cv.slice(1).join(", ")})`);
 console.log(fails ? `${fails} FAILED` : "all passed");

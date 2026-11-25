@@ -1419,7 +1419,10 @@ const FOREST_RANGE = PHONE ? 640 : 1152;       // m of far trees around the play
  *  half of it, on the preset meant for weak devices (#150). updateForest prunes the tiles outside the reach. */
 const forestRange = () => (SET.view <= 3 ? FOREST_RANGE / 2 : FOREST_RANGE);
 const SEEN = 64;                               // the meshed-chunk map's edge, in chunks (the view disc is 17 across at most)
-const UNDER_SHADE = 0.35, UNDER_FROM = 3, UNDER_TO = 9, UNDER_COL = [0.012, 0.022, 0.007];   // a far tree's foot in the canopy's shade: half its own colour x0.35, half the understorey's green, up to 3 m; full light by 9 m (a crown starts ~6-9 m up)
+// (0.5, 14 m and (0.03, 0.055, 0.016), was 0.35, 9 m and (0.012, 0.022, 0.007) — 2026-11-25: the conifers' bare trunks between
+// 9 m and their crowns read as a near-black band half the wood's height at the vale, where the shot's wood edge is leaves to the
+// ground; the foot is now a dark understorey green up to 14 m)
+const UNDER_SHADE = 0.5, UNDER_FROM = 3, UNDER_TO = 14, UNDER_COL = [0.03, 0.055, 0.016];   // a far tree's foot in the canopy's shade: half its own colour x UNDER_SHADE, half the understorey's green, up to 3 m; full light by 14 m
 let matForest = null, forestNear = null, forestSeen = null, forestSeenTex = null, forestTrees = 0;
 /** The map of meshed chunk columns the far trees and the far boxes (#193) read: allocated once, by whichever asks first. */
 function ensureSeen() {
@@ -1502,7 +1505,10 @@ async function bakeForest() {
   const up = TSL.positionWorld.sub(hazeCam.c).normalize(), overRoot = TSL.varying(TSL.dot(TSL.attribute("off", "vec3"), up));
   // (darkened alone it still read as a stripe of separate brown trunks: the shade there is leaves and shrubs, so the foot
   // turns toward UNDER_COL, the dark green of a wood's understorey in its own shade)
-  const lit = s.rgb.mul(TSL.attribute("color", "vec3")).mul(TSL.vec3(2.0, 1.25, 0.75));
+  // (2.6, 1.75, 1.1, was 2.0, 1.25, 0.75 — 2026-11-25, the vale's wood like for like against the shot's near wood (50, 63, 37):
+  // it measured (17, 27, 8) and (27, 47, 17), clouds and shadows off alike — its own colour, not a shadow; now (26, 43, 14) and
+  // (31, 58, 20). The shot's remaining blue is its air's haze at that range, which stays as clear as the operator asked)
+  const lit = s.rgb.mul(TSL.attribute("color", "vec3")).mul(TSL.vec3(2.6, 1.75, 1.1));
   // (TSL.mix(a, b, t) written out: the chained x.mix(a, b) is mix(a, b, x) — x the factor — and read as mix(x, a, b) it
   // painted every card with its own colour as the factor)
   const underShade = TSL.mix(TSL.mix(TSL.vec3(...UNDER_COL), lit.mul(UNDER_SHADE), 0.5), lit, TSL.smoothstep(UNDER_FROM, UNDER_TO, overRoot));
