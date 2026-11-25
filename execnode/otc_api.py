@@ -303,7 +303,7 @@ def index(base=""):
         },
         "sdk": "/static/nadodex.mjs (Node 18+ or a browser; signs locally with nadotx.js)",
         "mcp": {"remote (read-only)": base + "/exec/otc/mcp",
-                "local (trading, your own key)": "node nadodex-mcp.mjs  (/static/nadodex-mcp.mjs; NADO_BOT_SEED=<seed>)"},
+                "local (trading, your own key)": "node nadodex-mcp.mjs  (/static/nadodex-mcp.mjs; DEX_BOT_SEED=<seed>)"},
         "docs": {"page": "https://dex.nadochain.com/static/dex-api.html",
                  "reference": "https://github.com/hclivess/nado/blob/main/doc/dex-api.md"},
         "prices": "exact decimal strings; amounts are raw integer strings or contract units beside decimals",

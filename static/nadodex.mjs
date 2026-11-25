@@ -31,7 +31,7 @@ import { hashWords } from "./blake2s.js";
 // that moves the book cannot leave a bot posting into a contract nobody reads. Pass { cid } to pin one yourself.
 export const OTC_CID = "83562ce0cf5ee023d98b366bfcbc6e57";
 export const ASK = 1, BID = 2;                                // otc.py: ASK = maker sells NADO, BID = maker buys NADO
-const RAW = 10n ** 10n;
+const RAW = 10000000000n;                     // protocol DENOMINATION — pinned by tests/test_constant_mirrors.py (PINNED)
 const LIMB_BITS = 52n, LIMBS = 5;                             // otc.py preimage_limbs
 const WORD = 1n << 256n;
 const FOREIGN_MIN_S = 3600, FOREIGN_MARGIN_S = 7200, FOREIGN_MAX_S = 29 * 24 * 3600, BLOCK_S = 6;   // otc.py §6.3
@@ -352,12 +352,12 @@ export class NadoDex {
 // CLI: `node nadodex.mjs keygen` prints a fresh trading key; `node nadodex.mjs book ETH` prints a book.
 if (typeof process !== "undefined" && process.argv && import.meta.url === `file://${process.argv[1]}`) {
   const [cmd, a] = process.argv.slice(2);
-  const dex = new NadoDex({ relay: process.env.NADO_RELAY || undefined, key: process.env.NADO_BOT_SEED || null });
+  const dex = new NadoDex({ relay: process.env.DEX_RELAY || undefined, key: process.env.DEX_BOT_SEED || null });
   const out = (x) => console.log(JSON.stringify(x, null, 2));
   if (cmd === "keygen") out(NadoDex.keygen());
   else if (cmd === "markets") out(await dex.markets());
   else if (cmd === "book") out(await dex.book(a || "ETH"));
   else if (cmd === "order") out(await dex.order(a));
   else if (cmd === "mine") out(await dex.orders());
-  else console.log("usage: node nadodex.mjs keygen | markets | book <ETH|BTC|eth|0x…> | order <id> | mine (NADO_BOT_SEED)");
+  else console.log("usage: node nadodex.mjs keygen | markets | book <ETH|BTC|eth|0x…> | order <id> | mine (DEX_BOT_SEED)");
 }

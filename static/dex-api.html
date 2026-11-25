@@ -80,7 +80,7 @@ for f in nadodex.mjs nadodex-mcp.mjs nadotx.js blake2s.js vendor/nado-crypto.js;
   curl -fsS --create-dirs -o "$f" "https://dex.nadochain.com/static/$f"; done
 node nadodex.mjs keygen</code></pre>
     <pre><button class="copy" data-copy data-i18n="dex.apiPCopy">Copy</button><code>import { NadoDex } from &quot;./nadodex.mjs&quot;;
-const dex = new NadoDex({ key: process.env.NADO_BOT_SEED });
+const dex = new NadoDex({ key: process.env.DEX_BOT_SEED });
 
 await dex.deposit("100");                                   // L1 -> exchange
 const q = await dex.quote(pool, "buy", "10");               // exact
@@ -95,7 +95,7 @@ const book = await dex.book("ETH");                         // cross-chain</code
     <p data-i18n="dex.apiPMcpRemote">Read-only, nothing to install — add this URL as an MCP server:</p>
     <pre><button class="copy" data-copy data-i18n="dex.apiPCopy">Copy</button><code>claude mcp add --transport http nado-dex https://dex.nadochain.com/exec/otc/mcp</code></pre>
     <p data-i18n="dex.apiPMcpLocal">To let an agent trade, run the local server with the bot's own key. The key never leaves your machine:</p>
-    <pre><button class="copy" data-copy data-i18n="dex.apiPCopy">Copy</button><code>claude mcp add nado-dex -e NADO_BOT_SEED=&lt;seed&gt; -- node ./nado-dex/nadodex-mcp.mjs</code></pre>
+    <pre><button class="copy" data-copy data-i18n="dex.apiPCopy">Copy</button><code>claude mcp add nado-dex -e DEX_BOT_SEED=&lt;seed&gt; -- node ./nado-dex/nadodex-mcp.mjs</code></pre>
   </div>
 
   <div class="card warn">

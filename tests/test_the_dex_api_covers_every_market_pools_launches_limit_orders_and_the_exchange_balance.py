@@ -175,7 +175,7 @@ async def main():
             and C.submitted[-1]["fee"] == 0, (cl, C.l1[TR["address"]] - l1))
 
     # ---- the local MCP server as an agent ------------------------------------------------------------------------------
-    async with F.Mcp({"NADO_RELAY": base, "NADO_BOT_SEED": TR["seed"], "NADO_DEX_SECRETS": os.path.join(HOME, "sec")}) as m:
+    async with F.Mcp({"DEX_RELAY": base, "DEX_BOT_SEED": TR["seed"], "DEX_SECRETS": os.path.join(HOME, "sec")}) as m:
         await m.rpc("initialize", {})
         names = {t["name"] for t in (await m.rpc("tools/list"))["result"]["tools"]}
         need = {"dex_deposit", "dex_withdraw", "dex_claim_withdrawals", "dex_swap", "dex_claim_swap", "dex_add_liquidity",

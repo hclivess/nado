@@ -38,7 +38,9 @@ ALIASES = {
 # THE ONE PINNED EXEMPTION: static/nadotx.js is the environment-free crypto SDK the game engines load in plain Node (no
 # relay to import from), so it keeps the address-format constants — and this test pins each one's VALUE instead.
 PINNED = {"static/nadotx.js": {"ADDR_PREFIX": "ADDRESS_PREFIX", "DOMAIN_ADDRESS_V2": "DOMAIN_ADDRESS_V2",
-                               "ADDR_CK": "ADDRESS_CHECKSUM", "ADDR_BODY": "ADDRESS_BODY"}}
+                               "ADDR_CK": "ADDRESS_CHECKSUM", "ADDR_BODY": "ADDRESS_BODY"},
+          # the DEX API's SDK (2026-11-25) runs in a bot's plain Node too, with no relay module to import: its raw unit pinned
+          "static/nadodex.mjs": {"RAW": "DENOMINATION"}}
 # a declaration (const/let/var, or a later name in a comma list) whose WHOLE value is a number, BigInt, string or array
 # literal — `86400 / P.BLOCK_TIME` is derived, not copied, so the literal must end the expression
 LITERAL = r'(?:(?:-?[0-9][0-9_.]*n?|10n\s*\*\*\s*10n|"[^"\n]*"|\'[^\'\n]*\')(?=\s*(?:[;,)\n]|//|/\*))|\[)'

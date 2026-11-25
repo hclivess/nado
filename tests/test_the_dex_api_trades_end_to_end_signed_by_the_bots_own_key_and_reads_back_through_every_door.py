@@ -150,14 +150,14 @@ async def main():
 
     # ---- the local MCP server over stdio -----------------------------------------------------------------------------
     sec = tempfile.mkdtemp(dir=HOME)
-    async with Mcp({"NADO_RELAY": base}) as m:
+    async with Mcp({"DEX_RELAY": base}) as m:
         await m.rpc("initialize", {"protocolVersion": "2025-06-18", "capabilities": {}, "clientInfo": {"name": "t", "version": "1"}})
         await m.rpc("notifications/initialized", notify=True)
         names = {t["name"] for t in (await m.rpc("tools/list"))["result"]["tools"]}
         T.check("local MCP without a key: reads only", "dex_book" in names and not any(n.startswith("dex_post") for n in names), names)
         _r, txt = await m.call("dex_book", {"market": "ETH"})
         T.check("local MCP reads the book", json.loads(txt)["market"] == "eth")
-    async with Mcp({"NADO_RELAY": base, "NADO_BOT_SEED": M["seed"], "NADO_DEX_SECRETS": sec}) as m:
+    async with Mcp({"DEX_RELAY": base, "DEX_BOT_SEED": M["seed"], "DEX_SECRETS": sec}) as m:
         await m.rpc("initialize", {})
         names = {t["name"] for t in (await m.rpc("tools/list"))["result"]["tools"]}
         T.check("local MCP with the bot's key adds the trading tools",

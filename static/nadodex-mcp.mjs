@@ -3,11 +3,11 @@
 // needs an mcp server".
 //
 //   claude mcp add nado-dex -- node /path/to/nadodex-mcp.mjs                          # read-only: markets, books, orders
-//   claude mcp add nado-dex -e NADO_BOT_SEED=<64-hex> -- node /path/to/nadodex-mcp.mjs   # + trading tools
+//   claude mcp add nado-dex -e DEX_BOT_SEED=<64-hex> -- node /path/to/nadodex-mcp.mjs   # + trading tools
 //
 // The key never leaves this process: tools sign locally through nadodex.mjs and post the signed transaction. Give it a
 // DEDICATED trading key (`node nadodex.mjs keygen`) funded with only what an agent may trade — never your wallet's key.
-// Swap secrets are written to NADO_DEX_SECRETS (default ./nado-dex-secrets/, mode 0600) BEFORE an order is posted: a
+// Swap secrets are written to DEX_SECRETS (default ./nado-dex-secrets/, mode 0600) BEFORE an order is posted: a
 // secret that lived only in a model's context would be lost with it, and with it the swap. A remote, read-only MCP
 // endpoint needs no install at all: https://get.nadochain.com/exec/otc/mcp (execnode/otc_api.py).
 import { NadoDex } from "./nadodex.mjs";
@@ -15,9 +15,9 @@ import { mkdirSync, writeFileSync, readFileSync, existsSync } from "node:fs";
 import { join } from "node:path";
 
 const PROTOCOL = "2025-06-18";
-const dex = new NadoDex({ relay: process.env.NADO_RELAY || undefined, exec: process.env.NADO_EXEC || undefined,
-                          key: process.env.NADO_BOT_SEED || null });
-const SECRETS = process.env.NADO_DEX_SECRETS || join(process.cwd(), "nado-dex-secrets");
+const dex = new NadoDex({ relay: process.env.DEX_RELAY || undefined, exec: process.env.DEX_EXEC || undefined,
+                          key: process.env.DEX_BOT_SEED || null });
+const SECRETS = process.env.DEX_SECRETS || join(process.cwd(), "nado-dex-secrets");
 
 function saveSecret(rec) {
   mkdirSync(SECRETS, { recursive: true, mode: 0o700 });
@@ -47,7 +47,7 @@ const TOOLS = [
   ["dex_balance", "Exchange balances (NADO and tokens, raw); defaults to this server's key.", S({ address: str("NADO address") }), (a) => dex.balance(a.address || dex.address)],
   ["dex_pool_trades", "A pool's trade history (swaps, liquidity, launch fills), newest first.", S({ pool: int("pool id"), limit: int("rows") }), (a) => dex.poolTrades(a.pool ?? null, a.limit || 100)],
   ["dex_candles", "A pool's OHLCV candles.", S({ pool: int("pool id"), tf: int("seconds: 60 300 900 3600 14400 86400") }, ["pool"]), (a) => dex.candles(a.pool, a.tf || 300)],
-  ["dex_whoami", "This server's trading address (empty when started without NADO_BOT_SEED).", S({}), async () => ({ address: dex.address || null, trading: !!dex.address })],
+  ["dex_whoami", "This server's trading address (empty when started without DEX_BOT_SEED).", S({}), async () => ({ address: dex.address || null, trading: !!dex.address })],
   ["dex_post_ask", "SELL NADO: post an ask of `nado` NADO for `foreign` units of the network's coin, paid to `payout`. Locks nothing until filled. The secret is saved locally first.",
     S({ nado: str("NADO amount, decimal string"), foreign: str("foreign amount, decimal string"), network: str("eth | btc | eth|0x<token>"), payout: str("your foreign receiving address"), blocks: int("order lifetime in blocks (6 s each), default 28330 ≈ 48 h") }, ["nado", "foreign", "network", "payout"]),
     (a) => dex.postAsk({ ...a, onSecret: (r) => saveSecret({ ...r, side: "ask", ...a }) }).then(({ secret, ...r }) => ({ ...r, secret_saved_to: SECRETS })), true],

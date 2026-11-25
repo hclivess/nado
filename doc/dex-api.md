@@ -123,7 +123,7 @@ node nadodex.mjs markets       # reads need no key
 
 ```js
 import { NadoDex } from "./nadodex.mjs";
-const dex = new NadoDex({ key: process.env.NADO_BOT_SEED });     // relay defaults to https://get.nadochain.com
+const dex = new NadoDex({ key: process.env.DEX_BOT_SEED });     // relay defaults to https://get.nadochain.com
 
 // exchange balance
 await dex.deposit("100");                                       // L1 -> exchange
@@ -170,19 +170,19 @@ example, `claude mcp add --transport http nado-dex https://dex.nadochain.com/exe
 
 ```bash
 claude mcp add nado-dex -- node /path/to/nado-dex/nadodex-mcp.mjs                            # reads only
-claude mcp add nado-dex -e NADO_BOT_SEED=<seed> -- node /path/to/nado-dex/nadodex-mcp.mjs     # + trading
+claude mcp add nado-dex -e DEX_BOT_SEED=<seed> -- node /path/to/nado-dex/nadodex-mcp.mjs     # + trading
 ```
 
 With a key it adds `dex_deposit`, `dex_withdraw`, `dex_claim_withdrawals`, `dex_swap`, `dex_claim_swap`,
 `dex_add_liquidity`, `dex_remove_liquidity`, `dex_refund_liquidity`, `dex_open_pool`, `dex_launch`, `dex_post_limit`,
 `dex_fill_limit`, `dex_post_ask`, `dex_post_bid`, `dex_fill`, `dex_lock_nado`, `dex_bind`, `dex_verify_nado_leg`,
 `dex_settle`, `dex_claim_nado`, `dex_refund_nado`, `dex_cancel`, `dex_release`, `dex_expire`, `dex_boost`, plus
-`dex_pool_trades`, `dex_candles` and `dex_whoami`. Cross-chain swap secrets are written to `NADO_DEX_SECRETS`
+`dex_pool_trades`, `dex_candles` and `dex_whoami`. Cross-chain swap secrets are written to `DEX_SECRETS`
 (default `./nado-dex-secrets/`, files mode 0600) **before** the order is posted. They are never returned into the
 model's context, and `dex_settle` reads them from there.
 
-Environment: `NADO_RELAY` (default `https://get.nadochain.com`), `NADO_EXEC` (default = relay), `NADO_BOT_SEED`,
-`NADO_DEX_SECRETS`.
+Environment: `DEX_RELAY` (default `https://get.nadochain.com`), `DEX_EXEC` (default = relay), `DEX_BOT_SEED`,
+`DEX_SECRETS`.
 
 ## 7. Errors
 
