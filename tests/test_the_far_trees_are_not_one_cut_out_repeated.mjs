@@ -26,5 +26,12 @@ const ratio = ws.map((w, i) => (w / hs[i]) / (wide / tall)), lo = Math.min(...ra
 ok(lo >= 0.84 && hi <= 1.16 && hi - lo > 0.2, `the crowns' widths spread over ${lo.toFixed(2)}-${hi.toFixed(2)} of the picture's (0.85-1.15)`);
 const hsc = hs.map((h) => h / tall);
 ok(Math.min(...hsc) >= 0.899 && Math.max(...hsc) <= 1.001, `a card's height is the tree's own size, as the near model's (${Math.min(...hsc).toFixed(3)}-${Math.max(...hsc).toFixed(3)} of the picture)`);
+// THE PICTURE HOLDS THE WHOLE CROWN (2026-11-25): an atlas cell narrower than a drawn crown cut every far broadleaf to a column
+// (9.2 m cells against a 12.7 m crown: 2.5 to 1 where the model is 1.4 to 1, the vale's woods a wall of narrow trees)
+{
+  const T = await import(join(ROOT, "static", "land-trees.js")), Sp = await import(join(ROOT, "static", "land-species.js"));
+  const widest = 2 * T.REACH * Math.max(...Object.values(Sp.REACH_SCALE));
+  ok(F.ATLAS.wide >= widest, `an atlas cell (${F.ATLAS.wide} m) is as wide as the widest crown a tree is drawn with (${widest.toFixed(1)} m)`);
+}
 console.log(fails ? `${fails} FAILED` : "all passed");
 process.exit(fails ? 1 : 0);

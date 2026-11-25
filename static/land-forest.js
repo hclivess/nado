@@ -21,7 +21,10 @@ export const TILE = 256;                         // columns along a forest tile'
  *  slot is `wide` x `tall` metres of the model seen from its side, its root's ground `foot` above the slot's bottom. */
 export const SLOTS = [["broadleaf", 4], ["broadleaf", 5], ["birch", 6], ["birch", 7], ["conifer", 6], ["conifer", 7],
   ["conifer", 8], ["conifer", 9], ["conifer", 10], ["palm", 6], ["palm", 7]];
-export const ATLAS = { cols: 6, rows: 2, wide: 9.2, tall: 22, foot: 0.4 };   // (5.2 x 13 until the trees were drawn taller than their cells, #210)
+// wide 13 (2026-11-25, was 9.2): a broadleaf's drawn crown reaches 2 x REACH x REACH_SCALE = 12.7 m across (land-trees clampR),
+// so a 9.2 m cell cut every far broadleaf to a column 2.5 times taller than wide — the vale's woods a wall of narrow crowns
+// beside the Chlorophyll shot's round ones, where the near model is 1.4 to 1. The cell now holds the widest crown drawn.
+export const ATLAS = { cols: 6, rows: 2, wide: 13, tall: 22, foot: 0.4 };   // (5.2 x 13 until the trees were drawn taller than their cells, #210)
 export const slotOf = (kind, height) => SLOTS.findIndex((s) => s[0] === kind && s[1] === height);
 
 /** The mesher's place hash, in [0, 1): a tree's turn, size and phase are read from it (land-mesher placeTree), and the
