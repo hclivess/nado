@@ -4969,6 +4969,13 @@ function grassCardTexture() {
     }
   }
   const t = new THREE.CanvasTexture(cv); t.colorSpace = THREE.SRGBColorSpace; t.minFilter = THREE.LinearMipmapLinearFilter; t.magFilter = THREE.LinearFilter; t.anisotropy = 4;
+  // PHOTO-SCANNED BLADES, NOT PAINTED STRIPS (operator 2026-11-25: the scene "looks like some fucking Nintendo ripoff", then
+  // "Grass" first): the card above is the fallback; the scanned one — Poly Haven grass_medium_02, CC0, built by
+  // tools/land_grass.py into static/vendor/grass/ with the painted card's light along the blade and its mean colour — is
+  // drawn over it when it arrives
+  const img = new Image();
+  img.onload = () => { try { g.clearRect(0, 0, N, N); g.drawImage(img, 0, 0, N, N); t.needsUpdate = true; } catch (e) {} };
+  img.src = "/static/vendor/grass/grass.png";
   return t;
 }
 /** Three crossed cards, each `wide` x `tall` metres, their uv the whole card texture; indexed from both sides. */

@@ -1,0 +1,9 @@
+Land's grass card: Poly Haven (https://polyhaven.com), grass_medium_02, CC0 1.0 Universal (public domain).
+Built by tools/land_grass.py: the scan's upright blades cut out by their alpha and stood along a card's foot.
+
+# originals (url md5)
+https://dl.polyhaven.org/file/ph-assets/Models/jpg/1k/grass_medium_02/grass_medium_02_diff_1k.jpg 4bb5230e09358d60dd767331685b2d36
+https://dl.polyhaven.org/file/ph-assets/Models/png/1k/grass_medium_02/grass_medium_02_alpha_1k.png b231cd6a1b5eb7ae21e7c2e626f8318c
+
+# outputs (file sha256)
+grass.png fe440307d6e17cb0c4333b95ca6ac3d7df2692d0ddbff0366e3c3aefd7636f40
