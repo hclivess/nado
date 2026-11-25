@@ -31,6 +31,7 @@ DECLARED = {
     # ---- libraries: imported or spawned by a test
     "__init__.py": ("library", "package marker: lets tests import each other's helpers"),
     "_cdp_profiles.mjs": ("library", "the in-page tests' sweep of the Chrome profiles a killed run left in /tmp (14 GB found, 2026-11-16)"),
+    "_dex_api_fixture.py": ("library", "the stand-in chain (real contracts, real exec handlers, the node's own tx checks) the DEX API end-to-end tests drive: test_the_dex_api_trades_end_to_end_signed_by_the_bots_own_key_and_reads_back_through_every_door, test_the_dex_api_covers_every_market_pools_launches_limit_orders_and_the_exchange_balance"),
     "_harness.py": ("library", "the shared isolation + PASS/FAIL report every migrated test imports (consolidation stage 1)"),
     "_stwo_js_build.py": ("library", "builds native/stwo_js (stable verifier, nightly test prover) outside the checkout for the test_stwo_js_* tests"),
     "_stwo_settle_build.py": ("library", "builds native/stwo_settle outside the checkout with the real HOME's nightly for the G4 settlement-proof tests"),

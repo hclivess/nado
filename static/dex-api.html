@@ -79,7 +79,7 @@
 for f in nadodex.mjs nadodex-mcp.mjs nadotx.js blake2s.js vendor/nado-crypto.js; do
   curl -fsS --create-dirs -o "$f" "https://dex.nadochain.com/static/$f"; done
 node nadodex.mjs keygen</code></pre>
-    <pre><button class="copy" data-copy data-i18n="dex.apiPCopy">Copy</button><code>import { NadoDex } from "./nadodex.mjs";
+    <pre><button class="copy" data-copy data-i18n="dex.apiPCopy">Copy</button><code>import { NadoDex } from &quot;./nadodex.mjs&quot;;
 const dex = new NadoDex({ key: process.env.NADO_BOT_SEED });
 
 await dex.deposit("100");                                   // L1 -> exchange
