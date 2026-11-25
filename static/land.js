@@ -4872,7 +4872,10 @@ function groundMaterial() {
   const patch = TSL.mx_noise_float(uvw.xy.mul(0.021)).mul(0.5).add(TSL.mx_noise_float(uvw.xy.mul(0.083)).mul(0.25)).add(0.5).clamp(0, 1);
   // (the dry end 0.68, 0.80, 0.30, was 0.78, 0.80, 0.34 — red as strong as green, the patches yellow: 2026-11-24, the red
   // 0.82 of the green the reference's meadow holds at every distance, with the blades' paint and the far tint below)
-  const meadow = TSL.mix(TSL.vec3(0.56, 0.66, 0.28), TSL.vec3(0.68, 0.80, 0.30), patch)   // (#183 → the Chlorophyll shot: was 0.80, 0.86, 0.38 at the dry end — a yellow field)
+  // (then both ends' red lower again, 0.50 and 0.60: past the blades' reach and short of the far tint the bare ground is
+  // the scanned grass — brown, red-heavy — under this tint, and that strip read red 0.90 of its green, hue 69°, against the
+  // reference's middle meadow 0.84, 74°; 0.53 and 0.64 measured 0.87, 72°)
+  const meadow = TSL.mix(TSL.vec3(0.50, 0.66, 0.28), TSL.vec3(0.60, 0.80, 0.30), patch)   // (#183 → the Chlorophyll shot: was 0.80, 0.86, 0.38 at the dry end — a yellow field)
     .mul(TSL.float(0.82).add(TSL.mx_noise_float(uvw.xy.mul(0.31)).mul(0.12)))
     // GREEN FROM AFAR (the Chlorophyll shot beside a meadow vale, 2026-11-22): past the blades (the near chunks) the meadow
     // is this ground alone, and the scanned grass is brown — the far field measured (80, 82, 38), red as strong as green,

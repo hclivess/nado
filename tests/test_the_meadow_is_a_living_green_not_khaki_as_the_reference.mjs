@@ -4,7 +4,8 @@
  * distance, the far slope — read red 0.90-0.94 of its green (hue 66-70°), against the reference's 0.82-0.84 (74-76°) at
  * every distance: khaki, not a living green. After, at the same held moment: 0.80, 0.90, 0.83. From the page's own paints:
  *   1. a grass blade's paint (grassCardTexture) holds red at most 0.86 of its green;
- *   2. the meadow ground's two ends (lush, dry) hold red at most 0.86 of their green — the dry end is no yellow;
+ *   2. the meadow ground's two ends (lush, dry) hold red at most 0.80 of their green — the scanned grass under them adds
+ *      red, and the strip past the blades read 0.90 until they did;
  *   3. the far meadow's tint (GREEN FROM AFAR) adds no red over the near: a far slope stays as green as the near one;
  *   4. the grass is dark to the ground: blades no lighter than 0.10-0.40, the ground under them in their shade.
  * Run: node tests/test_the_meadow_is_a_living_green_not_khaki_as_the_reference.mjs
@@ -23,7 +24,11 @@ ok(blade && Number(blade[1]) <= MAX, `a grass blade's paint holds red ${blade &&
 // 2
 const ends = /const meadow = TSL\.mix\(TSL\.vec3\(([\d.]+), ([\d.]+), ([\d.]+)\), TSL\.vec3\(([\d.]+), ([\d.]+), ([\d.]+)\), patch\)/.exec(page);
 const lush = ends && Number(ends[1]) / Number(ends[2]), dry = ends && Number(ends[4]) / Number(ends[5]);
-ok(ends && lush <= MAX && dry <= MAX, `the meadow ground's ends hold red ${lush && lush.toFixed(2)} (lush) and ${dry && dry.toFixed(2)} (dry) of their green`);
+// (at most 0.80, below the blades' 0.86: the ground under this tint is the scanned grass, brown and red-heavy — past the
+// blades' reach the strip read red 0.90 of its green at ends of 0.85, 0.87 at 0.80, and 0.85, the reference's middle
+// meadow, at 0.76 and 0.75, 2026-11-24)
+const GROUND_MAX = 0.80;
+ok(ends && lush <= GROUND_MAX && dry <= GROUND_MAX, `the meadow ground's ends hold red ${lush && lush.toFixed(2)} (lush) and ${dry && dry.toFixed(2)} (dry) of their green (at most ${GROUND_MAX}: the scan under them adds red)`);
 // 3
 const far = /TSL\.mix\(TSL\.vec3\(1, 1, 1\), TSL\.vec3\(([\d.]+), ([\d.]+), ([\d.]+)\), TSL\.smoothstep\(80, 500,/.exec(page);
 ok(far && Number(far[1]) <= 1 && Number(far[2]) >= Number(far[1]), `the far meadow's tint adds no red (red x${far && far[1]}, green x${far && far[2]})`);
