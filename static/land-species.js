@@ -122,16 +122,18 @@ export function parseSpecies(text) {
 // and the town's houses are not dwarfed.
 export const DRAWN = { broadleaf: 3.0, birch: 2.2, conifer: 2.0, bush: 1 };
 export const REACH_SCALE = { broadleaf: 2.6, birch: 1.5, conifer: 1.7, bush: 1 };
-export const CARD_SCALE = { broadleaf: 1.9, birch: 1.5, conifer: 1.4, bush: 1 };   // the cards grow with the crown, so it stays full
+// (broadleaf 1.45, birch 1.15 — were 1.9, 1.5 — 2026-11-25, operator: "trees liok like 2002 garbage": a crown of a few hundred
+// cards ~2 m across reads as stacked cut-outs; smaller cards and more of them (ADAPT cards) read as foliage)
+export const CARD_SCALE = { broadleaf: 1.45, birch: 1.15, conifer: 1.4, bush: 1 };   // the cards grow with the crown, so it stays full
 export const drawnTop = (kind, H0) => ADAPT[kind].top(H0) * (DRAWN[kind] || 1);
 export const ADAPT = {
   // FULLER CROWNS (the Chlorophyll shot, 2026-11-22: its broadleaves are dense rounded masses, ours read as sparse cards on
   // spindly limbs): the near oak had 230 cards in 1,640 of its 2,800 vertices, the birch 200 in 1,250 — the spare budget
   // goes to leaves (4 vertices a card): 440 and 340, each tree still within 2,800 (the budget test measures it)
   broadleaf: { recipe: "oak", top: (H0) => H0 + 1.3, span0: 0.45, card: [0.85, 1.3], tile: 0, girth: 0.3,
-               stems: { 0: [9, 26, 70], 2: [8] }, cards: { 0: 440, 2: 80 }, wood: [2, 1] },
+               stems: { 0: [9, 26, 70], 2: [8] }, cards: { 0: 760, 2: 80 }, wood: [2, 1] },   // (near 760, was 440: 2026-11-25)
   birch: { recipe: "birch", top: (H0) => H0 + 1.3, span0: 0.4, card: [0.55, 0.85], tile: 1, girth: 0.16,
-           stems: { 0: [11, 30, 70], 2: [10] }, cards: { 0: 340, 2: 80 }, wood: [2, 1] },
+           stems: { 0: [11, 30, 70], 2: [10] }, cards: { 0: 600, 2: 80 }, wood: [2, 1] },   // (near 600, was 340: 2026-11-25)
   // a fir's needles cover its whorl branches end to end (sprays along each branch, as a fir reads from afar); its side
   // shoots are not grown — on their own they were tiny cards on bare poles
   // FULLER (the Chlorophyll bar, operator 2026-11-21: "yours looks like shit"; photographed beside it, every conifer read as a

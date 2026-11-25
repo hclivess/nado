@@ -58,7 +58,9 @@ ok(o.reach / o.top > bi.reach / bi.top, `an oak spreads wider for its height tha
 { const tops = { broadleaf: S.drawnTop("broadleaf", 4), birch: S.drawnTop("birch", 6), conifer: S.drawnTop("conifer", 7) };
   ok(tops.broadleaf >= 15 && tops.birch >= 15 && tops.conifer >= 15 && tops.conifer <= 55,
      `the smallest of each kind is drawn tree-sized: broadleaf ${tops.broadleaf.toFixed(1)} m, birch ${tops.birch.toFixed(1)} m, conifer ${tops.conifer.toFixed(1)} m (cells: 4-7 m)`); }
-const BUDGET = { 0: 2800, 2: 520 };                    // the builder it replaced: 2,196 near (its fir) and 381 far at most
+// near 4,400 (was 2,800 — 2026-11-25, operator: crowns of a few hundred large cards read as "2002 garbage"; the broadleaf now
+// 760 smaller cards, the birch 600 — the frame-rate cost the operator accepted, near trees only); far unchanged
+const BUDGET = { 0: 4400, 2: 520 };                    // the builder it replaced: 2,196 near (its fir) and 381 far at most
 for (const [k, h] of [["broadleaf", 4], ["broadleaf", 5], ["birch", 6], ["birch", 7], ["conifer", 6], ["conifer", 10], ["bush", 1]]) for (const lod of [0, 2]) {
   const m = stats(T.treeModel(k, h, 4242, lod)), top = S.drawnTop(k, h), reach = T.REACH * (S.REACH_SCALE[k] || 1), d = S.DRAWN[k] || 1;
   ok(m.reach <= reach + 1e-9 && m.verts <= BUDGET[lod] && Math.abs(m.top - top) < 0.9 * d,
