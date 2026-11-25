@@ -158,7 +158,8 @@ def main():
     os.makedirs(OUT, exist_ok=True)
     path = os.path.join(OUT, "leaves.png")
     atlas.save(path, optimize=True)
-    md5 = {f: hashlib.md5(open(os.path.join(src, f), "rb").read()).hexdigest()
+    # (the originals' MD5s identify the download, as ambientCG and Poly Haven publish them — not security)
+    md5 = {f: hashlib.md5(open(os.path.join(src, f), "rb").read(), usedforsecurity=False).hexdigest()
            for f in (f"{ASSET}_1K-JPG_Color.jpg", f"{ASSET}_1K-JPG_Opacity.jpg")}
     sha = hashlib.sha256(open(path, "rb").read()).hexdigest()
     with open(os.path.join(OUT, "SOURCE.txt"), "w") as f:
