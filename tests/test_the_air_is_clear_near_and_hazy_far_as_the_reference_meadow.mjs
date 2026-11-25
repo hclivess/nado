@@ -21,13 +21,18 @@ const m = page.match(/const HAZE_K = ([\d.]+), HAZE_D0 = (\d+), HAZE_H = (\d+), 
 ok(!!m && page.includes('scene.fogNode = TSL.fog(TSL.reference("color", "color", scene.fog), hazeFactor());') && !/scene\.fog\.near/.test(page) && !/new THREE\.Fog\(/.test(page),
   "the haze is scene.fogNode from hazeFactor, and no linear fog or its near is left");
 // the factor as hazeFactor writes it: the sight line's mean height over the sea against HAZE_FLOOR and HAZE_H
-ok(/d\.mul\(d\)\.div\(d\.add\(HAZE_D0\)\)\.mul\(HAZE_K\)\.mul\(thin\)\.negate\(\)\.exp\(\)\.oneMinus\(\)/.test(page)
+// (plus a band that fades in from HAZE_MID_FROM to HAZE_MID_TO and then stays — "a little haze past 500 m", operator 2026-11-25)
+const mid = page.match(/const HAZE_MID = ([\d.]+), HAZE_MID_FROM = (\d+), HAZE_MID_TO = (\d+);/);
+const [MID, MID0, MID1] = mid ? mid.slice(1).map(Number) : [0, 1, 2];
+ok(/d\.mul\(d\)\.div\(d\.add\(HAZE_D0\)\)\.mul\(HAZE_K\)\.add\(TSL\.smoothstep\(HAZE_MID_FROM, HAZE_MID_TO, d\)\.mul\(HAZE_MID\)\)\.mul\(thin\)\.negate\(\)\.exp\(\)\.oneMinus\(\)/.test(page) && !!mid
   && /hazeCam\.h\.add\(hFrag\)\.mul\(0\.5\)\.sub\(HAZE_FLOOR\)\.max\(0\)\.div\(HAZE_H\)\.negate\(\)\.exp\(\)/.test(page), "the factor is the optical depth K d²/(D0 + d), thinned with height");
 const [K, D0, HH, FLOOR] = m.slice(1).map(Number);
-const f = (d, hEye = 50, hFar = 50) => 1 - Math.exp(-K * d * d / (D0 + d) * Math.exp(-Math.max(0, (hEye + hFar) / 2 - FLOOR) / HH));
+const sst = (a, b, x) => { const t = Math.min(1, Math.max(0, (x - a) / (b - a))); return t * t * (3 - 2 * t); };
+const f = (d, hEye = 50, hFar = 50) => 1 - Math.exp(-(K * d * d / (D0 + d) + MID * sst(MID0, MID1, d)) * Math.exp(-Math.max(0, (hEye + hFar) / 2 - FLOOR) / HH));
 const pc = (x) => Math.round(100 * x) + " %";
-ok(f(300) < 0.02 && f(1000) > 0.04 && f(1000) < 0.12 && f(1700) > 0.12 && f(1700) < 0.3,
-  `at the ground, clear near and the forest dark at 1 km: ${[300, 1000, 1700].map((x) => x + " m " + pc(f(x))).join(", ")}`);
+// (1 km: 6.5 % until 2026-11-25; the shot's woods a few hundred metres off wear a light blue cast, so a light one here)
+ok(f(300) < 0.02 && f(1000) > 0.08 && f(1000) < 0.18 && f(1700) > 0.12 && f(1700) < 0.3,
+  `at the ground, clear near and a light cast on the forest at 1 km: ${[300, 1000, 1700].map((x) => x + " m " + pc(f(x))).join(", ")}`);
 ok(f(5000) < 0.6 && f(10000) < 0.85 && f(20000) < 0.97 && f(20000) > 0.6,
   `…and the distant land shows in the haze: ${[5000, 10000, 20000].map((x) => x / 1000 + " km " + pc(f(x))).join(", ")}`);
 ok(f(10000, 1000, 50) < f(10000) - 0.1, `from 1,000 m up, 10 km of air is ${pc(f(10000, 1000, 50))} against ${pc(f(10000))} at the ground`);

@@ -5472,11 +5472,15 @@ const MOON_I = 1.3, NIGHT_FILL = 1.5;                      // a moonlit night: t
 // edge of everything. The air thins with height (HAZE_H) over the lowlands' (HAZE_FLOOR): a pilot sees further.
 const FAR_PLANE = 40000;                     // m: the camera's far plane, past the last ring's 30.7 km
 const HAZE_K = 0.000134, HAZE_D0 = 1000, HAZE_H = 1200, HAZE_FLOOR = 100;   // per m, m, m, m — design choices (the values above)
+// A LITTLE HAZE PAST 500 m (operator 2026-11-25, beside the Chlorophyll shot, whose woods a few hundred metres off wear a light
+// blue cast where ours stood clear and dark): an extra optical depth HAZE_MID that fades in from HAZE_MID_FROM to
+// HAZE_MID_TO and then stays — ~6 % more at 1 km, a constant few % past 1.5 km, so the distant land stays as far as it was
+const HAZE_MID = 0.13, HAZE_MID_FROM = 400, HAZE_MID_TO = 1500;
 const hazeCam = { c: TSL.uniform(new THREE.Vector3()), h: TSL.uniform(0) };   // the planet's centre from the eye, the eye over the sea
 function hazeFactor() {
   const d = TSL.positionView.length(), hFrag = TSL.positionWorld.sub(hazeCam.c).length().sub(Wd.R0 + Wd.SEA);
   const thin = hazeCam.h.add(hFrag).mul(0.5).sub(HAZE_FLOOR).max(0).div(HAZE_H).negate().exp();
-  return d.mul(d).div(d.add(HAZE_D0)).mul(HAZE_K).mul(thin).negate().exp().oneMinus();
+  return d.mul(d).div(d.add(HAZE_D0)).mul(HAZE_K).add(TSL.smoothstep(HAZE_MID_FROM, HAZE_MID_TO, d).mul(HAZE_MID)).mul(thin).negate().exp().oneMinus();
 }
 function sky(fr) {
   const star = Cosmos.sunFrom(Wd.PLANET), sd = new THREE.Vector3(...star.dir), up = new THREE.Vector3(fr.up[0], fr.up[1], fr.up[2]);

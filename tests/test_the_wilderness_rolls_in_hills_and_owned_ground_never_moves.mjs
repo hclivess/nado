@@ -96,5 +96,23 @@ const OWNED_GROUND = "323c3df53839a150526c104cdfe80263caffa624bb7280cdf78209786e
     if (inside < 0.3) { edge++; if (tr) edgeT++; } else if (inside >= 1) { inner++; if (tr) innerT++; } }
   ok(edge > 1000 && inner > 1000 && edgeT / edge > 0.9 * (innerT / inner),
     `a wood is as thick at its edge (${(100 * edgeT / edge).toFixed(1)} % of columns) as inside (${(100 * innerT / inner).toFixed(1)} %)`); }
+// THE WILD'S CONIFER LINE (2026-11-25, operator: "wilderness only"): on a mid-height hill (here 100 m over the sea) a wood in
+// the wilderness grows broadleaf and birch as the Chlorophyll shot's hills do, while an owned plot (wild 0) keeps EXACTLY the
+// species the old rule gave it — conifers from 60 m — so no bought tree changes. Asked of treeAt over many forest columns.
+{
+  let owned = 0, ownedConifer = 0, wild = 0, wildConifer = 0, high = 0, highConifer = 0;
+  for (let u = 3000; u < 3400 && owned < 200; u++) for (let v = 5002; v < 5014; v++) {
+    const base = { biome: "forest", woods: 1, temp: 0.1, wet: 0 };
+    const o = Wd.treeAt(0, u, v, { ...base, top: Wd.SEA + 100, wild: 0 });
+    if (o && o.kind !== "bush") { owned++; if (o.kind === "conifer") ownedConifer++; }
+    const w = Wd.treeAt(0, u, v, { ...base, top: Wd.SEA + 100, wild: 1 });
+    if (w && w.kind !== "bush") { wild++; if (w.kind === "conifer") wildConifer++; }
+    const h = Wd.treeAt(0, u, v, { ...base, top: Wd.SEA + 200, wild: 1 });
+    if (h && h.kind !== "bush") { high++; if (h.kind === "conifer") highConifer++; }
+  }
+  ok(owned > 50 && ownedConifer / owned > 0.7, `an owned wood 100 m up keeps the old rule's conifers (${ownedConifer} of ${owned})`);
+  ok(wild > 50 && wildConifer === 0, `the wild wood at the same height grows broadleaf and birch (${wildConifer} conifers of ${wild})`);
+  ok(high > 50 && highConifer / high > 0.7, `…and the wild's high ground (200 m) is still conifer (${highConifer} of ${high})`);
+}
 console.log(fails ? `${fails} FAILED` : "all passed");
 process.exit(fails ? 1 : 0);

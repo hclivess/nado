@@ -519,8 +519,11 @@ export function treeAt(face, u, v, col) {
   const lu = u % PLOT, lv = v % PLOT;
   if (lu < 2 || lu > PLOT - 3 || lv < 2 || lv > PLOT - 3 || col.top <= SEA) return null;
   const hh = hash32(face, u, v), r = (hh >>> 8) % 100, size = (hh >>> 16) % 4, roll = (hh % 100003) / 100003;
-  // the climate picks the species: conifers where it is cold or high, birch in the cool and wet, broadleaf in the mild
-  const cold = col.temp < -0.12 || col.top > SEA + 60, cool = col.temp < 0.05;
+  // the climate picks the species: conifers where it is cold or high, birch in the cool and wet, broadleaf in the mild.
+  // HIGH IS HIGHER IN THE WILDERNESS (2026-11-25, operator: "wilderness only"): conifers from 60 m over the sea stood every
+  // hill's wood as a wall of tall narrow crowns, where the Chlorophyll shot's hills are broadleaf woods — in the wild the
+  // conifer line is SEA + 180 m, times col.wild, so an owned plot (wild 0) keeps exactly the trees it was bought with
+  const cold = col.temp < -0.12 || col.top > SEA + 60 + 120 * (col.wild === undefined ? 0 : col.wild), cool = col.temp < 0.05;
   const species = () => cold ? (r < 80 ? { kind: "conifer", height: 7 + size } : { kind: "birch", height: 6 + (size >> 1) })
     : cool ? (r < 30 ? { kind: "conifer", height: 7 + size } : r < 60 ? { kind: "birch", height: 6 + (size >> 1) } : { kind: "broadleaf", height: 4 + (size >> 1) })
     : (r < 18 ? { kind: "birch", height: 6 + (size >> 1) } : { kind: "broadleaf", height: 4 + (size >> 1) });
