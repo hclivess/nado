@@ -21,7 +21,8 @@
 // Positions are metres RELATIVE TO THE CHUNK'S ANCHOR; the page places each mesh at anchor - camera in doubles.
 import { CHUNK, H, R0, W, B, BLOCKS, ATLAS_TILES, NATURAL, CM, DEEP_MIN, TREE_WOOD, TREE_LEAVES, isTree, opaque, dirOf, frameOf, wrap, column, terrainBlock, fieldOf, treeAt, treeCell, LITTER, shapeOf, isPart, toneBlock, FLOWERS, saplingTree, soilOf, wildMask, isTurned, rotOf, turnVec, boxAabb } from "./land-world.js";
 import * as Shapes from "./land-shapes.js";
-import { forestTile, canopyTile, hash3, treeTurn, treeSize } from "./land-forest.js";
+import { forestTile, canopyTile, hash3, treeTurn, treeSize, MANTLE, mantleChance } from "./land-forest.js";
+import { ADAPT, drawnTop } from "./land-species.js";
 import { farJob, farBuffers } from "./land-far.js";
 import { treeModel, leafCellModel, twigModel, flaxModel, saplingModel, flowerModel, wheatModel, berryBushModel, weldModel, woadModel, madderModel, clubmossModel } from "./land-trees.js";
 const DYE_MODEL = new Map([[B.weld, weldModel], [B.woad, woadModel], [B.madder, madderModel], [B.clubmoss, clubmossModel]]);   // (#128)
@@ -411,6 +412,10 @@ export function meshChunk(face, cu, cv, ch, edits, boxes, lod, grassOn = true) {
     };
     gone.cut = cutAt;
     placeTree(t, face, gu, gv, col.height, lod, place, bark, foliage, gone);
+    // THE MANTLE, NEAR (2026-11-26): the far card's mantle (land-forest MANTLE) drawn from the model — the same trees, by the
+    // same draw, so a wild wood's edge and a meadow's grove are leaves to the ground up close as from afar, with nothing
+    // appearing or vanishing at the handover. INVARIANT: the draw is land-forest's (hash3(v + 41, u + 7, face) < mantleChance)
+    if (cutAt === Infinity && hash3(gv + 41, gu + 7, face) < mantleChance(t.kind, col)) placeMantle(t, face, gu, gv, col.height, lod, place, foliage, gone);
   }
   // ---- PLANTED TREES: a tree grown from a sapling (scripts/land_server.py grow) is edits, not the planet's, and was drawn
   // as stacked logs and leaf clusters — now as its species' grown model too ("can you regenerate existing trees?",
@@ -829,6 +834,31 @@ function placeTree(t, face, gu, gv, ground, lod, place, bark, foliage, gone) {
   // tree that turned or grew differently here would jump as the player walks up to it.
   placeModel(m, face, gu + 0.5, gv + 0.5, ground, treeTurn(face, gu, gv), treeSize(face, gu, gv, t.kind, wildMask(face, gu, gv)),
              hash3(gu, gv + 5, face) * 6.283, place, bark, foliage, gone);
+}
+/** A tree's mantle: its model's leaves alone, their heights remapped from the crown's (lowest leaf to top) onto the ground to
+ *  MANTLE.over of the crown's base (ADAPT.span0 of the drawn tree — the far mantle card's own crop), in MANTLE.shade, turned
+ *  45° from the tree as the far mantle is. Cached beside the tree's model; a felled tree has none (the caller's cutAt). */
+const mantles = new Map();
+function placeMantle(t, face, gu, gv, ground, lod, place, foliage, gone) {
+  // one detail level below its tree (a broadleaf's leaves 3,032 / 1,668 / 320 vertices by level): it is lower, smaller and in
+  // shade, and at full detail it would add a whole crown's leaves to four trees in ten at the woods' edge
+  const far = lod >= 1 ? 2 : 1, variant = Math.floor(hash3(gu, gv, face * 7 + 1) * VARIANTS);
+  const key = t.kind + ":" + t.height + ":" + variant + ":" + far;
+  let mm = mantles.get(key);
+  if (!mm) {
+    let m = models.get(key);
+    if (!m) { m = treeModel(t.kind, t.height, (variant + 1) * 7919 + t.height * 131 + t.kind.length, far); models.set(key, m); }
+    const L = m.leaves, pos = Float32Array.from(L.pos), col = Float32Array.from(L.col);
+    let lo = Infinity, hi = -Infinity;
+    for (let i = 0; i < L.n; i++) { lo = Math.min(lo, L.pos[i * 3 + 2]); hi = Math.max(hi, L.pos[i * 3 + 2]); }
+    const top = ADAPT[t.kind].span0 * drawnTop(t.kind, t.height) * MANTLE.over;
+    for (let i = 0; i < L.n; i++) pos[i * 3 + 2] = hi > lo ? (L.pos[i * 3 + 2] - lo) / (hi - lo) * top : 0;
+    for (let i = 0; i < col.length; i++) col[i] *= MANTLE.shade;
+    mm = { bark: { n: 0 }, leaves: { ...L, pos, col } };
+    mantles.set(key, mm);
+  }
+  placeModel(mm, face, gu + 0.5, gv + 0.5, ground, treeTurn(face, gu, gv) + Math.PI / 4, treeSize(face, gu, gv, t.kind, wildMask(face, gu, gv)),
+             hash3(gu, gv + 5, face) * 6.283, place, null, foliage, gone);
 }
 /** Place model `m` (local x along u, y along v, z up) at grid (cu, cv, base), turned by `rot` and scaled by `sc`, in GRID
  *  units — so it bends with the planet exactly as the cells it stands for. Every model is built of quads (6 indices: a

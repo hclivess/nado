@@ -63,5 +63,20 @@ if (t) {
 }
 ok(F.MANTLE.over >= 1 && F.MANTLE.over <= 1.3 && F.MANTLE.shade > 0.5 && F.MANTLE.shade < 0.9, "the mantle reaches just over the crown's base, in shade but not black");
 
+// 5. THE MANTLE, NEAR (2026-11-26): up close the tree is its model, and the far card's mantle stopped at the handover — a
+// meadow grove read as a tall tree on a bare trunk. The mesher draws the same mantle from the model, for the same trees by
+// the same draw: the model's leaves, squashed from the crown onto the ground to MANTLE.over of the crown's base, in
+// MANTLE.shade, turned 45°, one detail level below its tree; none for a felled tree. Photographed beside a grove broadleaf
+// 30 m off: a rounded mass of leaves to the ground, as the reference's meadow clumps.
+{
+  const { readFileSync } = await import("node:fs");
+  const mesher = readFileSync(join(ROOT, "static", "land-mesher.js"), "utf8");
+  ok(/if \(cutAt === Infinity && hash3\(gv \+ 41, gu \+ 7, face\) < mantleChance\(t\.kind, col\)\) placeMantle\(/.test(mesher),
+     "5. the near model carries the mantle for exactly the trees the far card does (land-forest's draw), and a felled tree none");
+  ok(/const top = ADAPT\[t\.kind\]\.span0 \* drawnTop\(t\.kind, t\.height\) \* MANTLE\.over;/.test(mesher) && /col\[i\] \*= MANTLE\.shade;/.test(mesher)
+     && /treeTurn\(face, gu, gv\) \+ Math\.PI \/ 4, treeSize\(face, gu, gv, t\.kind, wildMask\(face, gu, gv\)\)/.test(mesher),
+     "…its crown squashed to the ground to the far mantle's height, in its shade, turned 45° at the tree's own size");
+  ok(/const far = lod >= 1 \? 2 : 1, variant/.test(mesher), "…one detail level below its tree (a broadleaf's 1,668 leaf vertices near, not 3,032)");
+}
 console.log(fails ? `${fails} failed` : "all passed");
 process.exit(fails ? 1 : 0);
