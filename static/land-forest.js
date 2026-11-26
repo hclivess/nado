@@ -39,7 +39,16 @@ export const treeTurn = (face, wu, wv) => hash3(wv, face, wu) * Math.PI * 2;
 // any owned plot, so owned ground looks as it did. Drawing only: the tree's cells (treeCell) are unchanged.
 // INVARIANT (#183): the near model (land-mesher placeTree) and the far card both read this, with the same kind and mask.
 export const WILD_BIG = 0.5;
-export const treeSize = (face, wu, wv, kind = "", wild = 0) => (0.9 + 0.1 * hash3(wu + 3, wv, face)) * (kind === "broadleaf" ? 1 + WILD_BIG * wild : 1);
+// A WILD WOOD IS TREES OF EVERY HEIGHT (2026-11-26, the vale beside the Chlorophyll shot): its woods' top line is a row of
+// separate crowns at different heights; ours was a straight wall — every tree drawn within 10 % of its slot (0.9-1.0), so the
+// skyline wiggled 5 % of the wood's height. A real stand mixes dominant trees with the suppressed under them, so in the wild a
+// broadleaf, birch or conifer is drawn WILD_SPREAD of that again — 0.7 to 1.15 deep in the wild (most trees under the tallest),
+// times wildMask: an owned plot keeps exactly the trees it had. Drawing only, as WILD_BIG: the cells are unchanged.
+// INVARIANT (#183): near model and far card read this one function.
+export const WILD_SPREAD = [0.7, 1.15];
+const SPREAD_KINDS = ["broadleaf", "birch", "conifer"];
+export const treeSize = (face, wu, wv, kind = "", wild = 0) => (0.9 + 0.1 * hash3(wu + 3, wv, face)) * (kind === "broadleaf" ? 1 + WILD_BIG * wild : 1)
+  * (SPREAD_KINDS.includes(kind) ? 1 + wild * (WILD_SPREAD[0] - 1 + (WILD_SPREAD[1] - WILD_SPREAD[0]) * hash3(wv + 13, wu + 29, face + 5)) : 1);
 // THE WOOD'S MANTLE (2026-11-26, the Chlorophyll shot beside the vale: its woods are foliage down to the meadow, ours a
 // palisade — a thin strip of crowns over a band of bare trunks as tall again, every broadleaf's lower 45 % (ADAPT.span0,
 // which ties the drawn crown to the crown cells and so cannot move). A real wood's edge is closed by its mantle: shrubs and

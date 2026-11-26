@@ -26,7 +26,9 @@ ok(share > 0.3 && share < 0.7, `about half the trees are mirrored (${(share * 10
 const ratio = ws.map((w, i) => (w / hs[i]) / (wide / tall)), lo = Math.min(...ratio), hi = Math.max(...ratio);
 ok(lo >= 0.84 && hi <= 1.16 && hi - lo > 0.2, `the crowns' widths spread over ${lo.toFixed(2)}-${hi.toFixed(2)} of the picture's (0.85-1.15)`);
 const hsc = hs.map((h) => h / tall);
-ok(Math.min(...hsc) >= 0.899 && Math.max(...hsc) <= 1.001, `a card's height is the tree's own size, as the near model's (${Math.min(...hsc).toFixed(3)}-${Math.max(...hsc).toFixed(3)} of the picture)`);
+// (0.9-1.0 of the picture until 2026-11-26; a wild tree now 0.7-1.15 of that again, WILD_SPREAD, and a wild broadleaf 1 + WILD_BIG)
+ok(Math.min(...hsc) >= 0.9 * F.WILD_SPREAD[0] - 0.001 && Math.max(...hsc) <= (1 + F.WILD_BIG) * F.WILD_SPREAD[1] + 0.001 && Math.max(...hsc) - Math.min(...hsc) > 0.3,
+   `a card's height is the tree's own size, as the near model's — trees of every height in the wild (${Math.min(...hsc).toFixed(3)}-${Math.max(...hsc).toFixed(3)} of the picture)`);
 // THE PICTURE HOLDS THE WHOLE CROWN (2026-11-25): an atlas cell narrower than a drawn crown cut every far broadleaf to a column
 // (9.2 m cells against a 12.7 m crown: 2.5 to 1 where the model is 1.4 to 1, the vale's woods a wall of narrow trees)
 {
@@ -38,10 +40,18 @@ ok(Math.min(...hsc) >= 0.899 && Math.max(...hsc) <= 1.001, `a card's height is t
 // the wild, exactly the old size where the mask is 0 (every owned plot), and no other species touched; the near model and the
 // far card read the same treeSize, so a tree never jumps at the handover
 {
-  const base = F.treeSize(0, 1234, 5678), wildB = F.treeSize(0, 1234, 5678, "broadleaf", 1), ownedB = F.treeSize(0, 1234, 5678, "broadleaf", 0);
-  ok(Math.abs(wildB / base - (1 + F.WILD_BIG)) < 1e-9 && F.WILD_BIG >= 0.4 && F.WILD_BIG <= 0.6, `a broadleaf deep in the wild is drawn ${(wildB / base).toFixed(2)}x`);
-  ok(ownedB === base && F.treeSize(0, 1234, 5678, "conifer", 1) === base && F.treeSize(0, 1234, 5678, "birch", 1) === base,
-    "on owned ground (mask 0) a broadleaf keeps its size, and no other species is drawn bigger");
+  const base = F.treeSize(0, 1234, 5678), owned = (k) => F.treeSize(0, 1234, 5678, k, 0);
+  ok(owned("broadleaf") === base && owned("conifer") === base && owned("birch") === base, "on an owned plot (wildMask 0) every tree is drawn as it always was");
+  // the wild multiplies a broadleaf by 1 + WILD_BIG, and broadleaf, birch and conifer alike by their own draw in WILD_SPREAD
+  // (2026-11-26: a wood of every height, not a straight wall — 0.7 to 1.15 deep in the wild)
+  const ratios = (k) => { const r = []; for (let i = 0; i < 400; i++) r.push(F.treeSize(0, 1000 + i * 7, 2000 + i * 3, k, 1) / F.treeSize(0, 1000 + i * 7, 2000 + i * 3)); return r; };
+  const bl = ratios("broadleaf").map((x) => x / (1 + F.WILD_BIG)), co = ratios("conifer"), bi = ratios("birch");
+  const inSpread = (r) => r.every((x) => x >= F.WILD_SPREAD[0] - 1e-9 && x <= F.WILD_SPREAD[1] + 1e-9);
+  const spread = (r) => Math.max(...r) - Math.min(...r);
+  ok(F.WILD_BIG >= 0.4 && F.WILD_BIG <= 0.6 && inSpread(bl) && inSpread(co) && inSpread(bi), `deep in the wild a broadleaf is drawn ${1 + F.WILD_BIG}x, and every tree within ${F.WILD_SPREAD.join(" to ")} of that`);
+  ok(spread(bl) > 0.35 && spread(co) > 0.35 && spread(bi) > 0.35 && F.WILD_SPREAD[0] <= 0.75 && F.WILD_SPREAD[1] <= 1.2,
+     `…spread over that range (broadleaf ${spread(bl).toFixed(2)}, conifer ${spread(co).toFixed(2)}, birch ${spread(bi).toFixed(2)}): trees of every height, not a wall`);
+  ok(F.treeSize(0, 1234, 5678, "palm", 1) === base, "a palm is drawn as it always was");
   const mesher = readFileSync(join(ROOT, "static", "land-mesher.js"), "utf8"), forest = readFileSync(join(ROOT, "static", "land-forest.js"), "utf8");
   ok(/treeSize\(face, gu, gv, t\.kind, wildMask\(face, gu, gv\)\)/.test(mesher) && /treeSize\(r\.face, r\.wu, r\.wv, r\.tree\.kind, r\.col\.wild === undefined \? 0 : r\.col\.wild\)/.test(forest),
     "the near model and the far card scale a tree by the same kind and wilderness mask");

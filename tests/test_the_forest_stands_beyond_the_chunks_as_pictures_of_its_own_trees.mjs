@@ -88,7 +88,7 @@ ok(T.idx.length === T.n * 24 && Math.max(...T.idx) === T.n * 8 - 1, "four triang
         const k = (i * 8 + q * 4 + c) * 3, k2 = (i * 8 + q * 4 + c) * 2;
         for (let d = 0; d < 3; d++) if (Math.abs(T.pos[k + d] + T.anchor[d] - p[d]) > 0.02) onRoot = false;
         // (a wild broadleaf is drawn up to 1 + WILD_BIG its slot, 2026-11-25 — operator: "bigger wild broadleaves")
-        if (Math.hypot(T.off[k], T.off[k + 1], T.off[k + 2]) > Math.hypot(wide / 2, tall) * (1 + F.WILD_BIG) * 1.001) sized = false;
+        if (Math.hypot(T.off[k], T.off[k + 1], T.off[k + 2]) > Math.hypot(wide / 2, tall) * (1 + F.WILD_BIG) * F.WILD_SPREAD[1] * 1.001) sized = false;
         if (Math.abs(Math.hypot(T.nor[k], T.nor[k + 1], T.nor[k + 2]) - 1) > 1e-4) unit = false;
         const su = T.uv[k2] * cols - cx, sv = T.uv[k2 + 1] * rows - cy;
         if (su < -1e-5 || su > 1 + 1e-5 || sv < -1e-5 || sv > 1 + 1e-5) inSlot = false;
@@ -102,7 +102,7 @@ ok(T.idx.length === T.n * 24 && Math.max(...T.idx) === T.n * 8 - 1, "four triang
   }
   ok(both, "every triangle is there twice, wound both ways (front faces only are drawn, and no normal is flipped)");
   ok(onRoot, "every vertex's place is its tree's root on the planet (the card collapses onto it where the chunk is meshed)");
-  ok(flat && sized && unit, "a card is flat, no larger than a slot of the atlas (a wild broadleaf 1 + WILD_BIG of it), its normals of length one");
+  ok(flat && sized && unit, "a card is flat, no larger than a slot of the atlas (a wild broadleaf 1 + WILD_BIG of it, times WILD_SPREAD's top), its normals of length one");
   ok(inSlot, "a card's picture lies inside its own (species, height) slot");
   ok(chunk, "every vertex carries its root's chunk (cu, cv)");
 }
