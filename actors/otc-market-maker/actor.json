@@ -1,0 +1,80 @@
+{
+  "manifest": "nado-actor/1",
+  "id": "otc-market-maker",
+  "version": "1.0.0",
+  "title": "OTC market maker",
+  "summary": "Keeps the cross-chain book filled with NADO-for-ETH asks from the node wallet, and completes every swap a taker starts.",
+  "category": "dex",
+  "audience": "operator",
+  "runtime": {
+    "lang": "python3",
+    "entry": "scripts/otc_mm.py",
+    "requires": [
+      "node (scripts/otc_eth_leg.mjs, the Ethereum leg)"
+    ]
+  },
+  "source": {
+    "repo": "https://github.com/hclivess/nado",
+    "path": "scripts/otc_mm.py",
+    "sha256": "49cba921fce0315cbf8ad6659ae290ee9f8e8c7d6738deb9e7910aac8c67798f"
+  },
+  "identity": {
+    "kind": "node-wallet",
+    "how": "the operator's node wallet (private/keys.dat) and its ETH payout account (private/eth_deployer.json) — an operator's own job on their own node, never offered to anyone else"
+  },
+  "commands": {
+    "post": {
+      "summary": "post the ladder of asks (each secret written to private/ BEFORE its order exists)",
+      "effects": {
+        "transactions": true,
+        "contracts": [
+          "otc"
+        ],
+        "l1": [
+          "blob"
+        ],
+        "spends": "fees; the asks themselves lock nothing until filled"
+      }
+    },
+    "watch": {
+      "summary": "the daemon: lock the NADO for each taker, claim their ETH, settle; expire and refund what nobody pays; keep the ladder filled",
+      "effects": {
+        "transactions": true,
+        "contracts": [
+          "otc"
+        ],
+        "l1": [
+          "blob",
+          "htlc_lock",
+          "htlc_refund"
+        ],
+        "external": [
+          "Ethereum RPC (claims, receipts)"
+        ],
+        "spends": "the node wallet's NADO into swap locks, at most BUDGET_NADO (400) held at once, plus fees; ETH claim gas from the payout account"
+      }
+    },
+    "cancel": {
+      "summary": "take every open ask of the ladder off the book",
+      "effects": {
+        "transactions": true,
+        "contracts": [
+          "otc"
+        ],
+        "l1": [
+          "blob"
+        ],
+        "spends": "fees only"
+      }
+    }
+  },
+  "safety": {
+    "dry_run_by_default": false,
+    "note": "an operator's live daemon (deploy/units/nado-otc-mm.service); every path is pinned by tests/test_the_otc_market_maker_ends_every_path_with_the_money_where_it_belongs.py"
+  },
+  "lifecycle": {
+    "mode": "daemon",
+    "unit": "deploy/units/nado-otc-mm.service"
+  },
+  "verify": "Its asks are on /exec/otc/book?market=ETH; each filled one ends settled (the secret public) with its ETH claimed on Ethereum, or expired with its NADO lock refunded — all readable on both chains."
+}

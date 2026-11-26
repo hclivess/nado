@@ -1,0 +1,297 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://github.com/hclivess/nado/blob/main/actors/schema.json",
+  "title": "NADO actor manifest (nado-actor/1)",
+  "description": "One actor: a packaged off-chain program that acts on NADO as its own identity. The standard is doc/actors.md; tools/actor.py validates a manifest against this shape and the rules a schema cannot state (the code's hash, its flags, the key rule).",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "manifest",
+    "id",
+    "version",
+    "title",
+    "summary",
+    "category",
+    "audience",
+    "runtime",
+    "source",
+    "identity",
+    "commands",
+    "lifecycle",
+    "verify"
+  ],
+  "properties": {
+    "manifest": {
+      "const": "nado-actor/1"
+    },
+    "id": {
+      "type": "string",
+      "pattern": "^[a-z][a-z0-9-]{2,47}$"
+    },
+    "version": {
+      "type": "string",
+      "pattern": "^(0|[1-9][0-9]*)\\.(0|[1-9][0-9]*)\\.(0|[1-9][0-9]*)$"
+    },
+    "title": {
+      "type": "string",
+      "minLength": 3,
+      "maxLength": 60
+    },
+    "summary": {
+      "type": "string",
+      "minLength": 10,
+      "maxLength": 200
+    },
+    "category": {
+      "enum": [
+        "dex",
+        "bridge",
+        "land",
+        "chain",
+        "utility"
+      ]
+    },
+    "audience": {
+      "enum": [
+        "anyone",
+        "operator"
+      ]
+    },
+    "runtime": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "lang",
+        "entry"
+      ],
+      "properties": {
+        "lang": {
+          "enum": [
+            "python3",
+            "node"
+          ]
+        },
+        "entry": {
+          "type": "string",
+          "minLength": 1
+        },
+        "requires": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        }
+      }
+    },
+    "source": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "repo",
+        "path",
+        "sha256"
+      ],
+      "properties": {
+        "repo": {
+          "type": "string",
+          "pattern": "^https://"
+        },
+        "path": {
+          "type": "string",
+          "minLength": 1
+        },
+        "sha256": {
+          "type": "string",
+          "pattern": "^[0-9a-f]{64}$"
+        }
+      }
+    },
+    "identity": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "kind",
+        "how"
+      ],
+      "properties": {
+        "kind": {
+          "enum": [
+            "own-key",
+            "none",
+            "node-wallet"
+          ]
+        },
+        "how": {
+          "type": "string",
+          "minLength": 5
+        }
+      }
+    },
+    "commands": {
+      "type": "object",
+      "minProperties": 1,
+      "propertyNames": {
+        "pattern": "^[a-z][a-z0-9_-]{0,31}$"
+      },
+      "additionalProperties": {
+        "$ref": "#/$defs/command"
+      }
+    },
+    "safety": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "dry_run_by_default"
+      ],
+      "properties": {
+        "dry_run_by_default": {
+          "type": "boolean"
+        },
+        "arm": {
+          "type": "string"
+        },
+        "note": {
+          "type": "string"
+        }
+      }
+    },
+    "lifecycle": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "mode"
+      ],
+      "properties": {
+        "mode": {
+          "enum": [
+            "once",
+            "daemon",
+            "both"
+          ]
+        },
+        "loop_input": {
+          "type": "string"
+        },
+        "unit": {
+          "type": "string"
+        }
+      }
+    },
+    "verify": {
+      "type": "string",
+      "minLength": 10
+    },
+    "inputs": {
+      "description": "global inputs: flags the entry takes BEFORE its command (argparse's top-level options), or environment",
+      "type": "object",
+      "additionalProperties": {
+        "$ref": "#/$defs/input"
+      }
+    }
+  },
+  "$defs": {
+    "command": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "summary",
+        "effects"
+      ],
+      "properties": {
+        "summary": {
+          "type": "string",
+          "minLength": 3
+        },
+        "inputs": {
+          "type": "object",
+          "additionalProperties": {
+            "$ref": "#/$defs/input"
+          }
+        },
+        "effects": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "transactions"
+          ],
+          "properties": {
+            "transactions": {
+              "type": "boolean"
+            },
+            "contracts": {
+              "type": "array",
+              "items": {
+                "type": "string"
+              }
+            },
+            "l1": {
+              "type": "array",
+              "items": {
+                "type": "string"
+              }
+            },
+            "external": {
+              "type": "array",
+              "items": {
+                "type": "string"
+              }
+            },
+            "spends": {
+              "type": "string"
+            }
+          }
+        }
+      }
+    },
+    "input": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "type",
+        "description"
+      ],
+      "properties": {
+        "type": {
+          "enum": [
+            "string",
+            "integer",
+            "number",
+            "boolean"
+          ]
+        },
+        "description": {
+          "type": "string",
+          "minLength": 3
+        },
+        "default": {},
+        "enum": {
+          "type": "array",
+          "minItems": 1
+        },
+        "required": {
+          "type": "boolean"
+        },
+        "cli": {
+          "type": "string",
+          "pattern": "^--[a-z][a-z0-9-]*$"
+        },
+        "env": {
+          "type": "string",
+          "pattern": "^[A-Z][A-Z0-9_]*$"
+        }
+      },
+      "oneOf": [
+        {
+          "required": [
+            "cli"
+          ]
+        },
+        {
+          "required": [
+            "env"
+          ]
+        }
+      ]
+    }
+  }
+}

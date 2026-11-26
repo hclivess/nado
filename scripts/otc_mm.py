@@ -367,6 +367,10 @@ def watch(kd):
 
 
 if __name__ == "__main__":
+    # THE COMMANDS ARE NAMED, NOT "ANYTHING ELSE IS THE DAEMON" (2026-11-26, the actor manifest's check — actors/otc-market-maker):
+    # any argv[1] but post/cancel started the money-handling daemon, so a typo did too; now it is refused before a key loads
+    cmd = sys.argv[1] if len(sys.argv) > 1 else ""
+    if cmd not in ("post", "watch", "cancel"):
+        sys.exit("usage: otc_mm.py post | watch | cancel")
     kd = load_keys(file=os.path.join(PRIV, "keys.dat"))
-    cmd = sys.argv[1]
     sys.exit(post(kd) if cmd == "post" else (0 if cancel(kd) >= 0 else 1) if cmd == "cancel" else watch(kd))

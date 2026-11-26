@@ -1,0 +1,193 @@
+{
+  "manifest": "nado-actor/1",
+  "id": "land-agent",
+  "version": "1.0.0",
+  "title": "Land agent",
+  "summary": "Builds, gathers, crafts and trades in NADO Land as its own identity, on plots whose owners invited it.",
+  "category": "land",
+  "audience": "anyone",
+  "runtime": {
+    "lang": "python3",
+    "entry": "scripts/land_agent.py"
+  },
+  "source": {
+    "repo": "https://github.com/hclivess/nado",
+    "path": "scripts/land_agent.py",
+    "sha256": "d4571b01ec01a408b9f9cd3b1b3f3631725225a324432d87df8c334d71db1cf5"
+  },
+  "identity": {
+    "kind": "own-key",
+    "how": "a key file made by its own `newkey` command (never a person's wallet key); a plot owner invites that address to build"
+  },
+  "inputs": {
+    "server": {
+      "type": "string",
+      "default": "https://land.nadochain.com",
+      "cli": "--server",
+      "description": "the Land world server"
+    },
+    "keys": {
+      "type": "string",
+      "cli": "--keys",
+      "description": "the agent's own key file (from newkey)"
+    }
+  },
+  "commands": {
+    "newkey": {
+      "summary": "make the agent's own key and print its address",
+      "inputs": {
+        "out": {
+          "type": "string",
+          "required": true,
+          "cli": "--out",
+          "description": "where to write the key file (refuses to overwrite)"
+        }
+      },
+      "effects": {
+        "transactions": false
+      }
+    },
+    "plot": {
+      "summary": "read a plot's edits",
+      "inputs": {
+        "plot": {
+          "type": "integer",
+          "required": true,
+          "cli": "--plot",
+          "description": "the plot id"
+        }
+      },
+      "effects": {
+        "transactions": false,
+        "external": [
+          "Land world server"
+        ]
+      }
+    },
+    "build": {
+      "summary": "place a structure — a JSON list of [x, z, y, block] cells — on a plot it may build on",
+      "inputs": {
+        "plot": {
+          "type": "integer",
+          "required": true,
+          "cli": "--plot",
+          "description": "the plot id"
+        },
+        "file": {
+          "type": "string",
+          "required": true,
+          "cli": "--file",
+          "description": "the JSON file of cells"
+        }
+      },
+      "effects": {
+        "transactions": false,
+        "external": [
+          "Land world server (signed by the agent's key)"
+        ]
+      }
+    },
+    "move": {
+      "summary": "where the agent stands (it breaks cells only within 12 m, and moves no faster than a player)",
+      "inputs": {
+        "to": {
+          "type": "string",
+          "required": true,
+          "cli": "--to",
+          "description": "face,u,v,h,yaw"
+        }
+      },
+      "effects": {
+        "transactions": false,
+        "external": [
+          "Land world server"
+        ]
+      }
+    },
+    "watch": {
+      "summary": "follow a plot's edits live",
+      "inputs": {
+        "plot": {
+          "type": "integer",
+          "required": true,
+          "cli": "--plot",
+          "description": "the plot id"
+        }
+      },
+      "effects": {
+        "transactions": false,
+        "external": [
+          "Land world server"
+        ]
+      }
+    },
+    "inventory": {
+      "summary": "what the agent carries",
+      "effects": {
+        "transactions": false,
+        "external": [
+          "Land world server"
+        ]
+      }
+    },
+    "craft": {
+      "summary": "make something from a recipe",
+      "inputs": {
+        "recipe": {
+          "type": "string",
+          "required": true,
+          "cli": "--recipe",
+          "description": "the recipe id"
+        },
+        "times": {
+          "type": "integer",
+          "default": 1,
+          "cli": "--times",
+          "description": "how many"
+        }
+      },
+      "effects": {
+        "transactions": false,
+        "external": [
+          "Land world server"
+        ]
+      }
+    },
+    "give": {
+      "summary": "give items to another player",
+      "inputs": {
+        "to": {
+          "type": "string",
+          "required": true,
+          "cli": "--to",
+          "description": "their address"
+        },
+        "items": {
+          "type": "string",
+          "required": true,
+          "cli": "--items",
+          "description": "JSON {item: count}"
+        }
+      },
+      "effects": {
+        "transactions": false,
+        "external": [
+          "Land world server"
+        ]
+      }
+    },
+    "offers": {
+      "summary": "the open trade offers",
+      "effects": {
+        "transactions": false,
+        "external": [
+          "Land world server"
+        ]
+      }
+    }
+  },
+  "lifecycle": {
+    "mode": "once"
+  },
+  "verify": "Its edits are the plot's edits — signed by its key, committed in the plot's commitment and visible to everyone on land.nadochain.com; it can only build where the plot's owner invited its address."
+}

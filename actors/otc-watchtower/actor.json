@@ -1,0 +1,100 @@
+{
+  "manifest": "nado-actor/1",
+  "id": "otc-watchtower",
+  "version": "1.0.0",
+  "title": "OTC watchtower",
+  "summary": "Expires stale cross-chain orders and relays revealed swap secrets, so a swap finishes even when a party goes offline.",
+  "category": "dex",
+  "audience": "anyone",
+  "runtime": {
+    "lang": "python3",
+    "entry": "scripts/otc_watchtower.py",
+    "requires": [
+      "bitcoin-cli, for the Bitcoin secret scan (optional)"
+    ]
+  },
+  "source": {
+    "repo": "https://github.com/hclivess/nado",
+    "path": "scripts/otc_watchtower.py",
+    "sha256": "a2a968707c669c5b8da8c23fb2f47a9dd0516cab5f54217d9edab08c242e42b5"
+  },
+  "identity": {
+    "kind": "own-key",
+    "how": "keys.dat under the $HOME it runs with — a key made for the tower and funded for fees only; it never receives a swap's money (every payout goes to the party the contract names)"
+  },
+  "commands": {
+    "scan": {
+      "summary": "one pass over the open book — or a loop — expiring stale orders and settling ones whose secret it finds",
+      "inputs": {
+        "l1": {
+          "type": "string",
+          "default": "http://127.0.0.1:9173",
+          "cli": "--l1",
+          "description": "the L1 node to read and submit to"
+        },
+        "exec": {
+          "type": "string",
+          "default": "http://127.0.0.1:9273",
+          "cli": "--exec",
+          "description": "the exec node serving the otc contract"
+        },
+        "cid": {
+          "type": "string",
+          "cli": "--cid",
+          "description": "the otc contract id (found by its methods when not given)"
+        },
+        "btc_cli": {
+          "type": "string",
+          "cli": "--btc-cli",
+          "description": "a bitcoin-cli command line, to scan Bitcoin blocks for revealed secrets"
+        },
+        "btc_lookback": {
+          "type": "integer",
+          "default": 144,
+          "cli": "--btc-lookback",
+          "description": "Bitcoin blocks scanned back on the first pass"
+        },
+        "secrets": {
+          "type": "string",
+          "cli": "--secrets",
+          "description": "a JSON file {orderId: 64-hex secret} to settle from"
+        },
+        "submit": {
+          "type": "boolean",
+          "default": false,
+          "cli": "--submit",
+          "description": "actually post (without it, a dry run that prints what it would post)"
+        },
+        "loop": {
+          "type": "integer",
+          "default": 0,
+          "cli": "--loop",
+          "description": "seconds between passes; 0 = one pass and exit"
+        }
+      },
+      "effects": {
+        "transactions": true,
+        "contracts": [
+          "otc"
+        ],
+        "l1": [
+          "blob"
+        ],
+        "external": [
+          "bitcoin-cli (optional)",
+          "Ethereum / Solana RPC (optional)"
+        ],
+        "spends": "transaction fees only"
+      }
+    }
+  },
+  "safety": {
+    "dry_run_by_default": true,
+    "arm": "submit"
+  },
+  "lifecycle": {
+    "mode": "both",
+    "loop_input": "loop"
+  },
+  "verify": "Every effect is on-chain: an order it expired reads status refunded or cancelled, one it settled carries the revealed secret, in /exec/otc/order?id= — paid to the party the contract records, never to the tower."
+}
