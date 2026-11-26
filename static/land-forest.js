@@ -15,6 +15,7 @@
 // disc. Felled trees still stand in the far forest until the player is near enough to mesh their chunk: the far view
 // knows the planet as it was generated, not its edits — the same as the far ground, which shows no building either.
 import { CHUNK, SEA, posOf, frameOf, treeRoots, column, wrap } from "./land-world.js";
+import { ADAPT, drawnTop } from "./land-species.js";
 
 export const TILE = 256;                         // columns along a forest tile's edge (16 chunks)
 /** The atlas: one slot per (kind, height) treeAt can name, left to right then UP — uv (0, 0) is slot 0's bottom-left. A
@@ -39,6 +40,19 @@ export const treeTurn = (face, wu, wv) => hash3(wv, face, wu) * Math.PI * 2;
 // INVARIANT (#183): the near model (land-mesher placeTree) and the far card both read this, with the same kind and mask.
 export const WILD_BIG = 0.5;
 export const treeSize = (face, wu, wv, kind = "", wild = 0) => (0.9 + 0.1 * hash3(wu + 3, wv, face)) * (kind === "broadleaf" ? 1 + WILD_BIG * wild : 1);
+// THE WOOD'S MANTLE (2026-11-26, the Chlorophyll shot beside the vale: its woods are foliage down to the meadow, ours a
+// palisade — a thin strip of crowns over a band of bare trunks as tall again, every broadleaf's lower 45 % (ADAPT.span0,
+// which ties the drawn crown to the crown cells and so cannot move). A real wood's edge is closed by its mantle: shrubs and
+// low-branched young trees that the side light keeps leafy to the ground. A wild broadleaf or birch toward its wood's edge
+// (the less inside, the likelier; none deep in, where the edge hides it) gets two more crossed cards: the CROWN of its own
+// picture, from the ground to its crown's base, turned 45° from its own, mirrored the other way and in shade. Drawn as a
+// far tree only, wilderness only (times wildMask, like WILD_BIG), and gone with the tree at the handover to the model.
+export const MANTLE = { kinds: ["broadleaf", "birch"], shade: 0.72, over: 1.1 };
+export const mantleChance = (kind, col) => {
+  if (!MANTLE.kinds.includes(kind)) return 0;
+  const w = col.wild === undefined ? 0 : col.wild, inside = Math.min(1, Math.max(0, (col.woods - 0.12) / 0.25));
+  return w * (1 - inside) ** 3;
+};
 
 /** The far trees of tile (tu, tv) of `face` (columns tu*TILE .. in that face's own frame, past its edge the neighbour's):
  *  { n trees, anchor (world metres), pos (each vertex's ROOT, from the anchor), off (the vertex from its root), nor,
@@ -49,25 +63,20 @@ export function forestTile(face, tu, tv) {
   const u0 = tu * TILE, v0 = tv * TILE, anchor = posOf(face, u0 + TILE / 2, v0 + TILE / 2, SEA);
   const roots = treeRoots(face, u0, v0, TILE).filter((r) => slotOf(r.tree.kind, r.tree.height) >= 0), n = roots.length;
   if (!n) return { n: 0 };
-  const pos = new Float32Array(n * 24), off = new Float32Array(n * 24), nor = new Float32Array(n * 24), col = new Float32Array(n * 24);
-  const uv = new Float32Array(n * 16), root = new Float32Array(n * 16), idx = n * 8 > 65535 ? new Uint32Array(n * 24) : new Uint16Array(n * 24);
+  const mant = roots.map((r) => hash3(r.wv + 41, r.wu + 7, r.face) < mantleChance(r.tree.kind, r.col)), nm = mant.filter(Boolean).length, q8 = n + nm;
+  const pos = new Float32Array(q8 * 24), off = new Float32Array(q8 * 24), nor = new Float32Array(q8 * 24), col = new Float32Array(q8 * 24);
+  const uv = new Float32Array(q8 * 16), root = new Float32Array(q8 * 16), idx = q8 * 8 > 65535 ? new Uint32Array(q8 * 24) : new Uint16Array(q8 * 24);
   const { cols, rows, wide, tall, foot } = ATLAS;
-  for (let i = 0; i < n; i++) {
-    const r = roots[i], slot = slotOf(r.tree.kind, r.tree.height), cx = slot % cols, cy = Math.floor(slot / cols);
-    const p = posOf(face, r.u + 0.5, r.v + 0.5, r.col.height), fr = frameOf(face, r.u + 0.5, r.v + 0.5);
-    const turn = treeTurn(r.face, r.wu, r.wv), sc = treeSize(r.face, r.wu, r.wv, r.tree.kind, r.col.wild === undefined ? 0 : r.col.wild), shade = 0.86 + 0.24 * hash3(r.wu, r.wv, r.face + 11);
-    // NOT ONE CUT-OUT REPEATED (the Chlorophyll shot, 2026-11-22: a row of far trees read as identical cards — 12 pictures,
-    // each always the same way round, sizes within 10 %): half the trees show their picture mirrored, and each crown is
-    // 0.85-1.15 its picture's width. The CARD's own: treeSize (shared with the near model) and the height are untouched,
-    // so a tree is as tall as a card as it is as a model at the handover.
-    const mir = hash3(r.wv + 5, r.wu, r.face + 19) < 0.5 ? -1 : 1, wid = 0.85 + 0.3 * hash3(r.wu + 9, r.wv + 2, r.face);
+  // two crossed cards (8 vertices, both faces indexed) for card i: horizontal reach `half` along turn `a0`, from `lo` to `hi`
+  // metres above the root, showing the slot's picture between rows v0 and v1 (fractions of the slot), lit as a crown
+  const cards = (i, p, fr, a0, half, lo, hi, cx, cy, v0, v1, mir, shade, r) => {
     for (let q = 0; q < 2; q++) {
       // card 0 lies along the model's own x (the picture was taken across it), card 1 square to it
-      const a = turn + q * Math.PI / 2, ca = Math.cos(a), sa = Math.sin(a);
+      const a = a0 + q * Math.PI / 2, ca = Math.cos(a), sa = Math.sin(a);
       const ax = [fr.east[0] * ca + fr.north[0] * sa, fr.east[1] * ca + fr.north[1] * sa, fr.east[2] * ca + fr.north[2] * sa];
       for (let c = 0; c < 4; c++) {
         const s = c & 1 ? 1 : -1, top = c >> 1, k = (i * 8 + q * 4 + c) * 3, k2 = (i * 8 + q * 4 + c) * 2;
-        const side = s * wide / 2 * sc * wid, up = (top ? tall - foot : -foot) * sc;
+        const side = s * half, up = top ? hi : lo;
         for (let d = 0; d < 3; d++) {
           pos[k + d] = p[d] - anchor[d];
           off[k + d] = ax[d] * side + fr.up[d] * up;
@@ -76,14 +85,31 @@ export function forestTile(face, tu, tv) {
         // a crown takes the light as a round thing does: its sides face outward, its top the sky
         const nx = ax[0] * s * 0.75 + fr.up[0] * (top ? 0.8 : 0.35), ny = ax[1] * s * 0.75 + fr.up[1] * (top ? 0.8 : 0.35), nz = ax[2] * s * 0.75 + fr.up[2] * (top ? 0.8 : 0.35), nl = Math.hypot(nx, ny, nz);
         nor[k] = nx / nl; nor[k + 1] = ny / nl; nor[k + 2] = nz / nl;
-        uv[k2] = (cx + (s * mir + 1) / 2) / cols; uv[k2 + 1] = (cy + top) / rows;
+        uv[k2] = (cx + (s * mir + 1) / 2) / cols; uv[k2 + 1] = (cy + (top ? v1 : v0)) / rows;
         root[k2] = Math.floor(r.u / CHUNK); root[k2 + 1] = Math.floor(r.v / CHUNK);
       }
       const b = i * 8 + q * 4, o = (i * 2 + q) * 12;
       idx.set([b, b + 1, b + 3, b, b + 3, b + 2, b, b + 3, b + 1, b, b + 2, b + 3], o);
     }
+  };
+  for (let i = 0, j = n; i < n; i++) {
+    const r = roots[i], slot = slotOf(r.tree.kind, r.tree.height), cx = slot % cols, cy = Math.floor(slot / cols);
+    const p = posOf(face, r.u + 0.5, r.v + 0.5, r.col.height), fr = frameOf(face, r.u + 0.5, r.v + 0.5);
+    const turn = treeTurn(r.face, r.wu, r.wv), sc = treeSize(r.face, r.wu, r.wv, r.tree.kind, r.col.wild === undefined ? 0 : r.col.wild), shade = 0.86 + 0.24 * hash3(r.wu, r.wv, r.face + 11);
+    // NOT ONE CUT-OUT REPEATED (the Chlorophyll shot, 2026-11-22: a row of far trees read as identical cards — 12 pictures,
+    // each always the same way round, sizes within 10 %): half the trees show their picture mirrored, and each crown is
+    // 0.85-1.15 its picture's width. The CARD's own: treeSize (shared with the near model) and the height are untouched,
+    // so a tree is as tall as a card as it is as a model at the handover.
+    const mir = hash3(r.wv + 5, r.wu, r.face + 19) < 0.5 ? -1 : 1, wid = 0.85 + 0.3 * hash3(r.wu + 9, r.wv + 2, r.face);
+    cards(i, p, fr, turn, wide / 2 * sc * wid, -foot * sc, (tall - foot) * sc, cx, cy, 0, 1, mir, shade, r);
+    if (mant[i]) {
+      // the mantle: the crown's part of the picture (from its base, span0 of the drawn tree, to the slot's top), from the
+      // ground to a little over the crown's base, so it closes the trunk band under this tree's own crown
+      const base = ADAPT[r.tree.kind].span0 * drawnTop(r.tree.kind, r.tree.height), v0 = (foot + base) / tall;
+      cards(j++, p, fr, turn + Math.PI / 4, wide / 2 * sc * wid, -foot * sc, base * MANTLE.over * sc, cx, cy, v0, 1, -mir, shade * MANTLE.shade, r);
+    }
   }
-  return { n, anchor, pos, off, nor, uv, root, col, idx };
+  return { n, mantle: nm, anchor, pos, off, nor, uv, root, col, idx };
 }
 
 // THE CANOPY BEYOND THE TREES (the Chlorophyll bar, operator 2026-11-21: a meadow under hills covered in forest to the
