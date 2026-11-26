@@ -219,5 +219,11 @@ ok(C.K.soft <= 0.2 && C.K.sigma >= 0.08, `a heap's edge is defined: it thins ove
 // 12. distant heaps pale into the horizon's haze within ~1.5 km (2026-11-25: at 3.6 km they stayed white to the horizon and the
 // vale's sky held 30.9 % white cloud against the shot's 20.7 %; at 1.4 km its upper third holds 15.7 % against the shot's 16.0 %)
 ok(C.K.haze >= 1000 && C.K.haze <= 1600, `12. a heap pales into the horizon's colour over ${C.K.haze} m (1.0–1.6 km: the shot's distant heaps are hazy, not white)`);
+// 13. LOW, WIDE HEAPS (2026-11-26): the Chlorophyll shot's cumulus are 2.38 times as wide as they stand; ours were rounded domes
+// 1.43 as wide (steep sides under a rounded top, K.dome 0.55). A flatter dome, with the threshold that keeps the cover: in the
+// page 1.56 wide and 20.3 % white against the shot's 20.7 % (was 17.9 %). Measured here in the march itself: a heap's top over
+// its footprint rises as cover^dome, so at half the full cover a heap stands lower with the flatter dome.
+ok(C.K.dome >= 0.75 && C.K.dome <= 0.9 && C.K.thr <= 0.56 && Math.pow(0.5, C.K.dome) < Math.pow(0.5, 0.55) - 0.1,
+   `13. the heaps are low and wide: dome ${C.K.dome} (a heap at half cover stands ${(100 * Math.pow(0.5, C.K.dome)).toFixed(0)} % of full height, not ${(100 * Math.pow(0.5, 0.55)).toFixed(0)} %), thr ${C.K.thr} keeping the cover`);
 console.log(fails ? `${fails} FAILED` : "all passed");
 process.exit(fails ? 1 : 0);

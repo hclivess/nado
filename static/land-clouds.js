@@ -55,9 +55,12 @@ export const RB = R0 + SEA + BASE, RT = RB + THICK, RG = R0 + SEA;   // radii (m
 // the density's shape — DESIGN CHOICES, tuned against the photographs (THR is set by the cover: see the test)
 export const K = {
   heapW: 0.7,       // the heap noise's share of a column's cover (the rest is the field's)
-  thr: 0.57,        // cover above this is cloud: 1.2 oktas at HEAP 1000 (0.545 -> 1.85, 0.56 -> 1.43, 0.575 -> 1.09, 0.59 -> 0.79)
+  thr: 0.55,        // cover above this is cloud: 1.2 oktas at HEAP 1000 (0.545 -> 1.85, 0.56 -> 1.43, 0.575 -> 1.09, 0.59 -> 0.79)
+                    // (0.55, was 0.57 — 2026-11-26, with the flatter dome below: the vale's white cover 17.9 % -> 20.3 % against the shot's 20.7 %)
   rise: 0.2,        // cover above thr that makes a heap of full height
-  dome: 0.55,       // a heap's top against its cover: < 1 = steep sides under a rounded top
+  dome: 0.8,        // a heap's top against its cover: < 1 = steep sides under a rounded top
+                    // (0.8, was 0.55 — 2026-11-26: the shot's cumulus are low and wide, width 2.38 x their height; ours stood 1.43 as tall
+                    // rounded domes. 0.8 measured 1.56 in the page, 1.64 -> 1.92 in the march; 1.1 thinned the heaps to a third)
   soft: 0.15,       // the share of THICK over which a heap thins out toward its top surface (0.3 and sigma 0.045 drew
                     // soft translucent blobs beside the Chlorophyll shot's crisp cumulus; 0.15 and 0.09 a defined edge and a
                     // grey belly, photographed 2026-11-23)
