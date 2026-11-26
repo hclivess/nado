@@ -4902,13 +4902,17 @@ function groundMaterial() {
   // the scanned grass — brown, red-heavy — under this tint, and that strip read red 0.90 of its green, hue 69°, against the
   // reference's middle meadow 0.84, 74°; 0.53 and 0.64 measured 0.87, 72°)
   const meadow = TSL.mix(TSL.vec3(0.50, 0.66, 0.28), TSL.vec3(0.60, 0.80, 0.30), patch)   // (#183 → the Chlorophyll shot: was 0.80, 0.86, 0.38 at the dry end — a yellow field)
-    .mul(TSL.float(0.82).add(TSL.mx_noise_float(uvw.xy.mul(0.31)).mul(0.12)))
+    // (0.70 with tussocks of 3 m at ±11 % and 1.1 m at ±7 %, was 0.82 and ±6 % — 2026-11-26, the vale beside the Chlorophyll
+    // shot: past the blades the open meadow measured (114, 138, 51) against its (92, 110, 42), and half its fine texture, a
+    // smooth lime lawn; now (100, 124, 45), the near grass unchanged at (53, 67, 23). Procedural, so it holds at distance.)
+    .mul(TSL.float(0.70).add(TSL.mx_noise_float(uvw.xy.mul(0.31)).mul(0.22)).add(TSL.mx_noise_float(uvw.xy.mul(0.9)).mul(0.14)))
     // GREEN FROM AFAR (the Chlorophyll shot beside a meadow vale, 2026-11-22): past the blades (the near chunks) the meadow
     // is this ground alone, and the scanned grass is brown — the far field measured (80, 82, 38), red as strong as green,
     // so open slopes read tan, where the reference's far meadow is (98, 118, 38). Beyond the blades it turns to their green.
     // (x 1.15, 1.38, 0.95 measured (86, 93, 38): the haze takes most of a far surface's change; x 1.1, 1.8, 0.9 (86, 104, 39))
     // (red x0.98, was 1.1, 2026-11-24: the far slope read red 0.90 of its green against the reference's 0.85 — after, 0.83)
-    .mul(TSL.mix(TSL.vec3(1, 1, 1), TSL.vec3(0.98, 1.8, 0.9), TSL.smoothstep(80, 500, TSL.positionWorld.sub(TSL.cameraPosition).length())));
+    // (0.84, 1.55, 0.78, was 0.98, 1.8, 0.9 — 2026-11-26: the same hue, 0.86 as bright, with the darker base above)
+    .mul(TSL.mix(TSL.vec3(1, 1, 1), TSL.vec3(0.84, 1.55, 0.78), TSL.smoothstep(80, 500, TSL.positionWorld.sub(TSL.cameraPosition).length())));
   // THE GROUND UNDER THE BLADES IS IN THEIR SHADE (2026-11-24): between the grass clumps the meadow ground was lit as
   // open ground, and read as tan patches through the blanket where the reference's grass is dark to the ground. Within
   // the blades' reach (chunkLod: all of them to 2 chunks, a third to 3) the meadow's ground takes UNDER_BLADES of the

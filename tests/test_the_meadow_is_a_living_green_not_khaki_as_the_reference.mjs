@@ -43,5 +43,17 @@ ok(ub && Number(ub[1]) < 0.8 && /const underBlades = TSL\.mix\(TSL\.float\(1\), 
   && /const color = tri\(tex\[0\]\)\.mul\(meadow\)\.mul\(underBlades\)/.test(page), `…the meadow ground under the blades takes ${ub && ub[1]} of the light, back to full past their reach`);
 ok(/grassShade\.value = SET\.grass \? 1 : 0;\s+\/\/[^\n]*\n\s+matGround = groundMaterial\(\);/.test(page) && /if \(k === "grass"\) \{ grassShade\.value = SET\.grass \? 1 : 0;/.test(page),
   "…only where blades are drawn: set at start and with the grass setting");
+// PAST THE BLADES, NOT A LIME LAWN (2026-11-26, the vale beside the Chlorophyll shot): the open meadow past the grass
+// measured (114, 138, 51) against the reference's (92, 110, 42), with half its fine texture; with the base at 0.70 (was
+// 0.82), tussocks of 3 m at ±11 % and 1.1 m at ±7 % (was one at ±6 %) and the far green 0.84, 1.55, 0.78 (was 0.98,
+// 1.8, 0.9 — the same hue), it measured (100, 124, 45) and the near grass (53, 67, 23) unchanged
+{
+  const base = /\.mul\(TSL\.float\(([\d.]+)\)\.add\(TSL\.mx_noise_float\(uvw\.xy\.mul\(0\.31\)\)\.mul\(([\d.]+)\)\)\.add\(TSL\.mx_noise_float\(uvw\.xy\.mul\(0\.9\)\)\.mul\(([\d.]+)\)\)\)/.exec(page);
+  ok(base && +base[1] <= 0.74 && +base[2] >= 0.18 && +base[3] >= 0.1,
+    `the open meadow is darker than the lime lawn it was, tussocked at two sizes (base ${base && base[1]}, ±${base && base[2] / 2} at 3 m, ±${base && base[3] / 2} at 1.1 m)`);
+  const fg = /TSL\.vec3\(([\d.]+), ([\d.]+), ([\d.]+)\), TSL\.smoothstep\(80, 500/.exec(page);
+  ok(fg && +fg[2] <= 1.6 && Math.abs(+fg[1] / +fg[2] - 0.98 / 1.8) < 0.02 && Math.abs(+fg[3] / +fg[2] - 0.9 / 1.8) < 0.02,
+    `…and its far green no brighter, at the hue it had (${fg && fg.slice(1).join(", ")})`);
+}
 console.log(fails ? `${fails} FAILED` : "all passed");
 process.exit(fails ? 1 : 0);
