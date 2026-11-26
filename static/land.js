@@ -1210,6 +1210,12 @@ function load() {
  *  — every near tree the full model on the preset meant for weak devices). The chunk request and the re-check as the
  *  player moves both read this, so a chunk is never meshed at one level and kept at another. */
 const chunkLod = (dist) => (PHONE ? (dist <= 1 ? 1 : 2) : SET.view <= 3 ? (dist <= 2 ? 1 : 2) : dist <= 2 ? 0 : dist <= 3 ? 1 : 2);
+// GRASS FURTHER OUT (2026-11-25, operator: the scene a "Nintendo ripoff", then "Grass"): the blades stopped at ~56 m (lod 1) and the
+// meadow past them was the ground texture alone — a flat colour across most of a view. Past lod 1, out to FAR_GRASS chunks
+// (~100 m), an eighth of the density, on a desktop at view 6 or more (~300k triangles more at the most); the clump per square
+// metre a chunk is meshed with, followed as the player walks (request, updateChunks)
+const FAR_GRASS = 6;
+const grassDensity = (lod, dist) => (!SET.grass ? 0 : lod === 0 ? 1 : lod === 1 ? 1 / 3 : !PHONE && SET.view >= 6 && dist <= FAR_GRASS ? 1 / 8 : 0);
 // ---- chunks: a pool of mesher workers ---------------------------------------------------------------------------
 const chunks = new Map();                      // "face:cu:cv:ch" -> { meshes: [], anchor, busy, dirty }
 let pendingPlace = null, localPlace = 0, linkArrive = null;   // linkArrive: the plot a ?plot= link stood the player in (load)                       // a saved place underground, until its plot's edits arrive (load)
@@ -1258,7 +1264,8 @@ function request(k) {
   const pb = plotBoxes.get(Wd.plotId(face, cv, cu));        // a chunk column IS a plot (CHUNK == PLOT)
   const dist = Math.max(Math.abs(cu - Math.floor(P.u / CHUNK)), Math.abs(cv - Math.floor(P.v / CHUNK)));
   c.lod = chunkLod(dist);                                   // 0: grass too (not on a phone); 2: far trees, small pieces skipped
-  queue.push({ id: ++reqId, k, face, cu, cv, ch, edits: editsFor(face, cu, cv), boxes: pb ? pb.list : null, lod: c.lod, grass: !!SET.grass });   // no blades with grass off (a phone's default, #166)
+  c.gd = grassDensity(c.lod, dist);                         // the blades' share of full density (0 with grass off: a phone's default, #166)
+  queue.push({ id: ++reqId, k, face, cu, cv, ch, edits: editsFor(face, cu, cv), boxes: pb ? pb.list : null, lod: c.lod, grass: c.gd });
   pump();
 }
 /** Which mesher job goes first: the smallest rank. A chunk's is its distance from the player in chunks (+3 on another
@@ -1390,7 +1397,7 @@ function updateChunks() {
     for (let ch = lo; ch <= hi; ch++) {
       const k = face + ":" + cu + ":" + cv + ":" + ch, c = chunks.get(k);
       want.add(k);
-      if (c && c.lod !== undefined && c.lod !== lodNow && (pb || c.lod < 2 || lodNow < 2)) request(k);   // grass (lod 0 and 1) and small pieces follow the player
+      if (c && c.lod !== undefined && ((c.lod !== lodNow && (pb || c.lod < 2 || lodNow < 2)) || c.gd !== grassDensity(lodNow, dd))) request(k);   // grass (its density band) and small pieces follow the player
     }
   }
   for (const k of want) if (!chunks.has(k)) { chunks.set(k, { meshes: [], anchor: null, busy: false, dirty: false }); request(k); }

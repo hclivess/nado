@@ -156,7 +156,7 @@ check("…sending a line goes back to play, and a refused pointer capture is ret
 check("every setting reaches what it names",
       "new THREE.PerspectiveCamera(SET.fov," in js and "camera.fov = SET.fov; camera.updateProjectionMatrix()" in js
       and "e.movementX * 0.0024 * SET.sens" in js and "(SET.invert ? -1 : 1)" in js
-      and "grass: !!SET.grass" in js and "sun.castShadow = elev > 0.12 && !!SET.shadows" in js
+      and "const grassDensity = (lod, dist) => (!SET.grass ? 0 :" in js and "lod: c.lod, grass: c.gd });" in js and "sun.castShadow = elev > 0.12 && !!SET.shadows" in js
       and "if (!SET.effects ||" in js and "pipeline = buildPipeline();                             // the post-processing" in js
       # (res: the stars' point size follows the resolution too since 3d7b3ea8, #181 item 9 — the line became a block)
       and 'if (k === "res") { renderer.setPixelRatio(basePR() * SET.res / 100);' in js and "viewDist = SET.view;" in js

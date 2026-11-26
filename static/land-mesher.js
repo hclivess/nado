@@ -601,7 +601,10 @@ export function meshChunk(face, cu, cv, ch, edits, boxes, lod, grassOn = true) {
     const x = (((gu - u0) % 4096) + 4096) % 4096 * CM, z = (((gv - v0) % 4096) + 4096) % 4096 * CM, y = gh * CM;
     return lying.some((b) => x >= b[0] && x < b[0] + b[3] && z >= b[1] && z < b[1] + b[4] && b[2] <= y + 60 && b[2] + b[5] >= y - 10);
   } : null;
-  const grass = lod >= 2 || !grassOn ? null : scatterGrass(smooth, lod ? GRASS_DENSITY / 3 : GRASS_DENSITY, under);
+  // grassOn: the share of full density the page asks for (a number: 1 near, 1/3 at lod 1, 1/8 out to ~100 m, 0 off), or the
+  // older true/false (true: full near, a third at lod 1, none at lod 2)
+  const gd = typeof grassOn === "number" ? grassOn : grassOn ? (lod === 0 ? 1 : lod === 1 ? 1 / 3 : 0) : 0;
+  const grass = gd <= 0 ? null : scatterGrass(smooth, GRASS_DENSITY * gd, under);
   const pieces = mk(), glassy = mk();
   if (boxes && boxes.length) meshBoxes(boxes, u0, v0, h0, place, pieces, glassy, lod);
   if (!smooth.idx.length && !trees.idx.length && !solid.n && !clear.n && !pieces.n && !glassy.n && !bark.n && !foliage.n && !stones.n && !boulders.n && !water.n && !flames.n && !smoke.n) return { empty: true };
@@ -922,7 +925,7 @@ if (typeof self !== "undefined" && typeof window === "undefined" && typeof self.
       try { res = forestTile(m.face, m.tu, m.tv); } catch (err) { res = { n: 0, error: String(err && err.message || err) }; }
       return self.postMessage(Object.assign({ id: m.id }, res), res.n ? [res.pos, res.off, res.nor, res.uv, res.root, res.col, res.idx].map((a) => a.buffer) : []);
     }
-    try { res = meshChunk(m.face, m.cu, m.cv, m.ch, m.edits && m.edits.length ? new Map(m.edits) : null, m.boxes, m.lod, m.grass !== false); }
+    try { res = meshChunk(m.face, m.cu, m.cv, m.ch, m.edits && m.edits.length ? new Map(m.edits) : null, m.boxes, m.lod, typeof m.grass === "number" ? m.grass : m.grass !== false); }
     catch (err) { res = { error: String(err && err.message || err) }; }
     const tr = [];
     if (res.grass) tr.push(res.grass.inst.buffer, res.grass.kind.buffer);

@@ -60,5 +60,16 @@ ok(page.includes("clumpGeo = cardClump(0.7, 0.55); flowerGeo = bladeClump(4, tru
 const cardIdx = page.slice(page.indexOf("function cardClump("), page.indexOf("function cardClump(") + 900);
 ok(cardIdx.includes("for (let c = 0; c < 3; c++)") && cardIdx.includes("idx.push(base, base + 1, base + 2, base, base + 2, base + 3, base, base + 2, base + 1, base, base + 3, base + 2);"), "…twelve triangles a clump, each card indexed from both sides");
 ok(page.includes("r = rnd() * 0.2, h = (flower ? 0.4 : 0.2) + rnd() * 0.3, w = 0.012 + rnd() * 0.01, lean = 0.08 + rnd() * 0.14"), "the flower clump's blades spread to 0.2 m and lean 0.08–0.22 m");
+// GRASS FURTHER OUT (2026-11-25, operator: "Grass"): past lod 1 (~56 m) the meadow was the ground texture alone — the blades now
+// reach FAR_GRASS chunks (~100 m) at an eighth of their density, desktop only (view 6+), and the mesher takes the density as asked
+{
+  const land = readFileSync(join(ROOT, "static", "land.js"), "utf8"), mesher = readFileSync(join(ROOT, "static", "land-mesher.js"), "utf8");
+  const fg = /const FAR_GRASS = (\d+);/.exec(land);
+  ok(fg && +fg[1] >= 5 && +fg[1] <= 8 && land.includes("const grassDensity = (lod, dist) => (!SET.grass ? 0 : lod === 0 ? 1 : lod === 1 ? 1 / 3 : !PHONE && SET.view >= 6 && dist <= FAR_GRASS ? 1 / 8 : 0);")
+    && land.includes("lod: c.lod, grass: c.gd });") && land.includes("c.gd !== grassDensity(lodNow, dd)"),
+    `the blades reach ${fg ? fg[1] : "?"} chunks out at an eighth of their density on a desktop, and follow the player across that band`);
+  ok(mesher.includes('const gd = typeof grassOn === "number" ? grassOn : grassOn ? (lod === 0 ? 1 : lod === 1 ? 1 / 3 : 0) : 0;')
+    && mesher.includes("scatterGrass(smooth, GRASS_DENSITY * gd, under)"), "the mesher scatters at the density the page asks for (true/false still meaning what it did)");
+}
 console.log(fails ? `${fails} FAILED` : "all passed");
 process.exit(fails ? 1 : 0);
