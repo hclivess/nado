@@ -85,8 +85,11 @@ const OWNED_GROUND = "323c3df53839a150526c104cdfe80263caffa624bb7280cdf78209786e
     const t = Wd.treeAt(0, u, v, c), tree = t && t.kind !== "bush", bush = t && t.kind === "bush";
     if (c.woods < 0) { open++; if (tree) openTrees++; if (bush) openBush++; } else if (c.woods > 0.08) { fringe++; if (tree) fringeTrees++; if (bush) fringeBush++; }
   }
-  ok(open > 5000 && openTrees === 0 && fringe > 1000 && fringeTrees / fringe > 0.001,   // (0.4 % at most, in the 56 % of a plot clear of its edge)
-    `7. an open meadow grows no lone tree (${openTrees} in ${open} columns), its fringe by the woods does (${(100 * fringeTrees / fringe).toFixed(2)} %)`);
+  // (then GROVES, 2026-11-26, operator: "Clumps, skip built ground" — the reference's open meadow holds clumps of trees with
+  // grass between: the open meadow's only trees are its groves, a few hundredths of a percent of its columns, never the
+  // parkland's scatter; that they stand in clumps is pinned by test_the_wild_meadow_holds_clumps_of_trees_and_owned_ground_keeps_its_own)
+  ok(open > 5000 && openTrees / open < 0.0005 && fringe > 1000 && fringeTrees / fringe > 0.001,   // (0.4 % at most, in the 56 % of a plot clear of its edge)
+    `7. an open meadow grows only its groves (${openTrees} trees in ${open} columns, ${(100 * openTrees / open).toFixed(3)} %, against the parkland's 0.4 %), its fringe by the woods more (${(100 * fringeTrees / fringe).toFixed(2)} %)`);
   ok(openBush / open < 0.6 * (fringeBush / fringe) && openBush > 0, `…and its bushes thin out in the open (${(100 * openBush / open).toFixed(1)} % against ${(100 * fringeBush / fringe).toFixed(1)} % by the woods)`); }
 // …and a wilderness wood is as thick at its edge as inside (the edge read as a row of bare trunks at 0.035 a column)
 { let edge = 0, edgeT = 0, inner = 0, innerT = 0;

@@ -143,6 +143,7 @@ const ROLL_PERM = makePerm(WORLD_SEED + 7 * 7919);     // the rolling hills' own
 const CONT_PERM = makePerm(WORLD_SEED + 8 * 7919 + 6 * 101), WARP_PERM = makePerm(WORLD_SEED + 9 * 7919);
 const BELT_PERM = makePerm(WORLD_SEED + 10 * 7919), RIDGE_PERM = makePerm(WORLD_SEED + 11 * 7919), RIVER_PERM = makePerm(WORLD_SEED + 12 * 7919);
 const UPLAND_PERM = makePerm(WORLD_SEED + 13 * 7919);   // the wilderness's wooded uplands (column)
+const GROVE_PERM = makePerm(WORLD_SEED + 14 * 7919);    // the open meadow's groves (treeAt), apart from every older field
 function fbm(P, x, y, z, oct, lac = 2, gain = 0.5) {
   let s = 0, a = 1, f = 1, n = 0;
   for (let i = 0; i < oct; i++) { s += a * noise3(P, x * f, y * f, z * f); n += a; a *= gain; f *= lac; }
@@ -512,6 +513,7 @@ export function saplingTree(face, u, v, col) {
 // beyond the chunks silently loses those trees (tests/test_the_forest_stands_beyond_the_chunks_as_pictures_of_its_own_trees.mjs
 // asks treeAt of every biome at its densest and fails on a tree treeChance rules out).
 export const WOOD_DENSITY = 0.075;               // a wilderness wood's trees a column, its edge as its inside (treeAt)
+export const GROVE = 0.03, GROVE_FROM = 0.5;    // a meadow grove: its trees a column at its heart, and where its field starts (treeAt)
 export const TREE_ROLL_MAX = 0.09;
 /** Whether column (face, u, v)'s hash leaves a TREE possible at all (whatever its biome turns out to be). */
 export function treeChance(face, u, v) { const hh = hash32(face, u, v); return (hh % 100003) / 100003 < TREE_ROLL_MAX || hh % 60 === 0; }
@@ -548,7 +550,14 @@ export function treeAt(face, u, v, col) {
       // rising to the forest's 0.12: a grove at the edge, none out in the open) and its bushes thin out in the open; times
       // col.wild, so an owned plot keeps the trees it was bought with (wildMask: 0 there).
       const edge = smooth(0, 0.12, col.woods), w = col.wild === undefined ? 0 : col.wild;
-      const lone = 0.004 * (1 - w) + 0.004 * edge * w, bush = 0.025 * (1 - w) + 0.025 * (0.3 + 0.7 * smooth(-0.15, 0.12, col.woods)) * w;
+      // GROVES IN THE OPEN (2026-11-26, operator: "Clumps, skip built ground"): the reference's meadow holds rounded clumps of
+      // trees out in the grass, a few together with open meadow between, where ours had none past the woods' edge. Patches of
+      // their own field (GROVE_PERM, ~45 m) grow a tree at up to GROVE of a column, fading over the patch, times col.wild —
+      // measured over 155 ha of meadow by the vale: 2.71 -> 4.06 trees a hectare, 58 clumps of 3+ (median 4, largest 12):
+      // owned ground is never touched (every titled plot is on PROTECTED_PLOTS, 100 of 100 on 2026-11-26), and a build in the
+      // open wild does not last (land_server.py: an untitled plot's edits regrow after RULES.wilderness_regrow_s)
+      const grove = w > 0 ? GROVE * smooth(GROVE_FROM, GROVE_FROM + 0.14, noise3(GROVE_PERM, u / 45, v / 45, face * 53)) : 0;
+      const lone = 0.004 * (1 - w) + (0.004 * edge + grove) * w, bush = 0.025 * (1 - w) + 0.025 * (0.3 + 0.7 * smooth(-0.15, 0.12, col.woods)) * w;
       if (roll < lone) return species();
       if (roll > 1 - bush) return { kind: "bush", height: 1 };
       return null;
