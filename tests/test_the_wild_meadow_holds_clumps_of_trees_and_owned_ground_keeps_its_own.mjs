@@ -69,5 +69,28 @@ ok(prot === 100, `every plot titled on 2026-11-26 is on PROTECTED_PLOTS (100 of 
 ok(/const GROVE_PERM = makePerm\(WORLD_SEED \+ 14 \* 7919\);/.test(src) && (src.match(/makePerm\(WORLD_SEED \+ 14 \* 7919\)/g) || []).length === 1,
    "the groves read a field of their own (seed slot 14), so no older layer of the planet moved");
 
+// 4. PALMS ON WARM COASTS ONLY (2026-11-26): this vale's shore (temp 0.183, the mild broadleaf zone) was lined with palms whose
+// thin fronds vanish past ~100 m — rows of bare dark posts. A wild beach needs PALM_WARM; an owned one above 0, as bought.
+{
+  let palms = 0;
+  for (let v = 76028; v < 76628; v++) for (let u = 49779; u < 50379; u++) { const c = W.column(0, u, v), t = W.treeAt(0, u, v, c); if (t && t.kind === "palm") palms++; }
+  ok(palms === 0, `4. no palm on the temperate shore by the vale (${palms} within 300 m; 62 before)`);
+  let warm = 0, all = 0, warmPalm = false, ownedPalm = false;
+  for (let u = 0; u < 262144; u += 997) for (let v = 0; v < 262144; v += 991) {
+    const c = W.column(0, u, v);
+    if (c.biome !== "beach" || c.wild < 0.99) continue;
+    all++; if (c.temp > W.PALM_WARM) warm++;
+  }
+  // the rule itself, for a warm wild beach column and an owned one at a mild temperature
+  for (let hh = 0; hh < 600 && !(warmPalm && ownedPalm); hh++) {
+    const u = 1000 + hh, v = 2003;                                  // (lv 3: rows 0-1 of a plot grow no tree)
+    const base = { ...W.column(0, u, v), biome: "beach", top: W.SEA + 2 };
+    if (W.treeAt(0, u, v, { ...base, temp: W.PALM_WARM + 0.05, wild: 1 })?.kind === "palm") warmPalm = true;
+    if (W.treeAt(0, u, v, { ...base, temp: 0.1, wild: 0 })?.kind === "palm") ownedPalm = true;
+  }
+  ok(W.PALM_WARM >= 0.2 && W.PALM_WARM <= 0.3 && warm > 0.08 * all && warm < 0.25 * all,
+     `…palms keep the warmest wild coasts (${warm} of ${all} sampled wild beaches, PALM_WARM ${W.PALM_WARM})`);
+  ok(warmPalm && ownedPalm, "…a warm wild beach still grows them, and an owned beach above 0 keeps them as bought");
+}
 console.log(fails ? `${fails} FAILED` : "all passed");
 process.exit(fails ? 1 : 0);

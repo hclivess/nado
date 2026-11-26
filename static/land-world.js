@@ -513,6 +513,7 @@ export function saplingTree(face, u, v, col) {
 // beyond the chunks silently loses those trees (tests/test_the_forest_stands_beyond_the_chunks_as_pictures_of_its_own_trees.mjs
 // asks treeAt of every biome at its densest and fails on a tree treeChance rules out).
 export const WOOD_DENSITY = 0.075;               // a wilderness wood's trees a column, its edge as its inside (treeAt)
+export const PALM_WARM = 0.25;                   // a wild beach this warm grows palms (treeAt); owned ones above 0, as bought
 export const GROVE = 0.03, GROVE_FROM = 0.5;    // a meadow grove: its trees a column at its heart, and where its field starts (treeAt)
 export const TREE_ROLL_MAX = 0.09;
 /** Whether column (face, u, v)'s hash leaves a TREE possible at all (whatever its biome turns out to be). */
@@ -566,7 +567,12 @@ export function treeAt(face, u, v, col) {
       if (roll < (col.wet > 0 ? 0.03 : 0.006)) return { kind: "conifer", height: 6 + size };   // taiga where it is wet
       return null;
     case "beach":
-      return col.temp > 0 && hh % 60 === 0 ? { kind: "palm", height: 6 + (size >> 1) } : null;
+      // PALMS ON WARM COASTS ONLY (2026-11-26, photographed from a meadow beside the Chlorophyll shot: the shore of a vale of
+      // oaks and birches was lined with palms — 62 within 300 m — whose thin fronds vanish past ~100 m, a row of bare dark
+      // posts). Any beach above 0 grew them, the mild broadleaf zone among it; in the wilderness a palm needs PALM_WARM, about
+      // the warmest seventh of the planet's beaches (face 0: p90 0.276, max 0.383; this vale's 0.183). Times col.wild, so an
+      // owned plot keeps the palms it was bought with (above 0, as before).
+      return col.temp > PALM_WARM * (col.wild === undefined ? 0 : col.wild) && hh % 60 === 0 ? { kind: "palm", height: 6 + (size >> 1) } : null;
     case "desert":
       return roll > 0.996 ? { kind: "bush", height: 1 } : null;
   }
