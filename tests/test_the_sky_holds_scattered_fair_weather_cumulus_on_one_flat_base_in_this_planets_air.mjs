@@ -223,7 +223,8 @@ ok(C.K.haze >= 1000 && C.K.haze <= 1600, `12. a heap pales into the horizon's co
 // 1.43 as wide (steep sides under a rounded top, K.dome 0.55). A flatter dome, with the threshold that keeps the cover: in the
 // page 1.56 wide and 20.3 % white against the shot's 20.7 % (was 17.9 %). Measured here in the march itself: a heap's top over
 // its footprint rises as cover^dome, so at half the full cover a heap stands lower with the flatter dome.
-ok(C.K.dome >= 0.75 && C.K.dome <= 0.9 && C.K.thr <= 0.56 && Math.pow(0.5, C.K.dome) < Math.pow(0.5, 0.55) - 0.1,
-   `13. the heaps are low and wide: dome ${C.K.dome} (a heap at half cover stands ${(100 * Math.pow(0.5, C.K.dome)).toFixed(0)} % of full height, not ${(100 * Math.pow(0.5, 0.55)).toFixed(0)} %), thr ${C.K.thr} keeping the cover`);
+// (then THICK 135 with thr 0.54: the vale's heaps 1.96 as wide as tall, 22.2 % white; the lens check above still holds them)
+ok(C.K.dome >= 0.75 && C.K.dome <= 0.9 && C.K.thr <= 0.56 && C.THICK <= 140 && Math.pow(0.5, C.K.dome) < Math.pow(0.5, 0.55) - 0.1,
+   `13. the heaps are low and wide: THICK ${C.THICK} m, dome ${C.K.dome} (a heap at half cover stands ${(100 * Math.pow(0.5, C.K.dome)).toFixed(0)} % of full height, not ${(100 * Math.pow(0.5, 0.55)).toFixed(0)} %), thr ${C.K.thr} keeping the cover`);
 console.log(fails ? `${fails} FAILED` : "all passed");
 process.exit(fails ? 1 : 0);
